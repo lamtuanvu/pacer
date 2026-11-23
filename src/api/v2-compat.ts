@@ -39,7 +39,7 @@ for (const op of ["terminal.list", "terminal.create", "terminal.rename", "termin
 for (const op of ["assistant.status", "assistant.ask", "assistant.cancel", "assistant.conversations", "assistant.conversation", "assistant.turn", "assistant.delete", "assistant.settings.get", "assistant.settings.set", "assistant.candidates", "assistant.card.record", "assistant.card.refresh", "assistant.tool", "assistant.selftest"]) V3_ONLY_OPS.add(op);
 for (const op of ["msg.send", "msg.inbox", "msg.wait", "msg.log", "msg.read", "msg.confirm", "msg.close", "msg.policy", "tree.status", "liveness.status"]) V3_ONLY_OPS.add(op);
 for (const op of ["project.messaging.get", "project.messaging.set", "project.messaging.remove"]) V3_ONLY_OPS.add(op);
-for (const op of ["workflow.validate", "workflow.add", "workflow.list", "run.start", "run.get", "run.list", "run.answer", "run.stop", "step.result", "step.skip", "step.retry", "run.set_auto", "run.set_budget", "run.set_planner", "run.retry_orchestrator", "run.decide", "run.choose"]) V3_ONLY_OPS.add(op);
+for (const op of ["workflow.validate", "workflow.add", "workflow.list", "run.start", "run.get", "run.list", "run.answer", "run.stop", "step.result", "step.artifact", "step.skip", "step.retry", "run.set_auto", "run.set_budget", "run.set_planner", "run.retry_orchestrator", "run.decide", "run.choose", "run.submit_graph", "run.sync_base", "run.publish", "run.cleanup", "question.ask", "question.answer", "question.escalate", "question.get", "question.list", "question.convert_prompt"]) V3_ONLY_OPS.add(op);
 
 // v2 is frozen: the UNMETERED verdict is a protocol 3 addition, so 2.x rows keep OK.
 const v2Verdict = (verdict: string) => verdict === 'UNMETERED' ? 'OK' : verdict;
@@ -50,10 +50,19 @@ function budget(s: SnapshotV3): BudgetData | null {
  providers:s.executors.map(e=>{const a=s.accounts.find(a=>a.name===e.account);return {...(e.eligibility?{eligibility:e.eligibility}:{}),id:e.id,agent:e.agent,account:e.account,verdict:v2Verdict(a?.verdict??'UNKNOWN'),usedPct:e.usedPct,pacePct:e.pacePct,resetsAt:a?.resetsAt??null,window:a?.window??null,stale:e.rank==='planner'?s.planner!.stale:false,...(e.state==='blocked'?{blockedReason:e.reason??e.sub}:{}),...(e.state==='down'?{brokenReason:e.reason??e.sub}:{})};}),
  ranked:s.executors.filter(e=>e.rank!=='planner'&&e.enabled&&e.eligibility?.state!=='ineligible'&&['ready','busy'].includes(e.state)).sort((a,b)=>Number(a.rank)-Number(b.rank)).map(e=>({id:e.id,verdict:v2Verdict(s.accounts.find(a=>a.name===e.account)?.verdict??'UNKNOWN')}))};
 }
+/** Strip promptWait from snapshot tasks; additive fields (fullTitle/derived/work) stay on the frozen v2 snapshot surface. */
+function stripPromptWait<T extends object>(task: T): Omit<T, "promptWait"> {
+ const { promptWait: _pw, ...rest } = task as T & { promptWait?: unknown };
+ return rest;
+}
+
 export function toV2Snapshot(s: CompatSnapshot): SnapshotV2 {
  const legacy=s[V2_STATE],setup=legacySetup(s.setup);
  const {desktopUpdates: _desktopUpdates, ...compatible}=s;
- const withVerdicts={...compatible,accounts:compatible.accounts.map(a=>({...a,verdict:v2Verdict(a.verdict)}))};
+ const tasks=Array.isArray(compatible.tasks)?compatible.tasks.map(t =>
+  t && typeof t === "object" ? stripPromptWait(t) : t
+ ):compatible.tasks;
+ const withVerdicts={...compatible,...(tasks!==undefined?{tasks}:{}),accounts:compatible.accounts.map(a=>({...a,verdict:v2Verdict(a.verdict)}))};
  const attention=sortItems(s.attention.flatMap(a=>{
   if(a.id==="setup:connect"||isDiscoveryItemId(a.id)||isWorkflowAttentionItem(a))return [];
   const id=a.id==="setup:planner"?"setup:strategy":a.id;
@@ -84,15 +93,21 @@ export function v3OnlyEvent(e: {type: string; data: unknown}): boolean {
   ||e.type==='notify'&&(isDiscoveryItemId(d?.key)||isWorkflowAttentionId(d?.key));
 }
 export { isDiscoveryItemId, isWorkflowAttentionId, isWorkflowAttentionItem };
+/** promptWait is v3-only; strip it from task event payloads on the frozen 2.x surface. */
+function stripPromptWaitFromEvent(e: ApiEventV2 | null): ApiEventV2 | null {
+ if (!e || e.type !== 'task' || !e.data || typeof e.data !== 'object' || Array.isArray(e.data)) return e;
+ const { promptWait: _pw, ...data } = e.data as Record<string, unknown>;
+ return { ...e, data };
+}
 export function toV2Event(e: CompatEvent): ApiEventV2 | null {
  if(e.type==='desktop.update')return null;
- if(V2_EVENT in e)return e[V2_EVENT]??null;
+ if(V2_EVENT in e)return stripPromptWaitFromEvent(e[V2_EVENT]??null);
  // Messaging (msg.*) is v3-only, so v2 clients get no message events either.
- // Workflow runs are v3-only: their entity events never reach v2 clients.
- if(e.type==='planner'||e.type==='assistant'||e.type==='machine'||e.type==='message'||e.type==='run'||e.type==='decision'||e.type==='discovery.found'||e.type==='control')return null;
+ // Workflow runs, decisions and structured questions are v3-only.
+ if(e.type==='planner'||e.type==='assistant'||e.type==='machine'||e.type==='message'||e.type==='run'||e.type==='decision'||e.type==='question'||e.type==='discovery.found'||e.type==='control')return null;
  // The machine and discovery operations are v3-only, so v2 clients have no area to refetch.
  if(e.type==='config'&&['machine','discovery'].includes(String((e.data as {area?:unknown}|null)?.area)))return null;
- return {...e,type:e.type,seq:e.seq>=V3_CURSOR_BASE?e.seq-V3_CURSOR_BASE:e.seq};
+ return stripPromptWaitFromEvent({...e,type:e.type,seq:e.seq>=V3_CURSOR_BASE?e.seq-V3_CURSOR_BASE:e.seq});
 }
 // A disjoint safe-integer cursor namespace makes persisted 2.x cursors detectable,
 // including empty outboxes and upgrades with no retention gap.
@@ -132,7 +147,8 @@ export function toV2OpResult(name:string,result:any):unknown {
  if(name==='version.get')return {...result,protocol:V2_PROTOCOL};
  if(name==='task.diff')return {...result,diff:result.patch};
  // `fullTitle` and `derived` are 3.x additions; 2.x responses stay byte-identical.
- const legacyTask=(task:any)=>{if(!task||typeof task!=='object')return task;const {fullTitle:_,...rest}=task;return rest;};
+ // promptWait is v3-only (M-g); 2.x task JSON stays frozen without it.
+ const legacyTask=(task:any)=>{if(!task||typeof task!=='object')return task;const {fullTitle:_,promptWait:_pw,...rest}=task;return rest;};
  if(name==='task.list'){const list=result?.[LEGACY_TASK_LIST]??result;if(Array.isArray(list))return list.map(legacyTask);return list&&Array.isArray(list.tasks)?{...list,tasks:list.tasks.map(legacyTask)}:list;}
  if(name==='task.get'&&result&&typeof result==='object'){const {derived:_,work:__,...rest}=legacyTask(result);return rest;}
  if(name==='task.review'&&result&&typeof result==='object'&&!Array.isArray(result))return 'task' in result?{...result,task:legacyTask(result.task)}:legacyTask(result);

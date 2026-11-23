@@ -2,17 +2,28 @@
 
 Ask about your tasks, dispatch, executors and budgets from anywhere in the app with **⌘J** (Ctrl-J elsewhere), or with
 `pacer ask "<question>"`. The design is in the [assistant spec](specs/2026-10-28-always-on-assistant-design.md) and the
-[decision record](decisions/2026-10-28-assistant-extension-point.md).
+[decision record](decisions/2026-10-28-assistant-extension-point.md). Backends: [ADR 0028](decisions/0028-assistant-backends.md)
+and the [assistant backends design](specs/2026-11-17-assistant-backends-design.md).
 
 ## Set up
 
-The assistant is off until you choose an account in **Settings › Assistant**. It runs on one OpenAI-compatible endpoint
-account (a hosted model or a local one) and never moves to another account. If you choose the planner's account it follows
-the planner's pacing: it answers in relaxed and normal mode and pauses in strict and emergency mode.
+The assistant is off until you choose an account in **Settings › Assistant**. It runs on one endpoint account whose
+connection pacer holds (`connection.api`: `openai-compatible`, `anthropic` or `gemini`) and never moves to another
+account. If you choose the planner's account it follows the planner's pacing: it answers in relaxed and normal mode and
+pauses in strict and emergency mode.
 
-Local endpoints with `connection.key: none` (LM Studio, Ollama, and similar) are called without an `Authorization`
-header. pacer's native assistant injects a default `created` timestamp when an openai-compatible server omits that field
-on chat-completion responses (Rig's OpenAI client requires it).
+Anthropic and Gemini accounts need pacer's native `assistant-pacer` binary. When that binary is absent they are reported
+unavailable and are never answered through the legacy TypeScript openai-compatible plugin.
+
+The legacy host loop (`assistant.respond` on the bundled TypeScript `pacer-assistant` plugin) is **deprecated**. It remains
+only as a fallback for openai-compatible accounts when the native `pacer-assistant-pacer` binary is missing or outdated
+(the CLI updater that installs it is merged but not yet in a released build). A newer pacer release will install the
+binary; one release after that ships, the legacy method, plugin and host loop are removed. When a turn still uses the
+fallback, Activity logs one warning naming the missing or outdated binary.
+
+Local openai-compatible endpoints with `connection.key: none` (LM Studio, Ollama, and similar) are called without an
+`Authorization` header. pacer's native assistant injects a default `created` timestamp when an openai-compatible server
+omits that field on chat-completion responses (Rig's OpenAI client requires it).
 
 ## What it can read, and what it cannot
 
@@ -22,19 +33,61 @@ Results keep numbers and short pacer-owned names only. Goals, context, constrain
 terminal screens and session transcripts are never sent, secrets and your home path are removed, and each result is cut at
 32 KiB. What it reads, and your question, go to the account's model.
 
-## Answering through an agent CLI (executor backend)
+Settings › Assistant and each candidate row expose whether that backend has **proved live pacer tools** for this CLI
+version (`liveTools`). When it has, the settings card lists the same reads as above. When it has not (digest-only), the
+agent answers from the host-built summary for the turn and says when it needs data the summary does not show. A later
+unhealthy MCP turn can still fall back to digest-only even after a proving self-test.
 
-Besides pacer's own agent, which calls an endpoint account with a key pacer holds, the assistant can answer through an executor account's agent CLI. opencode is the first, for example `oc-glm · via opencode` in Settings › Assistant. Each turn runs one `opencode run --standalone` in ask mode:
+## Four backends
 
-- every opencode tool is denied by policy, and Code Mode (`execute`) is removed;
-- in this version the agent has no pacer tools either: it answers from the summary pacer builds for the turn and from the conversation, and says when it needs data the summary does not show;
-- its config is isolated and passed by the host, its working directory is an empty directory kept per conversation, and opencode uses its own sign-in, so pacer never reads or copies the key.
+### 1. pacer's own agent (`assistant-pacer`)
 
-Claude Code accounts use the same executor backend with a restricted `claude -p` turn: built-in tools off (`--tools=`), only pacer's MCP read tools (`mcp__pacer__*`), empty setting sources, hooks disabled, and dontAsk. The per-turn grant reaches Claude only through process env (never argv). The allowlisted `telemetry@builtin` plugin is Claude Code's normal telemetry to Anthropic, which already receives the prompt. If the pacer MCP server fails to connect, the turn retries digest-only and says the tools are unavailable.
+pacer's Rig agent calls an endpoint account whose base URL and key pacer holds. It always has live tools through the host
+capability `capability.assistant.tool`. Fastest path; needs an API key (or a keyless local endpoint).
 
-An account can answer this way only after it passes the **ask-mode check**, which runs again when the adapter CLI's version changes. The check tells the agent to call a harmless pacer read tool, run a shell command, read a file outside its directory and fetch a page, on a first and a resumed turn. It passes only when the pacer tool succeeds, shell/read/webfetch are absent or refused, nothing was written or read back, and no planted AGENTS.md canary enters the answer (for Claude Code: connected pacer init evidence).
+### 2. opencode over ACP (`assistant-executor`)
 
-**What this does not guarantee.** These restrictions are opencode's own configuration, checked by pacer. They are not an operating-system sandbox. The CLI runs as you, so if it ever ignored its configuration it could read files you can read. Settings asks you to confirm this the first time you switch to an agent CLI, and an account cannot be saved for it until it passes the check. pacer's own agent does not carry this risk: it can reach nothing but the data pacer hands it.
+An opencode account answers through a restricted `opencode acp` turn. Built-in tools are denied; pacer's MCP read tools
+are passed in the ACP `mcpServers` field with a per-turn grant bound only by env reference. After session start, the host
+checks that pacer MCP reported healthy tools; if not, that turn falls back to digest-only and says so. Settings shows
+live tools once the ask-mode check for this CLI version proved a pacer tool call.
+
+### 3. Claude Code over the control protocol (`assistant-executor`)
+
+A Claude Code account answers through a host-pinned `claude` stream-json control-protocol turn. Built-in tools stay off;
+only pacer MCP tools (`mcp__pacer__*`) are allowed; and every `can_use_tool` decision is made by the host. The grant
+reaches Claude only through process env (never argv). After initialize, the host checks MCP status for a connected
+`pacer` server with the expected tools; if that health check fails, the turn falls back to digest-only for that turn and
+says so. Settings shows live tools once the ask-mode check for this CLI version proved a pacer tool call. The allowlisted
+`telemetry@builtin` plugin is Claude Code's normal telemetry to Anthropic, which already receives the prompt.
+
+Live Claude checks that need the signed-in subscription use a live sandbox with
+`bun run live up --real-keychain` (see [live validation](testing/live-validation.md)).
+
+### 4. Codex over app-server (`assistant-executor`)
+
+A Codex account answers through host-pinned `codex -s read-only -a never app-server`. Thread config turns off shell,
+plugins and web search; pacer's MCP is added only via dotted `mcp_servers.pacer.*` keys. The host allows only pacer MCP
+tool-call elicitations. Unhealthy MCP preflight forces digest-only for that turn. Live tools appear in Settings after the
+ask-mode check proved a pacer tool call for the installed Codex version.
+
+## Ask-mode check (self-test)
+
+An executor account can be saved for the assistant only after it passes the **ask-mode check**, which runs again when the
+adapter CLI's version changes. The check runs a first turn and a resumed turn. Depending on the adapter it requires that
+forbidden actions were attempted and denied (opencode), that Codex recorded denied shell/file approvals while a pacer tool
+worked, or that Claude's control-protocol init shows connected pacer MCP with a completed (or error) `mcp__pacer__*` call
+and forbidden tools absent or refused. Nothing may be written outside the run directory, and a planted AGENTS.md canary
+must not enter the answer. An inconclusive run (the agent attempted nothing) fails. A passing check that proved a pacer
+tool call sets `liveTools` on that candidate.
+
+## Residual risk
+
+These restrictions are each CLI's own configuration (and host approval gates), checked by pacer. They are not an
+operating-system sandbox. The CLI runs as you, so if it ever ignored its configuration it could read files you can read.
+Settings asks you to confirm this the first time you switch to an agent CLI, and an account cannot be saved for it until
+it passes the check. Through its grant the CLI can only read through pacer's pipeline and propose actions, for one turn.
+pacer's own agent does not carry this residual risk: it can reach nothing but the data pacer hands it.
 
 ## What it can do
 
@@ -67,5 +120,6 @@ carries no text.
 
 ## For plugin authors
 
-`assistant` is a plugin extension point (`assistant.respond`), served only by bundled plugins until installed plugins are
+`assistant` is a plugin extension point. Prefer `assistant.reply` (turn-level). `assistant.respond` is deprecated and
+removed one release after the native updater ships; served only by bundled plugins until installed plugins are
 sandboxed. See the [plugin protocol](plugin-protocol.md).

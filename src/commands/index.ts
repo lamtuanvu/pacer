@@ -17,9 +17,10 @@ import { COMMANDS as DISCOVERY } from "./discovery";
 import { COMMANDS as MSG } from "./msg";
 import { COMMANDS as WORKFLOW } from "./workflow";
 import { COMMANDS as RUN } from "./run";
+import { COMMANDS as QUESTION } from "./question";
 import type { Command } from "./types";
 
-export const EXTRA_COMMANDS: Command[] = [...DISPATCH, ...ATTACHMENTS, ...PLAN2B, ...PLAN3, ...PLAN4, ...PLAN5, ...PLAN6, ...PLAN7, ...SERVICE, ...OPEN, ...DESKTOP_UPDATE, ...PLUGINS, ...SESSIONS, ...MACHINE, ...DISCOVERY, ...MSG, ...WORKFLOW, ...RUN, { name: "watch", usage: WATCH_USAGE, run: watchCommand }];
+export const EXTRA_COMMANDS: Command[] = [...DISPATCH, ...ATTACHMENTS, ...PLAN2B, ...PLAN3, ...PLAN4, ...PLAN5, ...PLAN6, ...PLAN7, ...SERVICE, ...OPEN, ...DESKTOP_UPDATE, ...PLUGINS, ...SESSIONS, ...MACHINE, ...DISCOVERY, ...MSG, ...WORKFLOW, ...RUN, ...QUESTION, { name: "watch", usage: WATCH_USAGE, run: watchCommand }];
 
 export function findCommand(name: string): Command | undefined {
   return EXTRA_COMMANDS.find((c) => c.name === name);

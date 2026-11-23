@@ -12,7 +12,9 @@ export function desktopUpdateView(update: UpdateStatus): DesktopUpdateView {
     checking: ["Checking for updates", "info", "…", "Looking for a new version."],
     downloading: ["Downloading update", "info", "↓", update.totalBytes && update.totalBytes > 0 ? `${Math.min(100, Math.max(0, Math.floor(update.downloadedBytes / update.totalBytes * 100)))}% downloaded. You can keep working.` : "Downloading the update. You can keep working."],
     ready: ["Update ready", "info", "↑", "The update is downloaded. Restart when you're ready."],
-    waiting: ["Waiting for work to finish", "warn", "…", "The update will start after active work and sessions finish. You can cancel while it waits."],
+    waiting: ["Waiting for work to finish", "warn", "…", update.blockers.length
+      ? `Update will install when ${update.blockers.length} running task${update.blockers.length === 1 ? " finishes" : "s finish"}. You can cancel while it waits.`
+      : "The update will start after active work and sessions finish. You can cancel while it waits."],
     reserved: ["Preparing update", "info", "…", "Installation has started. Cancellation is no longer available."],
     installing: ["Installing update", "info", "…", "pacer will restart when installation finishes. Cancellation is no longer available."],
     verifying: ["Starting the updated app", "info", "…", "Checking that the updated app and service are ready."],
@@ -139,6 +141,8 @@ export function desktopConnectionView(connection: { state: string; reason: strin
       ? "The pacer service was replaced by another build. Automatic updates are paused."
       : connection?.reason === "service-identity"
       ? "pacer could not verify the connected service for desktop updates. Your service continues running; no update has been installed."
+      : connection?.reason === "handshake"
+      ? "The desktop update service closed the connection during handshake. Your service continues running; pacer will retry."
       : connection?.state === "unsupported"
         ? "This desktop build does not support automatic updates. Your service continues running."
         : "pacer could not establish a verified desktop update connection. Your service continues running; no update has been installed.",

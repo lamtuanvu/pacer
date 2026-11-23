@@ -6336,6 +6336,253 @@ Params JSON Schema:
 }
 ```
 
+### `question.answer`
+
+Answer a structured run question as the current answerer (person or orchestrator grant).
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^q_[a-z2-7]{10}$"
+    },
+    "answer": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "note": {
+      "type": "string",
+      "maxLength": 4000
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "id",
+    "answer",
+    "expect_rev"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `question.ask`
+
+Ask a structured run question from an executor step or the orchestrator grant.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1000
+    },
+    "answerType": {
+      "type": "string",
+      "enum": [
+        "single",
+        "multi",
+        "text",
+        "yes_no",
+        "approve_revise"
+      ]
+    },
+    "options": {
+      "maxItems": 12,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string",
+            "minLength": 1
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "value"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "recommended": {
+      "type": "string",
+      "minLength": 1
+    },
+    "blocks": {
+      "type": "string",
+      "enum": [
+        "step",
+        "branch",
+        "nothing"
+      ]
+    },
+    "artifact": {
+      "type": "string",
+      "minLength": 1
+    },
+    "stepId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "attempt": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "branch": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "runId": {
+      "type": "string",
+      "pattern": "^run_[a-z2-7]{10}$"
+    }
+  },
+  "required": [
+    "text",
+    "answerType",
+    "blocks"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `question.convert_prompt`
+
+Convert a step task's prompt-wait mark into a structured question. Never types into the terminal.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `question.escalate`
+
+Escalate an open orchestrator-answerer question to the person with a suggested answer.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^q_[a-z2-7]{10}$"
+    },
+    "suggested": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "id",
+    "suggested",
+    "reason",
+    "expect_rev"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `question.get`
+
+Read one structured run question by id.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^q_[a-z2-7]{10}$"
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `question.list`
+
+List structured run questions, optionally for one run.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "run": {
+      "type": "string",
+      "pattern": "^run_[a-z2-7]{10}$"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "open",
+        "answered",
+        "withdrawn"
+      ]
+    }
+  },
+  "additionalProperties": false
+}
+```
+
 ### `repo.add`
 
 Register a git repository.
@@ -6515,7 +6762,7 @@ Params JSON Schema:
 
 ### `run.answer`
 
-Answer a waiting human step; the answer advances the run. Requires the run's current rev.
+Answer a waiting human step or approve/revise a generated graph. Requires the run's current rev.
 
 Params JSON Schema:
 
@@ -6595,9 +6842,42 @@ Params JSON Schema:
 }
 ```
 
+### `run.cleanup`
+
+Person-only: remove leftover integration worktree and optionally delete the local run branch. Never touches remotes.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^run_[a-z2-7]{10}$"
+    },
+    "delete_branch": {
+      "type": "boolean"
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "id",
+    "delete_branch",
+    "expect_rev"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `run.decide`
 
-Answer an auto human step under a live run grant when the run's auto flag is on. Never answers a must step.
+Answer an auto human step or auto graph approval under a live run grant. Never answers a must step.
 
 Params JSON Schema:
 
@@ -6638,7 +6918,7 @@ Params JSON Schema:
 
 ### `run.get`
 
-One run with its step instances.
+One run with its step instances and generated graph versions. Person, or a live run grant for its own run (expect_rev for sync/publish).
 
 Params JSON Schema:
 
@@ -6681,6 +6961,50 @@ Params JSON Schema:
       ]
     }
   },
+  "additionalProperties": false
+}
+```
+
+### `run.publish`
+
+Push the run branch and open a PR when the publishing gate allows it. Person or a live run grant for this run; executors refused.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^run_[a-z2-7]{10}$"
+    },
+    "draft": {
+      "type": "boolean"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "body": {
+      "type": "string",
+      "maxLength": 61440
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "id",
+    "draft",
+    "title",
+    "body",
+    "expect_rev"
+  ],
   "additionalProperties": false
 }
 ```
@@ -6858,6 +7182,10 @@ Params JSON Schema:
       "type": "string",
       "minLength": 1,
       "maxLength": 120
+    },
+    "publish": {
+      "type": "string",
+      "const": "draft"
     }
   },
   "required": [
@@ -6872,6 +7200,81 @@ Params JSON Schema:
 ### `run.stop`
 
 Stop a run and its running step tasks. Requires the run's current rev.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^run_[a-z2-7]{10}$"
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "id",
+    "expect_rev"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `run.submit_graph`
+
+Submit a generated sub-workflow for a waiting generate step under a live run grant.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^run_[a-z2-7]{10}$"
+    },
+    "step": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "source": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 262144
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {}
+        }
+      ]
+    }
+  },
+  "required": [
+    "id",
+    "step",
+    "source"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `run.sync_base`
+
+Merge the base branch tip into the run branch under the merge lock. Person or a live run grant for this run.
 
 Params JSON Schema:
 
@@ -8120,6 +8523,36 @@ Params JSON Schema:
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `step.artifact`
+
+Attach a file from the calling step task's worktree or evidence directory to the run's artifact store. Own step only; 10 MiB per file, 200 MiB per run.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "label": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    }
+  },
+  "required": [
+    "path",
+    "label"
+  ],
   "additionalProperties": false
 }
 ```

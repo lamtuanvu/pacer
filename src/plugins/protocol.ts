@@ -173,7 +173,14 @@ export const helloParams = z.object({
 export const helloResult = z.object({ features: z.array(z.string().min(1).max(64)).max(16).optional(), protocol: z.string(), id: z.string(), version: z.string(), contributes: z.array(z.string()) });
 export type HelloResult = z.infer<typeof helloResult>;
 
-export interface MethodDef<P extends z.ZodTypeAny = z.ZodTypeAny, R extends z.ZodTypeAny = z.ZodTypeAny> { description: string; params: P; result: R; deadlineMs: number }
+export interface MethodDef<P extends z.ZodTypeAny = z.ZodTypeAny, R extends z.ZodTypeAny = z.ZodTypeAny> {
+  description: string;
+  params: P;
+  result: R;
+  deadlineMs: number;
+  /** When set, the method stays for the plugin-protocol compatibility window and will be removed afterward. */
+  deprecated?: true;
+}
 const method = <P extends z.ZodTypeAny, R extends z.ZodTypeAny>(d: MethodDef<P, R>) => d as unknown as MethodDef;
 
 const agentVersion = z.object({agent: z.string().min(1).max(64), version: z.string().min(1).max(128), help: z.string().max(100_000).optional(), resumeHelp: z.string().max(100_000).optional(), apiHelp: z.string().max(100_000).optional()});
@@ -230,13 +237,22 @@ export const assistantReplyParams = z.object({
   message: z.string().min(1).max(4000),
   session: z.string().min(1).max(4096).optional(),
   /**
-   * Pacer backend only: the chosen account's openai-compatible base URL. The host sends this from
-   * the account connection (`context.backend.baseUrl` on the older respond path); the plugin must
-   * not read it from `capability.config.get`. Absent or empty means the plugin fails closed.
-   * `keyless: true` means `connection.key` is `none` (local LM Studio/Ollama): the plugin must call
-   * without an Authorization header. Other key sources that resolve empty still fail closed.
+   * Pacer backend only: the chosen account's connection. The host sends this from the account
+   * connection (`context.backend.baseUrl` on the older respond path); the plugin must not read it
+   * from `capability.config.get`.
+   * `api` selects the Rig client (`openai-compatible`, `anthropic`, `gemini`). Absent means
+   * openai-compatible (additive, P4/P14).
+   * `baseUrl` is required for openai-compatible. For anthropic and gemini it may be omitted when
+   * the provider's default URL is used.
+   * `keyless: true` means `connection.key` is `none` (local LM Studio/Ollama): only valid for
+   * openai-compatible; the plugin must call without an Authorization header. Other key sources
+   * that resolve empty still fail closed. Anthropic and gemini always require a resolved key.
    */
-  endpoint: z.object({ baseUrl: z.string().min(1).max(2048), keyless: z.boolean().optional() }).strict().optional(),
+  endpoint: z.object({
+    api: z.enum(["openai-compatible", "anthropic", "gemini"]).optional(),
+    baseUrl: z.string().min(1).max(2048).optional(),
+    keyless: z.boolean().optional(),
+  }).strict().optional(),
   /**
    * Executor backend only: the host-issued `opencode run` commands for this turn, as the plugin
    * must echo them to `capability.process.spawn`. Their config, which carries the turn's grant, is
@@ -292,8 +308,8 @@ export const EXTENSION_METHODS: Record<string, MethodDef> = {
   "agentSession.delegationControl": method({description: "Describe a candidate native subagent blocking path; the host must probe before certification.",params:agentVersion,result:delegationControlResult,deadlineMs:5000}),
   "agentSession.prepare": method({description: "Prepare an interactive argument vector without credentials or spawning.", params: agentPrepareParams, result: agentLaunchResult, deadlineMs: 5000}),
   "agentSession.attachment": method({description: "Prepare native attachment arguments or an explicit reference without submitting input.", params: agentAttachmentParams, result: agentAttachmentResult, deadlineMs: 5000}),
-  "assistant.respond": method({description: "Answer one assistant turn from the messages and tool results the host provides. The host runs every read tool and calls again with the results, up to maxToolRounds. A returned toolCall is a request, not an action.", params: assistantRespondParams, result: assistantRespondResult, deadlineMs: ASSISTANT_MAX_DEADLINE_MS}),
-  "assistant.reply": method({description: "Answer one whole assistant turn: the host has already built the system prompt, the digest and the transcript, and runs every tool the plugin asks for through capability.assistant.tool under this call's authority, up to limits.maxToolRounds. The plugin may stream assistant.delta notifications while it runs, and cancellation aborts the call. Used when the plugin serves the chosen backend and provides it; otherwise the host keeps its assistant.respond loop.", params: assistantReplyParams, result: assistantReplyResult, deadlineMs: ASSISTANT_MAX_DEADLINE_MS}),
+  "assistant.respond": method({description: "Deprecated. Answer one assistant turn from the messages and tool results the host provides. The host runs every read tool and calls again with the results, up to maxToolRounds. A returned toolCall is a request, not an action. Prefer assistant.reply; this method stays until one pacer release after the native pacer-assistant-pacer updater ships, then is removed under the plugin protocol compatibility rule.", params: assistantRespondParams, result: assistantRespondResult, deadlineMs: ASSISTANT_MAX_DEADLINE_MS, deprecated: true}),
+  "assistant.reply": method({description: "Answer one whole assistant turn: the host has already built the system prompt, the digest and the transcript, and runs every tool the plugin asks for through capability.assistant.tool under this call's authority, up to limits.maxToolRounds. The plugin may stream assistant.delta notifications while it runs, and cancellation aborts the call. Used when the plugin serves the chosen backend and provides it; otherwise the host keeps its deprecated assistant.respond loop as a temporary fallback.", params: assistantReplyParams, result: assistantReplyResult, deadlineMs: ASSISTANT_MAX_DEADLINE_MS}),
   "ui.render": method({description:"Return the view document for one surface.",params:uiRenderParams,result:uiRenderResult,deadlineMs:2000}),
   "ui.action": method({description:"Handle a user action on a surface; the host has already shown any confirmation.",params:uiActionParams,result:uiActionResult,deadlineMs:10000}),
   "ui.settings.validate": method({description:"Check settings values the host already validated against the manifest schema.",params:uiValidateParams,result:uiValidateResult,deadlineMs:2000}),

@@ -11,6 +11,7 @@ import type { Ctx } from "../types";
 import { callerAlive, type CallerReach } from "./caller-reach";
 import { analyzeLiveness, buildSnapshot, owesDecision, type Stall } from "./liveness";
 import { clearLiveness, getLiveness, listLiveness, upsertLiveness, type LivenessUpsert } from "./liveness-store";
+import { refreshAllPromptWaits } from "../workflow/prompt-detector";
 import { rootOf, taskOf } from "./participants";
 import { effectivePolicy } from "./policy";
 import { insertMessage, markRead } from "./store";
@@ -54,6 +55,7 @@ export async function brokerTick(ctx: Ctx, deps: BrokerDeps): Promise<BrokerRepo
       const mode = await deps.mode();
       if (!mode) return { skipped: "mode_unavailable" };
       const snapshot = buildSnapshot(ctx);
+      refreshAllPromptWaits(ctx);
       const stalls = analyzeLiveness(snapshot, ctx.now);
       const present = new Set(stalls.map(s => s.node));
       for (const row of listLiveness(ctx)) if (row.reason && !present.has(row.node)) {

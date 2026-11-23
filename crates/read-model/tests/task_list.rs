@@ -333,3 +333,67 @@ fn sql_history_resolves_legacy_registry_alias_and_local_repos() {
     assert_eq!(local.len(), 1);
     assert_eq!(local[0]["brief"]["repo"], "/unregistered");
 }
+
+#[test]
+fn task_list_page_loops_past_hidden_engine_owned_rows() {
+    let (_dir, ctx) = home();
+    // 25 hidden roots/orchestrate ahead of 3 ordinary tasks (newest-first ids).
+    for i in 0..25u32 {
+        let mut t = task(
+            &format!("t-20261122-100000-{i:04x}"),
+            "done",
+            200.0 - i as f64,
+            "github.com/acme/api",
+            "/checkout",
+        );
+        t["kind"] = if i % 2 == 0 {
+            json!("workflow-root")
+        } else {
+            json!("orchestrate")
+        };
+        write_task(&ctx, &t);
+    }
+    for i in 0..3u32 {
+        let t = task(
+            &format!("t-20261122-090000-{i:04x}"),
+            "done",
+            50.0 - i as f64,
+            "github.com/acme/api",
+            "/checkout",
+        );
+        write_task(&ctx, &t);
+    }
+    let mut store = TaskStore::open(&ctx.pacer_home).unwrap();
+    let page = task_list_page(
+        &ctx,
+        &ActiveCounts::default(),
+        &mut store,
+        &TaskListOptions {
+            limit: Some(2),
+            ..TaskListOptions::default()
+        },
+        &alive,
+    )
+    .unwrap();
+    assert_eq!(page["tasks"].as_array().unwrap().len(), 2, "page={page}");
+    assert!(page["tasks"].as_array().unwrap().iter().all(|t| {
+        let k = t["kind"].as_str().unwrap_or("");
+        k != "orchestrate" && k != "workflow-root"
+    }));
+    assert!(!page["next"].is_null());
+    let next = page["next"].as_str().unwrap();
+    let page2 = task_list_page(
+        &ctx,
+        &ActiveCounts::default(),
+        &mut store,
+        &TaskListOptions {
+            limit: Some(2),
+            before: Some(next),
+            ..TaskListOptions::default()
+        },
+        &alive,
+    )
+    .unwrap();
+    assert_eq!(page2["tasks"].as_array().unwrap().len(), 1, "page2={page2}");
+    assert!(page2["next"].is_null());
+}

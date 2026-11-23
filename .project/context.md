@@ -1,10 +1,10 @@
 # pacer context index
 
-Updated: 2026-10-24. The entry point for agents and contributors. Load this file and [constitution.md](constitution.md), then only the rules and reviewers that match the paths your change touches.
+Updated: 2026-11-22. The entry point for agents and contributors. Load this file and [constitution.md](constitution.md), then only the rules and reviewers that match the paths your change touches.
 
 ## Purpose
 
-pacer paces AI coding work across subscription budgets. A planner plans and reviews, while executors do the execution under supervision. See [README.md](../README.md), [ROADMAP.md](../ROADMAP.md) and [docs/README.md](../docs/README.md).
+pacer paces AI coding work across subscription budgets. A planner plans and reviews, while executors do the execution under supervision. The product's core values (proposed, amendment 0.26.0) are V1 efficient, resource-governed execution; V2 reliable dispatch with no stuck or silent tasks; and V3 seamless execution across machines, all defined in [constitution.md](constitution.md#core-values). Background: [README.md](../README.md), [ROADMAP.md](../ROADMAP.md) and [docs/README.md](../docs/README.md).
 
 ## Architecture map
 

@@ -171,6 +171,164 @@ test("later attempts cannot overwrite an uncertain placement and may inspect aft
   } finally { await next.revoke(); }
 });
 
+test("bindOwnedWorktreeIntent rewrites baseSha on ordinary-task rebind (main behavior)", async () => {
+  // REAL-PATH: ordinary ask/answer resume must keep main's rebind — intent.baseSha=HEAD
+  // becomes the task base so a fast failed resume still looks "unchanged" for brokenReason.
+  const repo = gitRepo(), ctx = fakeCtx({ run: realRun, home: tmpDir() });
+  const task = createTask(ctx, { brief: { goal: "fixture", repo }, kind: null,
+    requestedExecutor: "codex", timeoutS: 60 });
+  updateTask(ctx, task.id, current => { current.state = "running"; current.executor = "codex";
+    current.executorProvider = "pacer-exec-direct"; });
+  const grant = await issueOwnedWorktreeGrant(ctx, task.id, "pacer-exec-direct", 1, "HEAD");
+  const originalBase = grant.baseSha;
+  const manifest = manifestSchema.parse({ id: "pacer-exec-direct", version: "0.1.0", publisher: "pacer", host: ">=1.9.0",
+    contributes: { diagnostic: {} }, capabilities: [{ name: "worktree", scopes: ["task-owned"] }] });
+  const authority = createCallAuthority(ctx, { reads: [], commands: [], stores: [], worktree: grant },
+    { deadlineMs: Date.now() + 120_000, grants: ["worktree"] });
+  try { await answerCapability(ctx, { id: manifest.id, manifest }, "capability.worktree.createOrReuse",
+    { taskId: task.id, attempt: 1, baseSha: grant.baseSha }, authority); }
+  finally { await authority.revoke(); }
+  updateTask(ctx, task.id, current => {
+    current.worktree = grant.workdir;
+    current.run = { dir: join(ctx.pacerHome, "runs", task.id, "1"), attempt: 1, executor: "codex",
+      startedAt: ctx.now, mode: "new", workdir: grant.workdir, logFile: "fixture" };
+  });
+  mkdirSync(join(ctx.pacerHome, "runs", task.id, "1"), { recursive: true, mode: 0o700 });
+  await bindOwnedWorktreeIntent(ctx, task.id, "pacer-exec-direct", 1);
+  expect(readTask(ctx, task.id)?.baseSha).toBe(originalBase);
+
+  expect((await realRun(["git", "-C", grant.path, "-c", "user.email=t@t", "-c", "user.name=t",
+    "commit", "-q", "--allow-empty", "-m", "pre-ask edit"], 10_000)).code).toBe(0);
+  const tip = (await realRun(["git", "-C", grant.path, "rev-parse", "HEAD"], 10_000)).stdout.trim();
+  expect(tip).not.toBe(originalBase);
+
+  updateTask(ctx, task.id, current => {
+    current.worktreeIntent = {
+      attempt: 1, providerId: "pacer-exec-direct",
+      repoTop: grant.repoTop, repoMain: grant.repoMain, path: grant.path,
+      workdir: grant.workdir, branch: grant.branch, baseSha: tip,
+    };
+  });
+  await bindOwnedWorktreeIntent(ctx, task.id, "pacer-exec-direct", 1);
+  expect(readTask(ctx, task.id)?.baseSha).toBe(tip);
+  expect(readTask(ctx, task.id)?.baseBranch).toBe(tip);
+  expect(readTask(ctx, task.id)?.worktreeIntent).toBeUndefined();
+});
+
+test("bindOwnedWorktreeIntent preserves original baseSha for workflow step rebind", async () => {
+  // REAL-PATH (B11): ask/answer resume keeps the merge base; accept merges real commits
+  // without any run..task drift fallback.
+  const { insertRun, insertStep, getRun, workflowDatabase } = await import("../src/workflow/store");
+  const { ensureRunBranch, mergeTaskOnAccept } = await import("../src/workflow/branch");
+  const repo = gitRepo(), ctx = fakeCtx({ run: realRun, home: tmpDir() });
+  workflowDatabase(ctx);
+  const run = insertRun(ctx, { workflow: "t/feat", version: 1, repo, brief: "b", stepMode: "plain" });
+  await ensureRunBranch(ctx, run);
+  const live = getRun(ctx, run.id)!;
+  const task = createTask(ctx, { brief: { goal: "fixture", repo }, kind: null,
+    requestedExecutor: "codex", timeoutS: 60 });
+  insertStep(ctx, { runId: run.id, stepId: "impl", attempt: 1, taskId: task.id, status: "running" });
+  updateTask(ctx, task.id, current => { current.state = "running"; current.executor = "codex";
+    current.executorProvider = "pacer-exec-direct"; });
+  const grant = await issueOwnedWorktreeGrant(ctx, task.id, "pacer-exec-direct", 1, "HEAD");
+  const originalBase = grant.baseSha;
+  const manifest = manifestSchema.parse({ id: "pacer-exec-direct", version: "0.1.0", publisher: "pacer", host: ">=1.9.0",
+    contributes: { diagnostic: {} }, capabilities: [{ name: "worktree", scopes: ["task-owned"] }] });
+  const authority = createCallAuthority(ctx, { reads: [], commands: [], stores: [], worktree: grant },
+    { deadlineMs: Date.now() + 120_000, grants: ["worktree"] });
+  try { await answerCapability(ctx, { id: manifest.id, manifest }, "capability.worktree.createOrReuse",
+    { taskId: task.id, attempt: 1, baseSha: grant.baseSha }, authority); }
+  finally { await authority.revoke(); }
+  updateTask(ctx, task.id, current => {
+    current.worktree = grant.workdir;
+    current.run = { dir: join(ctx.pacerHome, "runs", task.id, "1"), attempt: 1, executor: "codex",
+      startedAt: ctx.now, mode: "new", workdir: grant.workdir, logFile: "fixture" };
+  });
+  mkdirSync(join(ctx.pacerHome, "runs", task.id, "1"), { recursive: true, mode: 0o700 });
+  await bindOwnedWorktreeIntent(ctx, task.id, "pacer-exec-direct", 1);
+  expect(readTask(ctx, task.id)?.baseSha).toBe(originalBase);
+
+  await Bun.write(join(grant.path, "from-task.txt"), "task-work\n");
+  expect((await realRun(["git", "-C", grant.path, "add", "."], 10_000)).code).toBe(0);
+  expect((await realRun(["git", "-C", grant.path, "-c", "user.email=t@t", "-c", "user.name=t",
+    "commit", "-q", "-m", "pre-ask edit"], 10_000)).code).toBe(0);
+  const tip = (await realRun(["git", "-C", grant.path, "rev-parse", "HEAD"], 10_000)).stdout.trim();
+  expect(tip).not.toBe(originalBase);
+
+  updateTask(ctx, task.id, current => {
+    current.worktreeIntent = {
+      attempt: 1, providerId: "pacer-exec-direct",
+      repoTop: grant.repoTop, repoMain: grant.repoMain, path: grant.path,
+      workdir: grant.workdir, branch: grant.branch, baseSha: tip,
+    };
+  });
+  await bindOwnedWorktreeIntent(ctx, task.id, "pacer-exec-direct", 1);
+  expect(readTask(ctx, task.id)?.baseSha).toBe(originalBase);
+  expect(readTask(ctx, task.id)?.worktreeIntent).toBeUndefined();
+
+  updateTask(ctx, task.id, current => {
+    current.state = "done";
+    current.result = {
+      status: "done", executor: "codex", model: null, files: "from-task.txt",
+      report: "ok", backend: "direct", worktree: grant.workdir,
+    };
+  });
+  const before = (await realRun(["git", "-C", repo, "rev-parse", live.branch!], 10_000)).stdout.trim();
+  const merge = await mergeTaskOnAccept(ctx, task.id);
+  expect(merge).toEqual({ merged: true });
+  const after = (await realRun(["git", "-C", repo, "rev-parse", live.branch!], 10_000)).stdout.trim();
+  expect(after).not.toBe(before);
+  const show = await realRun(["git", "-C", repo, "show", `${live.branch!}:from-task.txt`], 10_000);
+  expect(show.stdout).toBe("task-work\n");
+});
+
+test("ordinary rebind keeps fast-fail unchanged check eligible for brokenReason", async () => {
+  // REAL-PATH: prior commits + tip rebind → worktreeUnchanged(baseSha) true → brokenReason set.
+  const { worktreeUnchanged } = await import("../src/supervisor/worktree");
+  const { brokenReason } = await import("../src/exec/broken");
+  const repo = gitRepo(), ctx = fakeCtx({ run: realRun, home: tmpDir() });
+  const task = createTask(ctx, { brief: { goal: "fixture", repo }, kind: null,
+    requestedExecutor: "codex", timeoutS: 60 });
+  updateTask(ctx, task.id, current => { current.state = "running"; current.executor = "codex";
+    current.executorProvider = "pacer-exec-direct"; });
+  const grant = await issueOwnedWorktreeGrant(ctx, task.id, "pacer-exec-direct", 1, "HEAD");
+  const manifest = manifestSchema.parse({ id: "pacer-exec-direct", version: "0.1.0", publisher: "pacer", host: ">=1.9.0",
+    contributes: { diagnostic: {} }, capabilities: [{ name: "worktree", scopes: ["task-owned"] }] });
+  const authority = createCallAuthority(ctx, { reads: [], commands: [], stores: [], worktree: grant },
+    { deadlineMs: Date.now() + 120_000, grants: ["worktree"] });
+  try { await answerCapability(ctx, { id: manifest.id, manifest }, "capability.worktree.createOrReuse",
+    { taskId: task.id, attempt: 1, baseSha: grant.baseSha }, authority); }
+  finally { await authority.revoke(); }
+  updateTask(ctx, task.id, current => {
+    current.worktree = grant.workdir;
+    current.run = { dir: join(ctx.pacerHome, "runs", task.id, "1"), attempt: 1, executor: "codex",
+      startedAt: ctx.now, mode: "new", workdir: grant.workdir, logFile: "fixture" };
+  });
+  mkdirSync(join(ctx.pacerHome, "runs", task.id, "1"), { recursive: true, mode: 0o700 });
+  await bindOwnedWorktreeIntent(ctx, task.id, "pacer-exec-direct", 1);
+
+  expect((await realRun(["git", "-C", grant.path, "-c", "user.email=t@t", "-c", "user.name=t",
+    "commit", "-q", "--allow-empty", "-m", "prior work"], 10_000)).code).toBe(0);
+  const tip = (await realRun(["git", "-C", grant.path, "rev-parse", "HEAD"], 10_000)).stdout.trim();
+  updateTask(ctx, task.id, current => {
+    current.worktreeIntent = {
+      attempt: 1, providerId: "pacer-exec-direct",
+      repoTop: grant.repoTop, repoMain: grant.repoMain, path: grant.path,
+      workdir: grant.workdir, branch: grant.branch, baseSha: tip,
+    };
+  });
+  await bindOwnedWorktreeIntent(ctx, task.id, "pacer-exec-direct", 1);
+  const base = readTask(ctx, task.id)?.baseSha;
+  expect(base).toBe(tip);
+  const unchanged = await worktreeUnchanged(ctx, grant.workdir, base);
+  expect(unchanged).toBe(true);
+  const reason = brokenReason(
+    { code: 2, stdout: "", stderr: "error: unknown option --foo\n", timedOut: false },
+    1,
+    unchanged,
+  );
+  expect(reason).toContain("unknown option");
+});
 test("legacy owner-owned 0755 parents and symlinked PACER_HOME migrate without changing placement", async () => {
   const repo = gitRepo(), home = tmpDir(), actual = join(home, "actual"), link = join(home, "linked");
   mkdirSync(actual, { mode: 0o700 }); symlinkSync(actual, link);

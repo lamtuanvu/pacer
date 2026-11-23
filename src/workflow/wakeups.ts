@@ -3,7 +3,7 @@
 // scan when a wake-up is lost (spec "Wake-ups and turns are durable").
 import type { Database } from "bun:sqlite";
 import type { Ctx } from "../types";
-import { canAutoDecide } from "./auto";
+import { canAutoApproveGenerate, canAutoDecide } from "./auto";
 import {
   getDefinition, getRun, liveRuns, rootRunId, stepsOfRun, updateStep, workflowDatabase,
   type StepRow,
@@ -196,6 +196,15 @@ export function completeWakeups(ctx: Ctx, turnId: string): void {
 
 /** Whether the underlying decision for a wake key is still open after a done turn. */
 export function wakeCauseStillOpen(ctx: Ctx, runId: string, cause: WakeCause, ref: string): boolean {
+  // Phase 4 executor/orchestrator questions use the question id as the wake ref.
+  if (cause === "question" && ref.startsWith("q_")) {
+    const row = workflowDatabase(ctx).query<{ status: string; answerer: string; run_id: string }, [string]>(
+      "SELECT status, answerer, run_id FROM workflow_questions WHERE id = ?",
+    ).get(ref);
+    if (!row) return false;
+    if (rootRunId(ctx, row.run_id) !== rootRunId(ctx, runId) && row.run_id !== runId) return false;
+    return row.status === "open" && row.answerer === "orchestrator";
+  }
   const parsed = parseWakeRef(ref);
   if (!parsed) return false;
   const { stepId, attempt, branch, runId: owningRunId } = parsed;
@@ -232,13 +241,44 @@ export function wakeCauseStillOpen(ctx: Ctx, runId: string, cause: WakeCause, re
         if (step.status !== "waiting") return false;
         return !chooseStepChildRunId(step.result);
       }
+      if (stepDef.type === "generate") {
+        if (step.status !== "waiting") return false;
+        if (chooseStepChildRunId(step.result)) return false;
+        const pending = step.result != null && typeof step.result === "object"
+          && (step.result as { pendingApproval?: unknown }).pendingApproval === true;
+        // Pending approval waits on the person (question), not another orchestrator turn.
+        return !pending;
+      }
       if (stepDef.type === "agent" && stepDef.role === "orchestrator") {
         return step.status === "running" || step.status === "waiting";
       }
       return false;
     }
     if (cause === "question") {
-      return step.status === "waiting";
+      if (step.status !== "waiting") return false;
+      // Human-step / generate auto wakes use stepWakeRef. After escalate the open
+      // question's answerer is the person — do not keep the orchestrator cause open.
+      const openHuman = workflowDatabase(ctx).query<
+        { answerer: string },
+        [string, string, number]
+      >(
+        `SELECT answerer FROM workflow_questions
+         WHERE run_id = ? AND step_id = ? AND attempt = ? AND status = 'open'
+           AND asker_kind = 'human_step'
+         ORDER BY created_at DESC, id DESC LIMIT 1`,
+      ).get(id, stepId, attempt);
+      if (openHuman) return openHuman.answerer === "orchestrator";
+      return true;
+    }
+    if (cause === "replan") {
+      if (step.status !== "waiting") return false;
+      if (chooseStepChildRunId(step.result)) return false;
+      const prior = step.result != null && typeof step.result === "object"
+        ? step.result as { pendingApproval?: unknown; replanMode?: unknown }
+        : {};
+      // Open until a replacement graph is submitted (pendingApproval) or a child starts.
+      if (prior.pendingApproval === true) return false;
+      return prior.replanMode === "auto" || prior.replanMode === "ask";
     }
   }
   return false;
@@ -374,7 +414,7 @@ export function chooseStepChoosing(result: unknown): { choosingAt: number } | nu
   return { choosingAt: typeof at === "number" ? at : 0 };
 }
 
-/** Stale choose claims: stamp an existing child or clear the marker (H1). */
+/** Stale choose/generate claims: stamp an existing child or clear the marker (H1 / I4). */
 export function reconcileStaleChooseClaims(ctx: Ctx): number {
   let handled = 0;
   for (const run of liveRuns(ctx)) {
@@ -382,7 +422,8 @@ export function reconcileStaleChooseClaims(ctx: Ctx): number {
     if (!def) continue;
     for (const step of stepsOfRun(ctx, run.id)) {
       if (step.status !== "waiting") continue;
-      if (def.steps[step.stepId]?.type !== "choose_workflow") continue;
+      const stepType = def.steps[step.stepId]?.type;
+      if (stepType !== "choose_workflow" && stepType !== "generate") continue;
       const claim = chooseStepChoosing(step.result);
       if (!claim) continue;
       if (ctx.now - claim.choosingAt < CHOOSING_STALE_S) continue;
@@ -396,12 +437,31 @@ export function reconcileStaleChooseClaims(ctx: Ctx): number {
         ...(step.branch !== undefined ? { branch: step.branch } : {}),
       };
       if (child) {
-        const prior = step.result as { workflow?: string; reason?: string };
+        const prior = step.result != null && typeof step.result === "object"
+          ? { ...(step.result as Record<string, unknown>) }
+          : {};
         updateStep(ctx, key, {
           result: {
-            workflow: typeof prior.workflow === "string" ? prior.workflow : "",
-            reason: typeof prior.reason === "string" ? prior.reason : "",
+            ...prior,
             childRunId: child.id,
+            choosing: undefined,
+            choosingAt: undefined,
+            pendingApproval: undefined,
+          },
+        });
+      } else if (stepType === "generate") {
+        // Clear the stale generate claim; restore pendingApproval when the step needs it.
+        const prior = step.result != null && typeof step.result === "object"
+          ? { ...(step.result as Record<string, unknown>) }
+          : {};
+        const stepDef = def.steps[step.stepId];
+        const needsApproval = stepDef?.type === "generate" && !!stepDef.approval;
+        updateStep(ctx, key, {
+          result: {
+            ...prior,
+            choosing: undefined,
+            choosingAt: undefined,
+            pendingApproval: needsApproval || prior.replanMode === "ask" ? true : undefined,
           },
         });
       } else {
@@ -532,6 +592,15 @@ export function needsOrchestrator(ctx: Ctx): NeedsOrchestrator[] {
       if (!stepDef) continue;
       if (step.status === "waiting" && stepDef.type === "human") {
         if (!canAutoDecide(rootRun, step.stepId, stepDef)) continue;
+        // Prefer the open question row's answerer: escalate flips it to person while
+        // the step stays waiting; do not recreate the orchestrator wake.
+        const openHuman = db.query<{ answerer: string }, [string, string, number]>(
+          `SELECT answerer FROM workflow_questions
+           WHERE run_id = ? AND step_id = ? AND attempt = ? AND status = 'open'
+             AND asker_kind = 'human_step'
+           ORDER BY created_at DESC, id DESC LIMIT 1`,
+        ).get(run.id, step.stepId, step.attempt);
+        if (openHuman && openHuman.answerer !== "orchestrator") continue;
         const ref = stepWakeRef(run.id, step.stepId, step.attempt, step.branch);
         if (hasOpenWakeup(ctx, root, "question", ref)) continue;
         push(root, "question", ref, step.startedAt);
@@ -545,12 +614,57 @@ export function needsOrchestrator(ctx: Ctx): NeedsOrchestrator[] {
         push(root, "orchestrator_step", ref, step.startedAt);
         continue;
       }
+      if (step.status === "waiting" && stepDef.type === "generate") {
+        if (chooseStepChildRunId(step.result)) continue;
+        const prior = step.result != null && typeof step.result === "object"
+          ? step.result as { pendingApproval?: unknown; replanMode?: unknown; choosing?: unknown }
+          : {};
+        if (prior.choosing === true) continue;
+        const pending = prior.pendingApproval === true;
+        const ref = stepWakeRef(run.id, step.stepId, step.attempt, step.branch);
+        if (pending) {
+          if (canAutoApproveGenerate(rootRun, step.stepId, stepDef)) {
+            if (!hasOpenWakeup(ctx, root, "question", ref)) {
+              push(root, "question", ref, step.startedAt);
+            }
+          }
+          continue;
+        }
+        // Lost replan wake: recreate so the orchestrator can submit a replacement.
+        if (prior.replanMode === "auto" || prior.replanMode === "ask") {
+          if (!hasOpenWakeup(ctx, root, "replan", ref)) {
+            push(root, "replan", ref, step.startedAt);
+          }
+          continue;
+        }
+        if (hasOpenWakeup(ctx, root, "orchestrator_step", ref)) continue;
+        push(root, "orchestrator_step", ref, step.startedAt);
+        continue;
+      }
       if (step.status === "running" && stepDef.type === "agent" && stepDef.role === "orchestrator") {
         const ref = stepWakeRef(run.id, step.stepId, step.attempt, step.branch);
         if (hasOpenWakeup(ctx, root, "orchestrator_step", ref)) continue;
         push(root, "orchestrator_step", ref, step.startedAt);
       }
     }
+  }
+
+  // Phase 4: open executor/orchestrator questions waiting on the orchestrator
+  // (ref = question id). Human-step questions keep the stepWakeRef recovery path.
+  const openQs = db.query<{ id: string; run_id: string; created_at: number }, []>(`
+    SELECT q.id, q.run_id, q.created_at
+    FROM workflow_questions q
+    JOIN workflow_runs r ON r.id = q.run_id
+    WHERE q.status = 'open' AND q.answerer = 'orchestrator'
+      AND q.asker_kind IN ('executor', 'orchestrator')
+      AND r.status IN ('running', 'waiting')
+    ORDER BY q.created_at, q.id
+  `).all();
+  for (const q of openQs) {
+    const root = rootRunId(ctx, q.run_id);
+    if (liveTurn(ctx, root)) continue;
+    if (hasOpenWakeup(ctx, root, "question", q.id)) continue;
+    push(root, "question", q.id, q.created_at);
   }
   return out;
 }

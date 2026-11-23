@@ -15,7 +15,7 @@ test("connection is exposed and derives the managed provider model", () => {
 });
 test.each([
   [null, "connection must be a mapping"],
-  [{...connection, api: "anthropic"}, "connection.api"],
+  [{...connection, api: "cohere"}, "connection.api"],
   [{...connection, base_url: "file:///tmp/api"}, "connection.base_url"],
   [{...connection, base_url: "invalid"}, "connection.base_url"],
   [{...connection, key: "sk-never-echo-this"}, "connection.key"],
@@ -29,6 +29,19 @@ test.each([
 ] as [unknown, string][])("invalid connection %# is rejected without echoing values", (c, message) => {
   expect(() => parse(c)).toThrow(message);
   try { parse(c); } catch (e) { expect(String(e)).not.toContain("sk-never-echo-this"); }
+});
+test.each(["anthropic", "gemini"] as const)("connection.api %s is accepted", (api) => {
+  const c = {...connection, api, base_url: api === "anthropic" ? "https://api.anthropic.com" : "https://generativelanguage.googleapis.com"};
+  expect(parse(c).accounts["test-api"].connection).toEqual(c);
+});
+test("anthropic and gemini may omit base_url and keep the provider default", () => {
+  const anthropic = parse({...connection, api: "anthropic", base_url: undefined});
+  expect(anthropic.accounts["test-api"].connection).toMatchObject({api: "anthropic", base_url: "https://api.anthropic.com"});
+  const gemini = parse({...connection, api: "gemini", base_url: undefined});
+  expect(gemini.accounts["test-api"].connection).toMatchObject({api: "gemini", base_url: "https://generativelanguage.googleapis.com"});
+});
+test("openai-compatible still requires base_url", () => {
+  expect(() => parse({...connection, base_url: undefined})).toThrow("connection.base_url");
 });
 test("connections belong to endpoints and runner models must be selected", () => {
   expect(() => parse(connection, "codex")).toThrow("connection requires an endpoint");

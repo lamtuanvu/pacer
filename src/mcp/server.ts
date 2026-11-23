@@ -108,14 +108,69 @@ export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRu
       async ({ task_id, expect_rev }) => scoped("task.stop", { id: task_id, expect_rev }));
     server.registerTool("step_result", { description: "Record this orchestrator step's structured result.", inputSchema: { result: z.record(z.string(), z.unknown()) } },
       async ({ result }) => scoped("step.result", { result }));
+    server.registerTool("step_artifact", { description: "Attach a file from this step's worktree or evidence directory to the run.", inputSchema: { path: z.string(), label: z.string() } },
+      async (p) => scoped("step.artifact", p));
+    server.registerTool("run_get", { description: "Read this run (rev, steps) so sync/publish can pass expect_rev.", inputSchema: { id: z.string() } },
+      async (p) => scoped("run.get", p));
+    server.registerTool("run_sync_base", { description: "Merge the base branch tip into this run's branch.", inputSchema: { id: z.string(), expect_rev: z.number().int().positive() } },
+      async (p) => scoped("run.sync_base", p));
+    server.registerTool("run_publish", { description: "Push the run branch and open a PR when the publishing gate allows it.", inputSchema: { id: z.string(), draft: z.boolean(), title: z.string(), body: z.string(), expect_rev: z.number().int().positive() } },
+      async (p) => scoped("run.publish", p));
     server.registerTool("run_decide", { description: "Answer an auto human step under this run grant.", inputSchema: { id: z.string(), step: z.string(), choice: z.string(), reason: z.string() } },
       async (p) => scoped("run.decide", p));
     server.registerTool("run_choose", { description: "Choose a child workflow for a choose_workflow step.", inputSchema: { id: z.string(), step: z.string(), workflow: z.string(), reason: z.string() } },
       async (p) => scoped("run.choose", p));
+    server.registerTool("run_submit_graph", {
+      description: "Submit a generated sub-workflow for a waiting generate step under this run grant.",
+      inputSchema: {
+        id: z.string(),
+        step: z.string(),
+        source: z.union([z.string().min(1), z.record(z.string(), z.unknown())]),
+      },
+    }, async (p) => scoped("run.submit_graph", p));
     server.registerTool("step_skip", { description: "Skip a failed step under this run grant.", inputSchema: { id: z.string(), step: z.string() } },
       async (p) => scoped("step.skip", p));
     server.registerTool("step_retry", { description: "Retry a failed step under this run grant.", inputSchema: { id: z.string(), step: z.string() } },
       async (p) => scoped("step.retry", p));
+    server.registerTool("pacer_question", {
+      description: "Ask, answer, escalate, get or list structured run questions in this grant's run tree.",
+      inputSchema: {
+        action: z.enum(["ask", "answer", "escalate", "get", "list"]),
+        text: z.string().optional(),
+        answerType: z.enum(["single", "multi", "text", "yes_no", "approve_revise"]).optional(),
+        options: z.array(z.object({ value: z.string(), note: z.string().optional() })).optional(),
+        recommended: z.string().optional(),
+        blocks: z.enum(["step", "branch", "nothing"]).optional(),
+        artifact: z.string().optional(),
+        id: z.string().optional(),
+        answer: z.string().optional(),
+        note: z.string().optional(),
+        suggested: z.string().optional(),
+        reason: z.string().optional(),
+        expect_rev: z.number().int().positive().optional(),
+        stepId: z.string().optional(),
+        attempt: z.number().int().positive().optional(),
+        runId: z.string().optional(),
+        run: z.string().optional(),
+        status: z.enum(["open", "answered", "withdrawn"]).optional(),
+      },
+    }, async (p) => {
+      if (p.action === "ask") {
+        return scoped("question.ask", {
+          text: p.text, answerType: p.answerType, options: p.options, recommended: p.recommended,
+          blocks: p.blocks ?? "step", stepId: p.stepId, attempt: p.attempt, runId: p.runId,
+          artifact: p.artifact,
+        });
+      }
+      if (p.action === "answer") {
+        return scoped("question.answer", { id: p.id, answer: p.answer, note: p.note, expect_rev: p.expect_rev });
+      }
+      if (p.action === "escalate") {
+        return scoped("question.escalate", { id: p.id, suggested: p.suggested, reason: p.reason, expect_rev: p.expect_rev });
+      }
+      if (p.action === "get") return scoped("question.get", { id: p.id });
+      return scoped("question.list", { run: p.run, status: p.status });
+    });
     return server;
   }
   if (getCtx().env.PACER_WORK_GRANT) {
@@ -142,6 +197,7 @@ export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRu
     server.registerTool("msg_read",{description:"Mark your messages read so msg_wait blocks for new ones.",inputSchema:{ids:z.array(z.string()).min(1)}},async(p)=>scoped("msg.read",p));
     server.registerTool("msg_close",{description:"Close a task in your subtree for further messages. Records no review verdict.",inputSchema:{task:z.string()}},async(p)=>scoped("msg.close",p));
     server.registerTool("tree_status",{description:"Turn state of a task tree.",inputSchema:{task:z.string()}},async(p)=>scoped("tree.status",p));
+    // Work grants cannot call question.* (authorizeWorkOperation); no dead pacer_question branch (M-i).
     return server;
   }
   const spawnFn = opts.spawnRunner ?? spawnRunner;
@@ -215,6 +271,52 @@ export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRu
     description: "Answer an executor question. A local task with a resumable session continues in that session once project policy admits it; otherwise the task is retried on the same executor. Only needs_input tasks can be answered.",
     inputSchema: {task_id:z.string(), text:z.string().min(1).max(2000), expect_rev:z.number().int().positive().optional()},
   }, async ({task_id,text,expect_rev}) => json(await callOp(getCtx(),"task.answer",{id:task_id,text,expect_rev},msgDeps()) as Record<string,unknown>));
+  server.registerTool("pacer_question", {
+    description: "Ask, answer, escalate, get, list or convert structured run questions (person and executor surfaces).",
+    inputSchema: {
+      action: z.enum(["ask", "answer", "escalate", "get", "list", "convert"]),
+      text: z.string().optional(),
+      answerType: z.enum(["single", "multi", "text", "yes_no", "approve_revise"]).optional(),
+      options: z.array(z.object({ value: z.string(), note: z.string().optional() })).optional(),
+      recommended: z.string().optional(),
+      blocks: z.enum(["step", "branch", "nothing"]).optional(),
+      artifact: z.string().optional(),
+      id: z.string().optional(),
+      answer: z.string().optional(),
+      note: z.string().optional(),
+      suggested: z.string().optional(),
+      reason: z.string().optional(),
+      expect_rev: z.number().int().positive().optional(),
+      stepId: z.string().optional(),
+      attempt: z.number().int().positive().optional(),
+      runId: z.string().optional(),
+      run: z.string().optional(),
+      status: z.enum(["open", "answered", "withdrawn"]).optional(),
+    },
+  }, async (p) => {
+    if (p.action === "ask") {
+      return json(await callOp(getCtx(), "question.ask", {
+        text: p.text, answerType: p.answerType, options: p.options, recommended: p.recommended,
+        blocks: p.blocks ?? "step", stepId: p.stepId, attempt: p.attempt, runId: p.runId,
+        artifact: p.artifact,
+      }, msgDeps()) as Record<string, unknown>);
+    }
+    if (p.action === "answer") {
+      return json(await callOp(getCtx(), "question.answer", {
+        id: p.id, answer: p.answer, note: p.note, expect_rev: p.expect_rev,
+      }, msgDeps()) as Record<string, unknown>);
+    }
+    if (p.action === "escalate") {
+      return json(await callOp(getCtx(), "question.escalate", {
+        id: p.id, suggested: p.suggested, reason: p.reason, expect_rev: p.expect_rev,
+      }, msgDeps()) as Record<string, unknown>);
+    }
+    if (p.action === "get") return json(await callOp(getCtx(), "question.get", { id: p.id }, msgDeps()) as Record<string, unknown>);
+    if (p.action === "convert") {
+      return json(await callOp(getCtx(), "question.convert_prompt", { id: p.id }, msgDeps()) as Record<string, unknown>);
+    }
+    return json(await callOp(getCtx(), "question.list", { run: p.run, status: p.status }, msgDeps()) as Record<string, unknown>);
+  });
   server.registerTool("msg_send", {
     description: "Send a message to an agent. A message to a finished delegated task continues its native session in the same worktree; its reply arrives as a report in your inbox.",
     inputSchema: { to: z.string(), body: z.string().min(1), kind: z.enum(["message", "question", "answer"]).optional(), reply_to: z.string().optional(), request_id: z.string().optional() },

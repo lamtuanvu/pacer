@@ -4,6 +4,19 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Added
+
+- **Anthropic and Gemini for `assistant-pacer`.** Endpoint `connection.api` accepts `anthropic` and `gemini` beside `openai-compatible`. The native assistant plugin selects the matching Rig client, passes the remaining output-token budget on each model call, and reports those accounts unavailable (never legacy-routed) when the native binary is absent. Keyless (`key: none`) stays openai-compatible only.
+
+### Changed
+
+- **`assistant.respond` is deprecated.** Prefer `assistant.reply` on the native `assistant-pacer` (or `assistant-executor`) plugin. The host still falls back to the legacy TypeScript `pacer-assistant` / `assistant.respond` loop for openai-compatible accounts when `pacer-assistant-pacer` is missing or outdated, and logs one Activity warning naming that cause. Removal is planned for one pacer release after the native-plugin updater ships ([ADR 0028](docs/decisions/0028-assistant-backends.md), [assistant backends design](docs/specs/2026-11-17-assistant-backends-design.md) phase 4 step 2).
+
+### Fixed
+
+- **Automatic desktop updates no longer stay broken after the native control socket file is deleted.** The service notices the missing path, logs `pacer: native control socket missing; rebinding`, and restarts with backoff instead of listening forever on an orphaned fd. Failed native hellos now log a rate-limited reason to `serve.log`, and the desktop distinguishes a handshake close from storage I/O.
+- **Desktop updates stay connected while pacer is busy.** Connecting and read-only native update status no longer require every pacer process to be covered. Install still waits for running work to drain, treats the service's own process tree and enrolled lease trees as covered, ignores short-lived same-path CLI clients, prunes local leases that cannot survive the current boot (including unfinished `runDir` evidence from a previous boot or a missing `runDir`), and still refuses a foreign-path pacer binary. Settings shows that the update will install when running tasks finish instead of "Automatic desktop updates are unavailable".
+
 ## [0.17.8] - 2026-11-22
 
 ### Fixed
@@ -11,6 +24,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - **Choosing Use the app's service no longer loops forever when a CLI service is already installed.** In release builds the app now moves that service to its own bundled command once your tasks and terminals are idle, and plain Consent still shows the Existing page so you can keep yours. A stuck install that still names the app's own terminal link is repaired once without asking, and a failed automatic move is not retried for the rest of that launch.
 
 ## [0.17.7] - 2026-11-20
+- **`liveTools` on assistant candidates and status.** Each assistant candidate row and `assistant.status` say whether that backend currently gets live pacer tools (pacer's agent always; opencode ACP and Codex app-server after a self-test that proved a pacer tool call). Settings › Assistant and the sheet setup rows list the same reads when tools are live, and keep the summary-only wording when they are not.
+- **`liveTools` on assistant candidates and status.** Each assistant candidate row and `assistant.status` say whether that backend currently gets live pacer tools (pacer's agent always; opencode ACP, Codex app-server, and Claude Code control-protocol after a self-test that proved a pacer tool call). Settings › Assistant and the sheet setup rows list the same reads when tools are live, and keep the summary-only wording when they are not.
 
 ### Fixed
 

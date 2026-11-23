@@ -10,99 +10,188 @@ import { CoreError } from "../core/errors";
 import type { WorkflowDef } from "./schema";
 
 // The connection is cached by taskDatabase; schema setup must therefore also run once
-// per connection, not per call (see dispatch/store.ts for the same guard).
-const ready = new WeakSet<Database>();
+// per connection, not per call (see dispatch/store.ts for the same guard). Apply the
+// whole DDL in one immediate transaction so a concurrent reader (or a test that copies
+// tasks.db + WAL mid-startup) never observes a partial workflow schema — phase 2 added
+// many CREATE/ALTER steps after the original tables, which made that window flake
+// native/forwarded parity (workflow_decisions appearing on only one side).
+let ready = new WeakSet<Database>();
+/** Test-only: forget schema-init so the next `workflowDatabase` re-runs DDL/migrations. */
+export function resetWorkflowSchemaReadyForTests(): void {
+  ready = new WeakSet();
+}
 export function workflowDatabase(ctx: Ctx): Database {
   const db = taskDatabase(ctx);
   if (ready.has(db)) return db;
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS workflow_defs(id TEXT, version INTEGER, source TEXT, def TEXT, added_at REAL, PRIMARY KEY(id, version));
-    CREATE TABLE IF NOT EXISTS workflow_runs(id TEXT PRIMARY KEY, workflow TEXT, version INTEGER, repo TEXT, brief TEXT, title TEXT, status TEXT, reason TEXT, loops TEXT, rev INTEGER, created_at REAL, updated_at REAL);
-    CREATE TABLE IF NOT EXISTS workflow_steps(run_id TEXT, step_id TEXT, attempt INTEGER, branch TEXT, task_id TEXT UNIQUE, status TEXT, result TEXT, error TEXT, started_at REAL, ended_at REAL, PRIMARY KEY(run_id, step_id, attempt, branch));
-    CREATE TABLE IF NOT EXISTS workflow_cursor(id INTEGER PRIMARY KEY CHECK(id=1), seq INTEGER);
-  `);
-  // Added after the first schema; existing databases gain the columns in place
-  // (pattern: src/messaging/store.ts). advanced_at records when a done step's
-  // outgoing edges were processed ("nothing left to do" for the re-advance query),
-  // so advancement survives a crash in between; a database that predates the
-  // column has its finished rows backfilled as already advanced, so an upgrade
-  // does not replay every historical step's edges once.
-  if (!db.query<{ name: string }, []>("PRAGMA table_info(workflow_steps)").all().some(c => c.name === "advanced_at")) {
-    db.exec("ALTER TABLE workflow_steps ADD COLUMN advanced_at REAL NULL");
-    db.exec("UPDATE workflow_steps SET advanced_at = COALESCE(ended_at, started_at) WHERE status NOT IN ('running', 'waiting')");
-  }
-  // trigger records what caused a successor row: '<runId>/<stepId>#<attempt>/<branch>@<edgeIndex>'.
-  // The unique index makes firing an edge exclusive: a second attempt to insert a
-  // successor for an already-fired edge fails instead of duplicating the work
-  // (NULLs are allowed — entry steps and join rows have no trigger).
-  if (!db.query<{ name: string }, []>("PRAGMA table_info(workflow_steps)").all().some(c => c.name === "trigger")) db.exec(`ALTER TABLE workflow_steps ADD COLUMN "trigger" TEXT NULL`);
-  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS workflow_steps_trigger ON workflow_steps("trigger")`);
-  // The tick runs every second and reads steps by live status (orphans, re-advance,
-  // recovery); partial indexes keep those scans cheap as the step history grows
-  // (round 4 review).
-  db.exec("CREATE INDEX IF NOT EXISTS workflow_steps_live ON workflow_steps(run_id) WHERE status IN ('running', 'waiting')");
-  db.exec("CREATE INDEX IF NOT EXISTS workflow_steps_unadvanced ON workflow_steps(run_id) WHERE status = 'done' AND advanced_at IS NULL");
-  // Phase 2: durable orchestrator wake-ups and turns (one live turn per run).
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS workflow_wakeups(
-      run_id TEXT NOT NULL,
-      cause TEXT NOT NULL,
-      ref TEXT NOT NULL,
-      created_at REAL NOT NULL,
-      turn_id TEXT NULL,
-      done_at REAL NULL,
-      by_person INTEGER NOT NULL DEFAULT 0,
-      PRIMARY KEY(run_id, cause, ref)
-    );
-    CREATE TABLE IF NOT EXISTS workflow_turns(
-      id TEXT PRIMARY KEY,
-      run_id TEXT NOT NULL,
-      planner TEXT NOT NULL,
-      session_id TEXT NULL,
-      task_id TEXT NULL,
-      status TEXT NOT NULL,
-      reason TEXT NULL,
-      started_at REAL NOT NULL,
-      deadline REAL NOT NULL,
-      ended_at REAL NULL,
-      failures INTEGER NOT NULL DEFAULT 0,
-      seq INTEGER NOT NULL DEFAULT 0
-    );
-  `);
-  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS workflow_turns_live ON workflow_turns(run_id) WHERE status IN ('starting', 'running')");
-  const turnColumns = db.query<{ name: string }, []>("PRAGMA table_info(workflow_turns)").all().map(c => c.name);
-  if (!turnColumns.includes("seq")) {
-    db.exec("ALTER TABLE workflow_turns ADD COLUMN seq INTEGER NOT NULL DEFAULT 0");
-  }
-  // Orchestrator state columns on the run (auto mode, planner, session, budget).
-  const runColumns = db.query<{ name: string }, []>("PRAGMA table_info(workflow_runs)").all().map(c => c.name);
-  if (!runColumns.includes("auto")) db.exec("ALTER TABLE workflow_runs ADD COLUMN auto INTEGER NOT NULL DEFAULT 0");
-  if (!runColumns.includes("planner")) db.exec("ALTER TABLE workflow_runs ADD COLUMN planner TEXT");
-  if (!runColumns.includes("orchestrator_task_id")) db.exec("ALTER TABLE workflow_runs ADD COLUMN orchestrator_task_id TEXT");
-  if (!runColumns.includes("session_id")) db.exec("ALTER TABLE workflow_runs ADD COLUMN session_id TEXT");
-  if (!runColumns.includes("budget")) db.exec("ALTER TABLE workflow_runs ADD COLUMN budget TEXT");
-  if (!runColumns.includes("spent")) db.exec("ALTER TABLE workflow_runs ADD COLUMN spent TEXT");
-  if (!runColumns.includes("next_wake_at")) db.exec("ALTER TABLE workflow_runs ADD COLUMN next_wake_at REAL");
-  if (!runColumns.includes("orchestrator_state")) db.exec("ALTER TABLE workflow_runs ADD COLUMN orchestrator_state TEXT");
-  if (!runColumns.includes("parent_run_id")) db.exec("ALTER TABLE workflow_runs ADD COLUMN parent_run_id TEXT");
-  if (!runColumns.includes("parent_step")) db.exec("ALTER TABLE workflow_runs ADD COLUMN parent_step TEXT");
-  if (!runColumns.includes("strict_steps")) db.exec("ALTER TABLE workflow_runs ADD COLUMN strict_steps TEXT");
-  if (!runColumns.includes("pending_planner")) db.exec("ALTER TABLE workflow_runs ADD COLUMN pending_planner TEXT");
-  // Decision log: every orchestrator (and refused) choice with its reason (G7).
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS workflow_decisions(
-      id TEXT PRIMARY KEY,
-      run_id TEXT NOT NULL,
-      step_id TEXT NOT NULL,
-      attempt INTEGER NOT NULL,
-      actor TEXT NOT NULL,
-      kind TEXT NOT NULL,
-      choice TEXT NOT NULL,
-      reason TEXT NOT NULL,
-      at REAL NOT NULL
-    );
-  `);
-  db.exec("CREATE INDEX IF NOT EXISTS workflow_decisions_run ON workflow_decisions(run_id, at, id)");
+  db.transaction(() => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS workflow_defs(id TEXT, version INTEGER, source TEXT, def TEXT, added_at REAL, PRIMARY KEY(id, version));
+      CREATE TABLE IF NOT EXISTS workflow_runs(id TEXT PRIMARY KEY, workflow TEXT, version INTEGER, repo TEXT, brief TEXT, title TEXT, status TEXT, reason TEXT, loops TEXT, rev INTEGER, created_at REAL, updated_at REAL);
+      CREATE TABLE IF NOT EXISTS workflow_steps(run_id TEXT, step_id TEXT, attempt INTEGER, branch TEXT, task_id TEXT UNIQUE, status TEXT, result TEXT, error TEXT, started_at REAL, ended_at REAL, PRIMARY KEY(run_id, step_id, attempt, branch));
+      CREATE TABLE IF NOT EXISTS workflow_cursor(id INTEGER PRIMARY KEY CHECK(id=1), seq INTEGER);
+    `);
+    // Added after the first schema; existing databases gain the columns in place
+    // (pattern: src/messaging/store.ts). advanced_at records when a done step's
+    // outgoing edges were processed ("nothing left to do" for the re-advance query),
+    // so advancement survives a crash in between; a database that predates the
+    // column has its finished rows backfilled as already advanced, so an upgrade
+    // does not replay every historical step's edges once.
+    if (!db.query<{ name: string }, []>("PRAGMA table_info(workflow_steps)").all().some(c => c.name === "advanced_at")) {
+      db.exec("ALTER TABLE workflow_steps ADD COLUMN advanced_at REAL NULL");
+      db.exec("UPDATE workflow_steps SET advanced_at = COALESCE(ended_at, started_at) WHERE status NOT IN ('running', 'waiting')");
+    }
+    // trigger records what caused a successor row: '<runId>/<stepId>#<attempt>/<branch>@<edgeIndex>'.
+    // The unique index makes firing an edge exclusive: a second attempt to insert a
+    // successor for an already-fired edge fails instead of duplicating the work
+    // (NULLs are allowed — entry steps and join rows have no trigger).
+    if (!db.query<{ name: string }, []>("PRAGMA table_info(workflow_steps)").all().some(c => c.name === "trigger")) db.exec(`ALTER TABLE workflow_steps ADD COLUMN "trigger" TEXT NULL`);
+    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS workflow_steps_trigger ON workflow_steps("trigger")`);
+    // The tick runs every second and reads steps by live status (orphans, re-advance,
+    // recovery); partial indexes keep those scans cheap as the step history grows
+    // (round 4 review).
+    db.exec("CREATE INDEX IF NOT EXISTS workflow_steps_live ON workflow_steps(run_id) WHERE status IN ('running', 'waiting')");
+    db.exec("CREATE INDEX IF NOT EXISTS workflow_steps_unadvanced ON workflow_steps(run_id) WHERE status = 'done' AND advanced_at IS NULL");
+    // Phase 2: durable orchestrator wake-ups and turns (one live turn per run).
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS workflow_wakeups(
+        run_id TEXT NOT NULL,
+        cause TEXT NOT NULL,
+        ref TEXT NOT NULL,
+        created_at REAL NOT NULL,
+        turn_id TEXT NULL,
+        done_at REAL NULL,
+        by_person INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY(run_id, cause, ref)
+      );
+      CREATE TABLE IF NOT EXISTS workflow_turns(
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        planner TEXT NOT NULL,
+        session_id TEXT NULL,
+        task_id TEXT NULL,
+        status TEXT NOT NULL,
+        reason TEXT NULL,
+        started_at REAL NOT NULL,
+        deadline REAL NOT NULL,
+        ended_at REAL NULL,
+        failures INTEGER NOT NULL DEFAULT 0,
+        seq INTEGER NOT NULL DEFAULT 0
+      );
+    `);
+    db.exec("CREATE UNIQUE INDEX IF NOT EXISTS workflow_turns_live ON workflow_turns(run_id) WHERE status IN ('starting', 'running')");
+    const turnColumns = db.query<{ name: string }, []>("PRAGMA table_info(workflow_turns)").all().map(c => c.name);
+    if (!turnColumns.includes("seq")) {
+      db.exec("ALTER TABLE workflow_turns ADD COLUMN seq INTEGER NOT NULL DEFAULT 0");
+    }
+    // Orchestrator state columns on the run (auto mode, planner, session, budget).
+    const runColumns = db.query<{ name: string }, []>("PRAGMA table_info(workflow_runs)").all().map(c => c.name);
+    if (!runColumns.includes("auto")) db.exec("ALTER TABLE workflow_runs ADD COLUMN auto INTEGER NOT NULL DEFAULT 0");
+    if (!runColumns.includes("planner")) db.exec("ALTER TABLE workflow_runs ADD COLUMN planner TEXT");
+    if (!runColumns.includes("orchestrator_task_id")) db.exec("ALTER TABLE workflow_runs ADD COLUMN orchestrator_task_id TEXT");
+    if (!runColumns.includes("session_id")) db.exec("ALTER TABLE workflow_runs ADD COLUMN session_id TEXT");
+    if (!runColumns.includes("budget")) db.exec("ALTER TABLE workflow_runs ADD COLUMN budget TEXT");
+    if (!runColumns.includes("spent")) db.exec("ALTER TABLE workflow_runs ADD COLUMN spent TEXT");
+    if (!runColumns.includes("next_wake_at")) db.exec("ALTER TABLE workflow_runs ADD COLUMN next_wake_at REAL");
+    if (!runColumns.includes("orchestrator_state")) db.exec("ALTER TABLE workflow_runs ADD COLUMN orchestrator_state TEXT");
+    if (!runColumns.includes("parent_run_id")) db.exec("ALTER TABLE workflow_runs ADD COLUMN parent_run_id TEXT");
+    if (!runColumns.includes("parent_step")) db.exec("ALTER TABLE workflow_runs ADD COLUMN parent_step TEXT");
+    if (!runColumns.includes("strict_steps")) db.exec("ALTER TABLE workflow_runs ADD COLUMN strict_steps TEXT");
+    if (!runColumns.includes("pending_planner")) db.exec("ALTER TABLE workflow_runs ADD COLUMN pending_planner TEXT");
+    // Phase 3: pin each run's step start path (D8). Pre-existing rows read as plain.
+    if (!runColumns.includes("step_mode")) db.exec("ALTER TABLE workflow_runs ADD COLUMN step_mode TEXT NOT NULL DEFAULT 'plain'");
+    if (!runColumns.includes("root_task_id")) db.exec("ALTER TABLE workflow_runs ADD COLUMN root_task_id TEXT");
+    // Phase 5: run branch (created lazily at the first code step). Pre-existing rows stay NULL.
+    if (!runColumns.includes("branch")) db.exec("ALTER TABLE workflow_runs ADD COLUMN branch TEXT");
+    if (!runColumns.includes("base_ref")) db.exec("ALTER TABLE workflow_runs ADD COLUMN base_ref TEXT");
+    if (!runColumns.includes("base_sha")) db.exec("ALTER TABLE workflow_runs ADD COLUMN base_sha TEXT");
+    // Phase 5 publishing: optional draft opt-in at start, and the PR URL after publish.
+    if (!runColumns.includes("publish_opt_in")) db.exec("ALTER TABLE workflow_runs ADD COLUMN publish_opt_in TEXT");
+    if (!runColumns.includes("pr_url")) db.exec("ALTER TABLE workflow_runs ADD COLUMN pr_url TEXT");
+    // Phase 5 fix I1/R2-F3: durable unresolved conflict marker(s) as a JSON list.
+    if (!runColumns.includes("conflict")) db.exec("ALTER TABLE workflow_runs ADD COLUMN conflict TEXT");
+    // Idempotent object→list migration for rows written before R2-F3.
+    db.exec(`
+      UPDATE workflow_runs
+      SET conflict = json_array(json(conflict))
+      WHERE conflict IS NOT NULL
+        AND json_valid(conflict)
+        AND json_type(conflict) = 'object'
+    `);
+    // Decision log: every orchestrator (and refused) choice with its reason (G7).
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS workflow_decisions(
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        step_id TEXT NOT NULL,
+        attempt INTEGER NOT NULL,
+        actor TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        choice TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        at REAL NOT NULL
+      );
+    `);
+    db.exec("CREATE INDEX IF NOT EXISTS workflow_decisions_run ON workflow_decisions(run_id, at, id)");
+    // Phase 3: versioned generated graphs linked to the producing generate step.
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS workflow_graphs(
+        run_id TEXT NOT NULL,
+        step_id TEXT NOT NULL,
+        attempt INTEGER NOT NULL,
+        version INTEGER NOT NULL,
+        def TEXT NOT NULL,
+        status TEXT NOT NULL,
+        reason TEXT,
+        created_at REAL NOT NULL,
+        PRIMARY KEY(run_id, step_id, attempt, version)
+      );
+    `);
+    db.exec("CREATE INDEX IF NOT EXISTS workflow_graphs_run ON workflow_graphs(run_id, step_id, attempt, version)");
+    // Phase 4: structured questions (one thread = one record).
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS workflow_questions(
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        step_id TEXT NOT NULL,
+        attempt INTEGER NOT NULL,
+        branch TEXT,
+        asker_task_id TEXT,
+        asker_kind TEXT NOT NULL,
+        text TEXT NOT NULL,
+        answer_type TEXT NOT NULL,
+        options TEXT,
+        recommended TEXT,
+        blocks TEXT NOT NULL,
+        artifact TEXT,
+        answerer TEXT NOT NULL,
+        chain TEXT NOT NULL,
+        suggested TEXT,
+        answer TEXT,
+        answered_by TEXT,
+        status TEXT NOT NULL,
+        rev INTEGER NOT NULL,
+        created_at REAL NOT NULL,
+        answered_at REAL
+      );
+    `);
+    db.exec("CREATE INDEX IF NOT EXISTS workflow_questions_run ON workflow_questions(run_id, created_at, id)");
+    db.exec("CREATE INDEX IF NOT EXISTS workflow_questions_open ON workflow_questions(run_id) WHERE status = 'open'");
+    // Phase 5: step artifact metadata (blobs live under PACER_HOME/runs/<id>/artifacts/).
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS workflow_artifacts(
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        step_id TEXT NOT NULL,
+        attempt INTEGER NOT NULL,
+        label TEXT NOT NULL,
+        name TEXT NOT NULL,
+        mime TEXT NOT NULL,
+        size INTEGER NOT NULL,
+        created_at REAL NOT NULL
+      );
+    `);
+    db.exec("CREATE INDEX IF NOT EXISTS workflow_artifacts_run ON workflow_artifacts(run_id, created_at, id)");
+  }).immediate();
   ready.add(db);
   return db;
 }
@@ -139,6 +228,66 @@ export interface RunRow {
   strictSteps?: string[];
   /** Planner switch queued for the next turn (D2). */
   pendingPlanner?: string;
+  /** Phase 3: `plain` (Phase 1/2) or `work_node` (engine-owned root). Pinned for the run's life (D8). */
+  stepMode?: "plain" | "work_node";
+  /** Engine-owned dispatcher root for `work_node` runs. */
+  rootTaskId?: string;
+  /** Phase 5: local run branch (`pacer/run-<id>`), base ref name and the tip sha at creation. */
+  branch?: string;
+  baseRef?: string;
+  baseSha?: string;
+  /** Phase 5: `draft` when the person opted in at start for draft-only publish. */
+  publishOptIn?: "draft";
+  /** Phase 5: URL of the opened PR after a successful publish. */
+  prUrl?: string;
+  /**
+   * Phase 5: durable unresolved merge conflict entries (publish gate).
+   * Cleared per entry only after the conflicting branch is an ancestor of the run branch.
+   */
+  conflict?: RunConflict[];
+}
+
+/** One durable run-level merge conflict entry (not derived from resolution-task state). */
+export type RunConflict = {
+  taskId: string;
+  branch: string;
+  resolutionTaskId: string;
+};
+
+function isConflictEntry(value: unknown): value is RunConflict {
+  if (!value || typeof value !== "object") return false;
+  const e = value as Record<string, unknown>;
+  return typeof e.taskId === "string" && typeof e.branch === "string"
+    && typeof e.resolutionTaskId === "string";
+}
+
+/**
+ * Parse stored conflict JSON: a list, or a legacy single object (pre R2-F3).
+ * M4 fail-closed: malformed / non-entry JSON is treated as one unresolved sentinel
+ * so the publish gate stays closed (never opens on garbage).
+ */
+export function parseRunConflicts(raw: string | null | undefined): RunConflict[] | undefined {
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (Array.isArray(parsed) && parsed.length === 0) return undefined;
+    const list = Array.isArray(parsed) ? parsed : [parsed];
+    const entries = list.filter(isConflictEntry);
+    if (entries.length > 0) return entries;
+    // Valid JSON but no recognizable entries (e.g. `{}`, `[null]`, `"x"`): still unresolved.
+    return [{
+      taskId: "__malformed__",
+      branch: "__malformed__",
+      resolutionTaskId: "__malformed__",
+    }];
+  } catch {
+    // Unparseable: fail closed — publish must not proceed.
+    return [{
+      taskId: "__malformed__",
+      branch: "__malformed__",
+      resolutionTaskId: "__malformed__",
+    }];
+  }
 }
 
 export interface DecisionRow {
@@ -187,6 +336,8 @@ export type NewRun = {
   sessionId?: string;
   budget?: string;
   spent?: string;
+  stepMode?: "plain" | "work_node";
+  rootTaskId?: string;
 };
 
 export type StepKey = { runId: string; stepId: string; attempt: number; branch?: string };
@@ -219,6 +370,14 @@ interface RunDbRow {
   parent_step?: string | null;
   strict_steps?: string | null;
   pending_planner?: string | null;
+  step_mode?: string | null;
+  root_task_id?: string | null;
+  branch?: string | null;
+  base_ref?: string | null;
+  base_sha?: string | null;
+  publish_opt_in?: string | null;
+  pr_url?: string | null;
+  conflict?: string | null;
 }
 interface StepDbRow {
   run_id: string; step_id: string; attempt: number; branch: string | null; task_id: string | null;
@@ -254,6 +413,15 @@ function runFromRow(row: RunDbRow): RunRow {
     try { out.strictSteps = JSON.parse(row.strict_steps) as string[]; } catch { /* ignore bad JSON */ }
   }
   if (row.pending_planner) out.pendingPlanner = row.pending_planner;
+  out.stepMode = row.step_mode === "work_node" ? "work_node" : "plain";
+  if (row.root_task_id) out.rootTaskId = row.root_task_id;
+  if (row.branch) out.branch = row.branch;
+  if (row.base_ref) out.baseRef = row.base_ref;
+  if (row.base_sha) out.baseSha = row.base_sha;
+  if (row.publish_opt_in === "draft") out.publishOptIn = "draft";
+  if (row.pr_url) out.prUrl = row.pr_url;
+  const conflicts = parseRunConflicts(row.conflict);
+  if (conflicts) out.conflict = conflicts;
   return out;
 }
 
@@ -353,14 +521,17 @@ export function insertRun(ctx: Ctx, r: NewRun): RunRow {
   if (r.sessionId) row.sessionId = r.sessionId;
   if (r.budget) row.budget = r.budget;
   if (r.spent) row.spent = r.spent;
+  row.stepMode = r.stepMode ?? "work_node";
+  if (r.rootTaskId) row.rootTaskId = r.rootTaskId;
   db.query(
-    "INSERT INTO workflow_runs(id, workflow, version, repo, brief, title, status, reason, loops, rev, created_at, updated_at, parent_run_id, parent_step, planner, orchestrator_task_id, session_id, budget, spent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    "INSERT INTO workflow_runs(id, workflow, version, repo, brief, title, status, reason, loops, rev, created_at, updated_at, parent_run_id, parent_step, planner, orchestrator_task_id, session_id, budget, spent, step_mode, root_task_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
   ).run(
     row.id, row.workflow, row.version, row.repo, row.brief, row.title, row.status, null,
     JSON.stringify(row.loops), row.rev, row.createdAt, row.updatedAt,
     row.parentRunId ?? null, row.parentStep ?? null,
     row.planner ?? null, row.orchestratorTaskId ?? null, row.sessionId ?? null,
     row.budget ?? null, row.spent ?? null,
+    row.stepMode, row.rootTaskId ?? null,
   );
   return row;
 }
@@ -380,6 +551,137 @@ export function getRun(ctx: Ctx, id: string): RunRow | null {
   return row ? runFromRow(row) : null;
 }
 
+/** Record the run branch once without bumping `rev` (engine-owned, like setRootTaskId). */
+export function setRunBranch(ctx: Ctx, runId: string, info: { branch: string; base_ref: string; base_sha: string }): void {
+  const db = workflowDatabase(ctx);
+  const result = db.query(
+    "UPDATE workflow_runs SET branch = ?, base_ref = ?, base_sha = ? WHERE id = ? AND (branch IS NULL OR branch = '')",
+  ).run(info.branch, info.base_ref, info.base_sha, runId);
+  if (result.changes === 0) {
+    const current = getRun(ctx, runId);
+    if (!current) throw new CoreError("not_found", `unknown run ${runId}`);
+    if (current.branch && current.branch !== info.branch) {
+      throw new CoreError("conflict", `conflict: run ${runId} already has a branch`);
+    }
+  }
+}
+
+/** Person opt-in at start for draft-only publish (`publish: draft`). Does not bump `rev`. */
+export function setPublishOptIn(ctx: Ctx, runId: string, optIn: "draft"): void {
+  const db = workflowDatabase(ctx);
+  const result = db.query(
+    "UPDATE workflow_runs SET publish_opt_in = ? WHERE id = ? AND (publish_opt_in IS NULL OR publish_opt_in = ?)",
+  ).run(optIn, runId, optIn);
+  if (result.changes === 0) {
+    const current = getRun(ctx, runId);
+    if (!current) throw new CoreError("not_found", `unknown run ${runId}`);
+    if (current.publishOptIn && current.publishOptIn !== optIn) {
+      throw new CoreError("conflict", `conflict: run ${runId} already has a publish opt-in`);
+    }
+  }
+}
+
+/** Clear local branch columns after `run.cleanup` deletes the branch. Does not bump `rev`. */
+export function clearRunBranch(ctx: Ctx, runId: string): void {
+  workflowDatabase(ctx).query(
+    "UPDATE workflow_runs SET branch = NULL, base_ref = NULL, base_sha = NULL WHERE id = ?",
+  ).run(runId);
+}
+
+/** Store the PR URL after publish. Idempotent for the same URL; a different URL is a conflict. */
+export function setRunPrUrl(ctx: Ctx, runId: string, prUrl: string): void {
+  const db = workflowDatabase(ctx);
+  const result = db.query(
+    "UPDATE workflow_runs SET pr_url = ? WHERE id = ? AND (pr_url IS NULL OR pr_url = '' OR pr_url = ?)",
+  ).run(prUrl, runId, prUrl);
+  if (result.changes === 0) {
+    const current = getRun(ctx, runId);
+    if (!current) throw new CoreError("not_found", `unknown run ${runId}`);
+    if (current.prUrl && current.prUrl !== prUrl) {
+      throw new CoreError("conflict", `conflict: run ${runId} already has a different PR URL`);
+    }
+  }
+}
+
+/**
+ * Upsert one unresolved merge conflict entry on the run (publish gate).
+ * Keyed by taskId+branch so a second conflict does not erase the first (R2-F3).
+ * Does not bump `rev`.
+ */
+export function setRunConflict(ctx: Ctx, runId: string, conflict: RunConflict): void {
+  const db = workflowDatabase(ctx);
+  const current = getRun(ctx, runId);
+  if (!current) throw new CoreError("not_found", `unknown run ${runId}`);
+  const list = [...(current.conflict ?? [])];
+  const idx = list.findIndex(e => e.taskId === conflict.taskId && e.branch === conflict.branch);
+  if (idx >= 0) list[idx] = conflict;
+  else list.push(conflict);
+  const result = db.query(
+    "UPDATE workflow_runs SET conflict = ? WHERE id = ?",
+  ).run(JSON.stringify(list), runId);
+  if (result.changes === 0) throw new CoreError("not_found", `unknown run ${runId}`);
+}
+
+/** Replace the full conflict list (or clear when empty). Does not bump `rev`. */
+export function replaceRunConflicts(ctx: Ctx, runId: string, conflicts: RunConflict[]): void {
+  const db = workflowDatabase(ctx);
+  const result = db.query(
+    "UPDATE workflow_runs SET conflict = ? WHERE id = ?",
+  ).run(conflicts.length > 0 ? JSON.stringify(conflicts) : null, runId);
+  if (result.changes === 0) throw new CoreError("not_found", `unknown run ${runId}`);
+}
+
+/** Clear every durable conflict marker on the run. Prefer clearRunConflictEntry. */
+export function clearRunConflict(ctx: Ctx, runId: string): void {
+  replaceRunConflicts(ctx, runId, []);
+}
+
+/** Remove conflict entries matching the predicate. */
+export function clearRunConflictEntry(
+  ctx: Ctx,
+  runId: string,
+  match: (entry: RunConflict) => boolean,
+): void {
+  const current = getRun(ctx, runId);
+  if (!current?.conflict?.length) return;
+  const next = current.conflict.filter(e => !match(e));
+  if (next.length !== current.conflict.length) replaceRunConflicts(ctx, runId, next);
+}
+
+/** Find a conflict entry that names this resolution task (or the conflicting task). */
+export function conflictEntryForTask(run: { conflict?: RunConflict[] }, taskId: string): RunConflict | undefined {
+  return run.conflict?.find(e => e.resolutionTaskId === taskId || e.taskId === taskId);
+}
+
+/** Attach the engine-owned root work node without bumping `rev` (part of start, not a client-visible patch). */
+export function setRootTaskId(ctx: Ctx, runId: string, rootTaskId: string): void {
+  const db = workflowDatabase(ctx);
+  const result = db.query(
+    "UPDATE workflow_runs SET root_task_id = ?, step_mode = COALESCE(NULLIF(step_mode, ''), 'work_node') WHERE id = ? AND (root_task_id IS NULL OR root_task_id = ?)",
+  ).run(rootTaskId, runId, rootTaskId);
+  if (result.changes === 0) {
+    const current = getRun(ctx, runId);
+    if (!current) throw new CoreError("not_found", `unknown run ${runId}`);
+    if (current.rootTaskId && current.rootTaskId !== rootTaskId) {
+      throw new CoreError("conflict", `conflict: run ${runId} already has a root task`);
+    }
+  }
+}
+
+/** Compare-and-set replacement when the previous root is dead (deleted/archived/lost work row). */
+export function replaceRootTaskId(ctx: Ctx, runId: string, oldRootTaskId: string, newRootTaskId: string): void {
+  const db = workflowDatabase(ctx);
+  const result = db.query(
+    "UPDATE workflow_runs SET root_task_id = ?, step_mode = COALESCE(NULLIF(step_mode, ''), 'work_node') WHERE id = ? AND root_task_id = ?",
+  ).run(newRootTaskId, runId, oldRootTaskId);
+  if (result.changes === 0) {
+    const current = getRun(ctx, runId);
+    if (!current) throw new CoreError("not_found", `unknown run ${runId}`);
+    if (current.rootTaskId === newRootTaskId) return;
+    throw new CoreError("conflict", `conflict: run ${runId} root task changed`);
+  }
+}
+
 export function listRuns(ctx: Ctx, status?: RunStatus): RunRow[] {
   const db = workflowDatabase(ctx);
   const rows = status === undefined
@@ -395,7 +697,7 @@ export function liveRuns(ctx: Ctx): RunRow[] {
   return workflowDatabase(ctx).query<RunDbRow, []>("SELECT * FROM workflow_runs WHERE status IN ('running', 'waiting') ORDER BY created_at, id").all().map(runFromRow);
 }
 
-export type RunPatch = Partial<Pick<RunRow, "status" | "title" | "loops" | "auto" | "planner" | "orchestratorTaskId" | "sessionId" | "budget" | "spent" | "strictSteps">> & {
+export type RunPatch = Partial<Pick<RunRow, "status" | "title" | "loops" | "auto" | "planner" | "orchestratorTaskId" | "sessionId" | "budget" | "spent" | "strictSteps" | "stepMode" | "rootTaskId">> & {
   reason?: string | null;
   nextWakeAt?: number | null;
   orchestratorState?: string | null;
@@ -428,6 +730,8 @@ export function updateRun(ctx: Ctx, id: string, expectRev: number, patch: RunPat
       pendingPlanner: patch.pendingPlanner === undefined ? current.pendingPlanner : (patch.pendingPlanner ?? undefined),
       nextWakeAt: patch.nextWakeAt === undefined ? current.nextWakeAt : (patch.nextWakeAt ?? undefined),
       orchestratorState: patch.orchestratorState === undefined ? current.orchestratorState : (patch.orchestratorState ?? undefined),
+      stepMode: patch.stepMode === undefined ? current.stepMode : patch.stepMode,
+      rootTaskId: patch.rootTaskId === undefined ? current.rootTaskId : patch.rootTaskId,
       rev: current.rev + 1,
       updatedAt: ctx.now,
     };
@@ -441,8 +745,10 @@ export function updateRun(ctx: Ctx, id: string, expectRev: number, patch: RunPat
     if (updated.pendingPlanner === undefined) delete updated.pendingPlanner;
     if (updated.nextWakeAt === undefined) delete updated.nextWakeAt;
     if (updated.orchestratorState === undefined) delete updated.orchestratorState;
+    if (updated.stepMode === undefined) delete updated.stepMode;
+    if (updated.rootTaskId === undefined) delete updated.rootTaskId;
     const result = db.query(
-      "UPDATE workflow_runs SET status = ?, reason = ?, title = ?, loops = ?, rev = ?, updated_at = ?, auto = ?, planner = ?, orchestrator_task_id = ?, session_id = ?, budget = ?, spent = ?, next_wake_at = ?, orchestrator_state = ?, strict_steps = ?, pending_planner = ? WHERE id = ? AND rev = ?",
+      "UPDATE workflow_runs SET status = ?, reason = ?, title = ?, loops = ?, rev = ?, updated_at = ?, auto = ?, planner = ?, orchestrator_task_id = ?, session_id = ?, budget = ?, spent = ?, next_wake_at = ?, orchestrator_state = ?, strict_steps = ?, pending_planner = ?, step_mode = ?, root_task_id = ? WHERE id = ? AND rev = ?",
     ).run(
       updated.status,
       updated.reason ?? null,
@@ -460,6 +766,8 @@ export function updateRun(ctx: Ctx, id: string, expectRev: number, patch: RunPat
       updated.orchestratorState ?? null,
       updated.strictSteps ? JSON.stringify(updated.strictSteps) : null,
       updated.pendingPlanner ?? null,
+      updated.stepMode ?? "plain",
+      updated.rootTaskId ?? null,
       id,
       expectRev,
     );
@@ -657,15 +965,43 @@ export function fireEdge(ctx: Ctx, fire: EdgeFire): EdgeFireResult {
 /** Atomically answers a waiting human step row: the compare-and-set write lands
  *  only while the row is still `waiting` (like claimStepSettlement), so of two
  *  concurrent answers exactly one wins and the loser gets a conflict. Returns null
- *  when the row is not waiting (already answered, stopped, …). */
-export function claimStepAnswer(ctx: Ctx, key: StepKey, result: unknown): StepRow | null {
+ *  when the row is not waiting (already answered, stopped, …).
+ *  Optional `decision` is inserted in the same immediate transaction (R2-F6). */
+export function claimStepAnswer(
+  ctx: Ctx,
+  key: StepKey,
+  result: unknown,
+  extras?: {
+    decision?: {
+      runId: string;
+      stepId: string;
+      attempt: number;
+      actor: string;
+      kind: string;
+      choice: string;
+      reason: string;
+    };
+  },
+): StepRow | null {
   const db = workflowDatabase(ctx);
   const where = stepWhere(key);
-  const row = db.query<StepDbRow, SQLQueryBindings[]>(`SELECT * FROM workflow_steps WHERE ${where.sql}`).get(...where.bindings);
-  if (!row || row.status !== "waiting") return null;
-  const done = db.query(`UPDATE workflow_steps SET status = 'done', result = ?, ended_at = ? WHERE ${where.sql} AND status = 'waiting'`)
-    .run(JSON.stringify(result), ctx.now, ...where.bindings);
-  return done.changes === 1 ? stepFromRow({ ...row, status: "done", result: JSON.stringify(result), ended_at: ctx.now }) : null;
+  // M3: immediate so a concurrent writer cannot interleave between the claim and the decision.
+  // A tip that moves between tip-read and claim makes publish refuse (fail-closed); the person re-approves.
+  return db.transaction(() => {
+    const row = db.query<StepDbRow, SQLQueryBindings[]>(`SELECT * FROM workflow_steps WHERE ${where.sql}`).get(...where.bindings);
+    if (!row || row.status !== "waiting") return null;
+    const done = db.query(`UPDATE workflow_steps SET status = 'done', result = ?, ended_at = ? WHERE ${where.sql} AND status = 'waiting'`)
+      .run(JSON.stringify(result), ctx.now, ...where.bindings);
+    if (done.changes !== 1) return null;
+    if (extras?.decision) {
+      const d = extras.decision;
+      const id = newDecisionId();
+      db.query(
+        "INSERT INTO workflow_decisions(id, run_id, step_id, attempt, actor, kind, choice, reason, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      ).run(id, d.runId, d.stepId, d.attempt, d.actor, d.kind, d.choice, d.reason, ctx.now);
+    }
+    return stepFromRow({ ...row, status: "done", result: JSON.stringify(result), ended_at: ctx.now });
+  }).immediate();
 }
 
 /** Done step rows whose outgoing edges may never have been processed (advanced_at
@@ -686,6 +1022,80 @@ export function stepsOfRun(ctx: Ctx, runId: string): StepRow[] {
 
 export function stepByTask(ctx: Ctx, taskId: string): StepRow | null {
   const row = workflowDatabase(ctx).query<StepDbRow, [string]>("SELECT * FROM workflow_steps WHERE task_id = ?").get(taskId);
+  return row ? stepFromRow(row) : null;
+}
+
+/**
+ * Read-only: true when `taskId` is a workflow step of a run that already has a
+ * branch. Uses sqlite_master only — never runs workflow DDL — so ordinary
+ * accepts and the native review probe stay side-effect free on old DBs.
+ * Missing tables / columns mean "no". Other errors propagate (M4: fail closed
+ * for the probe only means "table/column missing", not "swallow everything").
+ */
+export function stepTaskNeedsRunBranchMerge(ctx: Ctx, taskId: string): boolean {
+  const db = taskDatabase(ctx);
+  let present: unknown;
+  let runsPresent: unknown;
+  try {
+    present = db.query(
+      "SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'workflow_steps'",
+    ).get();
+    runsPresent = db.query(
+      "SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'workflow_runs'",
+    ).get();
+  } catch {
+    return false;
+  }
+  if (!present || !runsPresent) return false;
+  try {
+    const row = db.query<{ branch: string | null }, [string]>(
+      `SELECT r.branch AS branch
+       FROM workflow_steps s
+       JOIN workflow_runs r ON r.id = s.run_id
+       WHERE s.task_id = ?
+       LIMIT 1`,
+    ).get(taskId);
+    if (typeof row?.branch === "string" && row.branch.length > 0) return true;
+    // Conflict-resolution tasks are not step-attached; they still merge into the run branch.
+    const conflictCol = db.query(
+      "SELECT 1 AS ok FROM pragma_table_info('workflow_runs') WHERE name = 'conflict'",
+    ).get();
+    if (!conflictCol) return false;
+    // Support both legacy object markers and the R2-F3 list form.
+    // F2: json_valid so one corrupt row cannot raise "malformed JSON" on every accept probe.
+    const marker = db.query<{ conflict: string | null }, [string, string]>(
+      `SELECT conflict FROM workflow_runs
+       WHERE conflict IS NOT NULL
+         AND json_valid(conflict)
+         AND (
+           json_extract(conflict, '$.resolutionTaskId') = ?
+           OR EXISTS (
+             SELECT 1 FROM json_each(conflict) AS j
+             WHERE json_extract(j.value, '$.resolutionTaskId') = ?
+           )
+         )
+       LIMIT 1`,
+    ).get(taskId, taskId);
+    return typeof marker?.conflict === "string" && marker.conflict.length > 0;
+  } catch (error) {
+    const msg = `${error instanceof Error ? error.message : error}`;
+    // Only schema-absence is "no"; other errors must propagate so callers fail closed.
+    if (/no such (table|column)/i.test(msg)) return false;
+    throw error;
+  }
+}
+
+/** True when workflow tables already exist — read-only, no DDL (R2-I4). */
+export function workflowSchemaPresent(ctx: Ctx): boolean {
+  return !!taskDatabase(ctx).query(
+    "SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'workflow_steps'",
+  ).get();
+}
+
+/** stepByTask without creating the workflow schema when the home has none. */
+export function stepByTaskIfPresent(ctx: Ctx, taskId: string): StepRow | null {
+  if (!workflowSchemaPresent(ctx)) return null;
+  const row = taskDatabase(ctx).query<StepDbRow, [string]>("SELECT * FROM workflow_steps WHERE task_id = ?").get(taskId);
   return row ? stepFromRow(row) : null;
 }
 
@@ -780,6 +1190,463 @@ export function recordDecision(ctx: Ctx, d: {
 
 export function listDecisions(ctx: Ctx, runId: string): DecisionRow[] {
   return workflowDatabase(ctx).query<DecisionDbRow, [string]>(
-    "SELECT * FROM workflow_decisions WHERE run_id = ? ORDER BY at, id",
+    "SELECT * FROM workflow_decisions WHERE run_id = ? ORDER BY at, rowid",
   ).all(runId).map(decisionFromRow);
+}
+
+export type GraphStatus = "proposed" | "approved" | "rejected" | "superseded";
+
+export interface GraphRow {
+  runId: string;
+  stepId: string;
+  attempt: number;
+  version: number;
+  def: WorkflowDef;
+  status: GraphStatus;
+  reason?: string;
+  createdAt: number;
+}
+
+interface GraphDbRow {
+  run_id: string;
+  step_id: string;
+  attempt: number;
+  version: number;
+  def: string;
+  status: string;
+  reason: string | null;
+  created_at: number;
+}
+
+function graphFromRow(row: GraphDbRow): GraphRow {
+  return {
+    runId: row.run_id,
+    stepId: row.step_id,
+    attempt: row.attempt,
+    version: row.version,
+    def: JSON.parse(row.def) as WorkflowDef,
+    status: row.status as GraphStatus,
+    reason: row.reason ?? undefined,
+    createdAt: row.created_at,
+  };
+}
+
+export function listGraphs(ctx: Ctx, runId: string, stepId?: string): GraphRow[] {
+  const db = workflowDatabase(ctx);
+  if (stepId === undefined) {
+    return db.query<GraphDbRow, [string]>(
+      "SELECT * FROM workflow_graphs WHERE run_id = ? ORDER BY step_id, attempt, version",
+    ).all(runId).map(graphFromRow);
+  }
+  return db.query<GraphDbRow, [string, string]>(
+    "SELECT * FROM workflow_graphs WHERE run_id = ? AND step_id = ? ORDER BY attempt, version",
+  ).all(runId, stepId).map(graphFromRow);
+}
+
+/** Insert a proposed graph version; any prior proposed/approved row for the same
+ *  (run, step, attempt) becomes superseded. */
+export function insertGraphVersion(ctx: Ctx, input: {
+  runId: string;
+  stepId: string;
+  attempt: number;
+  def: WorkflowDef;
+  status?: GraphStatus;
+  reason?: string;
+}): GraphRow {
+  const db = workflowDatabase(ctx);
+  return db.transaction(() => {
+    db.query(
+      "UPDATE workflow_graphs SET status = 'superseded' WHERE run_id = ? AND step_id = ? AND attempt = ? AND status IN ('proposed', 'approved')",
+    ).run(input.runId, input.stepId, input.attempt);
+    const prior = db.query<{ version: number }, [string, string, number]>(
+      "SELECT version FROM workflow_graphs WHERE run_id = ? AND step_id = ? AND attempt = ? ORDER BY version DESC LIMIT 1",
+    ).get(input.runId, input.stepId, input.attempt);
+    const version = (prior?.version ?? 0) + 1;
+    const status = input.status ?? "proposed";
+    db.query(
+      "INSERT INTO workflow_graphs(run_id, step_id, attempt, version, def, status, reason, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    ).run(input.runId, input.stepId, input.attempt, version, JSON.stringify(input.def), status, input.reason ?? null, ctx.now);
+    return {
+      runId: input.runId,
+      stepId: input.stepId,
+      attempt: input.attempt,
+      version,
+      def: input.def,
+      status,
+      reason: input.reason,
+      createdAt: ctx.now,
+    };
+  })();
+}
+
+/** Update one graph version's status (and optional reason). */
+export function setGraphStatus(
+  ctx: Ctx,
+  key: { runId: string; stepId: string; attempt: number; version: number },
+  status: GraphStatus,
+  reason?: string,
+): GraphRow {
+  const db = workflowDatabase(ctx);
+  const row = db.query<GraphDbRow, [string, string, number, number]>(
+    "SELECT * FROM workflow_graphs WHERE run_id = ? AND step_id = ? AND attempt = ? AND version = ?",
+  ).get(key.runId, key.stepId, key.attempt, key.version);
+  if (!row) throw new CoreError("not_found", `unknown graph ${key.runId}/${key.stepId}#${key.attempt}@${key.version}`);
+  db.query(
+    "UPDATE workflow_graphs SET status = ?, reason = ? WHERE run_id = ? AND step_id = ? AND attempt = ? AND version = ?",
+  ).run(status, reason ?? row.reason, key.runId, key.stepId, key.attempt, key.version);
+  return graphFromRow({ ...row, status, reason: reason ?? row.reason });
+}
+
+export function getGraph(
+  ctx: Ctx,
+  key: { runId: string; stepId: string; attempt: number; version: number },
+): GraphRow | null {
+  const row = workflowDatabase(ctx).query<GraphDbRow, [string, string, number, number]>(
+    "SELECT * FROM workflow_graphs WHERE run_id = ? AND step_id = ? AND attempt = ? AND version = ?",
+  ).get(key.runId, key.stepId, key.attempt, key.version);
+  return row ? graphFromRow(row) : null;
+}
+
+// --- Phase 4: structured questions -------------------------------------------------
+
+export type QuestionAskerKind = "executor" | "orchestrator" | "human_step";
+export type QuestionAnswerer = "orchestrator" | "person";
+export type QuestionStatus = "open" | "answered" | "withdrawn";
+export type QuestionAnswerType = "single" | "multi" | "text" | "yes_no" | "approve_revise";
+export type QuestionBlocks = "step" | "branch" | "nothing";
+
+export interface QuestionOption {
+  value: string;
+  note?: string;
+}
+
+export interface QuestionRow {
+  id: string;
+  runId: string;
+  stepId: string;
+  attempt: number;
+  branch?: string;
+  askerTaskId?: string;
+  askerKind: QuestionAskerKind;
+  text: string;
+  answerType: QuestionAnswerType;
+  options?: QuestionOption[];
+  recommended?: string;
+  blocks: QuestionBlocks;
+  artifact?: string;
+  answerer: QuestionAnswerer;
+  chain: QuestionAnswerer[];
+  suggested?: string;
+  answer?: string;
+  answeredBy?: string;
+  status: QuestionStatus;
+  rev: number;
+  createdAt: number;
+  answeredAt?: number;
+}
+
+export type NewQuestion = {
+  runId: string;
+  stepId: string;
+  attempt: number;
+  branch?: string;
+  askerTaskId?: string;
+  askerKind: QuestionAskerKind;
+  text: string;
+  answerType: QuestionAnswerType;
+  options?: QuestionOption[];
+  recommended?: string;
+  blocks: QuestionBlocks;
+  artifact?: string;
+  answerer: QuestionAnswerer;
+  chain?: QuestionAnswerer[];
+  suggested?: string;
+};
+
+interface QuestionDbRow {
+  id: string;
+  run_id: string;
+  step_id: string;
+  attempt: number;
+  branch: string | null;
+  asker_task_id: string | null;
+  asker_kind: string;
+  text: string;
+  answer_type: string;
+  options: string | null;
+  recommended: string | null;
+  blocks: string;
+  artifact: string | null;
+  answerer: string;
+  chain: string;
+  suggested: string | null;
+  answer: string | null;
+  answered_by: string | null;
+  status: string;
+  rev: number;
+  created_at: number;
+  answered_at: number | null;
+}
+
+function newQuestionId(): string {
+  const bytes = randomBytes(10);
+  let id = "q_";
+  for (const byte of bytes) id += BASE32[byte % 32];
+  return id;
+}
+
+function parseOptions(raw: string | null): QuestionOption[] | undefined {
+  if (raw == null || raw === "") return undefined;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return undefined;
+    return parsed as QuestionOption[];
+  } catch {
+    return undefined;
+  }
+}
+
+function parseChain(raw: string): QuestionAnswerer[] {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed as QuestionAnswerer[];
+  } catch {
+    return [];
+  }
+}
+
+function questionFromRow(row: QuestionDbRow): QuestionRow {
+  const out: QuestionRow = {
+    id: row.id,
+    runId: row.run_id,
+    stepId: row.step_id,
+    attempt: row.attempt,
+    askerKind: row.asker_kind as QuestionAskerKind,
+    text: row.text,
+    answerType: row.answer_type as QuestionAnswerType,
+    blocks: row.blocks as QuestionBlocks,
+    answerer: row.answerer as QuestionAnswerer,
+    chain: parseChain(row.chain),
+    status: row.status as QuestionStatus,
+    rev: row.rev,
+    createdAt: row.created_at,
+  };
+  if (row.branch) out.branch = row.branch;
+  if (row.asker_task_id) out.askerTaskId = row.asker_task_id;
+  const options = parseOptions(row.options);
+  if (options) out.options = options;
+  if (row.recommended) out.recommended = row.recommended;
+  if (row.artifact) out.artifact = row.artifact;
+  if (row.suggested) out.suggested = row.suggested;
+  if (row.answer != null) out.answer = row.answer;
+  if (row.answered_by) out.answeredBy = row.answered_by;
+  if (row.answered_at != null) out.answeredAt = row.answered_at;
+  return out;
+}
+
+export function insertQuestion(ctx: Ctx, input: NewQuestion): QuestionRow {
+  const chain = input.chain ?? [];
+  const row: QuestionRow = {
+    id: newQuestionId(),
+    runId: input.runId,
+    stepId: input.stepId,
+    attempt: input.attempt,
+    askerKind: input.askerKind,
+    text: input.text,
+    answerType: input.answerType,
+    blocks: input.blocks,
+    answerer: input.answerer,
+    chain,
+    status: "open",
+    rev: 1,
+    createdAt: ctx.now,
+  };
+  if (input.branch) row.branch = input.branch;
+  if (input.askerTaskId) row.askerTaskId = input.askerTaskId;
+  if (input.options) row.options = input.options;
+  if (input.recommended) row.recommended = input.recommended;
+  if (input.artifact) row.artifact = input.artifact;
+  if (input.suggested) row.suggested = input.suggested;
+  workflowDatabase(ctx).query(
+    `INSERT INTO workflow_questions(
+      id, run_id, step_id, attempt, branch, asker_task_id, asker_kind, text, answer_type,
+      options, recommended, blocks, artifact, answerer, chain, suggested, answer, answered_by,
+      status, rev, created_at, answered_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, NULL)`,
+  ).run(
+    row.id,
+    row.runId,
+    row.stepId,
+    row.attempt,
+    row.branch ?? null,
+    row.askerTaskId ?? null,
+    row.askerKind,
+    row.text,
+    row.answerType,
+    row.options ? JSON.stringify(row.options) : null,
+    row.recommended ?? null,
+    row.blocks,
+    row.artifact ?? null,
+    row.answerer,
+    JSON.stringify(row.chain),
+    row.suggested ?? null,
+    row.status,
+    row.rev,
+    row.createdAt,
+  );
+  return row;
+}
+
+export function getQuestion(ctx: Ctx, id: string): QuestionRow | null {
+  const row = workflowDatabase(ctx).query<QuestionDbRow, [string]>(
+    "SELECT * FROM workflow_questions WHERE id = ?",
+  ).get(id);
+  return row ? questionFromRow(row) : null;
+}
+
+export function listQuestions(ctx: Ctx, runId: string, status?: QuestionStatus): QuestionRow[] {
+  const db = workflowDatabase(ctx);
+  if (status) {
+    return db.query<QuestionDbRow, [string, string]>(
+      "SELECT * FROM workflow_questions WHERE run_id = ? AND status = ? ORDER BY created_at, id",
+    ).all(runId, status).map(questionFromRow);
+  }
+  return db.query<QuestionDbRow, [string]>(
+    "SELECT * FROM workflow_questions WHERE run_id = ? ORDER BY created_at, id",
+  ).all(runId).map(questionFromRow);
+}
+
+/** Open questions whose current answerer is the person (attention queue). Missing table → [].
+ *  Only questions on live (running/waiting) runs are returned. */
+export function listOpenPersonQuestions(ctx: Ctx): QuestionRow[] {
+  try {
+    return workflowDatabase(ctx).query<QuestionDbRow, []>(
+      `SELECT q.* FROM workflow_questions q
+       JOIN workflow_runs r ON r.id = q.run_id
+       WHERE q.status = 'open' AND q.answerer = 'person'
+         AND r.status IN ('running', 'waiting')
+       ORDER BY q.created_at, q.id`,
+    ).all().map(questionFromRow);
+  } catch {
+    return [];
+  }
+}
+
+/** Mark every open question on a run (and optionally its tree) withdrawn. */
+export function withdrawOpenQuestionsForRun(ctx: Ctx, runId: string): QuestionRow[] {
+  const db = workflowDatabase(ctx);
+  const open = db.query<QuestionDbRow, [string]>(
+    "SELECT * FROM workflow_questions WHERE run_id = ? AND status = 'open'",
+  ).all(runId);
+  const out: QuestionRow[] = [];
+  for (const row of open) {
+    db.query(
+      `UPDATE workflow_questions SET status = 'withdrawn', rev = rev + 1 WHERE id = ? AND status = 'open'`,
+    ).run(row.id);
+    const updated = db.query<QuestionDbRow, [string]>(
+      "SELECT * FROM workflow_questions WHERE id = ?",
+    ).get(row.id);
+    if (updated) out.push(questionFromRow(updated));
+  }
+  return out;
+}
+
+/** Compare-and-set answer: requires the current rev and an open status. */
+export function answerQuestionRecord(
+  ctx: Ctx,
+  id: string,
+  input: { answer: string; note?: string; expectRev: number; answeredBy: string },
+): QuestionRow {
+  const db = workflowDatabase(ctx);
+  const current = db.query<QuestionDbRow, [string]>(
+    "SELECT * FROM workflow_questions WHERE id = ?",
+  ).get(id);
+  if (!current) throw new CoreError("not_found", `unknown question ${id}`);
+  if (current.rev !== input.expectRev) {
+    throw new CoreError("conflict", `conflict: question ${id} changed since rev ${input.expectRev}`);
+  }
+  if (current.status !== "open") {
+    throw new CoreError("conflict", `conflict: question ${id} is ${current.status}`);
+  }
+  const answer = input.note !== undefined
+    ? JSON.stringify({ answer: input.answer, note: input.note })
+    : input.answer;
+  const done = db.query(
+    `UPDATE workflow_questions
+     SET answer = ?, answered_by = ?, status = 'answered', rev = rev + 1, answered_at = ?
+     WHERE id = ? AND rev = ? AND status = 'open'`,
+  ).run(answer, input.answeredBy, ctx.now, id, input.expectRev);
+  if (done.changes !== 1) {
+    throw new CoreError("conflict", `conflict: question ${id} changed since rev ${input.expectRev}`);
+  }
+  const updated = db.query<QuestionDbRow, [string]>(
+    "SELECT * FROM workflow_questions WHERE id = ?",
+  ).get(id);
+  if (!updated) throw new CoreError("not_found", `unknown question ${id}`);
+  return questionFromRow(updated);
+}
+
+/** Compare-and-set escalate: answerer becomes person, chain grows, suggestion attached. */
+export function escalateQuestionRecord(
+  ctx: Ctx,
+  id: string,
+  input: { suggested: string; expectRev: number; by: QuestionAnswerer },
+): QuestionRow {
+  const db = workflowDatabase(ctx);
+  const current = db.query<QuestionDbRow, [string]>(
+    "SELECT * FROM workflow_questions WHERE id = ?",
+  ).get(id);
+  if (!current) throw new CoreError("not_found", `unknown question ${id}`);
+  if (current.rev !== input.expectRev) {
+    throw new CoreError("conflict", `conflict: question ${id} changed since rev ${input.expectRev}`);
+  }
+  if (current.status !== "open") {
+    throw new CoreError("conflict", `conflict: question ${id} is ${current.status}`);
+  }
+  const chain = parseChain(current.chain);
+  if (!chain.includes(input.by)) chain.push(input.by);
+  const done = db.query(
+    `UPDATE workflow_questions
+     SET answerer = 'person', chain = ?, suggested = ?, rev = rev + 1
+     WHERE id = ? AND rev = ? AND status = 'open'`,
+  ).run(JSON.stringify(chain), input.suggested, id, input.expectRev);
+  if (done.changes !== 1) {
+    throw new CoreError("conflict", `conflict: question ${id} changed since rev ${input.expectRev}`);
+  }
+  const updated = db.query<QuestionDbRow, [string]>(
+    "SELECT * FROM workflow_questions WHERE id = ?",
+  ).get(id);
+  if (!updated) throw new CoreError("not_found", `unknown question ${id}`);
+  return questionFromRow(updated);
+}
+
+/** Patch open-question fields that routing updates (answerer only via escalate). */
+export function updateQuestionRecord(
+  ctx: Ctx,
+  id: string,
+  expectRev: number,
+  patch: Partial<Pick<QuestionRow, "suggested" | "status">>,
+): QuestionRow {
+  const db = workflowDatabase(ctx);
+  const current = db.query<QuestionDbRow, [string]>(
+    "SELECT * FROM workflow_questions WHERE id = ?",
+  ).get(id);
+  if (!current) throw new CoreError("not_found", `unknown question ${id}`);
+  if (current.rev !== expectRev) {
+    throw new CoreError("conflict", `conflict: question ${id} changed since rev ${expectRev}`);
+  }
+  const status = patch.status ?? (current.status as QuestionStatus);
+  const suggested = patch.suggested !== undefined ? patch.suggested : current.suggested;
+  const done = db.query(
+    `UPDATE workflow_questions SET suggested = ?, status = ?, rev = rev + 1 WHERE id = ? AND rev = ?`,
+  ).run(suggested ?? null, status, id, expectRev);
+  if (done.changes !== 1) {
+    throw new CoreError("conflict", `conflict: question ${id} changed since rev ${expectRev}`);
+  }
+  const updated = db.query<QuestionDbRow, [string]>(
+    "SELECT * FROM workflow_questions WHERE id = ?",
+  ).get(id);
+  if (!updated) throw new CoreError("not_found", `unknown question ${id}`);
+  return questionFromRow(updated);
 }

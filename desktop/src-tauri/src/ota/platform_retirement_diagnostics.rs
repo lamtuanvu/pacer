@@ -47,6 +47,7 @@ fn line(role: CodeRole, stage: Stage, cause: Cause) -> String {
             OtaError::Timeout => "timeout",
             OtaError::Interrupted => "interrupted",
             OtaError::RecoveryFailed => "recovery-failed",
+            OtaError::HandshakeClosed => "handshake-closed",
         },
     };
     format!("pacer-fixture-retire job={job} stage={stage} cause={cause}\n")
@@ -122,6 +123,7 @@ mod tests {
                 Cause::Error(OtaError::Timeout),
                 Cause::Error(OtaError::Interrupted),
                 Cause::Error(OtaError::RecoveryFailed),
+                Cause::Error(OtaError::HandshakeClosed),
             ] {
                 let value = line(CodeRole::Cli, stage, cause);
                 assert!(

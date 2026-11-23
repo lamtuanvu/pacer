@@ -1,25 +1,35 @@
-//! `assistant.reply` handler: Rig agent loop over an openai-compatible endpoint.
+//! `assistant.reply` handler: Rig agent loop over openai-compatible, Anthropic or Gemini.
 
+use crate::budget::OutputBudget;
+use crate::budget_model::BudgetedModel;
 use crate::delta;
 use crate::http::CompatChatModel;
 use crate::manifest;
 use crate::tools::HostTool;
 use pacer_plugin::types::{
-    AssistantReplyParams, AssistantReplyParamsBackend, AssistantReplyParamsHistoryItemRole,
-    AssistantReplyResult, AssistantReplyResultMessage, AssistantReplyResultUsage,
-    AssistantReplyResultUsageCoverage,
+    AssistantReplyParams, AssistantReplyParamsBackend, AssistantReplyParamsEndpointApi,
+    AssistantReplyParamsHistoryItemRole, AssistantReplyResult, AssistantReplyResultMessage,
+    AssistantReplyResultUsage, AssistantReplyResultUsageCoverage,
 };
 use pacer_plugin::{Ctx, Plugin, PluginError, Progress};
 use rig::agent::{AgentBuilder, CancelSignal, PromptHook};
+use rig::client::CompletionClient;
 use rig::completion::{
     AssistantContent, CompletionModel, CompletionResponse, Message, Prompt, PromptError, Usage,
 };
 use rig::message::UserContent;
+use rig::providers::gemini::completion::gemini_api_types::{
+    AdditionalParameters as GeminiAdditionalParameters, GenerationConfig as GeminiGenerationConfig,
+};
+use rig::providers::{anthropic, gemini};
 use rig::tool::server::ToolServer;
 use serde_json::{Value, json};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
+
+const ANTHROPIC_DEFAULT_BASE: &str = "https://api.anthropic.com";
+const GEMINI_DEFAULT_BASE: &str = "https://generativelanguage.googleapis.com";
 
 /// Build the stdio plugin that serves `assistant.reply`.
 pub fn plugin() -> Plugin {
@@ -78,29 +88,158 @@ async fn run_reply(
         .filter(|m| !m.is_empty())
         .ok_or_else(|| PluginError::new("invalid_input", "assistant.reply requires a model"))?;
 
-    let base_url = resolve_base_url(&params)?;
+    let api = params
+        .endpoint
+        .as_ref()
+        .and_then(|e| e.api)
+        .unwrap_or(AssistantReplyParamsEndpointApi::OpenaiCompatible);
+    let base_url = resolve_base_url(&params, &api)?;
     let keyless = params
         .endpoint
         .as_ref()
         .and_then(|e| e.keyless)
         .unwrap_or(false);
+    if keyless && api != AssistantReplyParamsEndpointApi::OpenaiCompatible {
+        return Err(PluginError::new(
+            "invalid_input",
+            "keyless is only valid for openai-compatible endpoints",
+        ));
+    }
     // key=none: skip secrets.resolve and call without Authorization. Other sources still fail closed.
+    // Anthropic and Gemini always require a resolved key.
     let key = if keyless {
         None
     } else {
         Some(resolve_key(&ctx, &account).await?)
     };
 
-    // CompatChatModel: Chat Completions with optional Authorization and default `created`.
-    let completion = CompatChatModel::new(&base_url, key, &model);
-
     let system = format!("{}\n\n{}", params.system.as_str(), params.digest.as_str());
     let max_output = params.limits.max_output_tokens.get();
     let max_input = params.limits.max_input_tokens.max(0) as u64;
     let max_tool_rounds = params.limits.max_tool_rounds.max(0) as usize;
+    let budget = OutputBudget::new(max_output);
+    let usage_acc = Arc::new(AtomicU64::new(0));
+    let usage_out = budget.used.clone();
 
-    // Rig's openai Completions TryFrom drops max_tokens; pass it via additional_params (§7).
-    let completion_params = json!({ "max_tokens": max_output });
+    match api {
+        AssistantReplyParamsEndpointApi::OpenaiCompatible => {
+            let completion =
+                BudgetedModel::new(CompatChatModel::new(base_url, key, &model), budget.clone());
+            run_agent(
+                completion,
+                &params,
+                &ctx,
+                &turn_id,
+                &system,
+                max_output,
+                max_input,
+                max_tool_rounds,
+                usage_acc,
+                usage_out,
+                Some(json!({ "max_tokens": max_output })),
+            )
+            .await
+        }
+        AssistantReplyParamsEndpointApi::Anthropic => {
+            let key = key.ok_or_else(|| {
+                PluginError::new(
+                    "plugin_unavailable",
+                    "Anthropic accounts require a resolved key.",
+                )
+            })?;
+            let client = anthropic::ClientBuilder::new(&key)
+                .base_url(&base_url)
+                .build()
+                .map_err(|e| {
+                    PluginError::new(
+                        "plugin_unavailable",
+                        format!("Could not build the Anthropic client: {e}"),
+                    )
+                })?;
+            let completion = BudgetedModel::new(client.completion_model(&model), budget.clone());
+            run_agent(
+                completion,
+                &params,
+                &ctx,
+                &turn_id,
+                &system,
+                max_output,
+                max_input,
+                max_tool_rounds,
+                usage_acc,
+                usage_out,
+                None,
+            )
+            .await
+        }
+        AssistantReplyParamsEndpointApi::Gemini => {
+            let key = key.ok_or_else(|| {
+                PluginError::new(
+                    "plugin_unavailable",
+                    "Gemini accounts require a resolved key.",
+                )
+            })?;
+            let client = gemini::Client::builder(&key)
+                .base_url(&base_url)
+                .build()
+                .map_err(|e| {
+                    PluginError::new(
+                        "plugin_unavailable",
+                        format!("Could not build the Gemini client: {e}"),
+                    )
+                })?;
+            // Gemini deserializes additional_params as AdditionalParameters (needs generationConfig).
+            let gemini_params = serde_json::to_value(
+                GeminiAdditionalParameters::default().with_config(GeminiGenerationConfig {
+                    max_output_tokens: Some(max_output),
+                    ..GeminiGenerationConfig::default()
+                }),
+            )
+            .map_err(|e| {
+                PluginError::new(
+                    "internal",
+                    format!("Could not encode Gemini generation config: {e}"),
+                )
+            })?;
+            let completion = BudgetedModel::new(client.completion_model(&model), budget.clone());
+            run_agent(
+                completion,
+                &params,
+                &ctx,
+                &turn_id,
+                &system,
+                max_output,
+                max_input,
+                max_tool_rounds,
+                usage_acc,
+                usage_out,
+                Some(gemini_params),
+            )
+            .await
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn run_agent<M>(
+    completion: M,
+    params: &AssistantReplyParams,
+    ctx: &Ctx,
+    turn_id: &str,
+    system: &str,
+    max_output: u64,
+    max_input: u64,
+    max_tool_rounds: usize,
+    usage_acc: Arc<AtomicU64>,
+    usage_out: Arc<AtomicU64>,
+    completion_params: Option<Value>,
+) -> Result<AssistantReplyResult, PluginError>
+where
+    M: CompletionModel + Clone + 'static,
+{
+    // openai-compatible: Rig Completions TryFrom drops max_tokens — pass via additional_params (§7).
+    // Gemini: AdditionalParameters with generationConfig (required by Rig's request builder).
+    // BudgetedModel rewrites the remaining budget into those mirrors on every call (R3).
 
     let offer_tools = max_tool_rounds > 0 && !params.tools.is_empty();
     let rounds = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -112,7 +251,7 @@ async fn run_reply(
                 name: tool.name.to_string(),
                 description: tool.description.to_string(),
                 parameters: tool.parameters.clone(),
-                turn_id: turn_id.clone(),
+                turn_id: turn_id.to_owned(),
                 host: ctx.host.clone(),
                 progress: ctx.progress.clone(),
                 rounds: rounds.clone(),
@@ -122,18 +261,22 @@ async fn run_reply(
                 PluginError::new("internal", format!("Could not register tool: {e}"))
             })?;
         }
-        AgentBuilder::new(completion)
-            .preamble(&system)
+        let mut builder = AgentBuilder::new(completion)
+            .preamble(system)
             .max_tokens(max_output)
-            .additional_params(completion_params)
-            .tool_server_handle(handle)
-            .build()
+            .tool_server_handle(handle);
+        if let Some(params) = completion_params.clone() {
+            builder = builder.additional_params(params);
+        }
+        builder.build()
     } else {
-        AgentBuilder::new(completion)
-            .preamble(&system)
-            .max_tokens(max_output)
-            .additional_params(completion_params)
-            .build()
+        let mut builder = AgentBuilder::new(completion)
+            .preamble(system)
+            .max_tokens(max_output);
+        if let Some(params) = completion_params {
+            builder = builder.additional_params(params);
+        }
+        builder.build()
     };
 
     let mut history: Vec<Message> = Vec::new();
@@ -150,11 +293,9 @@ async fn run_reply(
 
     // Give Rig room for a final text turn; HostTool enforces max_tool_rounds.
     let depth = max_tool_rounds.saturating_add(1);
-    let usage_acc = Arc::new(AtomicU64::new(0));
-    let usage_out = Arc::new(AtomicU64::new(0));
     let stop_reason = Arc::new(std::sync::Mutex::new(StopReason::None));
     let hook = DeltaHook {
-        turn_id: turn_id.clone(),
+        turn_id: turn_id.to_owned(),
         progress: ctx.progress.clone(),
         cancel: ctx.cancel.clone(),
         max_input_tokens: max_input,
@@ -162,7 +303,7 @@ async fn run_reply(
         usage_input: usage_acc.clone(),
         usage_output: usage_out.clone(),
         stop_reason: stop_reason.clone(),
-        system_tokens: approx_tokens(&system),
+        system_tokens: approx_tokens(system),
     };
 
     let response = match agent
@@ -183,7 +324,7 @@ async fn run_reply(
             let text = last_assistant_text(&chat_history).unwrap_or_default();
             match reason {
                 StopReason::InputCap => {
-                    delta::text(&ctx.progress, &turn_id, &text);
+                    delta::text(&ctx.progress, turn_id, &text);
                     return Ok(reply_result(
                         if text.is_empty() {
                             "I stopped because this turn would exceed the input limit.".into()
@@ -195,7 +336,7 @@ async fn run_reply(
                     ));
                 }
                 StopReason::OutputCap => {
-                    delta::text(&ctx.progress, &turn_id, &text);
+                    delta::text(&ctx.progress, turn_id, &text);
                     return Ok(reply_result(
                         if text.is_empty() {
                             format!(
@@ -213,7 +354,7 @@ async fn run_reply(
         }
         Err(PromptError::MaxDepthError { chat_history, .. }) => {
             let text = last_assistant_text(&chat_history).unwrap_or_default();
-            delta::text(&ctx.progress, &turn_id, &text);
+            delta::text(&ctx.progress, turn_id, &text);
             let usage = accumulated_usage(&usage_acc, &usage_out);
             return Ok(reply_result(text, usage, coverage_of(&usage)));
         }
@@ -221,7 +362,7 @@ async fn run_reply(
             if ctx.cancel.is_cancelled() {
                 return Err(cancelled());
             }
-            return Err(map_provider_error(&ctx, &e).await);
+            return Err(map_provider_error(ctx, &e).await);
         }
     };
 
@@ -229,7 +370,7 @@ async fn run_reply(
         return Err(cancelled());
     }
 
-    delta::text(&ctx.progress, &turn_id, &response.output);
+    delta::text(&ctx.progress, turn_id, &response.output);
     // Prefer Rig's total when present; otherwise the hook accumulator (covers max-depth-equivalent paths).
     let usage = if response.total_usage.input_tokens > 0 || response.total_usage.output_tokens > 0 {
         response.total_usage
@@ -307,22 +448,33 @@ fn cancelled() -> PluginError {
 
 /// Endpoint base URL from `assistant.reply` params (`endpoint.baseUrl`).
 ///
-/// The host sends the chosen account's connection URL. Without it the plugin fails closed —
-/// never fall back to `capability.config.get`.
-fn resolve_base_url(params: &AssistantReplyParams) -> Result<String, PluginError> {
+/// openai-compatible requires a host-supplied URL. Anthropic and Gemini may omit it and use
+/// the provider default. Never fall back to `capability.config.get`.
+fn resolve_base_url(
+    params: &AssistantReplyParams,
+    api: &AssistantReplyParamsEndpointApi,
+) -> Result<String, PluginError> {
     let url = params
         .endpoint
         .as_ref()
-        .map(|e| e.base_url.as_str())
-        .map(str::trim)
+        .and_then(|e| e.base_url.as_ref())
+        .map(|s| s.as_str().trim())
         .filter(|s| !s.is_empty())
-        .ok_or_else(|| {
+        .map(|s| s.trim_end_matches('/').to_owned());
+    match api {
+        AssistantReplyParamsEndpointApi::OpenaiCompatible => url.ok_or_else(|| {
             PluginError::new(
                 "plugin_unavailable",
                 "assistant.reply requires endpoint.baseUrl from the chosen account",
             )
-        })?;
-    Ok(url.trim_end_matches('/').to_owned())
+        }),
+        AssistantReplyParamsEndpointApi::Anthropic => {
+            Ok(url.unwrap_or_else(|| ANTHROPIC_DEFAULT_BASE.to_owned()))
+        }
+        AssistantReplyParamsEndpointApi::Gemini => {
+            Ok(url.unwrap_or_else(|| GEMINI_DEFAULT_BASE.to_owned()))
+        }
+    }
 }
 
 async fn resolve_key(ctx: &Ctx, account: &str) -> Result<String, PluginError> {

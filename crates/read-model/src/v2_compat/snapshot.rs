@@ -149,6 +149,15 @@ pub fn snapshot(s: &Value, legacy: Option<&Value>) -> Value {
             })
     });
     let mut out = super::object_without(s, &["desktopUpdates"]);
+    // promptWait is v3-only (M-g); snapshot tasks keep additive fields (fullTitle/derived/work).
+    if let Some(tasks) = s.get("tasks").and_then(Value::as_array) {
+        out["tasks"] = Value::Array(
+            tasks
+                .iter()
+                .map(|t| super::object_without(t, &["promptWait"]))
+                .collect(),
+        );
+    }
     out["counts"]["attention"] = json!(attention.len());
     out["counts"]["problems"] = json!(
         attention

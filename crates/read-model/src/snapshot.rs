@@ -469,14 +469,25 @@ impl ReadModel {
                 repos.push(t["repo"].clone());
             }
         }
-        let used = tasks
-            .iter()
-            .filter(|t| {
-                t["state"] == "running"
-                    && t["host"].is_null()
-                    && strategy["runners"][text(&t["executor"])]["host"].is_null()
-            })
-            .count()
+        // Visible local runners, plus hidden local orchestrate (occupies capacity;
+        // workflow-root does not). Matches src/api/read-model/index.ts.
+        let local_running_api = |t: &Value| {
+            t["state"] == "running"
+                && t["host"].is_null()
+                && strategy["runners"][text(&t["executor"])]["host"].is_null()
+        };
+        let local_running_record = |t: &Value| {
+            t["state"] == "running"
+                && t.get("run")
+                    .and_then(|r| r.get("host"))
+                    .is_none_or(Value::is_null)
+                && strategy["runners"][text(&t["executor"])]["host"].is_null()
+        };
+        let used = tasks.iter().filter(|t| local_running_api(t)).count()
+            + records
+                .iter()
+                .filter(|t| text(&t["kind"]) == "orchestrate" && local_running_record(t))
+                .count()
             + active.total;
         let cap = strategy["execution"]["local_max_tasks"].clone();
         let mut machine = object();

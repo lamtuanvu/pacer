@@ -36,33 +36,47 @@ test("Rust release builds use locked target-specific Cargo builds and musl for L
 });
 
 test("release CI installs cross-build tools and smoke-tests both executables", () => {
-  const workflow = Bun.YAML.parse(readFileSync(".github/workflows/release.yml", "utf8")) as { jobs: { build: { steps: { name?: string; run?: string }[] } } };
-  const steps = workflow.jobs.build.steps;
-  expect(steps.find(step => step.name === "Install Rust release targets")?.run).toContain("unknown-linux-musl");
-  expect(steps.find(step => step.name === "Install Linux cross-build tools")?.run).toContain("cargo-zigbuild");
-  const smoke = steps.find(step => step.name === "Smoke test native binary")?.run ?? "";
-  expect(smoke).toContain("pacer-core-$os-$arch");
-  expect(smoke).toContain("pacer-$os-$arch");
-  expect(smoke).toContain("pacer-assistant-pacer-$os-$arch");
-  expect(smoke).toContain("crates/assistant-pacer/Cargo.toml");
-  expect(smoke).toContain('test -x "$assistant"');
-  expect(smoke).toContain("plugin.hello");
-  expect(smoke).toContain('"id":"assistant-pacer"');
-  expect(smoke).toContain('"version":"1.0.0"');
+  const workflow = Bun.YAML.parse(readFileSync(".github/workflows/release.yml", "utf8")) as {
+    jobs: Record<string, { steps: { name?: string; run?: string }[] }>;
+  };
+  const linux = workflow.jobs["build-linux"].steps;
+  expect(linux.find(step => step.name === "Install Rust release targets")?.run).toContain("${{ matrix.rust_target }}");
+  expect(linux.find(step => step.name === "Install Linux cross-build tools")?.run).toContain("cargo-zigbuild");
+  for (const name of ["build-macos", "build-linux"]) {
+    const smoke = workflow.jobs[name].steps.find(step => step.name === "Smoke test native binary")?.run ?? "";
+    expect(smoke).toContain("pacer-core-$os-$arch");
+    expect(smoke).toContain("pacer-$os-$arch");
+    expect(smoke).toContain("pacer-assistant-pacer-$os-$arch");
+    expect(smoke).toContain("crates/assistant-pacer/Cargo.toml");
+    expect(smoke).toContain('test -x "$assistant"');
+    expect(smoke).toContain("plugin.hello");
+    expect(smoke).toContain('"id":"assistant-pacer"');
+    expect(smoke).toContain('"version":"1.0.0"');
+    expect(smoke).toContain('os="${{ matrix.os }}"');
+    expect(smoke).toContain('arch="${{ matrix.arch }}"');
+  }
 });
 
-test("writeRelease checksums the assistant sibling in SHA256SUMS without adding a companion", () => {
+test("writeRelease emits nativePlugins for the assistant sibling without adding a companion", () => {
   const out = tmpDir(), version = "0.8.0", platform = { os: "linux", arch: "x64" } as const;
   const dir = join(out, version); mkdirSync(dir, { recursive: true });
   const front = Buffer.from("rust front door"), core = Buffer.from("compiled core");
   const assistant = Buffer.from("assistant-pacer binary");
+  const assistantFile = `pacer-assistant-pacer-${platform.os}-${platform.arch}`;
   writeFileSync(join(dir, assetFile(platform)), front);
   writeFileSync(join(dir, companionFile(platform)), core);
-  writeFileSync(join(dir, `pacer-assistant-pacer-${platform.os}-${platform.arch}`), assistant);
+  writeFileSync(join(dir, assistantFile), assistant);
   const manifest = writeRelease(out, version, [platform], { paired: true });
   expect(manifest.assets[0].companions?.map(c => c.name)).toEqual(["pacer-core"]);
+  expect(manifest.assets[0].nativePlugins).toEqual([{
+    name: "pacer-assistant-pacer",
+    file: assistantFile,
+    sha256: sha256Hex(assistant),
+    size: assistant.length,
+  }]);
+  expect(parseManifest(manifest)).toEqual(manifest);
   const sums = parseSha256Sums(readFileSync(join(dir, "SHA256SUMS"), "utf8"));
-  expect(sums.get(`pacer-assistant-pacer-${platform.os}-${platform.arch}`)).toBe(sha256Hex(assistant));
+  expect(sums.get(assistantFile)).toBe(sha256Hex(assistant));
 });
 
 test("Rust front door trust pins come only from explicit build options", async () => {

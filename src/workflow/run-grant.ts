@@ -5,21 +5,31 @@ import { createHash, randomBytes } from "node:crypto";
 import type { Ctx } from "../types";
 import { CoreError } from "../core/errors";
 import { dispatchDatabase } from "../dispatch/store";
-import { getRun, rootRunId, stepByTask, workflowDatabase } from "./store";
+import { getQuestion, getRun, rootRunId, stepByTask, workflowDatabase } from "./store";
 import { getTurn } from "./wakeups";
 
 export const RUN_GRANT_KIND = "run";
 
 /** Operations a live `prg_` grant may call, and only on its own run's targets.
- *  question.* and run.submit_graph land in later phases; run.answer is person-only. */
+ *  run.answer stays person-only. */
 export const RUN_GRANT_OPS = [
   "task.review",
   "task.stop",
   "step.result",
+  "step.artifact",
   "step.skip",
   "step.retry",
+  "run.get",
   "run.choose",
   "run.decide",
+  "run.submit_graph",
+  "run.sync_base",
+  "run.publish",
+  "question.ask",
+  "question.answer",
+  "question.escalate",
+  "question.get",
+  "question.list",
 ] as const;
 
 export type RunGrantOp = (typeof RUN_GRANT_OPS)[number];
@@ -90,13 +100,52 @@ function runInGrant(ctx: Ctx, grant: RunGrant, runId: string): boolean {
 /** Whether `name` + `params` stay inside the grant's run (including child runs). */
 export function assertRunGrantTarget(ctx: Ctx, grant: RunGrant, name: string, params: unknown): void {
   const p = (params ?? {}) as Record<string, unknown>;
-  if (name.startsWith("run.") || name.startsWith("question.")) {
+  if (name.startsWith("question.")) {
+    if (name === "question.list") {
+      const run = typeof p.run === "string" ? p.run
+        : typeof p.runId === "string" ? p.runId
+        : typeof p.id === "string" && p.id.startsWith("run_") ? p.id
+        : undefined;
+      if (run && !runInGrant(ctx, grant, run)) {
+        throw new CoreError("not_found", `unknown run ${run}`);
+      }
+      return;
+    }
+    if (name === "question.ask") {
+      const runId = typeof p.runId === "string" ? p.runId
+        : typeof p.run_id === "string" ? p.run_id
+        : typeof p.run === "string" ? p.run
+        : grant.runId;
+      if (!runInGrant(ctx, grant, runId)) {
+        throw new CoreError("not_found", `unknown run ${runId}`);
+      }
+      return;
+    }
+    if (name === "question.convert_prompt") {
+      const taskId = typeof p.id === "string" ? p.id : undefined;
+      if (!taskId) throw new CoreError("invalid_input", "Task id is required");
+      const step = stepByTask(ctx, taskId);
+      if (!step || !runInGrant(ctx, grant, step.runId)) {
+        throw new CoreError("not_found", `unknown task ${taskId}`);
+      }
+      return;
+    }
+    const id = p.id;
+    if (typeof id !== "string" || !id) throw new CoreError("invalid_input", "Question id is required");
+    const q = getQuestion(ctx, id);
+    // Outside the grant looks like an unknown id (prompt standing rule f).
+    if (!q || !runInGrant(ctx, grant, q.runId)) {
+      throw new CoreError("not_found", `unknown question ${id}`);
+    }
+    return;
+  }
+  if (name.startsWith("run.")) {
     const id = p.id;
     if (typeof id !== "string" || !id) throw new CoreError("invalid_input", "Run id is required");
     if (!runInGrant(ctx, grant, id)) throw new CoreError("not_allowed", "Operation is outside this run grant");
     return;
   }
-  if (name === "step.result") {
+  if (name === "step.result" || name === "step.artifact") {
     const taskId = orchestratorTaskIdForGrant(ctx, grant) ?? ctx.env.PACER_TASK_ID;
     if (typeof taskId !== "string" || !taskId) {
       throw new CoreError("not_allowed", "Operation is outside this run grant");

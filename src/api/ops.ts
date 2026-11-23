@@ -11,6 +11,7 @@ import { listDispatchModels, refreshObservations } from "../dispatch/refresh";
 import { insightsInputSchema, insightsSummary } from "../insights/summary";
 import { dispatchAnalytics, resetLearning, recordWorkReview } from "../dispatch/learning";
 import { getWork } from "../dispatch/work";
+import { isEngineOwnedKind } from "../tasks/engine-owned";
 import { dispatchConfigSchema, modelDeclarationSchema, previewInputSchema, tierTargetsSchema } from "../dispatch/types";
 import { explainDispatch } from "../core/dispatch-explain";
 import { explainInputSchema } from "../dispatch/explain-input";
@@ -460,10 +461,24 @@ export const OPS: Record<string, OpDef> = {
     q:z.string().min(1).max(200).optional(),
   }), handler: (ctx,p) => {
     const limit=p.limit??20, {q,...rest}=p;
-    // Over-fetch so filtering engine-owned orchestrate tasks still fills the page (D2.12).
-    const rows=core.tasks.list(ctx,{...rest,query:q,limit:limit+20}).filter(t=>t.kind!=="orchestrate");
-    const page={tasks:apiTaskPage(ctx,rows.slice(0,limit)),next:rows.length>limit?rows[limit-1].id:null};
-    if([p.before,p.repo,p.states,p.executor,p.since,p.q].every(v=>v===undefined))Object.defineProperty(page,LEGACY_TASK_LIST,{value:rows.slice(0,limit).map(summarizeTask)});
+    // Loop past engine-owned kinds until the page is full (D2.12); a fixed +20
+    // over-fetch is not enough when many workflow-root/orchestrate rows sit first.
+    const visible: ReturnType<typeof core.tasks.list> = [];
+    let cursor = p.before;
+    while (visible.length <= limit) {
+      const batch = core.tasks.list(ctx, { ...rest, query: q, limit: Math.max(21, limit + 1 - visible.length + 20), before: cursor });
+      if (!batch.length) break;
+      const last = batch[batch.length - 1]!.id;
+      if (cursor === last) break;
+      for (const t of batch) {
+        if (!isEngineOwnedKind(t.kind)) visible.push(t);
+        if (visible.length > limit) break;
+      }
+      cursor = last;
+      if (visible.length > limit) break;
+    }
+    const page={tasks:apiTaskPage(ctx,visible.slice(0,limit)),next:visible.length>limit?visible[limit-1]!.id:null};
+    if([p.before,p.repo,p.states,p.executor,p.since,p.q].every(v=>v===undefined))Object.defineProperty(page,LEGACY_TASK_LIST,{value:visible.slice(0,limit).map(summarizeTask)});
     return page;
   } }),
   "task.delegate": op({
@@ -563,9 +578,26 @@ export const OPS: Record<string, OpDef> = {
         if(p.verdict!=="accept"&&p.verdict!=="reject")throw new CoreError("not_allowed","Use dispatch.review for work results");
         result = await taskMutation(ctx,p.id,p.expect_rev,()=>reviewWork(ctx,p.id,p.verdict==="accept",p.note,p.expect_rev));
       } else {
-        result = await taskMutation(ctx, p.id, p.expect_rev, async () => {const result=await core.tasks.review(ctx, p.id, p, { delegate: (c, input) => core.tasks.delegate(c, input, deps.spawnRunner ?? spawnRunner), spawnRunner: deps.spawnRunner, appAuthenticated: deps.appAuthenticated, participant: deps.participant });if(getWork(ctx,p.id)&&p.verdict!=="send_back")recordWorkReview(ctx,p.id,"human");return result;});
+        result = await taskMutation(ctx, p.id, p.expect_rev, async () => {
+          const reviewed = await core.tasks.review(ctx, p.id, p, {
+            delegate: (c, input) => core.tasks.delegate(c, input, deps.spawnRunner ?? spawnRunner),
+            spawnRunner: deps.spawnRunner,
+            appAuthenticated: deps.appAuthenticated,
+            participant: deps.participant,
+          });
+          // R3-I4: conflict returns with no verdict — do not record a work review.
+          const conflicted = reviewed && typeof reviewed === "object"
+            && (reviewed as { accepted?: boolean; merge?: string }).accepted === false
+            && (reviewed as { merge?: string }).merge === "conflict";
+          if (getWork(ctx, p.id) && p.verdict !== "send_back" && !conflicted) recordWorkReview(ctx, p.id, "human");
+          return reviewed;
+        });
       }
-      if (p.verdict === "accept") recheckAfterAccept(ctx, p.id, deps);
+      // R3-I4: skip diagnostic recheck when accept hit a merge conflict (no verdict recorded).
+      const conflictResult = result && typeof result === "object"
+        && (result as { accepted?: boolean; merge?: string }).accepted === false
+        && (result as { merge?: string }).merge === "conflict";
+      if (p.verdict === "accept" && !conflictResult) recheckAfterAccept(ctx, p.id, deps);
       return result;
     },
   }),

@@ -9,21 +9,34 @@ import type { Ctx } from "../types";
 import { CoreError } from "../core/errors";
 import { isExecutorSession, isOrchestratorSession } from "../install/role";
 import { WORKFLOW_OPS_REFUSAL } from "./caller-policy";
-import { parseWorkflow } from "../workflow/parse";
+import { normalizeWorkflowObject, parseWorkflow } from "../workflow/parse";
 import { validateWorkflow } from "../workflow/validate";
 import {
-  addDefinition, getDefinition, getRun, listDefinitions, listRuns, recordDecision,
-  rootRunId, runEntityValue, stepByTask, stepsOfRun, updateRun, workflowDatabase,
+  addDefinition, getDefinition, getGraph, getQuestion, getRun, listDefinitions, listOpenPersonQuestions,
+  listQuestions, listRuns, recordDecision,
+  rootRunId, runEntityValue, stepByTask, stepByTaskIfPresent, stepsOfRun, updateRun, workflowDatabase,
   type RunRow, type RunStatus,
 } from "../workflow/store";
 import {
-  answerHumanStep, chooseWorkflow, defaultEngineDeps, recordStepResult, retryFailedStep,
+  answerQuestion, askQuestion, escalateQuestion, syncHumanStepAnswerers,
+} from "../workflow/questions";
+import { questionInputSchema } from "../workflow/question-schema";
+import { convertPromptWaitToQuestion } from "../workflow/prompt-detector";
+import {
+  answerGenerateApproval, answerHumanStep, chooseWorkflow, defaultEngineDeps, recordStepResult, retryFailedStep,
   skipFailedStep, startRun, stopRun,
   type EngineDeps,
 } from "../workflow/engine";
-import { canAutoDecide } from "../workflow/auto";
+import { listArtifacts, storeArtifact } from "../workflow/artifacts";
+import { syncBase } from "../workflow/branch";
+import { publishRun } from "../workflow/publish";
+import { cleanupRun } from "../workflow/cleanup";
+import { canAutoApproveGenerate, canAutoDecide } from "../workflow/auto";
 import { applyBudgetRaise, isBudgetBlocked, parseSpent, serializeSpent } from "../workflow/budget";
-import type { HumanStep, WorkflowError, WorkflowDef } from "../workflow/schema";
+import { listGraphSummaries, noteGenerateSubmitErrors, submitGraph } from "../workflow/generate";
+import {
+  checkWorkflowShape, isPlainObject, type GenerateStep, type HumanStep, type WorkflowError, type WorkflowDef,
+} from "../workflow/schema";
 import { requireAskingExecutor } from "../core/tasks";
 import { spawnRunner, type SpawnRunner } from "../tasks/api";
 import { orchestratorTaskIdForGrant, verifyRunGrant } from "../workflow/run-grant";
@@ -33,6 +46,7 @@ import { publish } from "../link/publish";
 const op = <P extends z.ZodTypeAny>(def: OpDef<P>) => def as unknown as OpDef;
 
 const runId = z.string().regex(/^run_[a-z2-7]{10}$/);
+const questionId = z.string().regex(/^q_[a-z2-7]{10}$/);
 const workflowRef = z.string().min(1).max(256);
 const status = z.enum(["running", "waiting", "done", "failed", "stopped"]);
 // A workflow file's text is capped at 256 KiB like other free-text bodies.
@@ -124,23 +138,78 @@ export const workflowOps: Record<string, OpDef> = {
   }),
   "run.start": op({
     description: "Start a run of an installed workflow for one brief and repository; the entry step becomes an ordinary task.",
-    params: z.object({ workflow: workflowRef, repo: z.string().min(1).max(4096), brief: z.string().min(1).max(8000), title: z.string().min(1).max(120).optional() }),
+    params: z.object({
+      workflow: workflowRef,
+      repo: z.string().min(1).max(4096),
+      brief: z.string().min(1).max(8000),
+      title: z.string().min(1).max(120).optional(),
+      publish: z.literal("draft").optional(),
+    }),
     handler: async (ctx, p, deps) => {
       assertPersonCaller(ctx);
       const { deps: engine, spawn } = engineDeps(deps);
       // The engine publishes the run entity: on creation, on a failed start and on
       // every status change it makes.
-      return startRun(ctx, { workflow: p.workflow, repo: p.repo, brief: p.brief, ...(p.title ? { title: p.title } : {}) }, spawn, engine);
+      return startRun(ctx, {
+        workflow: p.workflow, repo: p.repo, brief: p.brief,
+        ...(p.title ? { title: p.title } : {}),
+        ...(p.publish ? { publish: p.publish } : {}),
+      }, spawn, engine);
     },
   }),
   "run.get": op({
-    description: "One run with its step instances.",
+    description: "One run with its step instances and generated graph versions. Person, or a live run grant for its own run (expect_rev for sync/publish).",
     params: z.object({ id: runId }),
     handler: (ctx, p) => {
-      assertPersonCaller(ctx);
+      // R3-I2: grants may read their own run (CLI sync/publish fetch expect_rev via run.get).
+      // Foreign/unknown ids refuse with the same text so a grant cannot probe other runs.
+      if (ctx.env.PACER_RUN_GRANT) {
+        const grant = verifyRunGrant(ctx, ctx.env.PACER_RUN_GRANT);
+        if (!grant || rootRunId(ctx, p.id) !== grant.runId) {
+          throw new CoreError("not_found", `unknown run ${p.id}`);
+        }
+      } else {
+        assertPersonCaller(ctx);
+      }
       const run = getRun(ctx, p.id);
       if (!run) throw new CoreError("not_found", `unknown run ${p.id}`);
-      return { run: runEntityValue(run), steps: stepsOfRun(ctx, p.id) };
+      const steps = stepsOfRun(ctx, p.id);
+      let pendingApproval: {
+        stepId: string;
+        attempt: number;
+        version: number;
+        graph?: WorkflowDef;
+        replanSummary?: string;
+        replanDiff?: { added: string[]; removed: string[]; changed: string[] };
+      } | undefined;
+      for (const step of steps) {
+        if (step.status !== "waiting") continue;
+        const result = step.result != null && typeof step.result === "object"
+          ? step.result as Record<string, unknown>
+          : null;
+        if (!result || result.pendingApproval !== true || typeof result.graphVersion !== "number") continue;
+        const graph = getGraph(ctx, {
+          runId: p.id, stepId: step.stepId, attempt: step.attempt, version: result.graphVersion,
+        });
+        pendingApproval = {
+          stepId: step.stepId,
+          attempt: step.attempt,
+          version: result.graphVersion,
+          ...(graph ? { graph: graph.def } : {}),
+          ...(typeof result.replanSummary === "string" ? { replanSummary: result.replanSummary } : {}),
+          ...(result.replanDiff != null && typeof result.replanDiff === "object"
+            ? { replanDiff: result.replanDiff as { added: string[]; removed: string[]; changed: string[] } }
+            : {}),
+        };
+        break;
+      }
+      return {
+        run: runEntityValue(run),
+        steps,
+        graphs: listGraphSummaries(ctx, p.id),
+        artifacts: listArtifacts(ctx, p.id),
+        ...(pendingApproval ? { pendingApproval } : {}),
+      };
     },
   }),
   "run.list": op({
@@ -152,11 +221,20 @@ export const workflowOps: Record<string, OpDef> = {
     },
   }),
   "run.answer": op({
-    description: "Answer a waiting human step; the answer advances the run. Requires the run's current rev.",
+    description: "Answer a waiting human step or approve/revise a generated graph. Requires the run's current rev.",
     params: z.object({ id: runId, step: z.string().min(1).max(128), answer: z.string().min(1).max(4000), expect_rev: z.number().int().positive() }),
     handler: async (ctx, p, deps) => {
       assertPersonCaller(ctx);
       const { deps: engine, spawn } = engineDeps(deps);
+      const run = getRun(ctx, p.id);
+      if (!run) throw new CoreError("not_found", `unknown run ${p.id}`);
+      const def = getDefinition(ctx, `${run.workflow}@${run.version}`) ?? getDefinition(ctx, run.workflow);
+      const stepDef = def?.steps[p.step];
+      if (stepDef?.type === "generate") {
+        return answerGenerateApproval(ctx, {
+          runId: p.id, stepId: p.step, answer: p.answer, expectRev: p.expect_rev,
+        }, engine, spawn);
+      }
       return answerHumanStep(ctx, p.id, p.step, p.answer, p.expect_rev, engine, spawn);
     },
   }),
@@ -173,6 +251,15 @@ export const workflowOps: Record<string, OpDef> = {
     description: "Record the calling executor's structured result for its workflow step task, validated at once; once per step, before the task settles.",
     params: z.object({ result: z.record(z.string(), z.json()) }),
     handler: (ctx, p) => recordStepResult(ctx, requireStepResultCaller(ctx), p.result),
+  }),
+  "step.artifact": op({
+    description: "Attach a file from the calling step task's worktree or evidence directory to the run's artifact store. Own step only; 10 MiB per file, 200 MiB per run.",
+    params: z.object({ path: z.string().min(1).max(4096), label: z.string().min(1).max(256) }),
+    handler: (ctx, p) => {
+      const row = storeArtifact(ctx, requireStepResultCaller(ctx), { path: p.path, label: p.label });
+      // Never return filesystem paths to clients (DATA / no secrets in logs).
+      return { id: row.id, label: row.label, name: row.name, mime: row.mime, size: row.size, stepId: row.stepId };
+    },
   }),
   "step.skip": op({
     description: "Skip a failed step under a live run grant: mark it done as skipped and advance the run.",
@@ -219,7 +306,9 @@ export const workflowOps: Record<string, OpDef> = {
         const prior = run.strictSteps ?? [];
         patch.strictSteps = [...new Set([...prior, ...p.strict_steps])];
       }
-      return runEntityValue(updateRun(ctx, p.id, p.expect_rev, patch));
+      const updated = updateRun(ctx, p.id, p.expect_rev, patch);
+      syncHumanStepAnswerers(ctx, updated.id);
+      return runEntityValue(updated);
     },
   }),
   "run.set_budget": op({
@@ -388,7 +477,7 @@ export const workflowOps: Record<string, OpDef> = {
     },
   }),
   "run.decide": op({
-    description: "Answer an auto human step under a live run grant when the run's auto flag is on. Never answers a must step.",
+    description: "Answer an auto human step or auto graph approval under a live run grant. Never answers a must step.",
     params: z.object({
       id: runId,
       step: z.string().min(1).max(128),
@@ -405,14 +494,33 @@ export const workflowOps: Record<string, OpDef> = {
       if (!run) throw new CoreError("not_found", `unknown run ${p.id}`);
       const def = getDefinition(ctx, `${run.workflow}@${run.version}`) ?? getDefinition(ctx, run.workflow);
       const stepDef = def?.steps[p.step];
-      if (!stepDef || stepDef.type !== "human") {
-        throw new CoreError("conflict", `conflict: step ${p.step} is not a human step`);
-      }
       const waiting = stepsOfRun(ctx, p.id).filter(s => s.stepId === p.step && s.status === "waiting");
       const row = waiting[waiting.length - 1];
       const attempt = row?.attempt ?? 0;
       // Auto/strict live on the root run; child choose_workflow rows have auto=0 (I2).
       const root = getRun(ctx, rootRunId(ctx, p.id)) ?? run;
+      const { deps: engine, spawn } = engineDeps(deps);
+      if (stepDef?.type === "generate") {
+        if (!canAutoApproveGenerate(root, p.step, stepDef as GenerateStep)) {
+          recordDecision(ctx, {
+            runId: p.id, stepId: p.step, attempt, actor: "orchestrator",
+            kind: "refused", choice: p.choice, reason: p.reason,
+          });
+          throw new CoreError("not_allowed", "Orchestrator cannot answer this step (must, strict, or auto off)");
+        }
+        if (!row) throw new CoreError("conflict", `conflict: step ${p.step} of ${p.id} is not waiting for an answer`);
+        const updated = await answerGenerateApproval(ctx, {
+          runId: p.id, stepId: p.step, answer: p.choice, note: p.reason, expectRev: run.rev,
+        }, engine, spawn);
+        recordDecision(ctx, {
+          runId: p.id, stepId: p.step, attempt: row.attempt, actor: "orchestrator",
+          kind: "decide", choice: p.choice, reason: p.reason,
+        });
+        return updated;
+      }
+      if (!stepDef || stepDef.type !== "human") {
+        throw new CoreError("conflict", `conflict: step ${p.step} is not a human step`);
+      }
       if (!canAutoDecide(root, p.step, stepDef as HumanStep)) {
         recordDecision(ctx, {
           runId: p.id,
@@ -426,7 +534,27 @@ export const workflowOps: Record<string, OpDef> = {
         throw new CoreError("not_allowed", "Orchestrator cannot answer this step (must, strict, or auto off)");
       }
       if (!row) throw new CoreError("conflict", `conflict: step ${p.step} of ${p.id} is not waiting for an answer`);
-      const { deps: engine, spawn } = engineDeps(deps);
+      // Escalated human_step questions stay person-owned even while canAutoDecide (I-2).
+      const escalatedPerson = listQuestions(ctx, p.id, "open").some(q =>
+        q.askerKind === "human_step"
+        && q.stepId === p.step
+        && q.attempt === row.attempt
+        && (q.branch ?? undefined) === (row.branch ?? undefined)
+        && q.answerer === "person"
+        && q.chain.includes("orchestrator"),
+      );
+      if (escalatedPerson) {
+        recordDecision(ctx, {
+          runId: p.id,
+          stepId: p.step,
+          attempt: row.attempt,
+          actor: "orchestrator",
+          kind: "refused",
+          choice: p.choice,
+          reason: p.reason,
+        });
+        throw new CoreError("not_allowed", "Only the person can answer this question");
+      }
       const updated = await answerHumanStep(ctx, p.id, p.step, p.choice, run.rev, engine, spawn);
       recordDecision(ctx, {
         runId: p.id,
@@ -438,6 +566,248 @@ export const workflowOps: Record<string, OpDef> = {
         reason: p.reason,
       });
       return updated;
+    },
+  }),
+  "run.submit_graph": op({
+    description: "Submit a generated sub-workflow for a waiting generate step under a live run grant.",
+    params: z.object({
+      id: runId,
+      step: z.string().min(1).max(128),
+      source: z.union([
+        z.string().min(1).max(256 * 1024),
+        z.record(z.string(), z.unknown()).superRefine((obj, ctx) => {
+          const bytes = Buffer.byteLength(JSON.stringify(obj), "utf8");
+          if (bytes > 256 * 1024) {
+            ctx.addIssue({
+              code: "custom",
+              message: `object-form source is ${bytes} bytes; max is ${256 * 1024}`,
+            });
+          }
+        }),
+      ]),
+    }),
+    handler: async (ctx, p, deps) => {
+      const grant = ctx.env.PACER_RUN_GRANT ? verifyRunGrant(ctx, ctx.env.PACER_RUN_GRANT) : null;
+      if (!grant || rootRunId(ctx, p.id) !== grant.runId) {
+        throw new CoreError("not_allowed", "run.submit_graph requires a live run grant for this run");
+      }
+      let def: WorkflowDef | undefined;
+      let shapeErrors: WorkflowError[] | undefined;
+      if (typeof p.source === "string") {
+        const parsed = parseWorkflow(p.source);
+        if (!parsed.def || parsed.errors.length > 0) {
+          shapeErrors = parsed.errors.length ? parsed.errors : [{ path: "", message: "invalid workflow source" }];
+        } else {
+          def = parsed.def;
+        }
+      } else if (isPlainObject(p.source)) {
+        const shaped = checkWorkflowShape(normalizeWorkflowObject(p.source));
+        if (!shaped.def || shaped.errors.length > 0) {
+          shapeErrors = shaped.errors.length ? shaped.errors : [{ path: "", message: "invalid workflow source" }];
+        } else {
+          def = shaped.def;
+        }
+      } else {
+        shapeErrors = [{ path: "source", message: "invalid workflow source" }];
+      }
+      if (shapeErrors) {
+        // Shape/parse errors count toward generate retries (same as validateGenerated).
+        return noteGenerateSubmitErrors(ctx, p.id, p.step, shapeErrors);
+      }
+      const { deps: engine, spawn } = engineDeps(deps);
+      const waiting = stepsOfRun(ctx, p.id).filter(s => s.stepId === p.step && s.status === "waiting");
+      const attempt = waiting[waiting.length - 1]?.attempt ?? 0;
+      const result = await submitGraph(ctx, { runId: p.id, stepId: p.step, source: def! }, engine, spawn);
+      if (result.ok) {
+        recordDecision(ctx, {
+          runId: p.id,
+          stepId: p.step,
+          attempt,
+          actor: "orchestrator",
+          kind: "submit_graph",
+          choice: `v${result.version ?? "?"}`,
+          reason: "submit generated graph",
+        });
+      }
+      return result;
+    },
+  }),
+  "run.sync_base": op({
+    description: "Merge the base branch tip into the run branch under the merge lock. Person or a live run grant for this run.",
+    params: z.object({ id: runId, expect_rev: z.number().int().positive() }),
+    handler: async (ctx, p) => {
+      if (ctx.env.PACER_RUN_GRANT) {
+        const grant = verifyRunGrant(ctx, ctx.env.PACER_RUN_GRANT);
+        if (!grant || rootRunId(ctx, p.id) !== grant.runId) {
+          throw new CoreError("not_allowed", "unknown run");
+        }
+      } else {
+        assertPersonCaller(ctx);
+      }
+      const result = await syncBase(ctx, p.id, p.expect_rev);
+      // M8: always return runEntityValue of a re-read run (conflict path had a stale pre-marker row).
+      const live = getRun(ctx, p.id) ?? result.run;
+      if (result.ok) return { ok: true as const, run: runEntityValue(live) };
+      return {
+        ok: false as const,
+        merge: result.merge,
+        resolution_task: result.resolution_task,
+        run: runEntityValue(live),
+      };
+    },
+  }),
+  "run.publish": op({
+    description: "Push the run branch and open a PR when the publishing gate allows it. Person or a live run grant for this run; executors refused.",
+    params: z.object({
+      id: runId,
+      draft: z.boolean(),
+      title: z.string().min(1).max(256),
+      body: z.string().max(60 * 1024),
+      expect_rev: z.number().int().positive(),
+    }),
+    handler: async (ctx, p) => {
+      if (ctx.env.PACER_RUN_GRANT) {
+        const grant = verifyRunGrant(ctx, ctx.env.PACER_RUN_GRANT);
+        if (!grant || rootRunId(ctx, p.id) !== grant.runId) {
+          throw new CoreError("not_allowed", "unknown run");
+        }
+      } else {
+        assertPersonCaller(ctx);
+      }
+      const result = await publishRun(ctx, p.id, {
+        draft: p.draft, title: p.title, body: p.body, expectRev: p.expect_rev,
+      });
+      return { pr_url: result.pr_url, run: runEntityValue(result.run) };
+    },
+  }),
+  "run.cleanup": op({
+    description: "Person-only: remove leftover integration worktree and optionally delete the local run branch. Never touches remotes.",
+    params: z.object({
+      id: runId,
+      delete_branch: z.boolean(),
+      expect_rev: z.number().int().positive(),
+    }),
+    handler: async (ctx, p) => {
+      assertPersonCaller(ctx);
+      const result = await cleanupRun(ctx, p.id, {
+        deleteBranch: p.delete_branch, expectRev: p.expect_rev,
+      });
+      return {
+        run: runEntityValue(result.run),
+        deleted_branch: result.deleted_branch,
+        ...(result.ahead !== undefined ? { ahead: result.ahead } : {}),
+        ...(result.deleted_tip !== undefined ? { deleted_tip: result.deleted_tip } : {}),
+        ...(result.pr_url !== undefined ? { pr_url: result.pr_url } : {}),
+      };
+    },
+  }),
+  "question.ask": op({
+    description: "Ask a structured run question from an executor step or the orchestrator grant.",
+    params: questionInputSchema.extend({
+      stepId: z.string().min(1).max(128).optional(),
+      attempt: z.number().int().positive().optional(),
+      branch: z.string().min(1).max(128).optional(),
+      runId: runId.optional(),
+    }).strict(),
+    handler: async (ctx, p) => askQuestion(ctx, {
+      text: p.text,
+      answerType: p.answerType,
+      ...(p.options ? { options: p.options } : {}),
+      ...(p.recommended ? { recommended: p.recommended } : {}),
+      blocks: p.blocks,
+      ...(p.artifact ? { artifact: p.artifact } : {}),
+      ...(p.stepId ? { stepId: p.stepId } : {}),
+      ...(p.attempt !== undefined ? { attempt: p.attempt } : {}),
+      ...(p.branch ? { branch: p.branch } : {}),
+      ...(p.runId ? { runId: p.runId } : {}),
+    }),
+  }),
+  "question.answer": op({
+    description: "Answer a structured run question as the current answerer (person or orchestrator grant).",
+    params: z.object({
+      id: questionId,
+      answer: z.string().min(1).max(2000),
+      note: z.string().max(4000).optional(),
+      expect_rev: z.number().int().positive(),
+    }),
+    handler: async (ctx, p, deps) => answerQuestion(ctx, {
+      id: p.id,
+      answer: p.answer,
+      ...(p.note !== undefined ? { note: p.note } : {}),
+      expectRev: p.expect_rev,
+    }, { spawnRunner: deps.spawnRunner }),
+  }),
+  "question.escalate": op({
+    description: "Escalate an open orchestrator-answerer question to the person with a suggested answer.",
+    params: z.object({
+      id: questionId,
+      suggested: z.string().min(1).max(4000),
+      reason: z.string().min(1).max(4000),
+      expect_rev: z.number().int().positive(),
+    }),
+    handler: (ctx, p) => escalateQuestion(ctx, {
+      id: p.id,
+      suggested: p.suggested,
+      reason: p.reason,
+      expectRev: p.expect_rev,
+    }),
+  }),
+  "question.get": op({
+    description: "Read one structured run question by id.",
+    params: z.object({ id: questionId }),
+    handler: (ctx, p) => {
+      const unknownMsg = `unknown question ${p.id}`;
+      const q = getQuestion(ctx, p.id);
+      if (!q) throw new CoreError("not_found", unknownMsg);
+      if (ctx.env.PACER_RUN_GRANT) {
+        const grant = verifyRunGrant(ctx, ctx.env.PACER_RUN_GRANT);
+        if (!grant || rootRunId(ctx, q.runId) !== grant.runId) {
+          throw new CoreError("not_found", unknownMsg);
+        }
+      } else if (isExecutorSession(ctx)) {
+        // Executors may only read questions on their own run (M-h).
+        // stepByTaskIfPresent: never create the workflow schema for ordinary executors.
+        const taskId = ctx.env.PACER_TASK_ID;
+        if (!taskId) throw new CoreError("not_found", unknownMsg);
+        const step = stepByTaskIfPresent(ctx, taskId);
+        if (!step || rootRunId(ctx, step.runId) !== rootRunId(ctx, q.runId)) {
+          throw new CoreError("not_found", unknownMsg);
+        }
+      }
+      return q;
+    },
+  }),
+  "question.list": op({
+    description: "List structured run questions, optionally for one run.",
+    params: z.object({
+      run: runId.optional(),
+      status: z.enum(["open", "answered", "withdrawn"]).optional(),
+    }),
+    handler: (ctx, p) => {
+      const grant = ctx.env.PACER_RUN_GRANT ? verifyRunGrant(ctx, ctx.env.PACER_RUN_GRANT) : null;
+      if (ctx.env.PACER_RUN_GRANT && !grant) throw new CoreError("not_found", "unknown run");
+      if (p.run) {
+        if (grant && rootRunId(ctx, p.run) !== grant.runId) {
+          throw new CoreError("not_found", `unknown run ${p.run}`);
+        }
+        return listQuestions(ctx, p.run, p.status);
+      }
+      if (grant) {
+        const runs = listRuns(ctx).filter(r => rootRunId(ctx, r.id) === grant.runId);
+        const rows = runs.flatMap(r => listQuestions(ctx, r.id, p.status));
+        return rows.sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
+      }
+      assertPersonCaller(ctx);
+      if (p.status === "open" || p.status === undefined) return listOpenPersonQuestions(ctx);
+      throw new CoreError("invalid_input", "run is required when listing non-open questions");
+    },
+  }),
+  "question.convert_prompt": op({
+    description: "Convert a step task's prompt-wait mark into a structured question. Never types into the terminal.",
+    params: z.object({ id: z.string().min(1).max(128) }),
+    handler: (ctx, p) => {
+      assertPersonCaller(ctx);
+      return convertPromptWaitToQuestion(ctx, p.id);
     },
   }),
 };

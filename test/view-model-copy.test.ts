@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { clock } from '../src/view-model/format';
-import { reasonCopy, costCopy, kindCopy, kindSourceCopy, timelineCopy, sessionTime, branchCopy, executorIdHelp, askModeCheckCopy, isAskModeCheckReason } from '../src/view-model/copy';
+import { reasonCopy, costCopy, kindCopy, kindSourceCopy, timelineCopy, sessionTime, branchCopy, executorIdHelp, askModeCheckCopy, isAskModeCheckReason, ASSISTANT_LIVE_TOOLS_PHRASE, ASSISTANT_SUMMARY_ONLY_PHRASE, ASSISTANT_READS_SUMMARY_ONLY, executorAssistantDescription, executorSetupToolsCopy } from '../src/view-model/copy';
 const now = Date.parse('2026-10-19T03:24:00Z') / 1000;
 test('one clock distinguishes local calendar days, yesterday and a full week', () => {
   const at = (s: string) => Date.parse(s) / 1000;
@@ -79,4 +79,19 @@ test('ask-mode check reasons map to plain sentences; unknown falls back', () => 
   for (const [raw, plain] of cases) expect(askModeCheckCopy(raw)).toBe(plain);
   expect(isAskModeCheckReason('oc failed the ask-mode check: a tool other than pacer\'s ran: bash')).toBe(true);
   expect(isAskModeCheckReason('The assistant reached its limit of 50 turns today.')).toBe(false);
+});
+
+test("assistant live-tools phrases are shared for Settings and the sheet", () => {
+  expect(executorAssistantDescription(false, false)).toBe("Needs the ask-mode check first.");
+  expect(executorAssistantDescription(true, true)).toBe(`${ASSISTANT_LIVE_TOOLS_PHRASE} Slower; no extra key.`);
+  expect(executorAssistantDescription(true, false)).toBe(`${ASSISTANT_SUMMARY_ONLY_PHRASE} Slower; no extra key.`);
+  expect(executorSetupToolsCopy(true)).toEqual({
+    note: "via agent CLI · checked · with pacer's live tools",
+    title: ASSISTANT_LIVE_TOOLS_PHRASE,
+  });
+  expect(executorSetupToolsCopy(false)).toEqual({
+    note: "via agent CLI · checked · from pacer's summary",
+    title: ASSISTANT_SUMMARY_ONLY_PHRASE,
+  });
+  expect(ASSISTANT_READS_SUMMARY_ONLY).toBe("The agent answers from pacer's summary only.");
 });

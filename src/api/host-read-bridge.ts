@@ -3,6 +3,7 @@ import { listRepos } from "../core/repos";
 import { listJobs } from "../jobs/registry";
 import { readHostCheck } from "../remote/hosts";
 import { readHostReachability } from "../remote/eligibility";
+import { isEngineOwnedKind } from "../tasks/engine-owned";
 import { listActiveAndRecentTasks, listTasksWhere } from "../tasks/store";
 import type { Ctx } from "../types";
 
@@ -33,6 +34,7 @@ export function hostReadParts(ctx: Ctx, alias?: string) {
     ...listTasksWhere(ctx, { states: ["running"] }),
     ...listTasksWhere(ctx, { states: ["done"], updatedSince: weekAgo }),
   ]) {
+    if (isEngineOwnedKind(task.kind)) continue;
     if (seen.has(task.id)) continue;
     seen.add(task.id);
     tasks.push(task);

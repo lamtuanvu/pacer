@@ -79,11 +79,13 @@ export async function delegateChild(ctx:Ctx,input:WorkInput,spawn:SpawnRunner=sp
   if(!currentParent||currentParent.rev!==parent.rev||JSON.stringify(currentCaller)!==JSON.stringify(caller))throw new CoreError("conflict","Parent work changed during child admission");
   const root=getWork(currentCtx,currentCaller.rootId),options=candidate.dispatch!;
   if(!root?.options.allowDelegation||!currentCaller.options.allowDelegation)throw new CoreError("not_allowed","Parent cannot delegate");
+  // workflow-root stays running for the life of a run; exclude it like reserveDispatch.
   const running=listTasksWhere(currentCtx,{states:["running"]});
-  if(running.filter(task=>getWork(currentCtx,task.id)?.rootId===currentCaller.rootId).length>=root.options.maxConcurrent)throw new CoreError("not_allowed","Child cannot make progress: root concurrency is occupied; this executor cannot suspend");
+  if(running.filter(task=>task.kind!=="workflow-root"&&getWork(currentCtx,task.id)?.rootId===currentCaller.rootId).length>=root.options.maxConcurrent)throw new CoreError("not_allowed","Child cannot make progress: root concurrency is occupied; this executor cannot suspend");
   let ancestor=currentCaller;
   for(;;){
-   const count=db.query<{n:number},[string]>("WITH RECURSIVE subtree(id) AS (SELECT task_id FROM work_nodes WHERE task_id=? UNION ALL SELECT child.task_id FROM work_nodes child JOIN subtree ON child.parent_id=subtree.id) SELECT count(*) AS n FROM subtree JOIN tasks t ON t.id=subtree.id WHERE t.state='running'").get(ancestor.taskId)!.n;
+   const count=db.query<{task_id:string},[string]>("WITH RECURSIVE subtree(id) AS (SELECT task_id FROM work_nodes WHERE task_id=? UNION ALL SELECT child.task_id FROM work_nodes child JOIN subtree ON child.parent_id=subtree.id) SELECT t.id AS task_id FROM subtree JOIN tasks t ON t.id=subtree.id WHERE t.state='running'").all(ancestor.taskId)
+    .filter(r=>readTask(currentCtx,r.task_id)?.kind!=="workflow-root").length;
    if(count>=ancestor.options.maxConcurrent)throw new CoreError("not_allowed","Child cannot make progress: ancestor concurrency is occupied; this executor cannot suspend");
    if(!ancestor.parentId)break;const next=getWork(currentCtx,ancestor.parentId);if(!next)throw new CoreError("conflict","Ancestor work changed");ancestor=next;
   }
@@ -128,6 +130,8 @@ export async function reviewWork(ctx:Ctx,id:string,accepted:boolean,note?:string
   if(accepted&&pendingChildren(ctx,id).length)throw new CoreError("conflict","Required children must be reviewed first");
   const current=fresh();
   const result=await reviewTask({...current,env:{...current.env,PACER_ROLE:undefined}},id,{verdict:accepted?"accept":"reject",note,expectRev});
+  // R3-I4: a merge conflict returns accepted:false with no verdict — do not emit work.reviewed or sync waits.
+  if(result.accepted===false&&result.merge)return result;
   recordWorkReview(ctx,id,ctx.env.PACER_WORK_GRANT?"requesting-agent":"human");
   appendWorkEvent(ctx,id,"work.reviewed",{accepted,provenance:ctx.env.PACER_WORK_GRANT?"requesting-agent":"human",note:note?.slice(0,2000)??null});
   syncDependentWaits(ctx,id);

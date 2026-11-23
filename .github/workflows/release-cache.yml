@@ -1,0 +1,139 @@
+# Warm the Rust dependency caches that release.yml restores on tag runs.
+# Tag-scoped saves are useless (GitHub only restores from the tag or from main);
+# this workflow saves on main under shared-key values release.yml restores with save-if: false.
+# Only the desktop builds (the release critical path) are warmed, to stay within the 10GB repo cache budget.
+name: Release cache
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - Cargo.lock
+      - Cargo.toml
+      - '**/Cargo.toml'
+      - rust-toolchain*
+      - desktop/src-tauri/**
+      - crates/**
+      - .github/workflows/release-cache.yml
+      - scripts/release/build.ts
+  # GitHub evicts caches unused for 7 days; refresh weekly.
+  schedule:
+    - cron: '17 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # Same Rust compilation as release.yml desktop-build (unsigned; public vars only).
+  desktop-build:
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: aarch64
+            target: aarch64-apple-darwin
+            bun_target: darwin-arm64
+          - runner: macos-15
+            arch: x86_64
+            target: x86_64-apple-darwin
+            bun_target: darwin-x64
+    env:
+      ARCH: ${{ matrix.arch }}
+      TARGET: ${{ matrix.target }}
+      BUN_TARGET: ${{ matrix.bun_target }}
+      # build.rs rerun-if-env-changed; ota-production needs these. Public vars only — no secrets, no signing.
+      PACER_OTA_PUBLIC_KEY: ${{ vars.PACER_OTA_PUBLIC_KEY }}
+      PACER_APPLE_TEAM_ID: ${{ vars.PACER_APPLE_TEAM_ID }}
+      PACER_SIGNING_CERT_SHA1: ${{ vars.PACER_SIGNING_CERT_SHA1 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - run: bun install --frozen-lockfile
+        working-directory: desktop
+      - name: Install Rust release target
+        working-directory: desktop/src-tauri
+        run: |
+          rustup show active-toolchain
+          rustup target add "$TARGET"
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: release-desktop-${{ matrix.target }}
+          workspaces: |
+            . -> target
+            desktop/src-tauri -> target
+      - name: Warm desktop production Rust compilation
+        run: |
+          set -euo pipefail
+          bun scripts/release/build.ts --targets "$BUN_TARGET" --desktop-production --out dist/desktop-cli
+          (cd desktop && bunx --no-install tauri build --target "$TARGET" --bundles app --no-sign --features ota-production)
+          cargo build --locked --release --target "$TARGET" --features ota-production --manifest-path desktop/src-tauri/Cargo.toml --bin pacer-update-helper
+
+  # Same apt deps and tauri crate release compile as release.yml desktop (no bundling).
+  desktop:
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    env:
+      TARGET: ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            platform: linux-x64
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            platform: linux-arm64
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+      - name: Install Linux build dependencies
+        run: |
+          if [ -f /etc/apt/apt-mirrors.txt ] && ! getent hosts azure.archive.ubuntu.com >/dev/null; then
+            sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt
+          fi
+          sudo apt-get update
+          sudo apt-get install -y build-essential curl wget file libssl-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf squashfs-tools
+      - name: Install pinned Rust toolchain and target
+        working-directory: desktop/src-tauri
+        run: |
+          rustup show active-toolchain
+          echo "RUSTUP_TOOLCHAIN=$(rustup show active-toolchain | cut -d ' ' -f 1)" >> "$GITHUB_ENV"
+          rustup target add "$TARGET"
+      - name: Install app dependencies
+        run: bun install --frozen-lockfile
+      - name: Install desktop CLI
+        working-directory: desktop
+        run: bun install --frozen-lockfile
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: release-desktop-${{ matrix.target }}
+          workspaces: |
+            desktop/src-tauri -> target
+      - name: Warm desktop Linux Rust compilation
+        working-directory: desktop/src-tauri
+        run: |
+          set -euo pipefail
+          # tauri-build only checks that externalBin sidecars exist; the release stages the real CLI.
+          mkdir -p binaries
+          for name in pacer pacer-core pacer-assistant-pacer; do
+            install -m 0755 /dev/null "binaries/$name-$TARGET"
+          done
+          cargo build --locked --release --target "$TARGET"

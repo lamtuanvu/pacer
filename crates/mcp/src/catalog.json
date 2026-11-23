@@ -572,6 +572,116 @@
       }
     },
     {
+      "name": "pacer_question",
+      "description": "Ask, answer, escalate, get, list or convert structured run questions (person and executor surfaces).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "ask",
+              "answer",
+              "escalate",
+              "get",
+              "list",
+              "convert"
+            ]
+          },
+          "text": {
+            "type": "string"
+          },
+          "answerType": {
+            "type": "string",
+            "enum": [
+              "single",
+              "multi",
+              "text",
+              "yes_no",
+              "approve_revise"
+            ]
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "value"
+              ]
+            }
+          },
+          "recommended": {
+            "type": "string"
+          },
+          "blocks": {
+            "type": "string",
+            "enum": [
+              "step",
+              "branch",
+              "nothing"
+            ]
+          },
+          "artifact": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "answer": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          },
+          "suggested": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "expect_rev": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "stepId": {
+            "type": "string"
+          },
+          "attempt": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "runId": {
+            "type": "string"
+          },
+          "run": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "answered",
+              "withdrawn"
+            ]
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
       "name": "report_limit",
       "description": "Tell pacer an executor hit its plan limit (seen outside pacer). It is skipped until `until` (unix seconds) or its cooldown.",
       "inputSchema": {

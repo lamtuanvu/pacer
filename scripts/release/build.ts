@@ -4,11 +4,12 @@ import { validSignerPins, type SignerPins } from "../../src/update/desktop/signe
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
-  type Manifest, type Platform, type ReleaseAsset, type Target, TARGETS, assetFile, companionFile, formatSha256Sums,
+  type Manifest, type NativePlugin, type Platform, type ReleaseAsset, type Target, TARGETS, assetFile, companionFile, formatSha256Sums,
   hostPlatform, hostTarget, parseLatest, sha256Hex,
 } from "../../src/update/manifest";
 import { signLocal } from "../../src/update/signing";
 import { compareVersions, isVersion } from "../../src/update/version";
+import { ASSISTANT_PACER_EXECUTABLE } from "../../src/plugins/native-bundled";
 import { assistantPacerFile, compileAssistantPacer, frontDoorCargoTargetDir } from "../lib/assistant-pacer-bin";
 
 export const BUILD_USAGE = "usage: bun run release [--host | --targets <os-arch,...>] [--write-only] [--desktop-production] [--out <dir>] [--version <x.y.z>]";
@@ -155,20 +156,24 @@ export function writeRelease(outRoot: string, version: string, platforms: Platfo
     }
     return asset;
   });
-  // Optional native assistant sibling: checksummed in SHA256SUMS but not a manifest companion
-  // (older updaters reject unknown companion names — see review S4).
-  const assistantSums: { file: string; sha256: string }[] = [];
-  for (const p of platforms) {
-    const file = assistantPacerFile(p);
+  // Optional native assistant sibling: listed under nativePlugins (not companions) so older
+  // updaters, which reject unknown companion names, ignore the field (ADR 0031 / review S4).
+  for (const asset of assets) {
+    const file = assistantPacerFile(asset);
     const path = join(dir, file);
     if (!existsSync(path)) continue;
     const bytes = readFileSync(path);
-    assistantSums.push({ file, sha256: sha256Hex(bytes) });
+    const plugin: NativePlugin = {
+      name: ASSISTANT_PACER_EXECUTABLE,
+      file,
+      sha256: sha256Hex(bytes),
+      size: bytes.length,
+    };
+    asset.nativePlugins = [plugin];
   }
   const manifest: Manifest = { version, assets };
   writeFileSync(join(dir, "SHA256SUMS"), formatSha256Sums([
-    ...assets.flatMap(asset => [asset, ...(asset.companions ?? [])]),
-    ...assistantSums,
+    ...assets.flatMap(asset => [asset, ...(asset.companions ?? []), ...(asset.nativePlugins ?? [])]),
   ]));
   writeFileSync(join(dir, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
   const latestPath = join(outRoot, "latest.json");
@@ -205,7 +210,7 @@ export async function buildRelease(o: BuildOptions): Promise<{ dir: string; mani
     const host = hostPlatform();
     const smoke = host !== null && host.os === t.os && host.arch === t.arch;
     const built = await compileAssistantPacer({
-      root: o.root, target: t, outfile: join(dir, assistantPacerFile(t)), smoke,
+      root: o.root, target: t, version, outfile: join(dir, assistantPacerFile(t)), smoke,
       cargoTargetDir: frontDoorCargoTargetDir(o.root),
     });
     if (built) log(`built ${assistantPacerFile(t)}`);

@@ -342,32 +342,55 @@ test("isolated run claim requires the issued worktree effect and binds its exact
   } finally { await authority.revoke(); }
 });
 
-test("a pipe claim publishes the strict guard file but refuses an interactive-only launch file", async () => {
-  for (const name of ["strict-claude-settings.json", "prompt.md"] as const) {
+test("a pipe claim publishes pipe-safe launch files but refuses interactive-only ones", async () => {
+  const published = [
+    { name: "strict-claude-settings.json" as const, content: "{}", mode: 0o600 },
+    { name: "prompt.md" as const, content: "brief", mode: 0o600 },
+  ];
+  for (const file of published) {
     const { ctx, task, resource, manifest, cleanup } = fixture();
     const authority = createCallAuthority(ctx, { reads: [], commands: [], stores: [],
-      executorClaim: { ...resource, launch: { ...resource.launch,
-        files: [{ name, content: "{}", mode: 0o600 }] } } },
+      executorClaim: { ...resource, launch: { ...resource.launch, files: [file] } } },
     { deadlineMs: Date.now() + 10_000, grants: ["process.spawn"] });
     try {
       const claim = await answerCapability(ctx, { id: manifest.id, manifest },
         "capability.process.claimRun", { taskId: task.id, attempt: 1 }, authority) as
         { task: { id: string; rev: number }; attempt: number; runDir: 1 };
       const dir = readTask(ctx, task.id)!.run!.dir;
-      const start = answerCapability(ctx, { id: manifest.id, manifest },
-        "capability.process.startRun", { task: claim.task, attempt: 1, runDir: 1 }, authority);
-      if (name === "prompt.md") {
-        await expect(start).rejects.toMatchObject({ code: "capability_denied" });
-        expect(existsSync(join(dir, name))).toBe(false);
-        expect(existsSync(join(dir, "pid"))).toBe(false);
-      } else {
-        expect(await start).toHaveProperty("pid");
-        expect(readFileSync(join(dir, name), "utf8")).toBe("{}");
-      }
+      expect(await answerCapability(ctx, { id: manifest.id, manifest },
+        "capability.process.startRun", { task: claim.task, attempt: 1, runDir: 1 }, authority))
+        .toHaveProperty("pid");
+      expect(readFileSync(join(dir, file.name), "utf8")).toBe(file.content);
+      expect(statSync(join(dir, file.name)).mode & 0o777).toBe(0o600);
+      expect(existsSync(join(dir, "pid"))).toBe(true);
     } finally {
       await authority.revoke();
       const dir = readTask(ctx, task.id)?.run?.dir;
       if (dir && existsSync(join(dir, "pid"))) await stopRun(dir, { graceMs: 1000 });
+      cleanup();
+    }
+  }
+  const refused = [
+    { name: "report-hook.sh" as const, content: "#!/bin/sh\n", mode: 0o700 },
+    { name: "claude-settings.json" as const, content: "{}", mode: 0o600 },
+  ];
+  for (const file of refused) {
+    const { ctx, task, resource, manifest, cleanup } = fixture();
+    const authority = createCallAuthority(ctx, { reads: [], commands: [], stores: [],
+      executorClaim: { ...resource, launch: { ...resource.launch, files: [file] } } },
+    { deadlineMs: Date.now() + 10_000, grants: ["process.spawn"] });
+    try {
+      const claim = await answerCapability(ctx, { id: manifest.id, manifest },
+        "capability.process.claimRun", { taskId: task.id, attempt: 1 }, authority) as
+        { task: { id: string; rev: number }; attempt: number; runDir: 1 };
+      const dir = readTask(ctx, task.id)!.run!.dir;
+      await expect(answerCapability(ctx, { id: manifest.id, manifest },
+        "capability.process.startRun", { task: claim.task, attempt: 1, runDir: 1 }, authority))
+        .rejects.toMatchObject({ code: "capability_denied" });
+      expect(existsSync(join(dir, file.name))).toBe(false);
+      expect(existsSync(join(dir, "pid"))).toBe(false);
+    } finally {
+      await authority.revoke();
       cleanup();
     }
   }

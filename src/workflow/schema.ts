@@ -7,21 +7,33 @@ export interface JsonSchemaLite {
   required?: string[];
 }
 
+/** Frame-provided evidence result shape (Phase 5), or a light required-keys schema. */
+export type StepResultSchema = JsonSchemaLite | "evidence";
+
+export type EvidenceNeed = "browser" | "desktop" | "tui";
+
 export interface AgentStep {
   type: "agent";
-  /** Required for executor steps; optional when `role` is `orchestrator`. */
+  /** Required for executor steps; optional when `role` is `orchestrator` or `reviewer`. */
   kind?: string;
-  role?: "orchestrator";
+  role?: "orchestrator" | "reviewer";
   interactive?: boolean;
   difficulty?: "simple" | "standard" | "complex";
+  /** When false, the step never creates or uses the run branch. When true, it always does.
+   *  When omitted, kinds that edit the tree do; research/docs/unfamiliar-code do not. */
+  code?: boolean;
+  /** Tool routing for agent-driven tests (D9): matched against a runner `tools` list. */
+  needs?: EvidenceNeed[];
   prompt: string;
-  result?: JsonSchemaLite;
+  result?: StepResultSchema;
 }
 
 export interface HumanStep {
   type: "human";
   /** Defaults to `must` when omitted (zod parse fills it; object literals may omit it). */
   decision?: "must" | "auto";
+  /** When set, an approving answer records a `publish_approved` decision (validator requires `must`). */
+  approves?: "publish";
   question: { text: string; kind: "single" | "text" | "yes_no" | "approve_revise"; options?: string[] };
 }
 
@@ -37,11 +49,32 @@ export interface ChooseWorkflowStep {
   from?: string[];
 }
 
+export interface GenerateLimits {
+  step_types: ("agent" | "fanout" | "human")[];
+  max_steps: number;
+  /** Nesting depth ceiling for generated graphs; default 2 when omitted. */
+  max_depth?: number;
+  kinds?: string[];
+  /** Keys are kind predicates (`kind in [a, b]` or a bare kind); value is always `reviewer`. */
+  require_after?: Record<string, "reviewer">;
+  require_last?: { kind: string };
+}
+
+export interface GenerateStep {
+  type: "generate";
+  role?: "orchestrator";
+  prompt: string;
+  limits: GenerateLimits;
+  approval?: "must" | "auto";
+  /** Failed validation attempts allowed before the step fails; default 2. */
+  retries?: number;
+}
+
 export interface EndStep {
   type: "end";
 }
 
-export type StepDef = AgentStep | HumanStep | FanoutStep | ChooseWorkflowStep | EndStep;
+export type StepDef = AgentStep | HumanStep | FanoutStep | ChooseWorkflowStep | GenerateStep | EndStep;
 
 export interface EdgeDef {
   from: string;
@@ -50,8 +83,12 @@ export interface EdgeDef {
   maxLoops?: number;
 }
 
+/** Re-plan after a generated child step fails: auto N times then ask, or always ask. */
+export type ReplanPolicy = { auto: number; then: "ask" } | "ask";
+
 export interface WorkflowPolicy {
   budget?: { orchestrator_turns?: number; message_turns?: number };
+  replan?: ReplanPolicy;
 }
 
 export interface WorkflowDef {
@@ -70,33 +107,38 @@ export interface WorkflowError {
   message: string;
 }
 
-export const STEP_TYPES = ["agent", "human", "fanout", "choose_workflow", "end"] as const;
+export const STEP_TYPES = ["agent", "human", "fanout", "choose_workflow", "generate", "end"] as const;
 type StepType = (typeof STEP_TYPES)[number];
 
 const jsonSchemaLite = z.strictObject({ required: z.array(z.string()).optional() });
+const stepResultSchema = z.union([z.literal("evidence"), jsonSchemaLite]);
+const evidenceNeeds = z.array(z.enum(["browser", "desktop", "tui"])).min(1);
 
-/** Executor agent steps need `kind`; orchestrator steps may omit it. `interactive` is
- *  only valid with `role: orchestrator` (checked in the refine below). */
+/** Executor agent steps need `kind`; orchestrator and reviewer steps may omit it.
+ *  `interactive` is only valid with `role: orchestrator` (checked in the refine below). */
 const agentStepSchema = z.strictObject({
   type: z.literal("agent"),
   kind: z.string().min(1).optional(),
-  role: z.literal("orchestrator").optional(),
+  role: z.enum(["orchestrator", "reviewer"]).optional(),
   interactive: z.boolean().optional(),
   difficulty: z.enum(["simple", "standard", "complex"]).optional(),
+  code: z.boolean().optional(),
+  needs: evidenceNeeds.optional(),
   prompt: z.string().min(1),
-  result: jsonSchemaLite.optional(),
+  result: stepResultSchema.optional(),
 }).superRefine((value, ctx) => {
   if (value.interactive === true && value.role !== "orchestrator") {
     ctx.addIssue({ code: "custom", path: ["interactive"], message: "interactive is only valid with role: orchestrator" });
   }
-  if (value.role !== "orchestrator" && (value.kind === undefined || value.kind.length === 0)) {
-    ctx.addIssue({ code: "custom", path: ["kind"], message: "kind is required for agent steps without role: orchestrator" });
+  if (value.role !== "orchestrator" && value.role !== "reviewer" && (value.kind === undefined || value.kind.length === 0)) {
+    ctx.addIssue({ code: "custom", path: ["kind"], message: "kind is required for agent steps without role: orchestrator or reviewer" });
   }
 });
 
 const humanStepSchema = z.strictObject({
   type: z.literal("human"),
   decision: z.enum(["must", "auto"]).default("must"),
+  approves: z.literal("publish").optional(),
   question: z.strictObject({
     text: z.string().min(1),
     kind: z.enum(["single", "text", "yes_no", "approve_revise"]),
@@ -109,8 +151,10 @@ const fanoutEachSchema = z.strictObject({
   type: z.literal("agent"),
   kind: z.string().min(1),
   difficulty: z.enum(["simple", "standard", "complex"]).optional(),
+  code: z.boolean().optional(),
+  needs: evidenceNeeds.optional(),
   prompt: z.string().min(1),
-  result: jsonSchemaLite.optional(),
+  result: stepResultSchema.optional(),
 });
 
 const fanoutStepSchema = z.strictObject({
@@ -125,6 +169,24 @@ const chooseWorkflowStepSchema = z.strictObject({
   from: z.array(z.string().min(1)).optional(),
 });
 
+const generateLimitsSchema = z.strictObject({
+  step_types: z.array(z.enum(["agent", "fanout", "human"])).min(1),
+  max_steps: z.number().int().min(1),
+  max_depth: z.number().int().min(1).optional(),
+  kinds: z.array(z.string().min(1)).optional(),
+  require_after: z.record(z.string(), z.literal("reviewer")).optional(),
+  require_last: z.strictObject({ kind: z.string().min(1) }).optional(),
+});
+
+const generateStepSchema = z.strictObject({
+  type: z.literal("generate"),
+  role: z.literal("orchestrator").optional(),
+  prompt: z.string().min(1),
+  limits: generateLimitsSchema,
+  approval: z.enum(["must", "auto"]).optional(),
+  retries: z.number().int().min(0).optional(),
+});
+
 const endStepSchema = z.strictObject({ type: z.literal("end") });
 
 const stepSchemas: Record<StepType, z.ZodType> = {
@@ -132,14 +194,24 @@ const stepSchemas: Record<StepType, z.ZodType> = {
   human: humanStepSchema,
   fanout: fanoutStepSchema,
   choose_workflow: chooseWorkflowStepSchema,
+  generate: generateStepSchema,
   end: endStepSchema,
 };
+
+const replanPolicySchema = z.union([
+  z.literal("ask"),
+  z.strictObject({
+    auto: z.number().int().min(0),
+    then: z.literal("ask"),
+  }),
+]);
 
 const workflowPolicySchema = z.strictObject({
   budget: z.strictObject({
     orchestrator_turns: z.number().int().min(1).optional(),
     message_turns: z.number().int().min(1).optional(),
   }).optional(),
+  replan: replanPolicySchema.optional(),
 });
 
 export const edgeDefSchema = z.strictObject({
