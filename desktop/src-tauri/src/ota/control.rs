@@ -2395,12 +2395,37 @@ pub async fn managed_service_action(
     environment.insert("PACER_HOME".into(), home.to_string_lossy().into_owned());
     environment.insert("PACER_PORT".into(), port.to_string());
     environment.insert("PATH".into(), "/usr/bin:/bin:/usr/sbin:/sbin".into());
+    // A formula uninstall can leave a valid registration whose program no longer
+    // exists. That is nothing to preserve: write the managed definition instead of
+    // refusing (ADR 0011 takeover cannot pin a missing binary).
+    let mut replace_gone: Option<Vec<u8>> = None;
     let definition = if let Some(bytes) = existing.as_ref() {
         let argv = parse_registration(bytes, &user_home, &home, port, &label)?;
-        if Path::new(&argv[0]) != bundled {
+        let program = Path::new(&argv[0]);
+        if program == bundled {
+            JobDefinition::from_plist(bytes)?
+        } else if super::takeover::nothing_to_preserve(program) {
+            // Unload a still-listed dangling job first. Bootstrap alone leaves a
+            // loaded listing that never re-reads the rewritten plist.
+            if loaded.is_some() {
+                let old = OwnedJob {
+                    definition: JobDefinition::from_plist(bytes)?,
+                    plist_path: path.clone(),
+                    role: CodeRole::Cli,
+                };
+                old.change(trust, super::platform::JobChange::Bootout).await?;
+            }
+            replace_gone = Some(bytes.clone());
+            JobDefinition {
+                label: label.clone(),
+                arguments: vec![bundled.to_string_lossy().into_owned(), "serve".into()],
+                environment: environment.clone(),
+                keep_alive: true,
+                run_at_load: true,
+            }
+        } else {
             return Err(OtaError::Identity);
         }
-        JobDefinition::from_plist(bytes)?
     } else {
         JobDefinition {
             label: label.clone(),
@@ -2410,10 +2435,15 @@ pub async fn managed_service_action(
             run_at_load: true,
         }
     };
-    let observed = loaded
-        .as_ref()
-        .map(|v| definition.match_loaded(v))
-        .transpose()?;
+    // After unloading a gone formula job, nothing is listed to match.
+    let observed = if replace_gone.is_some() {
+        None
+    } else {
+        loaded
+            .as_ref()
+            .map(|v| definition.match_loaded(v))
+            .transpose()?
+    };
     let change = managed_action(
         action,
         existing.as_ref().map(|_| bundled.as_path()),
@@ -2447,7 +2477,11 @@ pub async fn managed_service_action(
         plist_path: path.clone(),
         role: CodeRole::Cli,
     };
-    if existing.is_none() {
+    if let Some(expected) = replace_gone {
+        let bytes = job.definition.to_plist()?;
+        job.stage_fixture_registration(trust, &bytes)?;
+        super::platform_fs::replace_registration(&path, &expected, &bytes)?;
+    } else if existing.is_none() {
         let bytes = job.definition.to_plist()?;
         job.stage_fixture_registration(trust, &bytes)?;
         for parent in [user_home.join("Library"), registration_dir.clone()] {

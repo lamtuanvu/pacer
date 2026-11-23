@@ -134,6 +134,13 @@ pub fn detect_takeover_for_consent(
     )
 }
 
+/// A recorded CLI executable or registered service program that is already gone
+/// (for example after `brew uninstall pacer`) is nothing to preserve: consent may
+/// replace the registration without a backup step and without an error.
+pub fn nothing_to_preserve(program: &Path) -> bool {
+    matches!(program.try_exists(), Ok(false))
+}
+
 /// Offers a takeover only when every predicate holds; any other failure keeps
 /// today's behavior. `Io` is reported so the caller can retry later.
 ///
@@ -547,8 +554,12 @@ mod tests {
             observed.registration = text.into_bytes();
         }
         assert_eq!(detect(&f, &extra), Ok(None));
-        // A missing program is not offered; I/O failures are reported for a retry.
-        assert_eq!(detect(&f, &running(&f, &f.root.join("missing"))), Ok(None));
+        // A missing program is not an ADR 0011 offer (nothing to pin). Consent
+        // replaces it as nothing-to-preserve via managed install instead.
+        let missing = f.root.join("missing");
+        assert!(nothing_to_preserve(&missing));
+        assert_eq!(detect(&f, &running(&f, &missing)), Ok(None));
+        assert!(!nothing_to_preserve(&f.program));
         assert_eq!(
             detect(
                 &f,
