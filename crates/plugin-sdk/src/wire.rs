@@ -17,6 +17,9 @@ impl WireError {
     pub fn hint(&self) -> Option<&str> {
         self.data.get("hint").and_then(Value::as_str)
     }
+    pub fn reason(&self) -> Option<&str> {
+        self.data.get("reason").and_then(Value::as_str)
+    }
 }
 
 #[derive(Debug)]
@@ -65,7 +68,11 @@ pub fn parse(line: &str) -> Option<Incoming> {
             _ => None,
         };
     }
-    let id = o.get("id")?.as_str()?.to_owned();
+    let id = match o.get("id") {
+        Some(Value::String(s)) => s.clone(),
+        Some(Value::Number(n)) => n.to_string(),
+        _ => return None,
+    };
     if let Some(err) = o.get("error") {
         let message = err
             .get("message")
@@ -99,6 +106,23 @@ pub fn request(id: &str, method: &str, params: Value) -> String {
     request_with_meta(id, method, params, None)
 }
 pub fn request_with_meta(id: &str, method: &str, params: Value, meta: Option<&Value>) -> String {
+    let mut body = json!({"jsonrpc":"2.0","id":id,"method":method,"params":params});
+    if let Some(meta) = meta
+        && let Some(obj) = body.as_object_mut()
+    {
+        obj.insert("_meta".into(), meta.clone());
+    }
+    line(body)
+}
+
+/// A request carrying an arbitrary JSON id (string or number), as the real host
+/// sends numeric ids to plugins.
+pub fn request_value_with_meta(
+    id: &Value,
+    method: &str,
+    params: Value,
+    meta: Option<&Value>,
+) -> String {
     let mut body = json!({"jsonrpc":"2.0","id":id,"method":method,"params":params});
     if let Some(meta) = meta
         && let Some(obj) = body.as_object_mut()

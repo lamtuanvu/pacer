@@ -84,3 +84,32 @@ fn sdk_plugin_tool_and_dev_dependency_boundaries() {
     edge.dev = true;
     assert!(!check(&policy, &[edge]).is_empty());
 }
+
+#[test]
+fn bundled_table_may_depend_on_plugin_and_sdk_crates_only() {
+    let policy = Policy::from_toml(&format!(
+        "{}\n[crates.example-plugin]\nlayer = \"plugin\"\n",
+        include_str!("../crates.toml")
+    ))
+    .unwrap();
+    // C0a extends the layer checker for the bundled table alone: it holds the
+    // plugins-rs/* table and so may depend on plugin and SDK crates.
+    assert!(
+        check(
+            &policy,
+            &[Edge::internal("pacer-bundled", "example-plugin")]
+        )
+        .is_empty()
+    );
+    assert!(check(&policy, &[Edge::internal("pacer-bundled", "pacer-plugin")]).is_empty());
+    let errors = check(&policy, &[Edge::internal("pacer-cli", "example-plugin")]);
+    assert!(errors.iter().any(|e| e.contains("CRATE-4")), "{errors:?}");
+    assert!(!check(&policy, &[Edge::internal("pacer-task-ops", "pacer-plugin")]).is_empty());
+    assert!(
+        !check(
+            &policy,
+            &[Edge::internal("example-plugin", "pacer-bundled")]
+        )
+        .is_empty()
+    );
+}

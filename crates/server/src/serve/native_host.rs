@@ -1,9 +1,9 @@
-//! Optional P4d-1/P4d-4/P4d-5 native plugin-host wiring for serve.
+//! P4d-1/P4d-4/P4d-5 native plugin-host wiring for serve.
 //!
-//! Default serve does not start this path (`serve_starts_reverse_bridge_by_default`
-//! stays false until TypeScript plugin consumers reach the owner). Truthy `PACER_NATIVE_PLUGIN_HOST`
-//! / `PACER_HOST_BRIDGE` opt in; `PACER_NATIVE_PLUGIN_HOST=0` (or `false`/`no`)
-//! is the documented escape hatch once default-on lands. When enabled,
+//! Serve owns plugins natively by default (B0b): falsy `PACER_NATIVE_PLUGIN_HOST`
+//! / `PACER_HOST_BRIDGE` opt out to the TypeScript owner; truthy values are the
+//! escape for that path. `PACER_NATIVE_PLUGIN_HOST=0` (or `false`/`no`) is the
+//! documented escape hatch default-on. When enabled,
 //! [`maybe_start`] claims a native ProcessOwner, binds the reverse bridge with
 //! live sealed call/find/stop, and returns Core env pairs (`PACER_HOST_SOCKET`).
 //! The owner's credential goes to the Core child alone, on its stdin
@@ -108,9 +108,17 @@ fn owner_wait(env: &HashMap<String, String>) -> Duration {
 }
 
 /// Start the native host when enabled; otherwise leave serve unchanged.
+///
+/// `use_fallback` comes from [`serve_starts_reverse_bridge_by_default`]: serve's
+/// default-on path binds the owner socket in `run/` when it fits and in the
+/// private per-user directory of ADR 0027 item 5 when `run/host.sock` is too
+/// long (a deep home), while an explicit `PACER_NATIVE_PLUGIN_HOST=1` opt-in
+/// passes false and stays strict, refusing a too-long socket with
+/// [`BridgeError::PathTooLong`].
 pub(super) async fn maybe_start(
     pacer_home: &Path,
     env: &mut HashMap<String, String>,
+    use_fallback: bool,
 ) -> io::Result<Option<Guard>> {
     // Only the owner this serve starts hands Core a credential.
     env.remove(HOST_SOCKET_KEY_ENV);
@@ -121,7 +129,7 @@ pub(super) async fn maybe_start(
     let deadline = Instant::now() + wait;
     let mut announced = false;
     let (session, core_env) = loop {
-        match NativeHostSession::start(pacer_home) {
+        match NativeHostSession::start_with_fallback(pacer_home, use_fallback) {
             Ok(started) => break started,
             Err(NativeHostError::Bridge(BridgeError::LiveSocket(socket))) => {
                 let now = Instant::now();
@@ -146,6 +154,13 @@ pub(super) async fn maybe_start(
     };
     for (key, value) in core_env {
         env.insert(key, value);
+    }
+    if session.used_fallback() {
+        eprintln!(
+            "pacer: serve: reverse bridge socket for home {} uses the per-user fallback directory at {}",
+            pacer_home.display(),
+            session.socket_path().display()
+        );
     }
     eprintln!(
         "pacer: native plugin host enabled (socket={})",

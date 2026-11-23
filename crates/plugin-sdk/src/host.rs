@@ -1,4 +1,4 @@
-use crate::{PluginError, wire};
+use crate::{PluginError, js, wire};
 use serde_json::{Map, Value, json};
 use std::{
     collections::HashMap,
@@ -8,6 +8,7 @@ use std::{
     },
 };
 use tokio::sync::{Mutex, mpsc, oneshot};
+use tokio_util::sync::CancellationToken;
 
 /// The result of [`Host::identity_sign`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -28,10 +29,17 @@ pub struct Host {
     closed: Arc<AtomicBool>,
     /// Token from the owning host call's `_meta.capabilityCall`, echoed on capability requests.
     capability_call: Option<String>,
+    /// The owning host call's cancellation token. When it fires, every call made
+    /// by this owner rejects with "owning plugin call ended" (index.ts:131-158).
+    cancel: Option<CancellationToken>,
 }
 
 fn unavailable() -> PluginError {
     PluginError::new("plugin_unavailable", "host closed the connection")
+}
+
+fn owning_ended() -> PluginError {
+    PluginError::new("plugin_unavailable", "owning plugin call ended")
 }
 
 impl Host {
@@ -42,21 +50,46 @@ impl Host {
             next: Arc::new(AtomicU64::new(1)),
             closed: Arc::new(AtomicBool::new(false)),
             capability_call: None,
+            cancel: None,
         }
     }
 
-    /// Host scoped to one inbound plugin call, echoing that call's capability token.
-    pub(crate) fn for_call(&self, capability_call: Option<String>) -> Self {
+    /// Host scoped to one inbound plugin call, echoing that call's capability
+    /// token and carrying its cancellation token.
+    pub(crate) fn for_call(
+        &self,
+        capability_call: Option<String>,
+        cancel: CancellationToken,
+    ) -> Self {
         Self {
             out: self.out.clone(),
             pending: self.pending.clone(),
             next: self.next.clone(),
             closed: self.closed.clone(),
             capability_call,
+            cancel: Some(cancel),
         }
     }
 
     pub async fn call(&self, method: &str, params: Value) -> Result<Value, PluginError> {
+        self.call_inner(method, params, true).await
+    }
+
+    /// Make a capability call that ignores the owning call's cancellation
+    /// (matches the TypeScript `cleanupCall`, e.g. for `fs.write`).
+    pub async fn call_cleanup(&self, method: &str, params: Value) -> Result<Value, PluginError> {
+        self.call_inner(method, params, false).await
+    }
+
+    async fn call_inner(
+        &self,
+        method: &str,
+        params: Value,
+        honour_cancel: bool,
+    ) -> Result<Value, PluginError> {
+        if honour_cancel && self.cancel.as_ref().is_some_and(|c| c.is_cancelled()) {
+            return Err(owning_ended());
+        }
         let (tx, rx) = oneshot::channel();
         let id = format!("p{}", self.next.fetch_add(1, Ordering::Relaxed));
         let meta = self
@@ -77,6 +110,21 @@ impl Host {
                 pending.remove(&id);
                 return Err(unavailable());
             }
+        }
+        if honour_cancel && let Some(token) = &self.cancel {
+            if token.is_cancelled() {
+                self.pending.lock().await.remove(&id);
+                return Err(owning_ended());
+            }
+            let pending = self.pending.clone();
+            let id = id.clone();
+            let token = token.clone();
+            tokio::spawn(async move {
+                token.cancelled().await;
+                if let Some(tx) = pending.lock().await.remove(&id) {
+                    let _ = tx.send(Err(owning_ended()));
+                }
+            });
         }
         rx.await.unwrap_or_else(|_| Err(unavailable()))
     }
@@ -99,6 +147,18 @@ impl Host {
             .unwrap_or_default())
     }
 
+    /// Whether a secret reference is present (host >= 1.4.0), via
+    /// `capability.secrets.check {ref}` (index.ts:224).
+    pub async fn secrets_present(&self, reference: &str) -> Result<bool, PluginError> {
+        let result = self
+            .call("capability.secrets.check", json!({ "ref": reference }))
+            .await?;
+        Ok(result
+            .get("present")
+            .and_then(Value::as_bool)
+            .unwrap_or(false))
+    }
+
     /// Sign `payload` with the machine key for a purpose declared in the manifest's `identity.sign` scopes.
     /// The host signs `"pacer-machine-sig/v1" 0x00 plugin_id 0x00 purpose 0x00 payload`, never the raw payload.
     pub async fn identity_sign(
@@ -109,7 +169,7 @@ impl Host {
         let result = self
             .call(
                 "capability.identity.sign",
-                json!({ "purpose": purpose, "payload": base64::encode(payload) }),
+                json!({ "purpose": purpose, "payload": js::base64::encode(payload) }),
             )
             .await?;
         let invalid =
@@ -117,7 +177,7 @@ impl Host {
         let signature = result
             .get("signature")
             .and_then(Value::as_str)
-            .and_then(base64::decode)
+            .and_then(js::base64::decode)
             .ok_or_else(invalid)?;
         let machine_id = result
             .get("machineId")
@@ -135,6 +195,7 @@ impl Host {
             let _ = tx.send(result.map_err(|e| PluginError {
                 code: e.code().to_owned(),
                 hint: e.hint().map(str::to_owned),
+                reason: e.reason().map(str::to_owned),
                 message: e.message,
             }));
         }
@@ -146,55 +207,5 @@ impl Host {
         for (_, tx) in pending.drain() {
             let _ = tx.send(Err(unavailable()));
         }
-    }
-}
-
-/// Standard padded base64, as the plugin protocol carries bytes.
-mod base64 {
-    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-    pub fn encode(bytes: &[u8]) -> String {
-        let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
-        for chunk in bytes.chunks(3) {
-            let b = [
-                chunk.first().copied().unwrap_or(0),
-                chunk.get(1).copied().unwrap_or(0),
-                chunk.get(2).copied().unwrap_or(0),
-            ];
-            let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
-            for i in 0..4 {
-                if i <= chunk.len() {
-                    out.push(char::from(ALPHABET[((n >> (18 - 6 * i)) & 63) as usize]));
-                } else {
-                    out.push('=');
-                }
-            }
-        }
-        out
-    }
-
-    /// Canonical padded base64 only; anything else is None.
-    pub fn decode(text: &str) -> Option<Vec<u8>> {
-        if !text.len().is_multiple_of(4) {
-            return None;
-        }
-        let pad = text.bytes().rev().take_while(|&c| c == b'=').count();
-        if pad > 2 {
-            return None;
-        }
-        let mut bits: u32 = 0;
-        let mut count = 0;
-        let mut out = Vec::with_capacity(text.len() / 4 * 3);
-        for c in text.bytes().take(text.len() - pad) {
-            let v = ALPHABET.iter().position(|&a| a == c)?;
-            bits = (bits << 6) | v as u32;
-            count += 6;
-            if count >= 8 {
-                count -= 8;
-                out.push((bits >> count) as u8);
-                bits &= (1 << count) - 1;
-            }
-        }
-        (bits == 0).then_some(out)
     }
 }
