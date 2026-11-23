@@ -25,6 +25,7 @@ export function generateHomebrew(manifestPath: string, out: string): void {
   homepage "https://github.com/lamtuanvu/pacer"
   version "${manifest.version}"
   license "Apache-2.0"
+  conflicts_with cask: "pacer"
 
 ${platform("darwin")}
 
