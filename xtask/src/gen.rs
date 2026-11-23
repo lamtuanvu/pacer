@@ -356,6 +356,20 @@ pub fn run(check: bool) -> Result<(), String> {
         check,
         &mut stale,
     )?;
+    // B12-1: the layer-5/6 copies are all-f64 (see gen_freshness.rs). `pacer-engine`
+    // (layer 5) can't read `pacer-status`, so the same module is generated into both.
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap_or(Path::new("."));
+    for (constants, out) in freshness::f64_targets(root) {
+        emit(
+            &out,
+            freshness::render_input(&constants)
+                .map_err(|e| format!("xtask gen: {}: {e}", constants.display())),
+            check,
+            &mut stale,
+        )?;
+    }
     if stale.is_empty() {
         Ok(())
     } else {
