@@ -324,7 +324,7 @@ export async function mergeTaskOnAccept(ctx: Ctx, taskId: string): Promise<Accep
 
     // Ahead of the task's own base (not the run tip) so a moved base alone is not "ahead" (R2-F4).
     // If baseSha drifted to the task tip (ask/answer resume used to rewrite it to HEAD),
-    // fall back to run..task so real commits are still merged.
+    // fall back to run..task only when the histories still share an ancestor-consistent base.
     let baseRange = task.baseSha
       ? `${task.baseSha}..${taskBranch}`
       : `${live.branch}..${taskBranch}`;
@@ -333,15 +333,37 @@ export async function mergeTaskOnAccept(ctx: Ctx, taskId: string): Promise<Accep
       10_000,
     );
     let aheadN = ahead.code === 0 ? Number(ahead.stdout.trim()) : NaN;
-    if (aheadN === 0 && task.baseSha) {
-      const vsRun = await ctx.run(
-        ["git", "-C", top, "rev-list", "--count", `${live.branch}..${taskBranch}`],
+    if (aheadN === 0 && task.baseSha && live.branch) {
+      const tip = (await ctx.run(
+        ["git", "-C", top, "rev-parse", "--verify", taskBranch],
+        10_000,
+      )).stdout.trim();
+      const mb = await ctx.run(
+        ["git", "-C", top, "merge-base", live.branch, taskBranch],
         10_000,
       );
-      const vsRunN = vsRun.code === 0 ? Number(vsRun.stdout.trim()) : 0;
-      if (vsRunN > 0) {
-        aheadN = vsRunN;
-        baseRange = `${live.branch}..${taskBranch}`;
+      const baseOnRun = await isAncestorOfRun(ctx, top, task.baseSha, live.branch);
+      const mbSha = mb.code === 0 ? mb.stdout.trim() : "";
+      const mbOnRun = !!mbSha && await isAncestorOfRun(ctx, top, mbSha, live.branch);
+      // Tip-drift recovery needs a merge-base still on the run; a non-ancestor base
+      // after run-branch reset must not pull foreign commits via run..task.
+      const safeFallback = baseOnRun || (!!tip && task.baseSha === tip && mbOnRun);
+      if (safeFallback) {
+        const vsRun = await ctx.run(
+          ["git", "-C", top, "rev-list", "--count", `${live.branch}..${taskBranch}`],
+          10_000,
+        );
+        if (vsRun.code !== 0) {
+          throw new CoreError(
+            "unavailable",
+            `cannot count commits ${live.branch}..${taskBranch}: ${cleanLine(vsRun.stderr) || `exit ${vsRun.code}`}`,
+          );
+        }
+        const vsRunN = Number(vsRun.stdout.trim());
+        if (vsRunN > 0) {
+          aheadN = vsRunN;
+          baseRange = `${live.branch}..${taskBranch}`;
+        }
       }
     }
     if (aheadN === 0) {

@@ -225,6 +225,60 @@ test("accept-merge: drifted baseSha equal to task tip still merges run..task com
   expect(show.stdout).toBe("from-task\n");
 });
 
+test("accept-merge: non-ancestor base after run-branch reset does not merge foreign commits", async () => {
+  // REAL-PATH: after the run tip is replaced with unrelated history, a tip-drifted
+  // baseSha must not fall back to run..task and pull foreign commits in.
+  const { ctx, repo, run } = await seededRun();
+  const { task, worktree } = await makeConflictingTask(ctx, repo, run.id, "edit.txt", "from-task\n");
+  const tip = (await ctx.run(["git", "-C", worktree, "rev-parse", "HEAD"], 10_000)).stdout.trim();
+  updateTask(ctx, task.id, t => { t.baseSha = tip; });
+
+  const orphan = await ctx.run(
+    ["git", "-C", repo, "commit-tree", `${run.branch!}^{tree}`, "-m", "orphan run tip"],
+    10_000,
+  );
+  expect(orphan.code).toBe(0);
+  const orphanSha = orphan.stdout.trim();
+  expect((await ctx.run(
+    ["git", "-C", repo, "update-ref", `refs/heads/${run.branch!}`, orphanSha],
+    10_000,
+  )).code).toBe(0);
+  // Drop the integration worktree so the next merge recreates it at the orphan tip.
+  const info = await gitInfo(ctx.run, repo);
+  if ("error" in info) throw new Error(info.error);
+  const integ = join(ctx.pacerHome, "worktrees", "runs", run.id);
+  await ctx.run(["git", "-C", info.top, "worktree", "remove", "--force", integ], 30_000);
+
+  const before = (await ctx.run(["git", "-C", repo, "rev-parse", run.branch!], 10_000)).stdout.trim();
+  expect(before).toBe(orphanSha);
+  const merge = await mergeTaskOnAccept(ctx, task.id);
+  expect(merge).toEqual({ merged: true });
+  const after = (await ctx.run(["git", "-C", repo, "rev-parse", run.branch!], 10_000)).stdout.trim();
+  expect(after).toBe(before);
+  const show = await ctx.run(["git", "-C", repo, "show", `${run.branch!}:edit.txt`], 10_000);
+  expect(show.code).not.toBe(0);
+});
+
+test("accept-merge: failed run..task rev-list in fallback is surfaced", async () => {
+  const { ctx, repo, run } = await seededRun();
+  const { task, worktree } = await makeConflictingTask(ctx, repo, run.id, "edit.txt", "from-task\n");
+  const tip = (await ctx.run(["git", "-C", worktree, "rev-parse", "HEAD"], 10_000)).stdout.trim();
+  updateTask(ctx, task.id, t => { t.baseSha = tip; });
+  const real = ctx.run;
+  ctx.run = async (argv, timeoutMs, o) => {
+    if (argv.includes("rev-list") && argv.some(a => typeof a === "string" && a.includes("..pacer/"))) {
+      const range = argv.find(a => typeof a === "string" && a.includes(".."));
+      if (range && String(range).startsWith(`${run.branch!}..`)) {
+        return { code: 128, stdout: "", stderr: "fatal: bad revision\n", timedOut: false };
+      }
+    }
+    return real(argv, timeoutMs, o);
+  };
+  await expect(mergeTaskOnAccept(ctx, task.id)).rejects.toMatchObject({
+    code: "unavailable",
+    message: expect.stringMatching(/rev-list|count commits|bad revision/i),
+  });
+});
 test("R2-F8: dirty current checkout still allows accept when no pacer/<id> branch", async () => {
   const { ctx, repo, run } = await seededRun();
   await Bun.write(join(repo, "dirty.txt"), "uncommitted\n");

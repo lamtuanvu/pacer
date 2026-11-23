@@ -6,6 +6,7 @@ import { listTasksWhere, readTask, updateTask, withTaskLock } from "../tasks/sto
 import { TERMINAL_STATES } from "../tasks/types";
 import { taskWorktreePath, taskWorktreesDir } from "../supervisor/worktree";
 import type { Ctx } from "../types";
+import { stepTaskNeedsRunBranchMerge } from "../workflow/store";
 import type { CallAuthority, CallResources } from "./authority";
 
 type Grant = NonNullable<CallResources["worktree"]>;
@@ -219,11 +220,13 @@ export async function bindOwnedWorktreeIntent(ctx: Ctx, taskId: string, provider
       run.workdir !== intent.workdir || task.worktree !== intent.workdir ||
       run.dir !== join(ctx.pacerHome, "runs", taskId, String(attempt)) ||
       !lstatSync(run.dir).isDirectory()) return deny("worktree placement is not bound to a durable run");
+    // Workflow step tasks (run-branch accept-merge) keep the original base across
+    // ask/answer resumes; ordinary tasks keep main's rebind for fast-fail brokenReason.
+    // Same read-only probe core/tasks review() uses; plugins already read workflow store
+    // for checkout sharing (executor-checkout).
+    const preserveBase = !!task.baseSha && stepTaskNeedsRunBranchMerge(ctx, taskId);
     updateTask(ctx, taskId, value => {
-      // Preserve the original worktree base across ask/answer resumes. Reused
-      // worktrees select HEAD for the placement intent; rewriting baseSha to that
-      // tip would hide commits made before the ask and skip accept-merge (Phase 5).
-      if (!value.baseSha) {
+      if (!preserveBase) {
         value.baseBranch = intent.baseSha;
         value.baseSha = intent.baseSha;
       }
