@@ -16,6 +16,11 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 - **Automatic desktop updates no longer stay broken after the native control socket file is deleted.** The service notices the missing path, logs `pacer: native control socket missing; rebinding`, and restarts with backoff instead of listening forever on an orphaned fd. Failed native hellos now log a rate-limited reason to `serve.log`, and the desktop distinguishes a handshake close from storage I/O.
 - **Desktop updates stay connected while pacer is busy.** Connecting and read-only native update status no longer require every pacer process to be covered. Install still waits for running work to drain, treats the service's own process tree and enrolled lease trees as covered, ignores short-lived same-path CLI clients, prunes local leases that cannot survive the current boot (including unfinished `runDir` evidence from a previous boot or a missing `runDir`), and still refuses a foreign-path pacer binary. Settings shows that the update will install when running tasks finish instead of "Automatic desktop updates are unavailable".
+
+## [0.17.8] - 2026-11-22
+
+### Fixed
+
 - **Choosing Use the app's service no longer loops forever when a CLI service is already installed.** In release builds the app now moves that service to its own bundled command once your tasks and terminals are idle, and plain Consent still shows the Existing page so you can keep yours. A stuck install that still names the app's own terminal link is repaired once without asking, and a failed automatic move is not retried for the rest of that launch.
 
 ## [0.17.7] - 2026-11-20
