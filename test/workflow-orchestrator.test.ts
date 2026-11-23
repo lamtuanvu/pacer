@@ -706,6 +706,8 @@ describe("Task 5: failed, limited and overdue turns", () => {
 
   test("exhausted strategy planner does not hold a run whose planner is a different available runner", async () => {
     // Switch escape hatch: strategy planner claude-code exhausted, run planner (or pending) is codex.
+    // Stub pacing mode: exhausted evidence pushes status to emergency, which correctly
+    // pauses normal-priority runs; this case isolates planner-hold vs a different runner.
     const { loadStrategy } = await import("../src/config/strategy");
     const { accountEvidenceScope, mergeEvidence } = await import("../src/core/evidence");
     const { emptyEvidence, evidenceFact } = await import("../src/engine/evidence");
@@ -755,12 +757,62 @@ describe("Task 5: failed, limited and overdue turns", () => {
       });
       let launched = 0;
       const spawn: SpawnRunner = () => { launched++; return 1; };
-      await advanceRuns(ctx, spawn);
+      await advanceRuns(ctx, spawn, undefined, { pacingMode: "normal" });
       expect(launched, label).toBe(1);
       expect(parseSpent(getRun(ctx, runId)!.spent).orchestratorTurns, label).toBe(1);
       expect(getRun(ctx, runId)!.orchestratorState, label).toBe("turn");
       expect(getRun(ctx, runId)!.reason ?? null, label).toBeNull();
     }
+  });
+
+  test("normal run + exhausted planner under emergency still records planner-at-limit hold", async () => {
+    // Product: pacing deferral must not hide the hold when status is already emergency.
+    const { loadStrategy } = await import("../src/config/strategy");
+    const { accountEvidenceScope, mergeEvidence } = await import("../src/core/evidence");
+    const { emptyEvidence, evidenceFact } = await import("../src/engine/evidence");
+    const { executorExclusion } = await import("../src/executors/availability");
+    const { parseSpent, serializeBudget, serializeSpent } = await import("../src/workflow/budget");
+    const ctx = fakeCtx({ now: NOW });
+    writePlanner(ctx);
+    const s = loadStrategy(ctx);
+    const account = s.accounts[s.planner.account]!;
+    const scope = accountEvidenceScope(account, s.hosts);
+    const resetsAt = NOW + 7200;
+    const facts = emptyEvidence();
+    facts.budget.push(evidenceFact(scope, "session-log", NOW - 60, null, "quota_observed", {
+      name: "5h", usedPct: 100, resetsAt, lengthS: 18000, paced: false,
+    }));
+    await mergeEvidence(ctx, scope, facts);
+    expect(executorExclusion(ctx, s, "claude-code")).toBe("exhausted");
+
+    const run = insertRun(ctx, {
+      workflow: "t/orch-chain", version: 1, repo: tmpDir(), brief: "b",
+      budget: serializeBudget({ orchestratorTurns: 10, messageTurns: 5 }),
+      spent: serializeSpent({ orchestratorTurns: 0, messageTurns: 0 }),
+    });
+    addWakeup(workflowDatabase(ctx), {
+      runId: run.id, cause: "step_failed", ref: "one#1", createdAt: NOW - COALESCE_WINDOW_S,
+    });
+    let launched = 0;
+    await advanceRuns(ctx, () => { launched++; return 1; }, undefined, { pacingMode: "emergency" });
+    expect(launched).toBe(0);
+    expect(parseSpent(getRun(ctx, run.id)!.spent).orchestratorTurns).toBe(0);
+    const after = getRun(ctx, run.id)!;
+    expect(after.orchestratorState).toBe("retrying");
+    expect(after.reason).toMatch(/^planner at limit until /);
+    expect(after.nextWakeAt).toBe(resetsAt);
+    const { runEntityValue } = await import("../src/workflow/store");
+    const { composeSnapshotRuns } = await import("../src/api/read-model/runs");
+    const entity = runEntityValue(after);
+    expect(entity.orchestrator).toMatchObject({
+      state: "retrying",
+      reason: expect.stringMatching(/^planner at limit until /),
+      next_wake_at: resetsAt,
+    });
+    const snap = composeSnapshotRuns(ctx).find(r => r.id === run.id);
+    expect(snap?.waits_on).toBe("planner");
+    expect(snap?.orchestrator.state).toBe("retrying");
+    expect(snap?.orchestrator.reason).toMatch(/^planner at limit until /);
   });
 
   test("runner budget-refusal report settles as planner-at-limit, not a counted failure", async () => {

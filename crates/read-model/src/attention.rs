@@ -2,6 +2,7 @@ use crate::{capacity, js::*, read, tasks};
 use pacer_foundation::Ctx;
 use rusqlite::{Connection, OpenFlags, OptionalExtension};
 use serde_json::{Map, Value, json};
+use std::collections::HashSet;
 fn action(label: &str, op: &str, params: Value) -> Value {
     json!({
     "label":label,"op":op,"params":params}
@@ -70,13 +71,12 @@ pub fn sort(items: &mut [Value]) {
             .then(text(&a["id"]).cmp(text(&b["id"])))
     });
 }
-/// Stable A–Z letter from a run id (matches TS `runAttentionLetter` until Phase 6).
+/// Letter for a lone run id via resolve_run_letters (matches TS `runAttentionLetter`).
 pub fn run_attention_letter(run_id: &str) -> String {
-    let mut h: u32 = 0;
-    for b in run_id.bytes() {
-        h = h.wrapping_mul(31).wrapping_add(u32::from(b));
-    }
-    char::from(b'A' + (h % 26) as u8).to_string()
+    crate::runs::resolve_run_letters(&[(run_id.to_string(), 0.0, None)])
+        .get(run_id)
+        .cloned()
+        .unwrap_or_else(|| "A".into())
 }
 fn has_table(db: &Connection, name: &str) -> bool {
     db.query_row(
@@ -444,16 +444,37 @@ pub fn run_question_items(ctx: &Ctx) -> Vec<Value> {
     if !has_table(&db, "workflow_questions") || !has_table(&db, "workflow_runs") {
         return Vec::new();
     }
-    let mut stmt = match db.prepare(
+    let run_cols: HashSet<String> = db
+        .prepare("PRAGMA table_info(workflow_runs)")
+        .ok()
+        .and_then(|mut s| {
+            s.query_map([], |row| row.get::<_, String>(1))
+                .ok()
+                .map(|rows| rows.flatten().collect())
+        })
+        .unwrap_or_default();
+    let priority_expr = if run_cols.contains("priority") {
+        "r.priority"
+    } else {
+        "NULL"
+    };
+    let letter_expr = if run_cols.contains("letter") {
+        "r.letter"
+    } else {
+        "NULL"
+    };
+    let sql = format!(
         "SELECT q.id, q.run_id, q.step_id, q.attempt, q.branch, q.asker_task_id, q.asker_kind,
                 q.text, q.answer_type, q.options, q.recommended, q.blocks, q.artifact,
-                q.suggested, q.rev, q.created_at, r.title, r.workflow, r.status
+                q.suggested, q.rev, q.created_at, r.title, r.workflow, r.status,
+                {priority_expr}, {letter_expr}
          FROM workflow_questions q
          JOIN workflow_runs r ON r.id = q.run_id
          WHERE q.status = 'open' AND q.answerer = 'person'
            AND r.status IN ('running', 'waiting')
-         ORDER BY q.created_at, q.id",
-    ) {
+         ORDER BY q.created_at, q.id"
+    );
+    let mut stmt = match db.prepare(&sql) {
         Ok(s) => s,
         Err(_) => return Vec::new(),
     };
@@ -478,11 +499,40 @@ pub fn run_question_items(ctx: &Ctx) -> Vec<Value> {
             row.get::<_, String>(16)?,
             row.get::<_, String>(17)?,
             row.get::<_, String>(18)?,
+            row.get::<_, Option<String>>(19)?,
+            row.get::<_, Option<String>>(20)?,
         ))
     }) {
         Ok(rows) => rows,
         Err(_) => return Vec::new(),
     };
+    // Same resolver as snapshot `runs` so letterless attention/snapshot letters agree.
+    let live_letter_inputs: Vec<(String, f64, Option<String>)> = {
+        let letter_col = if run_cols.contains("letter") {
+            "letter"
+        } else {
+            "NULL"
+        };
+        let sql = format!(
+            "SELECT id, created_at, {letter_col} FROM workflow_runs WHERE status IN ('running','waiting') ORDER BY created_at, id"
+        );
+        db.prepare(&sql)
+            .ok()
+            .and_then(|mut s| {
+                s.query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, f64>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                    ))
+                })
+                .ok()
+                .map(|rows| rows.flatten().collect())
+            })
+            .unwrap_or_default()
+    };
+    let letters = crate::runs::resolve_run_letters(&live_letter_inputs);
+
     let mut items = Vec::new();
     for row in rows.flatten() {
         let (
@@ -505,6 +555,8 @@ pub fn run_question_items(ctx: &Ctx) -> Vec<Value> {
             title,
             workflow,
             _status,
+            priority,
+            letter,
         ) = row;
         let unblocks = match blocks.as_str() {
             "branch" => "branch",
@@ -596,13 +648,29 @@ pub fn run_question_items(ctx: &Ctx) -> Vec<Value> {
         obj.insert("notify".into(), json!(notify));
         obj.insert("actions".into(), actions);
         obj.insert("unblocks".into(), json!(unblocks));
+        let prio = match priority.as_deref() {
+            Some("urgent") => "urgent",
+            Some("background") => "background",
+            _ => "normal",
+        };
+        let letter_val = letters
+            .get(&run_id)
+            .cloned()
+            .or_else(|| {
+                letter
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string())
+            })
+            .unwrap_or_else(|| run_attention_letter(&run_id));
         obj.insert(
             "run".into(),
             json!({
                 "id":run_id,
-                "letter":run_attention_letter(&run_id),
+                "letter":letter_val,
                 "title":run_title,
-                "priority":"normal"
+                "priority":prio
             }),
         );
         obj.insert("question".into(), Value::Object(question));

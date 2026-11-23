@@ -725,6 +725,7 @@ impl ::std::convert::TryFrom<&str> for TaskAttachParamsTarget {
 ///                        "ancestor",
 ///                        "top_peer",
 ///                        "same_tree",
+///                        "run_peer",
 ///                        "none"
 ///                      ]
 ///                    },
@@ -1334,6 +1335,7 @@ impl ::std::convert::TryFrom<&str> for TaskDelegateParamsKind {
 ///                    "ancestor",
 ///                    "top_peer",
 ///                    "same_tree",
+///                    "run_peer",
 ///                    "none"
 ///                  ]
 ///                },
@@ -1531,6 +1533,7 @@ impl ::std::default::Default for TaskDelegateParamsMessagingLiveness {
 ///              "ancestor",
 ///              "top_peer",
 ///              "same_tree",
+///              "run_peer",
 ///              "none"
 ///            ]
 ///          },
@@ -2046,6 +2049,7 @@ impl ::std::default::Default for TaskDelegateParamsMessagingRulesItemLimits {
 ///          "ancestor",
 ///          "top_peer",
 ///          "same_tree",
+///          "run_peer",
 ///          "none"
 ///        ]
 ///      },
@@ -2091,6 +2095,7 @@ impl ::std::convert::From<::std::vec::Vec<TaskDelegateParamsMessagingRulesItemRe
 ///    "ancestor",
 ///    "top_peer",
 ///    "same_tree",
+///    "run_peer",
 ///    "none"
 ///  ]
 ///}
@@ -2125,6 +2130,8 @@ pub enum TaskDelegateParamsMessagingRulesItemRelationVariant1Item {
     TopPeer,
     #[serde(rename = "same_tree")]
     SameTree,
+    #[serde(rename = "run_peer")]
+    RunPeer,
     #[serde(rename = "none")]
     None,
 }
@@ -2144,6 +2151,7 @@ impl ::std::fmt::Display for TaskDelegateParamsMessagingRulesItemRelationVariant
             Self::Ancestor => f.write_str("ancestor"),
             Self::TopPeer => f.write_str("top_peer"),
             Self::SameTree => f.write_str("same_tree"),
+            Self::RunPeer => f.write_str("run_peer"),
             Self::None => f.write_str("none"),
         }
     }
@@ -2160,6 +2168,7 @@ impl ::std::str::FromStr for TaskDelegateParamsMessagingRulesItemRelationVariant
             "ancestor" => Ok(Self::Ancestor),
             "top_peer" => Ok(Self::TopPeer),
             "same_tree" => Ok(Self::SameTree),
+            "run_peer" => Ok(Self::RunPeer),
             "none" => Ok(Self::None),
             _ => Err("invalid value".into()),
         }

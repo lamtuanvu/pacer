@@ -8,6 +8,9 @@ import type { TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
 import { CoreError } from "../core/errors";
 import type { WorkflowDef } from "./schema";
+import type { RunPriority } from "./priority";
+import { nextLetter, resolveRunLetters } from "./letters";
+import type { PausedReason } from "./pacing";
 
 // The connection is cached by taskDatabase; schema setup must therefore also run once
 // per connection, not per call (see dispatch/store.ts for the same guard). Apply the
@@ -117,6 +120,49 @@ export function workflowDatabase(ctx: Ctx): Database {
         AND json_valid(conflict)
         AND json_type(conflict) = 'object'
     `);
+    // Phase 6: run priority and pause reason (inside the same atomic schema transaction).
+    if (!runColumns.includes("priority")) db.exec("ALTER TABLE workflow_runs ADD COLUMN priority TEXT NOT NULL DEFAULT 'normal'");
+    if (!runColumns.includes("paused_reason")) db.exec("ALTER TABLE workflow_runs ADD COLUMN paused_reason TEXT");
+    // Phase 6: since-you-last-looked (last_seen_at + summary).
+    if (!runColumns.includes("last_seen_at")) db.exec("ALTER TABLE workflow_runs ADD COLUMN last_seen_at REAL");
+    if (!runColumns.includes("summary")) db.exec("ALTER TABLE workflow_runs ADD COLUMN summary TEXT");
+    if (!runColumns.includes("summary_at")) db.exec("ALTER TABLE workflow_runs ADD COLUMN summary_at REAL");
+    // Phase 6: last meaningful change (step/run status, answers, questions, person actions).
+    // Orchestrator bookkeeping and summary writes do not bump this stamp.
+    if (!runColumns.includes("meaningful_at")) db.exec("ALTER TABLE workflow_runs ADD COLUMN meaningful_at REAL");
+    // Phase 6: stable run letter (A–Z, AA…) for clients; assigned at insert / schema migration.
+    if (!runColumns.includes("letter")) db.exec("ALTER TABLE workflow_runs ADD COLUMN letter TEXT");
+    // Phase 6 batch F: startRun holds entry ownership until this deadline so the tick
+    // cannot race a fresh entry (or seedFinished) start; expired leases are recovered.
+    if (!runColumns.includes("entry_lease_until")) db.exec("ALTER TABLE workflow_runs ADD COLUMN entry_lease_until REAL");
+    // Backfill letters for live letterless rows inside this write transaction only (never on read).
+    // Used set includes ALL existing letters (terminal rows too) so the unique index cannot throw.
+    {
+      const allRows = db.query<{ id: string; letter: string | null; created_at: number; status: string }, []>(
+        "SELECT id, letter, created_at, status FROM workflow_runs ORDER BY created_at, id",
+      ).all();
+      const liveLetterless = allRows.filter(r =>
+        (r.status === "running" || r.status === "waiting") && (!r.letter || r.letter === ""),
+      );
+      if (liveLetterless.length > 0) {
+        const seed = allRows
+          .filter(r => r.letter && r.letter !== "")
+          .map(r => ({ id: r.id, letter: r.letter!, createdAt: r.created_at }));
+        const resolved = resolveRunLetters([
+          ...seed,
+          ...liveLetterless.map(r => ({ id: r.id, letter: undefined, createdAt: r.created_at })),
+        ]);
+        for (const row of liveLetterless) {
+          const letter = resolved.get(row.id);
+          if (!letter) continue;
+          db.query("UPDATE workflow_runs SET letter = ? WHERE id = ? AND (letter IS NULL OR letter = '')")
+            .run(letter, row.id);
+        }
+      }
+    }
+    try {
+      db.exec("CREATE UNIQUE INDEX IF NOT EXISTS workflow_runs_letter ON workflow_runs(letter) WHERE letter IS NOT NULL AND letter != ''");
+    } catch { /* older SQLite / conflict during migrate */ }
     // Decision log: every orchestrator (and refused) choice with its reason (G7).
     db.exec(`
       CREATE TABLE IF NOT EXISTS workflow_decisions(
@@ -245,7 +291,33 @@ export interface RunRow {
    * Cleared per entry only after the conflicting branch is an ancestor of the run branch.
    */
   conflict?: RunConflict[];
+  /** Phase 6: urgent | normal | background (default normal). */
+  priority?: RunPriority;
+  /** Phase 6: why the run is paused (pacing / person / budget), if any. */
+  pausedReason?: PausedReason;
+  /** Phase 6: when the person last opened the run (run.seen). */
+  lastSeenAt?: number;
+  /** Phase 6: since-you-last-looked summary text (≤ 4 KiB). */
+  summary?: string;
+  /** Phase 6: when the summary was written. */
+  summaryAt?: number;
+  /**
+   * Phase 6: last meaningful change for since-you-last-looked wake-ups.
+   * Step/run status, answers, questions, conflicts, person actions bump this;
+   * orchestrator bookkeeping and summary writes do not.
+   */
+  meaningfulAt?: number;
+  /** Phase 6: stable client letter (A–Z, AA…). */
+  letter?: string;
+  /**
+   * Phase 6 batch F: unix seconds until which startRun exclusively owns entry start.
+   * The tick skips starting entry while this is in the future; after expiry it recovers.
+   */
+  entryLeaseUntil?: number;
 }
+
+/** How long startRun holds exclusive entry-start ownership after insert (seconds). */
+export const ENTRY_LEASE_S = 30;
 
 /** One durable run-level merge conflict entry (not derived from resolution-task state). */
 export type RunConflict = {
@@ -338,6 +410,12 @@ export type NewRun = {
   spent?: string;
   stepMode?: "plain" | "work_node";
   rootTaskId?: string;
+  /** Phase 6 run priority (default normal). */
+  priority?: RunPriority;
+  /** Person/pacing pause to stamp at insert (e.g. inherit parent person pause). */
+  pausedReason?: PausedReason;
+  /** Exclusive entry-start lease deadline (unix seconds). */
+  entryLeaseUntil?: number;
 };
 
 export type StepKey = { runId: string; stepId: string; attempt: number; branch?: string };
@@ -378,6 +456,14 @@ interface RunDbRow {
   publish_opt_in?: string | null;
   pr_url?: string | null;
   conflict?: string | null;
+  priority?: string | null;
+  paused_reason?: string | null;
+  last_seen_at?: number | null;
+  summary?: string | null;
+  summary_at?: number | null;
+  meaningful_at?: number | null;
+  letter?: string | null;
+  entry_lease_until?: number | null;
 }
 interface StepDbRow {
   run_id: string; step_id: string; attempt: number; branch: string | null; task_id: string | null;
@@ -422,6 +508,26 @@ function runFromRow(row: RunDbRow): RunRow {
   if (row.pr_url) out.prUrl = row.pr_url;
   const conflicts = parseRunConflicts(row.conflict);
   if (conflicts) out.conflict = conflicts;
+  if (row.priority === "urgent" || row.priority === "background" || row.priority === "normal") {
+    out.priority = row.priority;
+  } else {
+    out.priority = "normal";
+  }
+  if (
+    row.paused_reason === "pacing: strict"
+    || row.paused_reason === "pacing: emergency"
+    || row.paused_reason === "budget"
+    || row.paused_reason === "person"
+  ) {
+    out.pausedReason = row.paused_reason;
+  }
+  if (row.last_seen_at != null) out.lastSeenAt = row.last_seen_at;
+  if (row.summary) out.summary = row.summary;
+  if (row.summary_at != null) out.summaryAt = row.summary_at;
+  if (row.meaningful_at != null) out.meaningfulAt = row.meaningful_at;
+  else out.meaningfulAt = row.updated_at;
+  if (row.letter) out.letter = row.letter;
+  if (row.entry_lease_until != null) out.entryLeaseUntil = row.entry_lease_until;
   return out;
 }
 
@@ -523,17 +629,86 @@ export function insertRun(ctx: Ctx, r: NewRun): RunRow {
   if (r.spent) row.spent = r.spent;
   row.stepMode = r.stepMode ?? "work_node";
   if (r.rootTaskId) row.rootTaskId = r.rootTaskId;
-  db.query(
-    "INSERT INTO workflow_runs(id, workflow, version, repo, brief, title, status, reason, loops, rev, created_at, updated_at, parent_run_id, parent_step, planner, orchestrator_task_id, session_id, budget, spent, step_mode, root_task_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-  ).run(
-    row.id, row.workflow, row.version, row.repo, row.brief, row.title, row.status, null,
-    JSON.stringify(row.loops), row.rev, row.createdAt, row.updatedAt,
-    row.parentRunId ?? null, row.parentStep ?? null,
-    row.planner ?? null, row.orchestratorTaskId ?? null, row.sessionId ?? null,
-    row.budget ?? null, row.spent ?? null,
-    row.stepMode, row.rootTaskId ?? null,
-  );
-  return row;
+  row.priority = r.priority ?? "normal";
+  if (r.pausedReason) row.pausedReason = r.pausedReason;
+  if (r.entryLeaseUntil != null) row.entryLeaseUntil = r.entryLeaseUntil;
+  row.meaningfulAt = ctx.now;
+  const used = db.query<{ letter: string | null }, []>("SELECT letter FROM workflow_runs WHERE letter IS NOT NULL AND letter != ''")
+    .all()
+    .map(r => r.letter!)
+    .filter(Boolean);
+  // Retry letter assignment on unique-index races across processes.
+  for (let attempt = 0; ; attempt++) {
+    const letter = nextLetter(used);
+    row.letter = letter;
+    try {
+      db.query(
+        "INSERT INTO workflow_runs(id, workflow, version, repo, brief, title, status, reason, loops, rev, created_at, updated_at, parent_run_id, parent_step, planner, orchestrator_task_id, session_id, budget, spent, step_mode, root_task_id, priority, paused_reason, letter, meaningful_at, entry_lease_until) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      ).run(
+        row.id, row.workflow, row.version, row.repo, row.brief, row.title, row.status, null,
+        JSON.stringify(row.loops), row.rev, row.createdAt, row.updatedAt,
+        row.parentRunId ?? null, row.parentStep ?? null,
+        row.planner ?? null, row.orchestratorTaskId ?? null, row.sessionId ?? null,
+        row.budget ?? null, row.spent ?? null,
+        row.stepMode, row.rootTaskId ?? null,
+        row.priority, row.pausedReason ?? null, row.letter, row.meaningfulAt,
+        row.entryLeaseUntil ?? null,
+      );
+      return row;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!/UNIQUE|unique|constraint/i.test(msg) || attempt >= 8) throw err;
+      used.push(letter);
+    }
+  }
+}
+
+/** Clear startRun's entry-ownership lease without bumping rev. */
+export function clearEntryLease(ctx: Ctx, runId: string): void {
+  try {
+    workflowDatabase(ctx).query(
+      "UPDATE workflow_runs SET entry_lease_until = NULL WHERE id = ?",
+    ).run(runId);
+  } catch { /* missing table / concurrent */ }
+}
+
+/**
+ * Live runs that still need def.entry started: unpaused (or budget-only), no step
+ * rows, and no active startRun entry lease. Optional `rootRunId` limits to that
+ * run and its live descendants (run.resume). One SQL filter — no per-run step scans.
+ */
+export function liveRunsNeedingEntry(
+  ctx: Ctx,
+  opts: { rootRunId?: string; now?: number } = {},
+): RunRow[] {
+  const db = workflowDatabase(ctx);
+  const now = opts.now ?? ctx.now;
+  if (opts.rootRunId) {
+    return db.query<RunDbRow, [string, number]>(
+      `WITH RECURSIVE tree(id) AS (
+         SELECT ?
+         UNION ALL
+         SELECT r.id FROM workflow_runs r
+         JOIN tree t ON r.parent_run_id = t.id
+         WHERE r.status IN ('running', 'waiting')
+       )
+       SELECT r.* FROM workflow_runs r
+       JOIN tree ON tree.id = r.id
+       WHERE r.status IN ('running', 'waiting')
+         AND (r.paused_reason IS NULL OR r.paused_reason = '' OR r.paused_reason = 'budget')
+         AND (r.entry_lease_until IS NULL OR r.entry_lease_until <= ?)
+         AND NOT EXISTS (SELECT 1 FROM workflow_steps s WHERE s.run_id = r.id)
+       ORDER BY r.created_at, r.id`,
+    ).all(opts.rootRunId, now).map(runFromRow);
+  }
+  return db.query<RunDbRow, [number]>(
+    `SELECT r.* FROM workflow_runs r
+     WHERE r.status IN ('running', 'waiting')
+       AND (r.paused_reason IS NULL OR r.paused_reason = '' OR r.paused_reason = 'budget')
+       AND (r.entry_lease_until IS NULL OR r.entry_lease_until <= ?)
+       AND NOT EXISTS (SELECT 1 FROM workflow_steps s WHERE s.run_id = r.id)
+     ORDER BY r.created_at, r.id`,
+  ).all(now).map(runFromRow);
 }
 
 /** Root run id: walk parent_run_id until none. */
@@ -591,6 +766,7 @@ export function clearRunBranch(ctx: Ctx, runId: string): void {
 /** Store the PR URL after publish. Idempotent for the same URL; a different URL is a conflict. */
 export function setRunPrUrl(ctx: Ctx, runId: string, prUrl: string): void {
   const db = workflowDatabase(ctx);
+  const prior = getRun(ctx, runId);
   const result = db.query(
     "UPDATE workflow_runs SET pr_url = ? WHERE id = ? AND (pr_url IS NULL OR pr_url = '' OR pr_url = ?)",
   ).run(prUrl, runId, prUrl);
@@ -600,13 +776,15 @@ export function setRunPrUrl(ctx: Ctx, runId: string, prUrl: string): void {
     if (current.prUrl && current.prUrl !== prUrl) {
       throw new CoreError("conflict", `conflict: run ${runId} already has a different PR URL`);
     }
+    return;
   }
+  if (!prior?.prUrl || prior.prUrl !== prUrl) touchMeaningful(ctx, runId);
 }
 
 /**
  * Upsert one unresolved merge conflict entry on the run (publish gate).
  * Keyed by taskId+branch so a second conflict does not erase the first (R2-F3).
- * Does not bump `rev`.
+ * Stamps meaningful_at (no rev bump) so since-you-last-looked wakes.
  */
 export function setRunConflict(ctx: Ctx, runId: string, conflict: RunConflict): void {
   const db = workflowDatabase(ctx);
@@ -620,15 +798,17 @@ export function setRunConflict(ctx: Ctx, runId: string, conflict: RunConflict): 
     "UPDATE workflow_runs SET conflict = ? WHERE id = ?",
   ).run(JSON.stringify(list), runId);
   if (result.changes === 0) throw new CoreError("not_found", `unknown run ${runId}`);
+  touchMeaningful(ctx, runId);
 }
 
-/** Replace the full conflict list (or clear when empty). Does not bump `rev`. */
+/** Replace the full conflict list (or clear when empty). */
 export function replaceRunConflicts(ctx: Ctx, runId: string, conflicts: RunConflict[]): void {
   const db = workflowDatabase(ctx);
   const result = db.query(
     "UPDATE workflow_runs SET conflict = ? WHERE id = ?",
   ).run(conflicts.length > 0 ? JSON.stringify(conflicts) : null, runId);
   if (result.changes === 0) throw new CoreError("not_found", `unknown run ${runId}`);
+  touchMeaningful(ctx, runId);
 }
 
 /** Clear every durable conflict marker on the run. Prefer clearRunConflictEntry. */
@@ -694,14 +874,34 @@ export function listRuns(ctx: Ctx, status?: RunStatus): RunRow[] {
  *  and re-advance walks run every second, so the status filter lives in the SQL
  *  instead of walking every run ever recorded (round 4 review). */
 export function liveRuns(ctx: Ctx): RunRow[] {
-  return workflowDatabase(ctx).query<RunDbRow, []>("SELECT * FROM workflow_runs WHERE status IN ('running', 'waiting') ORDER BY created_at, id").all().map(runFromRow);
+  const db = workflowDatabase(ctx);
+  // Read-only: letters for letterless rows are computed in memory by callers
+  // (resolveRunLetters); persistence happens only in insertRun / schema migration.
+  return db.query<RunDbRow, []>("SELECT * FROM workflow_runs WHERE status IN ('running', 'waiting') ORDER BY created_at, id").all().map(runFromRow);
 }
 
-export type RunPatch = Partial<Pick<RunRow, "status" | "title" | "loops" | "auto" | "planner" | "orchestratorTaskId" | "sessionId" | "budget" | "spent" | "strictSteps" | "stepMode" | "rootTaskId">> & {
+/** Cheap existence check for live runs (no letter work, no mode reads). */
+export function hasLiveRuns(ctx: Ctx): boolean {
+  if (!workflowSchemaPresent(ctx)) return false;
+  const row = workflowDatabase(ctx).query<{ n: number }, []>(
+    "SELECT 1 AS n FROM workflow_runs WHERE status IN ('running', 'waiting') LIMIT 1",
+  ).get();
+  return !!row;
+}
+
+/** Patches that count as a meaningful change for since-you-last-looked.
+ *  Pacing/person pause flips and summary/bookkeeping patches are excluded. */
+const MEANINGFUL_PATCH_KEYS = new Set([
+  "status", "title", "loops", "auto", "strictSteps", "stepMode", "rootTaskId",
+  "priority",
+]);
+
+export type RunPatch = Partial<Pick<RunRow, "status" | "title" | "loops" | "auto" | "planner" | "orchestratorTaskId" | "sessionId" | "budget" | "spent" | "strictSteps" | "stepMode" | "rootTaskId" | "priority" | "lastSeenAt" | "summary" | "summaryAt" | "meaningfulAt">> & {
   reason?: string | null;
   nextWakeAt?: number | null;
   orchestratorState?: string | null;
   pendingPlanner?: string | null;
+  pausedReason?: PausedReason | null;
 };
 
 /** Applies a patch when `expectRev` is the run's current rev; a stale rev is a conflict.
@@ -714,6 +914,11 @@ export function updateRun(ctx: Ctx, id: string, expectRev: number, patch: RunPat
     const current = getRun(ctx, id);
     if (!current) throw new CoreError("not_found", `unknown run ${id}`);
     if (current.rev !== expectRev) throw new CoreError("conflict", `conflict: run ${id} changed since rev ${expectRev}`);
+    const bumpMeaningful = patch.meaningfulAt !== undefined
+      || Object.keys(patch).some(k => MEANINGFUL_PATCH_KEYS.has(k));
+    const meaningfulAt = patch.meaningfulAt !== undefined
+      ? patch.meaningfulAt
+      : (bumpMeaningful ? ctx.now : (current.meaningfulAt ?? current.updatedAt));
     const updated: RunRow = {
       ...current,
       status: patch.status ?? current.status,
@@ -732,6 +937,12 @@ export function updateRun(ctx: Ctx, id: string, expectRev: number, patch: RunPat
       orchestratorState: patch.orchestratorState === undefined ? current.orchestratorState : (patch.orchestratorState ?? undefined),
       stepMode: patch.stepMode === undefined ? current.stepMode : patch.stepMode,
       rootTaskId: patch.rootTaskId === undefined ? current.rootTaskId : patch.rootTaskId,
+      priority: patch.priority === undefined ? current.priority : patch.priority,
+      pausedReason: patch.pausedReason === undefined ? current.pausedReason : (patch.pausedReason ?? undefined),
+      lastSeenAt: patch.lastSeenAt === undefined ? current.lastSeenAt : patch.lastSeenAt,
+      summary: patch.summary === undefined ? current.summary : patch.summary,
+      summaryAt: patch.summaryAt === undefined ? current.summaryAt : patch.summaryAt,
+      meaningfulAt,
       rev: current.rev + 1,
       updatedAt: ctx.now,
     };
@@ -747,8 +958,14 @@ export function updateRun(ctx: Ctx, id: string, expectRev: number, patch: RunPat
     if (updated.orchestratorState === undefined) delete updated.orchestratorState;
     if (updated.stepMode === undefined) delete updated.stepMode;
     if (updated.rootTaskId === undefined) delete updated.rootTaskId;
+    if (updated.priority === undefined) delete updated.priority;
+    if (updated.pausedReason === undefined) delete updated.pausedReason;
+    if (updated.lastSeenAt === undefined) delete updated.lastSeenAt;
+    if (updated.summary === undefined) delete updated.summary;
+    if (updated.summaryAt === undefined) delete updated.summaryAt;
+    if (updated.meaningfulAt === undefined) delete updated.meaningfulAt;
     const result = db.query(
-      "UPDATE workflow_runs SET status = ?, reason = ?, title = ?, loops = ?, rev = ?, updated_at = ?, auto = ?, planner = ?, orchestrator_task_id = ?, session_id = ?, budget = ?, spent = ?, next_wake_at = ?, orchestrator_state = ?, strict_steps = ?, pending_planner = ?, step_mode = ?, root_task_id = ? WHERE id = ? AND rev = ?",
+      "UPDATE workflow_runs SET status = ?, reason = ?, title = ?, loops = ?, rev = ?, updated_at = ?, auto = ?, planner = ?, orchestrator_task_id = ?, session_id = ?, budget = ?, spent = ?, next_wake_at = ?, orchestrator_state = ?, strict_steps = ?, pending_planner = ?, step_mode = ?, root_task_id = ?, priority = ?, paused_reason = ?, last_seen_at = ?, summary = ?, summary_at = ?, meaningful_at = ? WHERE id = ? AND rev = ?",
     ).run(
       updated.status,
       updated.reason ?? null,
@@ -768,12 +985,30 @@ export function updateRun(ctx: Ctx, id: string, expectRev: number, patch: RunPat
       updated.pendingPlanner ?? null,
       updated.stepMode ?? "plain",
       updated.rootTaskId ?? null,
+      updated.priority ?? "normal",
+      updated.pausedReason ?? null,
+      updated.lastSeenAt ?? null,
+      updated.summary ?? null,
+      updated.summaryAt ?? null,
+      updated.meaningfulAt ?? null,
       id,
       expectRev,
     );
     if (result.changes === 0) throw new CoreError("conflict", `conflict: run ${id} changed since rev ${expectRev}`);
     return updated;
   })();
+}
+
+/**
+ * Stamp meaningful_at without bumping `rev` (step settle, questions, conflicts, PR).
+ * Compare-and-set clients keep a stable expect_rev; since-you-last-looked still wakes.
+ */
+export function touchMeaningful(ctx: Ctx, runId: string): void {
+  try {
+    workflowDatabase(ctx).query(
+      "UPDATE workflow_runs SET meaningful_at = ? WHERE id = ? AND status IN ('running', 'waiting')",
+    ).run(ctx.now, runId);
+  } catch { /* missing table / concurrent / terminal */ }
 }
 
 export function insertStep(ctx: Ctx, s: NewStep): StepRow {
@@ -846,6 +1081,9 @@ export function updateStep(ctx: Ctx, key: StepKey, patch: StepPatch): StepRow {
   const nextAdvanced = patch.advancedAt === undefined ? row.advanced_at : patch.advancedAt;
   db.query(`UPDATE workflow_steps SET status = ?, result = ?, error = ?, ended_at = ?, advanced_at = ? WHERE ${where.sql}`)
     .run(nextStatus, nextResult, nextError ?? null, nextEnded ?? null, nextAdvanced ?? null, ...where.bindings);
+  if (patch.status !== undefined && patch.status !== row.status) {
+    touchMeaningful(ctx, key.runId);
+  }
   return stepFromRow({
     ...row,
     status: nextStatus,
@@ -871,9 +1109,9 @@ export function claimStepSettlement(ctx: Ctx, key: StepKey, patch: StepPatch): S
   const nextEnded = patch.endedAt === undefined ? row.ended_at : patch.endedAt;
   const result = db.query(`UPDATE workflow_steps SET status = ?, result = ?, error = ?, ended_at = ? WHERE ${where.sql} AND status = 'running'`)
     .run(nextStatus, nextResult, nextError ?? null, nextEnded ?? null, ...where.bindings);
-  return result.changes === 1
-    ? stepFromRow({ ...row, status: nextStatus, result: nextResult, error: nextError, ended_at: nextEnded })
-    : null;
+  if (result.changes !== 1) return null;
+  if (nextStatus !== row.status) touchMeaningful(ctx, key.runId);
+  return stepFromRow({ ...row, status: nextStatus, result: nextResult, error: nextError, ended_at: nextEnded });
 }
 
 export interface EdgeFire {
@@ -987,7 +1225,7 @@ export function claimStepAnswer(
   const where = stepWhere(key);
   // M3: immediate so a concurrent writer cannot interleave between the claim and the decision.
   // A tip that moves between tip-read and claim makes publish refuse (fail-closed); the person re-approves.
-  return db.transaction(() => {
+  const claimed = db.transaction(() => {
     const row = db.query<StepDbRow, SQLQueryBindings[]>(`SELECT * FROM workflow_steps WHERE ${where.sql}`).get(...where.bindings);
     if (!row || row.status !== "waiting") return null;
     const done = db.query(`UPDATE workflow_steps SET status = 'done', result = ?, ended_at = ? WHERE ${where.sql} AND status = 'waiting'`)
@@ -1002,6 +1240,9 @@ export function claimStepAnswer(
     }
     return stepFromRow({ ...row, status: "done", result: JSON.stringify(result), ended_at: ctx.now });
   }).immediate();
+  // Phase 6: stamp meaningful_at outside the claim txn (no rev bump).
+  if (claimed) touchMeaningful(ctx, key.runId);
+  return claimed;
 }
 
 /** Done step rows whose outgoing edges may never have been processed (advanced_at
@@ -1097,6 +1338,19 @@ export function stepByTaskIfPresent(ctx: Ctx, taskId: string): StepRow | null {
   if (!workflowSchemaPresent(ctx)) return null;
   const row = taskDatabase(ctx).query<StepDbRow, [string]>("SELECT * FROM workflow_steps WHERE task_id = ?").get(taskId);
   return row ? stepFromRow(row) : null;
+}
+
+/** The run whose orchestrator_task_id is this task, without creating the schema. */
+export function runByOrchestratorTaskIfPresent(ctx: Ctx, taskId: string): RunRow | null {
+  if (!workflowSchemaPresent(ctx)) return null;
+  const hasRuns = !!taskDatabase(ctx).query(
+    "SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'workflow_runs'",
+  ).get();
+  if (!hasRuns) return null;
+  const row = taskDatabase(ctx).query<RunDbRow, [string]>(
+    "SELECT * FROM workflow_runs WHERE orchestrator_task_id = ? LIMIT 1",
+  ).get(taskId);
+  return row ? runFromRow(row) : null;
 }
 
 /** Running step rows without a task id, oldest first: the orphans (a crash between
@@ -1495,6 +1749,7 @@ export function insertQuestion(ctx: Ctx, input: NewQuestion): QuestionRow {
     row.rev,
     row.createdAt,
   );
+  touchMeaningful(ctx, row.runId);
   return row;
 }
 
@@ -1549,6 +1804,7 @@ export function withdrawOpenQuestionsForRun(ctx: Ctx, runId: string): QuestionRo
     ).get(row.id);
     if (updated) out.push(questionFromRow(updated));
   }
+  if (out.length > 0) touchMeaningful(ctx, runId);
   return out;
 }
 
@@ -1584,6 +1840,7 @@ export function answerQuestionRecord(
     "SELECT * FROM workflow_questions WHERE id = ?",
   ).get(id);
   if (!updated) throw new CoreError("not_found", `unknown question ${id}`);
+  touchMeaningful(ctx, current.run_id);
   return questionFromRow(updated);
 }
 
@@ -1618,6 +1875,7 @@ export function escalateQuestionRecord(
     "SELECT * FROM workflow_questions WHERE id = ?",
   ).get(id);
   if (!updated) throw new CoreError("not_found", `unknown question ${id}`);
+  touchMeaningful(ctx, current.run_id);
   return questionFromRow(updated);
 }
 

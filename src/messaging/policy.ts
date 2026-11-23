@@ -18,6 +18,9 @@ export const DEFAULT_RULES: Rule[] = [
   { effect: "allow", from_position: "child", relation: ["sibling", "child"], grant: "required" },
   // An external caller that is not top-level (`external:local`) still reaches the tasks it started.
   { effect: "allow", from_kind: "external", relation: ["child"] },
+  // ADR 0011 amendment / ADR 0029: run participants may message across runs.
+  // Kept last so ordinary default rule indices stay stable for existing refusals.
+  { effect: "allow", relation: ["run_peer"] },
 ];
 
 type Layered = Rule & { layer: "tree" | "project" | "global" | "default" };

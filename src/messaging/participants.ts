@@ -5,6 +5,7 @@ import { readTask } from "../tasks/store";
 import type { Ctx } from "../types";
 import type { ParticipantKind, Relation } from "./types";
 import { plannerSessionId, type PlannerKind } from "./identity";
+import { bothRunParticipants } from "./run-route";
 
 const MAX_DEPTH = 64;
 export const taskOf = (p: string): string | null => p.startsWith("task:") ? p.slice(5) : null;
@@ -108,6 +109,8 @@ export function isTop(ctx: Ctx, p: string): boolean {
 
 export function relation(ctx: Ctx, from: string, to: string): Relation {
   if (from === to) return "self";
+  // Ordinary tree/project relations first; run_peer is additive and only widens
+  // pairs that ordinary rules would leave as "none" (ADR 0011 amendment).
   const fromParent = parentOf(ctx, from), toParent = parentOf(ctx, to);
   if (fromParent === to) return "parent";
   if (toParent === from) return "child";
@@ -116,5 +119,6 @@ export function relation(ctx: Ctx, from: string, to: string): Relation {
   if (ancestors(ctx, to).includes(from)) return "descendant";
   if (ancestors(ctx, from).includes(to)) return "ancestor";
   if (taskOf(from) && taskOf(to) && rootOf(ctx, from) === rootOf(ctx, to)) return "same_tree";
+  if (bothRunParticipants(ctx, from, to)) return "run_peer";
   return "none";
 }

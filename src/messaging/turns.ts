@@ -23,8 +23,9 @@ import { parentOf, participantKind, rootOf, taskOf } from "./participants";
 import { effectivePolicy } from "./policy";
 import * as store from "./store";
 import type { Message } from "./types";
-import { rootRunId, stepByTask } from "../workflow/store";
+import { rootRunId } from "../workflow/store";
 import { budgetAllowsMessage, countMessageTurn } from "../workflow/budget";
+import { runIdForParticipant } from "./run-route";
 
 export type Delivery = "turn_started" | "queued" | "pull" | "held" | "closed" | "cap" | "live_unavailable" | "no_session" | "live";
 const REPORT_BYTES = 64 * 1024;
@@ -129,36 +130,33 @@ export function startTurnIfIdle(ctx: Ctx, id: string, spawn: SpawnRunner = defau
 /**
  * Charge the sender's workflow run when this task's message turn is cross-run.
  * Spent senders ride along on a turn started for another reason without counting.
+ * Participants are resolved from stored step / orchestrator rows (ADR 0011).
  */
 function countCrossRunMessageBudget(ctx: Ctx, taskId: string): void {
-  const toStep = stepByTask(ctx, taskId);
-  if (!toStep) return;
+  const toRun = runIdForParticipant(ctx, `task:${taskId}`);
+  if (!toRun) return;
   const pending = store.pendingFor(ctx, `task:${taskId}`);
   for (const m of pending) {
-    const fromTask = taskOf(m.from);
-    if (!fromTask) continue;
-    const fromStep = stepByTask(ctx, fromTask);
-    if (!fromStep) continue;
-    if (rootRunId(ctx, fromStep.runId) === rootRunId(ctx, toStep.runId)) continue;
-    if (!budgetAllowsMessage(ctx, fromStep.runId)) continue;
-    countMessageTurn(ctx, fromStep.runId);
+    const fromRun = runIdForParticipant(ctx, m.from);
+    if (!fromRun) continue;
+    if (rootRunId(ctx, fromRun) === rootRunId(ctx, toRun)) continue;
+    if (!budgetAllowsMessage(ctx, fromRun)) continue;
+    countMessageTurn(ctx, fromRun);
     return;
   }
 }
 
 /** True when every pending inbound message is a cross-run send from a spent budget. */
 function onlySpentCrossRunPending(ctx: Ctx, taskId: string): boolean {
-  const toStep = stepByTask(ctx, taskId);
-  if (!toStep) return false;
+  const toRun = runIdForParticipant(ctx, `task:${taskId}`);
+  if (!toRun) return false;
   const pending = store.pendingFor(ctx, `task:${taskId}`);
   if (pending.length === 0) return false;
   return pending.every(m => {
-    const fromTask = taskOf(m.from);
-    if (!fromTask) return false;
-    const fromStep = stepByTask(ctx, fromTask);
-    if (!fromStep) return false;
-    if (rootRunId(ctx, fromStep.runId) === rootRunId(ctx, toStep.runId)) return false;
-    return !budgetAllowsMessage(ctx, fromStep.runId);
+    const fromRun = runIdForParticipant(ctx, m.from);
+    if (!fromRun) return false;
+    if (rootRunId(ctx, fromRun) === rootRunId(ctx, toRun)) return false;
+    return !budgetAllowsMessage(ctx, fromRun);
   });
 }
 

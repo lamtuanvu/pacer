@@ -35,8 +35,10 @@ import { listRepos, labelsFor } from "../../core/repos";
 import { PROTOCOL_VERSION } from "../protocol";
 import { buildExecutors, buildAccounts, buildPlanner } from "./capacity";
 import { buildCounts, buildToday, buildHosts, buildSetup } from "./summary";
+import { composeSnapshotRuns } from "./runs";
 import type { ApiTask, ReadModelFields, ServiceNotifiers } from "./types";
 export type * from "./types";
+export { composeSnapshotRuns } from "./runs";
 const machineOS = (() => {
  if (platform() !== "darwin") return platform();
  try { return `macOS ${execFileSync("/usr/bin/sw_vers", ["-productVersion"], { encoding: "utf8", timeout: 1000 }).trim()}`; }
@@ -87,7 +89,7 @@ export function buildReadModel(ctx:Ctx,input:{status:Status;strategy:Strategy;ta
    + listTasksWhere(ctx, { states: ["running"] }).filter(t => occupiesLocalCapacity(t.kind) && localRunningRecord(t)).length
    + activeAgentSessions(ctx).length;
  const machine = {agentSessionsRevision:agentSessionsRevision(ctx),os: machineOS, arch: arch(), used: usedLocal, ...machineCap(exec.localMaxTasks ?? null), ...machineGuardState(exec)};
- return {policy,desktopUpdates:desktopUpdateStatuses(ctx),machine,pause,attention,service:{...(policyError ? {projectStrategyError: policyError} : {}),version:pkg.version,protocol:PROTOCOL_VERSION,pid:process.pid,startedAt,notifiers,notifier:notifiers.os,...waitingField()},planner,executors,accounts,hosts,repos:repos.map(r=>{schedulePathRefresh(r.path);return {...r,label:labels.get(r.key)!,...(cachedPath(r.path).unreachable?{unreachable:true as const}:{})};}),setup,counts:buildCounts(visibleTasks,executors,setup,hosts,attention),today:buildToday(ctx,visibleTasks)};
+ return {policy,desktopUpdates:desktopUpdateStatuses(ctx),machine,pause,attention,service:{...(policyError ? {projectStrategyError: policyError} : {}),version:pkg.version,protocol:PROTOCOL_VERSION,pid:process.pid,startedAt,notifiers,notifier:notifiers.os,...waitingField()},planner,executors,accounts,hosts,repos:repos.map(r=>{schedulePathRefresh(r.path);return {...r,label:labels.get(r.key)!,...(cachedPath(r.path).unreachable?{unreachable:true as const}:{})};}),setup,counts:buildCounts(visibleTasks,executors,setup,hosts,attention),today:buildToday(ctx,visibleTasks),runs:composeSnapshotRuns(ctx)};
 }
 
 export function serviceNotifiers(ctx: Ctx): ServiceNotifiers {

@@ -5,7 +5,11 @@
       "home": "$HOME",
       "pacerHome": "$HOME/.pacer",
       "now": 1791633600,
-      "env": {},
+      "env": {
+        "PACER_PORT": "64141",
+        "OLLAMA_HOST": "http://127.0.0.1:64142",
+        "LMS_API_SERVER_INFO_PATH": "/var/folders/s3/gyfm82zx1b1952wrnw13l8k00000gn/T/pacer-p6c-81615/pacer-test-home-udrb9W/lms-server.json"
+      },
       "zone": "Asia/Ho_Chi_Minh",
       "alive": [
         0
@@ -22,7 +26,7 @@
             "title": "pacer",
             "required": true,
             "status": "done",
-            "detail": "0.14.0"
+            "detail": "0.17.7"
           },
           {
             "id": "planner",
@@ -144,7 +148,7 @@
         "open": true
       },
       "service": {
-        "version": "0.14.0",
+        "version": "0.17.7",
         "protocol": "3.0.0",
         "pid": 0,
         "startedAt": 0,
@@ -177,7 +181,10 @@
       }
     },
     "tasks": [],
-    "tables": {},
+    "tables": {
+      "messages": [],
+      "msg_liveness": []
+    },
     "files": {
       "state/attention.json": "{\"setup:connect\":{\"since\":1791633600},\"setup:planner\":{\"since\":1791633600},\"setup:service\":{\"since\":1791633600}}"
     },
@@ -274,7 +281,7 @@
           }
         ],
         "service": {
-          "version": "0.14.0",
+          "version": "0.17.7",
           "protocol": "3.0.0",
           "pid": 0,
           "startedAt": 0,
@@ -340,7 +347,7 @@
               "title": "pacer",
               "required": true,
               "status": "done",
-              "detail": "0.14.0"
+              "detail": "0.17.7"
             },
             {
               "id": "planner",
@@ -464,6 +471,7 @@
           "failed": 0,
           "byRepo": {}
         },
+        "runs": [],
         "tasks": [],
         "strategies": [
           {
@@ -482,7 +490,11 @@
       "home": "$HOME",
       "pacerHome": "$HOME/.pacer",
       "now": 1791633600,
-      "env": {},
+      "env": {
+        "PACER_PORT": "64141",
+        "OLLAMA_HOST": "http://127.0.0.1:64142",
+        "LMS_API_SERVER_INFO_PATH": "/var/folders/s3/gyfm82zx1b1952wrnw13l8k00000gn/T/pacer-p6c-81615/pacer-test-home-udrb9W/lms-server.json"
+      },
       "zone": "Asia/Ho_Chi_Minh",
       "alive": [
         0
@@ -499,7 +511,7 @@
             "title": "pacer",
             "required": true,
             "status": "done",
-            "detail": "0.14.0"
+            "detail": "0.17.7"
           },
           {
             "id": "planner",
@@ -621,7 +633,7 @@
         "open": true
       },
       "service": {
-        "version": "0.14.0",
+        "version": "0.17.7",
         "protocol": "3.0.0",
         "pid": 0,
         "startedAt": 0,
@@ -858,7 +870,7 @@
           }
         ],
         "service": {
-          "version": "0.14.0",
+          "version": "0.17.7",
           "protocol": "3.0.0",
           "pid": 0,
           "startedAt": 0,
@@ -931,7 +943,7 @@
               "title": "pacer",
               "required": true,
               "status": "done",
-              "detail": "0.14.0"
+              "detail": "0.17.7"
             },
             {
               "id": "planner",
@@ -1061,6 +1073,7 @@
           "failed": 0,
           "byRepo": {}
         },
+        "runs": [],
         "tasks": [
           {
             "id": "t-20261010-190000-0001",
@@ -1117,7 +1130,11 @@
       "home": "$HOME",
       "pacerHome": "$HOME/.pacer",
       "now": 1791633600,
-      "env": {},
+      "env": {
+        "PACER_PORT": "64141",
+        "OLLAMA_HOST": "http://127.0.0.1:64142",
+        "LMS_API_SERVER_INFO_PATH": "/var/folders/s3/gyfm82zx1b1952wrnw13l8k00000gn/T/pacer-p6c-81615/pacer-test-home-udrb9W/lms-server.json"
+      },
       "zone": "Asia/Ho_Chi_Minh",
       "alive": [
         0
@@ -1134,7 +1151,7 @@
             "title": "pacer",
             "required": true,
             "status": "done",
-            "detail": "0.14.0"
+            "detail": "0.17.7"
           },
           {
             "id": "planner",
@@ -1256,8 +1273,8 @@
         "open": true
       },
       "service": {
-        "version": "0.14.0",
-        "protocol": "3.0.0",
+        "version": "0.17.7",
+        "protocol": "2.8.0",
         "pid": 0,
         "startedAt": 0,
         "notifiers": {
@@ -1420,7 +1437,7 @@
           }
         ],
         "service": {
-          "version": "0.14.0",
+          "version": "0.17.7",
           "protocol": "2.8.0",
           "pid": 0,
           "startedAt": 0,
@@ -1642,7 +1659,11 @@
       "home": "$HOME",
       "pacerHome": "$HOME/.pacer",
       "now": 1791633600,
-      "env": {},
+      "env": {
+        "PACER_PORT": "64141",
+        "OLLAMA_HOST": "http://127.0.0.1:64142",
+        "LMS_API_SERVER_INFO_PATH": "/var/folders/s3/gyfm82zx1b1952wrnw13l8k00000gn/T/pacer-p6c-81615/pacer-test-home-udrb9W/lms-server.json"
+      },
       "zone": "Asia/Ho_Chi_Minh",
       "alive": [
         0
@@ -1659,7 +1680,7 @@
             "title": "pacer",
             "required": true,
             "status": "done",
-            "detail": "0.14.0"
+            "detail": "0.17.7"
           },
           {
             "id": "planner",
@@ -1769,7 +1790,7 @@
         "open": true
       },
       "service": {
-        "version": "0.14.0",
+        "version": "0.17.7",
         "protocol": "3.0.0",
         "pid": 0,
         "startedAt": 0,
@@ -2103,7 +2124,7 @@
           }
         ],
         "service": {
-          "version": "0.14.0",
+          "version": "0.17.7",
           "protocol": "3.0.0",
           "pid": 0,
           "startedAt": 0,
@@ -2245,7 +2266,7 @@
               "title": "pacer",
               "required": true,
               "status": "done",
-              "detail": "0.14.0"
+              "detail": "0.17.7"
             },
             {
               "id": "planner",
@@ -2363,6 +2384,7 @@
             "local:FIXTURE": 2
           }
         },
+        "runs": [],
         "tasks": [
           {
             "id": "t-20261010-190000-0003",
@@ -2461,7 +2483,11 @@
       "home": "$HOME",
       "pacerHome": "$HOME/.pacer",
       "now": 1791633600,
-      "env": {},
+      "env": {
+        "PACER_PORT": "64141",
+        "OLLAMA_HOST": "http://127.0.0.1:64142",
+        "LMS_API_SERVER_INFO_PATH": "/var/folders/s3/gyfm82zx1b1952wrnw13l8k00000gn/T/pacer-p6c-81615/pacer-test-home-udrb9W/lms-server.json"
+      },
       "zone": "Asia/Ho_Chi_Minh",
       "alive": [
         0
@@ -2478,7 +2504,7 @@
             "title": "pacer",
             "required": true,
             "status": "done",
-            "detail": "0.14.0"
+            "detail": "0.17.7"
           },
           {
             "id": "planner",
@@ -2588,8 +2614,8 @@
         "open": true
       },
       "service": {
-        "version": "0.14.0",
-        "protocol": "3.0.0",
+        "version": "0.17.7",
+        "protocol": "2.8.0",
         "pid": 0,
         "startedAt": 0,
         "notifiers": {
@@ -2879,7 +2905,7 @@
           }
         ],
         "service": {
-          "version": "0.14.0",
+          "version": "0.17.7",
           "protocol": "2.8.0",
           "pid": 0,
           "startedAt": 0,
@@ -3257,7 +3283,11 @@
       "home": "$HOME",
       "pacerHome": "$HOME/.pacer",
       "now": 1791633601,
-      "env": {},
+      "env": {
+        "PACER_PORT": "64141",
+        "OLLAMA_HOST": "http://127.0.0.1:64142",
+        "LMS_API_SERVER_INFO_PATH": "/var/folders/s3/gyfm82zx1b1952wrnw13l8k00000gn/T/pacer-p6c-81615/pacer-test-home-udrb9W/lms-server.json"
+      },
       "zone": "Asia/Ho_Chi_Minh",
       "alive": [
         0
@@ -3274,7 +3304,7 @@
             "title": "pacer",
             "required": true,
             "status": "done",
-            "detail": "0.14.0"
+            "detail": "0.17.7"
           },
           {
             "id": "planner",
@@ -3384,7 +3414,7 @@
         "open": true
       },
       "service": {
-        "version": "0.14.0",
+        "version": "0.17.7",
         "protocol": "3.0.0",
         "pid": 0,
         "startedAt": 0,
@@ -3393,7 +3423,8 @@
           "terminal": null,
           "browser": null
         },
-        "notifier": null
+        "notifier": null,
+        "starting": true
       },
       "desktopUpdates": [],
       "serviceInstalled": false,
@@ -3603,7 +3634,7 @@
           }
         ],
         "service": {
-          "version": "0.14.0",
+          "version": "0.17.7",
           "protocol": "3.0.0",
           "pid": 0,
           "startedAt": 0,
@@ -3748,7 +3779,7 @@
               "title": "pacer",
               "required": true,
               "status": "done",
-              "detail": "0.14.0"
+              "detail": "0.17.7"
             },
             {
               "id": "planner",
@@ -3868,6 +3899,7 @@
             "local:FIXTURE": 2
           }
         },
+        "runs": [],
         "tasks": [
           {
             "id": "t-20261010-190000-0003",
@@ -3966,7 +3998,11 @@
       "home": "$HOME",
       "pacerHome": "$HOME/.pacer",
       "now": 1791633602,
-      "env": {},
+      "env": {
+        "PACER_PORT": "64141",
+        "OLLAMA_HOST": "http://127.0.0.1:64142",
+        "LMS_API_SERVER_INFO_PATH": "/var/folders/s3/gyfm82zx1b1952wrnw13l8k00000gn/T/pacer-p6c-81615/pacer-test-home-udrb9W/lms-server.json"
+      },
       "zone": "Asia/Ho_Chi_Minh",
       "alive": [
         0
@@ -3983,7 +4019,7 @@
             "title": "pacer",
             "required": true,
             "status": "done",
-            "detail": "0.14.0"
+            "detail": "0.17.7"
           },
           {
             "id": "planner",
@@ -4093,7 +4129,7 @@
         "open": true
       },
       "service": {
-        "version": "0.14.0",
+        "version": "0.17.7",
         "protocol": "3.0.0",
         "pid": 0,
         "startedAt": 0,
@@ -4312,7 +4348,7 @@
           }
         ],
         "service": {
-          "version": "0.14.0",
+          "version": "0.17.7",
           "protocol": "3.0.0",
           "pid": 0,
           "startedAt": 0,
@@ -4456,7 +4492,7 @@
               "title": "pacer",
               "required": true,
               "status": "done",
-              "detail": "0.14.0"
+              "detail": "0.17.7"
             },
             {
               "id": "planner",
@@ -4576,6 +4612,7 @@
             "local:FIXTURE": 2
           }
         },
+        "runs": [],
         "tasks": [
           {
             "id": "t-20261010-190000-0003",
@@ -4674,7 +4711,11 @@
       "home": "$HOME",
       "pacerHome": "$HOME/.pacer",
       "now": 1791633603,
-      "env": {},
+      "env": {
+        "PACER_PORT": "64141",
+        "OLLAMA_HOST": "http://127.0.0.1:64142",
+        "LMS_API_SERVER_INFO_PATH": "/var/folders/s3/gyfm82zx1b1952wrnw13l8k00000gn/T/pacer-p6c-81615/pacer-test-home-udrb9W/lms-server.json"
+      },
       "zone": "Asia/Ho_Chi_Minh",
       "alive": [
         0
@@ -4691,7 +4732,7 @@
             "title": "pacer",
             "required": true,
             "status": "done",
-            "detail": "0.14.0"
+            "detail": "0.17.7"
           },
           {
             "id": "planner",
@@ -4801,7 +4842,7 @@
         "open": true
       },
       "service": {
-        "version": "0.14.0",
+        "version": "0.17.7",
         "protocol": "3.0.0",
         "pid": 0,
         "startedAt": 0,
@@ -5019,7 +5060,7 @@
           }
         ],
         "service": {
-          "version": "0.14.0",
+          "version": "0.17.7",
           "protocol": "3.0.0",
           "pid": 0,
           "startedAt": 0,
@@ -5161,7 +5202,7 @@
               "title": "pacer",
               "required": true,
               "status": "done",
-              "detail": "0.14.0"
+              "detail": "0.17.7"
             },
             {
               "id": "planner",
@@ -5279,6 +5320,7 @@
             "local:FIXTURE": 2
           }
         },
+        "runs": [],
         "tasks": [
           {
             "id": "t-20261010-190000-0003",
@@ -5377,7 +5419,11 @@
       "home": "$HOME",
       "pacerHome": "$HOME/.pacer",
       "now": 1791633661,
-      "env": {},
+      "env": {
+        "PACER_PORT": "64141",
+        "OLLAMA_HOST": "http://127.0.0.1:64142",
+        "LMS_API_SERVER_INFO_PATH": "/var/folders/s3/gyfm82zx1b1952wrnw13l8k00000gn/T/pacer-p6c-81615/pacer-test-home-udrb9W/lms-server.json"
+      },
       "zone": "Asia/Ho_Chi_Minh",
       "alive": [
         0
@@ -5394,7 +5440,7 @@
             "title": "pacer",
             "required": true,
             "status": "done",
-            "detail": "0.14.0"
+            "detail": "0.17.7"
           },
           {
             "id": "planner",
@@ -5504,8 +5550,8 @@
         "open": true
       },
       "service": {
-        "version": "0.14.0",
-        "protocol": "3.0.0",
+        "version": "0.17.7",
+        "protocol": "2.8.0",
         "pid": 0,
         "startedAt": 0,
         "notifiers": {
@@ -5680,7 +5726,7 @@
           }
         ],
         "service": {
-          "version": "0.14.0",
+          "version": "0.17.7",
           "protocol": "2.8.0",
           "pid": 0,
           "startedAt": 0,
@@ -6059,7 +6105,11 @@
       "home": "$HOME",
       "pacerHome": "$HOME/.pacer",
       "now": 1791633662,
-      "env": {},
+      "env": {
+        "PACER_PORT": "64141",
+        "OLLAMA_HOST": "http://127.0.0.1:64142",
+        "LMS_API_SERVER_INFO_PATH": "/var/folders/s3/gyfm82zx1b1952wrnw13l8k00000gn/T/pacer-p6c-81615/pacer-test-home-udrb9W/lms-server.json"
+      },
       "zone": "Asia/Ho_Chi_Minh",
       "alive": [
         0
@@ -6076,7 +6126,7 @@
             "title": "pacer",
             "required": true,
             "status": "done",
-            "detail": "0.14.0"
+            "detail": "0.17.7"
           },
           {
             "id": "planner",
@@ -6186,8 +6236,8 @@
         "open": true
       },
       "service": {
-        "version": "0.14.0",
-        "protocol": "3.0.0",
+        "version": "0.17.7",
+        "protocol": "2.8.0",
         "pid": 0,
         "startedAt": 0,
         "notifiers": {
@@ -6477,7 +6527,7 @@
           }
         ],
         "service": {
-          "version": "0.14.0",
+          "version": "0.17.7",
           "protocol": "2.8.0",
           "pid": 0,
           "startedAt": 0,
@@ -6854,7 +6904,11 @@
       "home": "$HOME",
       "pacerHome": "$HOME/.pacer",
       "now": 1791633600,
-      "env": {},
+      "env": {
+        "PACER_PORT": "64141",
+        "OLLAMA_HOST": "http://127.0.0.1:64142",
+        "LMS_API_SERVER_INFO_PATH": "/var/folders/s3/gyfm82zx1b1952wrnw13l8k00000gn/T/pacer-p6c-81615/pacer-test-home-udrb9W/lms-server.json"
+      },
       "zone": "Asia/Ho_Chi_Minh",
       "alive": [
         0
@@ -6871,7 +6925,7 @@
             "title": "pacer",
             "required": true,
             "status": "done",
-            "detail": "0.14.0"
+            "detail": "0.17.7"
           },
           {
             "id": "planner",
@@ -6993,8 +7047,8 @@
         "open": true
       },
       "service": {
-        "version": "0.14.0",
-        "protocol": "3.0.0",
+        "version": "0.17.7",
+        "protocol": "2.8.0",
         "pid": 0,
         "startedAt": 0,
         "notifiers": {
@@ -7159,7 +7213,7 @@
           }
         ],
         "service": {
-          "version": "0.14.0",
+          "version": "0.17.7",
           "protocol": "2.8.0",
           "pid": 0,
           "startedAt": 0,
@@ -7394,7 +7448,11 @@
       "home": "$HOME",
       "pacerHome": "$HOME/.pacer",
       "now": 1791633600,
-      "env": {},
+      "env": {
+        "PACER_PORT": "64141",
+        "OLLAMA_HOST": "http://127.0.0.1:64142",
+        "LMS_API_SERVER_INFO_PATH": "/var/folders/s3/gyfm82zx1b1952wrnw13l8k00000gn/T/pacer-p6c-81615/pacer-test-home-udrb9W/lms-server.json"
+      },
       "zone": "Asia/Ho_Chi_Minh",
       "alive": [
         0
@@ -7411,7 +7469,7 @@
             "title": "pacer",
             "required": true,
             "status": "done",
-            "detail": "0.14.0"
+            "detail": "0.17.7"
           },
           {
             "id": "planner",
@@ -7522,8 +7580,8 @@
         "open": true
       },
       "service": {
-        "version": "0.14.0",
-        "protocol": "3.0.0",
+        "version": "0.17.7",
+        "protocol": "2.8.0",
         "pid": 0,
         "startedAt": 0,
         "notifiers": {
@@ -7559,6 +7617,8 @@
     },
     "tasks": [],
     "tables": {
+      "messages": [],
+      "msg_liveness": [],
       "agent_sessions": []
     },
     "files": {
@@ -7615,7 +7675,7 @@
           }
         ],
         "service": {
-          "version": "0.14.0",
+          "version": "0.17.7",
           "protocol": "2.8.0",
           "pid": 0,
           "startedAt": 0,
@@ -7842,7 +7902,11 @@
       "home": "$HOME",
       "pacerHome": "$HOME/.pacer",
       "now": 1791633600,
-      "env": {},
+      "env": {
+        "PACER_PORT": "64141",
+        "OLLAMA_HOST": "http://127.0.0.1:64142",
+        "LMS_API_SERVER_INFO_PATH": "/var/folders/s3/gyfm82zx1b1952wrnw13l8k00000gn/T/pacer-p6c-81615/pacer-test-home-udrb9W/lms-server.json"
+      },
       "zone": "Asia/Ho_Chi_Minh",
       "alive": [
         0
@@ -7859,7 +7923,7 @@
             "title": "pacer",
             "required": true,
             "status": "done",
-            "detail": "0.14.0"
+            "detail": "0.17.7"
           },
           {
             "id": "planner",
@@ -7970,7 +8034,7 @@
         "open": true
       },
       "service": {
-        "version": "0.14.0",
+        "version": "0.17.7",
         "protocol": "3.0.0",
         "pid": 0,
         "startedAt": 0,
@@ -8007,6 +8071,8 @@
     },
     "tasks": [],
     "tables": {
+      "messages": [],
+      "msg_liveness": [],
       "agent_sessions": []
     },
     "files": {
@@ -8106,7 +8172,7 @@
           }
         ],
         "service": {
-          "version": "0.14.0",
+          "version": "0.17.7",
           "protocol": "3.0.0",
           "pid": 0,
           "startedAt": 0,
@@ -8231,7 +8297,7 @@
               "title": "pacer",
               "required": true,
               "status": "done",
-              "detail": "0.14.0"
+              "detail": "0.17.7"
             },
             {
               "id": "planner",
@@ -8342,6 +8408,7 @@
           "failed": 0,
           "byRepo": {}
         },
+        "runs": [],
         "tasks": [],
         "strategies": [
           {
@@ -8360,7 +8427,11 @@
       "home": "$HOME",
       "pacerHome": "$HOME/.pacer",
       "now": 1791633600,
-      "env": {},
+      "env": {
+        "PACER_PORT": "64141",
+        "OLLAMA_HOST": "http://127.0.0.1:64142",
+        "LMS_API_SERVER_INFO_PATH": "/var/folders/s3/gyfm82zx1b1952wrnw13l8k00000gn/T/pacer-p6c-81615/pacer-test-home-udrb9W/lms-server.json"
+      },
       "zone": "Asia/Ho_Chi_Minh",
       "alive": [
         0
@@ -8377,7 +8448,7 @@
             "title": "pacer",
             "required": true,
             "status": "done",
-            "detail": "0.14.0"
+            "detail": "0.17.7"
           },
           {
             "id": "planner",
@@ -8488,8 +8559,8 @@
         "open": true
       },
       "service": {
-        "version": "0.14.0",
-        "protocol": "3.0.0",
+        "version": "0.17.7",
+        "protocol": "2.8.0",
         "pid": 0,
         "startedAt": 0,
         "notifiers": {
@@ -8529,6 +8600,8 @@
     },
     "tasks": [],
     "tables": {
+      "messages": [],
+      "msg_liveness": [],
       "agent_sessions": []
     },
     "files": {
@@ -8585,7 +8658,7 @@
           }
         ],
         "service": {
-          "version": "0.14.0",
+          "version": "0.17.7",
           "protocol": "2.8.0",
           "pid": 0,
           "startedAt": 0,
@@ -8812,7 +8885,11 @@
       "home": "$HOME",
       "pacerHome": "$HOME/.pacer",
       "now": 1791633600,
-      "env": {},
+      "env": {
+        "PACER_PORT": "64141",
+        "OLLAMA_HOST": "http://127.0.0.1:64142",
+        "LMS_API_SERVER_INFO_PATH": "/var/folders/s3/gyfm82zx1b1952wrnw13l8k00000gn/T/pacer-p6c-81615/pacer-test-home-udrb9W/lms-server.json"
+      },
       "zone": "Asia/Ho_Chi_Minh",
       "alive": [
         0
@@ -8829,7 +8906,7 @@
             "title": "pacer",
             "required": true,
             "status": "done",
-            "detail": "0.14.0"
+            "detail": "0.17.7"
           },
           {
             "id": "planner",
@@ -8940,7 +9017,7 @@
         "open": true
       },
       "service": {
-        "version": "0.14.0",
+        "version": "0.17.7",
         "protocol": "3.0.0",
         "pid": 0,
         "startedAt": 0,
@@ -8981,6 +9058,8 @@
     },
     "tasks": [],
     "tables": {
+      "messages": [],
+      "msg_liveness": [],
       "agent_sessions": []
     },
     "files": {
@@ -9080,7 +9159,7 @@
           }
         ],
         "service": {
-          "version": "0.14.0",
+          "version": "0.17.7",
           "protocol": "3.0.0",
           "pid": 0,
           "startedAt": 0,
@@ -9205,7 +9284,7 @@
               "title": "pacer",
               "required": true,
               "status": "done",
-              "detail": "0.14.0"
+              "detail": "0.17.7"
             },
             {
               "id": "planner",
@@ -9316,6 +9395,7 @@
           "failed": 0,
           "byRepo": {}
         },
+        "runs": [],
         "tasks": [],
         "strategies": [
           {
@@ -9334,7 +9414,11 @@
       "home": "$HOME",
       "pacerHome": "$HOME/.pacer",
       "now": 1791633600,
-      "env": {},
+      "env": {
+        "PACER_PORT": "64141",
+        "OLLAMA_HOST": "http://127.0.0.1:64142",
+        "LMS_API_SERVER_INFO_PATH": "/var/folders/s3/gyfm82zx1b1952wrnw13l8k00000gn/T/pacer-p6c-81615/pacer-test-home-udrb9W/lms-server.json"
+      },
       "zone": "Asia/Ho_Chi_Minh",
       "alive": [
         0
@@ -9351,7 +9435,7 @@
             "title": "pacer",
             "required": true,
             "status": "done",
-            "detail": "0.14.0"
+            "detail": "0.17.7"
           },
           {
             "id": "planner",
@@ -9462,8 +9546,8 @@
         "open": true
       },
       "service": {
-        "version": "0.14.0",
-        "protocol": "3.0.0",
+        "version": "0.17.7",
+        "protocol": "2.8.0",
         "pid": 0,
         "startedAt": 0,
         "notifiers": {
@@ -9589,7 +9673,7 @@
           }
         ],
         "service": {
-          "version": "0.14.0",
+          "version": "0.17.7",
           "protocol": "2.8.0",
           "pid": 0,
           "startedAt": 0,
@@ -9857,7 +9941,11 @@
       "home": "$HOME",
       "pacerHome": "$HOME/.pacer",
       "now": 1791633600,
-      "env": {},
+      "env": {
+        "PACER_PORT": "64141",
+        "OLLAMA_HOST": "http://127.0.0.1:64142",
+        "LMS_API_SERVER_INFO_PATH": "/var/folders/s3/gyfm82zx1b1952wrnw13l8k00000gn/T/pacer-p6c-81615/pacer-test-home-udrb9W/lms-server.json"
+      },
       "zone": "Asia/Ho_Chi_Minh",
       "alive": [
         0
@@ -9874,7 +9962,7 @@
             "title": "pacer",
             "required": true,
             "status": "done",
-            "detail": "0.14.0"
+            "detail": "0.17.7"
           },
           {
             "id": "planner",
@@ -9985,7 +10073,7 @@
         "open": true
       },
       "service": {
-        "version": "0.14.0",
+        "version": "0.17.7",
         "protocol": "3.0.0",
         "pid": 0,
         "startedAt": 0,
@@ -10155,7 +10243,7 @@
           }
         ],
         "service": {
-          "version": "0.14.0",
+          "version": "0.17.7",
           "protocol": "3.0.0",
           "pid": 0,
           "startedAt": 0,
@@ -10288,7 +10376,7 @@
               "title": "pacer",
               "required": true,
               "status": "done",
-              "detail": "0.14.0"
+              "detail": "0.17.7"
             },
             {
               "id": "planner",
@@ -10405,6 +10493,7 @@
           "failed": 0,
           "byRepo": {}
         },
+        "runs": [],
         "tasks": [
           {
             "id": "t-20261010-190000-0001",
@@ -10450,7 +10539,11 @@
       "home": "$HOME",
       "pacerHome": "$HOME/.pacer",
       "now": 1791633600,
-      "env": {},
+      "env": {
+        "PACER_PORT": "64141",
+        "OLLAMA_HOST": "http://127.0.0.1:64142",
+        "LMS_API_SERVER_INFO_PATH": "/var/folders/s3/gyfm82zx1b1952wrnw13l8k00000gn/T/pacer-p6c-81615/pacer-test-home-udrb9W/lms-server.json"
+      },
       "zone": "Asia/Ho_Chi_Minh",
       "alive": [
         0
@@ -10467,7 +10560,7 @@
             "title": "pacer",
             "required": true,
             "status": "done",
-            "detail": "0.14.0"
+            "detail": "0.17.7"
           },
           {
             "id": "planner",
@@ -10578,8 +10671,8 @@
         "open": true
       },
       "service": {
-        "version": "0.14.0",
-        "protocol": "3.0.0",
+        "version": "0.17.7",
+        "protocol": "2.8.0",
         "pid": 0,
         "startedAt": 0,
         "notifiers": {
@@ -10650,7 +10743,7 @@
         "attempts": []
       },
       {
-        "rev": 2,
+        "rev": 1,
         "id": "t-20261010-190000-0001",
         "createdAt": 1791633600,
         "brief": {
@@ -10752,7 +10845,7 @@
           }
         ],
         "service": {
-          "version": "0.14.0",
+          "version": "0.17.7",
           "protocol": "2.8.0",
           "pid": 0,
           "startedAt": 0,
@@ -10997,7 +11090,7 @@
             "runnerAlive": false,
             "activeAgentSessions": 2,
             "fullTitle": "Probe sessions",
-            "rev": 2,
+            "rev": 1,
             "queue": null,
             "repo": {
               "key": "local:FIXTURE",
@@ -11046,7 +11139,11 @@
       "home": "$HOME",
       "pacerHome": "$HOME/.pacer",
       "now": 1791633600,
-      "env": {},
+      "env": {
+        "PACER_PORT": "64141",
+        "OLLAMA_HOST": "http://127.0.0.1:64142",
+        "LMS_API_SERVER_INFO_PATH": "/var/folders/s3/gyfm82zx1b1952wrnw13l8k00000gn/T/pacer-p6c-81615/pacer-test-home-udrb9W/lms-server.json"
+      },
       "zone": "Asia/Ho_Chi_Minh",
       "alive": [
         0
@@ -11063,7 +11160,7 @@
             "title": "pacer",
             "required": true,
             "status": "done",
-            "detail": "0.14.0"
+            "detail": "0.17.7"
           },
           {
             "id": "planner",
@@ -11174,7 +11271,7 @@
         "open": true
       },
       "service": {
-        "version": "0.14.0",
+        "version": "0.17.7",
         "protocol": "3.0.0",
         "pid": 0,
         "startedAt": 0,
@@ -11246,7 +11343,7 @@
         "attempts": []
       },
       {
-        "rev": 2,
+        "rev": 1,
         "id": "t-20261010-190000-0001",
         "createdAt": 1791633600,
         "brief": {
@@ -11391,7 +11488,7 @@
           }
         ],
         "service": {
-          "version": "0.14.0",
+          "version": "0.17.7",
           "protocol": "3.0.0",
           "pid": 0,
           "startedAt": 0,
@@ -11524,7 +11621,7 @@
               "title": "pacer",
               "required": true,
               "status": "done",
-              "detail": "0.14.0"
+              "detail": "0.17.7"
             },
             {
               "id": "planner",
@@ -11641,6 +11738,7 @@
           "failed": 0,
           "byRepo": {}
         },
+        "runs": [],
         "tasks": [
           {
             "id": "t-20261010-190000-0002",
@@ -11681,7 +11779,7 @@
             "runnerAlive": false,
             "activeAgentSessions": 2,
             "fullTitle": "Probe sessions",
-            "rev": 2,
+            "rev": 1,
             "queue": null,
             "repo": {
               "key": "local:FIXTURE",
@@ -11712,7 +11810,11 @@
       "home": "$HOME",
       "pacerHome": "$HOME/.pacer",
       "now": 1791633600,
-      "env": {},
+      "env": {
+        "PACER_PORT": "64141",
+        "OLLAMA_HOST": "http://127.0.0.1:64142",
+        "LMS_API_SERVER_INFO_PATH": "/var/folders/s3/gyfm82zx1b1952wrnw13l8k00000gn/T/pacer-p6c-81615/pacer-test-home-udrb9W/lms-server.json"
+      },
       "zone": "Asia/Ho_Chi_Minh",
       "alive": [
         0
@@ -11729,7 +11831,7 @@
             "title": "pacer",
             "required": true,
             "status": "done",
-            "detail": "0.14.0"
+            "detail": "0.17.7"
           },
           {
             "id": "planner",
@@ -11840,8 +11942,8 @@
         "open": true
       },
       "service": {
-        "version": "0.14.0",
-        "protocol": "3.0.0",
+        "version": "0.17.7",
+        "protocol": "2.8.0",
         "pid": 0,
         "startedAt": 0,
         "notifiers": {
@@ -11878,7 +11980,7 @@
         "revision": "b45452382d3969198be96df984935a144d1d2f5476fd077a18325f49a6ef52a3",
         "active": [
           {
-            "task_id": "t-20261010-190000-0001",
+            "task_id": "t-20261010-190000-0002",
             "executor": "codex"
           }
         ]
@@ -11894,10 +11996,12 @@
           "repo": "$HOME"
         },
         "kind": null,
-        "requestedExecutor": "codex",
+        "requestedExecutor": null,
         "timeoutS": 60,
-        "state": "running",
-        "attempts": []
+        "state": "done",
+        "attempts": [],
+        "dismissed": true,
+        "settledAt": 1791633600
       },
       {
         "rev": 2,
@@ -11908,12 +12012,10 @@
           "repo": "$HOME"
         },
         "kind": null,
-        "requestedExecutor": null,
+        "requestedExecutor": "codex",
         "timeoutS": 60,
-        "state": "done",
-        "attempts": [],
-        "dismissed": true,
-        "settledAt": 1791633600
+        "state": "running",
+        "attempts": []
       }
     ],
     "tables": {
@@ -11922,17 +12024,17 @@
       "agent_sessions": [
         {
           "id": "ses-s5-old",
-          "task": "t-20261010-190000-0001",
+          "task": "t-20261010-190000-0002",
           "request_id": "ses-s5-old",
           "payload": "{}",
-          "record": "{\"id\":\"ses-s5-old\",\"task_id\":\"t-20261010-190000-0001\",\"ordinal\":1,\"executor\":\"codex\",\"request\":\"Probe\",\"cwd\":\"$HOME\",\"createdAt\":1791633600,\"rev\":1,\"attempt\":1,\"state\":\"starting\",\"attempts\":[{\"number\":1,\"state\":\"starting\"}]}"
+          "record": "{\"id\":\"ses-s5-old\",\"task_id\":\"t-20261010-190000-0002\",\"ordinal\":1,\"executor\":\"codex\",\"request\":\"Probe\",\"cwd\":\"$HOME\",\"createdAt\":1791633600,\"rev\":1,\"attempt\":1,\"state\":\"starting\",\"attempts\":[{\"number\":1,\"state\":\"starting\"}]}"
         },
         {
           "id": "ses-s5-done",
-          "task": "t-20261010-190000-0002",
+          "task": "t-20261010-190000-0001",
           "request_id": "ses-s5-done",
           "payload": "{}",
-          "record": "{\"id\":\"ses-s5-done\",\"task_id\":\"t-20261010-190000-0002\",\"ordinal\":1,\"executor\":\"codex\",\"request\":\"Probe\",\"cwd\":\"$HOME\",\"createdAt\":1791633600,\"rev\":1,\"attempt\":1,\"state\":\"ended\",\"attempts\":[{\"number\":1,\"state\":\"ended\"}]}"
+          "record": "{\"id\":\"ses-s5-done\",\"task_id\":\"t-20261010-190000-0001\",\"ordinal\":1,\"executor\":\"codex\",\"request\":\"Probe\",\"cwd\":\"$HOME\",\"createdAt\":1791633600,\"rev\":1,\"attempt\":1,\"state\":\"ended\",\"attempts\":[{\"number\":1,\"state\":\"ended\"}]}"
         }
       ]
     },
@@ -11990,7 +12092,1226 @@
           }
         ],
         "service": {
-          "version": "0.14.0",
+          "version": "0.17.7",
+          "protocol": "2.8.0",
+          "pid": 0,
+          "startedAt": 0,
+          "notifiers": {
+            "os": null,
+            "terminal": null,
+            "browser": null
+          },
+          "notifier": null
+        },
+        "planner": {
+          "runner": "claude-code",
+          "agent": "claude-code",
+          "usedPct": null,
+          "pacePct": null,
+          "deltaPts": null,
+          "verdict": "unknown",
+          "activeHoursLeft": null,
+          "resetsAt": null,
+          "window": null,
+          "stale": false,
+          "advice": "No usage reading for the planner yet.",
+          "mode": "normal"
+        },
+        "executors": [
+          {
+            "id": "claude-code",
+            "agent": "claude-code",
+            "account": "claude-code",
+            "host": null,
+            "model": null,
+            "rank": "planner",
+            "enabled": true,
+            "state": "ready",
+            "tone": "good",
+            "sub": "Usage unknown · this Mac",
+            "usedPct": null,
+            "pacePct": null,
+            "paceReason": "no limit reported",
+            "slots": {
+              "used": 0,
+              "max": 1
+            },
+            "lastCheck": null,
+            "recentFailures": 0,
+            "next": false
+          },
+          {
+            "id": "codex",
+            "agent": "codex",
+            "account": "codex",
+            "host": null,
+            "model": null,
+            "rank": 1,
+            "enabled": true,
+            "state": "full",
+            "tone": "info",
+            "sub": "Codex busy (1/1)",
+            "reason": "Codex busy (1/1)",
+            "usedPct": null,
+            "pacePct": null,
+            "paceReason": "no limit reported",
+            "slots": {
+              "used": 1,
+              "max": 1
+            },
+            "lastCheck": null,
+            "recentFailures": 0,
+            "next": false
+          }
+        ],
+        "accounts": [
+          {
+            "stale": true,
+            "capturedAt": null,
+            "name": "claude-code",
+            "agent": "claude-code",
+            "source": "default",
+            "usedPct": null,
+            "pacePct": null,
+            "window": null,
+            "resetsAt": null,
+            "verdict": "UNKNOWN",
+            "signedIn": null,
+            "executors": [
+              "claude-code"
+            ],
+            "spendUsdWeek": null,
+            "capUsdWeek": null
+          },
+          {
+            "stale": true,
+            "capturedAt": null,
+            "name": "codex",
+            "agent": "codex",
+            "source": "default",
+            "usedPct": null,
+            "pacePct": null,
+            "window": null,
+            "resetsAt": null,
+            "verdict": "UNKNOWN",
+            "signedIn": null,
+            "executors": [
+              "codex"
+            ],
+            "spendUsdWeek": null,
+            "capUsdWeek": null
+          }
+        ],
+        "hosts": [],
+        "repos": [
+          {
+            "key": "local:FIXTURE",
+            "label": "FIXTURE_HOME",
+            "path": "$HOME",
+            "identityUnverified": true
+          }
+        ],
+        "setup": {
+          "complete": false,
+          "open": 1,
+          "items": [
+            {
+              "id": "binary",
+              "title": "Binary",
+              "status": "done",
+              "required": true
+            },
+            {
+              "id": "strategy",
+              "title": "Strategy",
+              "status": "done",
+              "required": true
+            },
+            {
+              "id": "service",
+              "title": "Login service",
+              "status": "pending",
+              "required": true
+            },
+            {
+              "id": "link",
+              "title": "Link",
+              "status": "done",
+              "required": true
+            },
+            {
+              "id": "live",
+              "title": "Live plugin",
+              "status": "pending",
+              "required": false
+            },
+            {
+              "id": "agent:claude-code",
+              "title": "Claude Code",
+              "status": "pending",
+              "required": false
+            },
+            {
+              "id": "agent:codex",
+              "title": "Codex",
+              "status": "pending",
+              "required": false
+            },
+            {
+              "id": "agent:cursor",
+              "title": "Cursor",
+              "status": "pending",
+              "required": false
+            },
+            {
+              "id": "agent:opencode",
+              "title": "OpenCode",
+              "status": "pending",
+              "required": false
+            }
+          ]
+        },
+        "counts": {
+          "attention": 1,
+          "problems": 1,
+          "review": 0,
+          "running": 2,
+          "queued": 0,
+          "ready": 0,
+          "executors": 1,
+          "setupOpen": 1,
+          "hostsWithProblems": 0,
+          "byRepo": {
+            "local:FIXTURE": {
+              "review": 0,
+              "running": 2,
+              "attention": 0
+            }
+          }
+        },
+        "today": {
+          "since": 1791565200,
+          "done": 0,
+          "accepted": 0,
+          "rejected": 0,
+          "failed": 0,
+          "byRepo": {}
+        },
+        "tasks": [
+          {
+            "id": "t-20261010-190000-0002",
+            "title": "Probe sessions",
+            "state": "done",
+            "goal": "Probe sessions",
+            "executor": null,
+            "backend": null,
+            "worktree": null,
+            "updatedAt": 1791633600,
+            "acceptanceState": "none",
+            "dismissed": true,
+            "activeAgentSessions": 1,
+            "fullTitle": "Probe sessions",
+            "rev": 2,
+            "queue": null,
+            "repo": {
+              "key": "local:FIXTURE",
+              "label": "FIXTURE_HOME",
+              "path": "$HOME",
+              "identityUnverified": true
+            },
+            "kind": null,
+            "host": null,
+            "account": null,
+            "model": null
+          },
+          {
+            "id": "t-20261010-190000-0001",
+            "title": "Probe sessions",
+            "state": "running",
+            "goal": "Probe sessions",
+            "executor": null,
+            "backend": null,
+            "worktree": null,
+            "updatedAt": 1791633600,
+            "acceptanceState": "none",
+            "runnerAlive": false,
+            "fullTitle": "Probe sessions",
+            "rev": 2,
+            "queue": null,
+            "repo": {
+              "key": "local:FIXTURE",
+              "label": "FIXTURE_HOME",
+              "path": "$HOME",
+              "identityUnverified": true
+            },
+            "kind": null,
+            "host": null,
+            "account": null,
+            "model": null
+          }
+        ],
+        "strategies": [
+          {
+            "name": "default",
+            "active": true,
+            "summary": "Codex first, Claude keeps 15%",
+            "description": ""
+          }
+        ],
+        "v": 1,
+        "budget": {
+          "generatedAt": 1,
+          "strategy": "default",
+          "planner": "claude-code",
+          "mode": "normal",
+          "providers": [],
+          "ranked": [
+            {
+              "id": "codex",
+              "verdict": "BEHIND"
+            }
+          ]
+        },
+        "alerts": [],
+        "console": null,
+        "consoles": [],
+        "serviceInstalled": false
+      }
+    }
+  },
+  {
+    "group": 6,
+    "input": {
+      "home": "$HOME",
+      "pacerHome": "$HOME/.pacer",
+      "now": 1791633600,
+      "env": {
+        "PACER_PORT": "64141",
+        "OLLAMA_HOST": "http://127.0.0.1:64142",
+        "LMS_API_SERVER_INFO_PATH": "/var/folders/s3/gyfm82zx1b1952wrnw13l8k00000gn/T/pacer-p6c-81615/pacer-test-home-udrb9W/lms-server.json"
+      },
+      "zone": "Asia/Ho_Chi_Minh",
+      "alive": [
+        0
+      ],
+      "op": "snapshot",
+      "protocol": 3,
+      "setup": {
+        "checkedAt": 1791633600,
+        "complete": false,
+        "ready": false,
+        "items": [
+          {
+            "id": "binary",
+            "title": "pacer",
+            "required": true,
+            "status": "done",
+            "detail": "0.17.7"
+          },
+          {
+            "id": "planner",
+            "title": "Planner",
+            "required": true,
+            "status": "pending",
+            "detail": "claude-code · signed out",
+            "command": "run claude and log in"
+          },
+          {
+            "id": "service",
+            "title": "Background service",
+            "required": true,
+            "status": "pending",
+            "command": "pacer service install",
+            "action": "service.install"
+          },
+          {
+            "id": "connect",
+            "title": "Connect planner",
+            "required": true,
+            "status": "pending",
+            "detail": "Integration missing or changed",
+            "command": "pacer init",
+            "action": "agent.connect",
+            "agent": "claude-code",
+            "installed": false
+          },
+          {
+            "id": "link",
+            "title": "Link",
+            "required": true,
+            "status": "done"
+          },
+          {
+            "id": "executor",
+            "title": "Executor",
+            "required": false,
+            "status": "pending",
+            "detail": "no executor configured",
+            "command": "pacer runner add",
+            "action": "nav:add-executor"
+          },
+          {
+            "id": "usage",
+            "title": "Budget data",
+            "required": false,
+            "status": "pending",
+            "detail": "Start a session in claude-code once"
+          },
+          {
+            "id": "first",
+            "title": "First delegation",
+            "required": false,
+            "status": "pending",
+            "action": "onboarding.try"
+          },
+          {
+            "id": "agent:codex",
+            "title": "Codex",
+            "required": false,
+            "status": "pending",
+            "detail": "Optional · not connected",
+            "command": "pacer init",
+            "action": "agent.connect",
+            "agent": "codex",
+            "installed": false
+          },
+          {
+            "id": "agent:cursor",
+            "title": "Cursor",
+            "required": false,
+            "status": "pending",
+            "detail": "Optional · not connected",
+            "command": "pacer init",
+            "action": "agent.connect",
+            "agent": "cursor",
+            "installed": false
+          },
+          {
+            "id": "agent:opencode",
+            "title": "OpenCode",
+            "required": false,
+            "status": "pending",
+            "detail": "Optional · not connected",
+            "command": "pacer init",
+            "action": "agent.connect",
+            "agent": "opencode",
+            "installed": false
+          }
+        ],
+        "integration": {
+          "configuration": "unverified",
+          "invocation": "unverified"
+        }
+      },
+      "policy": {
+        "mode": "open",
+        "plugins": 0
+      },
+      "machine": {
+        "os": "PLATFORM",
+        "arch": "ARCH",
+        "memoryPressure": "normal",
+        "memoryPressureLimit": "critical",
+        "loadPerCore": 0,
+        "loadLimit": null,
+        "open": true
+      },
+      "service": {
+        "version": "0.17.7",
+        "protocol": "3.0.0",
+        "pid": 0,
+        "startedAt": 0,
+        "notifiers": {
+          "os": null,
+          "terminal": null,
+          "browser": null
+        },
+        "notifier": null
+      },
+      "desktopUpdates": [],
+      "serviceInstalled": false,
+      "status": {
+        "generatedAt": 1,
+        "strategy": "default",
+        "planner": "claude-code",
+        "mode": "normal",
+        "disabled": false,
+        "calendarPace": false,
+        "providers": [],
+        "executors": {
+          "ranked": [
+            {
+              "id": "codex",
+              "score": 1,
+              "verdict": "BEHIND",
+              "reason": ""
+            }
+          ],
+          "excluded": []
+        }
+      },
+      "useCache": false,
+      "sessions": {
+        "revision": "b45452382d3969198be96df984935a144d1d2f5476fd077a18325f49a6ef52a3",
+        "active": [
+          {
+            "task_id": "t-20261010-190000-0002",
+            "executor": "codex"
+          }
+        ]
+      }
+    },
+    "tasks": [
+      {
+        "rev": 2,
+        "id": "t-20261010-190000-0002",
+        "createdAt": 1791633600,
+        "brief": {
+          "goal": "Probe sessions",
+          "repo": "$HOME"
+        },
+        "kind": null,
+        "requestedExecutor": null,
+        "timeoutS": 60,
+        "state": "done",
+        "attempts": [],
+        "dismissed": true,
+        "settledAt": 1791633600
+      },
+      {
+        "rev": 2,
+        "id": "t-20261010-190000-0001",
+        "createdAt": 1791633600,
+        "brief": {
+          "goal": "Probe sessions",
+          "repo": "$HOME"
+        },
+        "kind": null,
+        "requestedExecutor": "codex",
+        "timeoutS": 60,
+        "state": "running",
+        "attempts": []
+      }
+    ],
+    "tables": {
+      "messages": [],
+      "msg_liveness": [],
+      "agent_sessions": [
+        {
+          "id": "ses-s5-old",
+          "task": "t-20261010-190000-0002",
+          "request_id": "ses-s5-old",
+          "payload": "{}",
+          "record": "{\"id\":\"ses-s5-old\",\"task_id\":\"t-20261010-190000-0002\",\"ordinal\":1,\"executor\":\"codex\",\"request\":\"Probe\",\"cwd\":\"$HOME\",\"createdAt\":1791633600,\"rev\":1,\"attempt\":1,\"state\":\"starting\",\"attempts\":[{\"number\":1,\"state\":\"starting\"}]}"
+        },
+        {
+          "id": "ses-s5-done",
+          "task": "t-20261010-190000-0001",
+          "request_id": "ses-s5-done",
+          "payload": "{}",
+          "record": "{\"id\":\"ses-s5-done\",\"task_id\":\"t-20261010-190000-0001\",\"ordinal\":1,\"executor\":\"codex\",\"request\":\"Probe\",\"cwd\":\"$HOME\",\"createdAt\":1791633600,\"rev\":1,\"attempt\":1,\"state\":\"ended\",\"attempts\":[{\"number\":1,\"state\":\"ended\"}]}"
+        }
+      ]
+    },
+    "files": {
+      "state/attention.json": "{\"setup:connect\":{\"since\":1791633600},\"setup:planner\":{\"since\":1791633600},\"setup:service\":{\"since\":1791633600}}",
+      "strategy.yaml": "planner: claude-code\nproviders:\n  claude-code: {}\n  codex: {}\n"
+    },
+    "expected": {
+      "protocol": "3.0.0",
+      "seq": 3000000000000,
+      "snapshot": {
+        "seq": 3000000000000,
+        "at": 0,
+        "mode": null,
+        "policy": {
+          "mode": "open",
+          "plugins": 0
+        },
+        "desktopUpdates": [],
+        "machine": {
+          "agentSessionsRevision": "b45452382d3969198be96df984935a144d1d2f5476fd077a18325f49a6ef52a3",
+          "os": "PLATFORM",
+          "arch": "ARCH",
+          "used": 2,
+          "max": 9007199254740991,
+          "hardCap": null,
+          "unlimited": true,
+          "memoryPressure": "normal",
+          "memoryPressureLimit": "critical",
+          "loadPerCore": 0,
+          "loadLimit": null,
+          "open": true
+        },
+        "pause": null,
+        "attention": [
+          {
+            "id": "setup:connect",
+            "kind": "setup",
+            "severity": "problem",
+            "repo": null,
+            "title": "Connect planner",
+            "detail": "Setup required",
+            "raisedAt": 1791633600,
+            "since": 1791633600,
+            "actions": [
+              {
+                "label": "Open settings",
+                "op": "ui.open",
+                "params": {
+                  "view": "settings",
+                  "section": "connect"
+                }
+              }
+            ],
+            "notify": "all"
+          },
+          {
+            "id": "setup:planner",
+            "kind": "setup",
+            "severity": "problem",
+            "repo": null,
+            "title": "Planner",
+            "detail": "Setup required",
+            "raisedAt": 1791633600,
+            "since": 1791633600,
+            "actions": [
+              {
+                "label": "Open settings",
+                "op": "ui.open",
+                "params": {
+                  "view": "settings",
+                  "section": "planner"
+                }
+              }
+            ],
+            "notify": "all"
+          },
+          {
+            "id": "setup:service",
+            "kind": "setup",
+            "severity": "problem",
+            "repo": null,
+            "title": "Background service",
+            "detail": "Setup required",
+            "raisedAt": 1791633600,
+            "since": 1791633600,
+            "actions": [
+              {
+                "label": "Open settings",
+                "op": "ui.open",
+                "params": {
+                  "view": "settings",
+                  "section": "service"
+                }
+              }
+            ],
+            "notify": "all"
+          }
+        ],
+        "service": {
+          "version": "0.17.7",
+          "protocol": "3.0.0",
+          "pid": 0,
+          "startedAt": 0,
+          "notifiers": {
+            "os": null,
+            "terminal": null,
+            "browser": null
+          },
+          "notifier": null
+        },
+        "planner": {
+          "runner": "claude-code",
+          "agent": "claude-code",
+          "usedPct": null,
+          "pacePct": null,
+          "deltaPts": null,
+          "verdict": "unknown",
+          "activeHoursLeft": null,
+          "resetsAt": null,
+          "window": null,
+          "stale": false,
+          "advice": "No usage reading for the planner yet.",
+          "mode": "normal"
+        },
+        "executors": [
+          {
+            "id": "claude-code",
+            "agent": "claude-code",
+            "account": "claude-code",
+            "host": null,
+            "model": null,
+            "rank": "planner",
+            "enabled": true,
+            "state": "ready",
+            "tone": "good",
+            "sub": "Usage unknown · this Mac",
+            "usedPct": null,
+            "pacePct": null,
+            "paceReason": "no limit reported",
+            "slots": {
+              "used": 0,
+              "max": 1
+            },
+            "lastCheck": null,
+            "recentFailures": 0,
+            "next": false
+          },
+          {
+            "id": "codex",
+            "agent": "codex",
+            "account": "codex",
+            "host": null,
+            "model": null,
+            "rank": 1,
+            "enabled": true,
+            "state": "full",
+            "tone": "info",
+            "sub": "Codex busy (1/1)",
+            "reason": "Codex busy (1/1)",
+            "usedPct": null,
+            "pacePct": null,
+            "paceReason": "no limit reported",
+            "slots": {
+              "used": 1,
+              "max": 1
+            },
+            "lastCheck": null,
+            "recentFailures": 0,
+            "next": false
+          }
+        ],
+        "accounts": [
+          {
+            "stale": true,
+            "capturedAt": null,
+            "name": "claude-code",
+            "agent": "claude-code",
+            "source": "default",
+            "usedPct": null,
+            "pacePct": null,
+            "window": null,
+            "resetsAt": null,
+            "verdict": "UNKNOWN",
+            "signedIn": null,
+            "executors": [
+              "claude-code"
+            ],
+            "spendUsdWeek": null,
+            "capUsdWeek": null
+          },
+          {
+            "stale": true,
+            "capturedAt": null,
+            "name": "codex",
+            "agent": "codex",
+            "source": "default",
+            "usedPct": null,
+            "pacePct": null,
+            "window": null,
+            "resetsAt": null,
+            "verdict": "UNKNOWN",
+            "signedIn": null,
+            "executors": [
+              "codex"
+            ],
+            "spendUsdWeek": null,
+            "capUsdWeek": null
+          }
+        ],
+        "hosts": [],
+        "repos": [
+          {
+            "key": "local:FIXTURE",
+            "label": "FIXTURE_HOME",
+            "path": "$HOME",
+            "identityUnverified": true
+          }
+        ],
+        "setup": {
+          "policy": {
+            "mode": "open",
+            "plugins": 0
+          },
+          "complete": false,
+          "ready": false,
+          "open": 3,
+          "items": [
+            {
+              "id": "binary",
+              "title": "pacer",
+              "required": true,
+              "status": "done",
+              "detail": "0.17.7"
+            },
+            {
+              "id": "planner",
+              "title": "Planner",
+              "required": true,
+              "status": "pending",
+              "detail": "claude-code · signed out",
+              "command": "run claude and log in"
+            },
+            {
+              "id": "service",
+              "title": "Background service",
+              "required": true,
+              "status": "pending",
+              "command": "pacer service install",
+              "action": "service.install"
+            },
+            {
+              "id": "connect",
+              "title": "Connect planner",
+              "required": true,
+              "status": "pending",
+              "detail": "Integration missing or changed",
+              "command": "pacer init",
+              "action": "agent.connect",
+              "agent": "claude-code",
+              "installed": false
+            },
+            {
+              "id": "link",
+              "title": "Link",
+              "required": true,
+              "status": "done"
+            },
+            {
+              "id": "executor",
+              "title": "Executor",
+              "required": false,
+              "status": "done",
+              "detail": "codex"
+            },
+            {
+              "id": "usage",
+              "title": "Budget data",
+              "required": false,
+              "status": "pending",
+              "detail": "Start a session in claude-code once"
+            },
+            {
+              "id": "first",
+              "title": "First delegation",
+              "required": false,
+              "status": "pending",
+              "action": "onboarding.try"
+            },
+            {
+              "id": "agent:codex",
+              "title": "Codex",
+              "required": false,
+              "status": "pending",
+              "detail": "Optional · not connected",
+              "command": "pacer init",
+              "action": "agent.connect",
+              "agent": "codex",
+              "installed": false
+            },
+            {
+              "id": "agent:cursor",
+              "title": "Cursor",
+              "required": false,
+              "status": "pending",
+              "detail": "Optional · not connected",
+              "command": "pacer init",
+              "action": "agent.connect",
+              "agent": "cursor",
+              "installed": false
+            },
+            {
+              "id": "agent:opencode",
+              "title": "OpenCode",
+              "required": false,
+              "status": "pending",
+              "detail": "Optional · not connected",
+              "command": "pacer init",
+              "action": "agent.connect",
+              "agent": "opencode",
+              "installed": false
+            }
+          ]
+        },
+        "counts": {
+          "attention": 3,
+          "problems": 3,
+          "review": 0,
+          "running": 2,
+          "queued": 0,
+          "ready": 0,
+          "executors": 1,
+          "setupOpen": 3,
+          "hostsWithProblems": 0,
+          "byRepo": {
+            "local:FIXTURE": {
+              "review": 0,
+              "running": 2,
+              "attention": 0
+            }
+          }
+        },
+        "today": {
+          "since": 1791565200,
+          "done": 0,
+          "accepted": 0,
+          "rejected": 0,
+          "failed": 0,
+          "byRepo": {}
+        },
+        "runs": [],
+        "tasks": [
+          {
+            "id": "t-20261010-190000-0002",
+            "title": "Probe sessions",
+            "state": "done",
+            "goal": "Probe sessions",
+            "executor": null,
+            "backend": null,
+            "worktree": null,
+            "updatedAt": 1791633600,
+            "acceptanceState": "none",
+            "dismissed": true,
+            "activeAgentSessions": 1,
+            "fullTitle": "Probe sessions",
+            "rev": 2,
+            "queue": null,
+            "repo": {
+              "key": "local:FIXTURE",
+              "label": "FIXTURE_HOME",
+              "path": "$HOME",
+              "identityUnverified": true
+            },
+            "kind": null,
+            "host": null,
+            "account": null,
+            "model": null
+          },
+          {
+            "id": "t-20261010-190000-0001",
+            "title": "Probe sessions",
+            "state": "running",
+            "goal": "Probe sessions",
+            "executor": null,
+            "backend": null,
+            "worktree": null,
+            "updatedAt": 1791633600,
+            "acceptanceState": "none",
+            "runnerAlive": false,
+            "fullTitle": "Probe sessions",
+            "rev": 2,
+            "queue": null,
+            "repo": {
+              "key": "local:FIXTURE",
+              "label": "FIXTURE_HOME",
+              "path": "$HOME",
+              "identityUnverified": true
+            },
+            "kind": null,
+            "host": null,
+            "account": null,
+            "model": null
+          }
+        ],
+        "strategies": [
+          {
+            "name": "default",
+            "active": true,
+            "summary": "Codex first, Claude keeps 15%",
+            "description": ""
+          }
+        ]
+      }
+    }
+  },
+  {
+    "group": 7,
+    "input": {
+      "home": "$HOME",
+      "pacerHome": "$HOME/.pacer",
+      "now": 1791633600,
+      "env": {
+        "PACER_PORT": "64141",
+        "OLLAMA_HOST": "http://127.0.0.1:64142",
+        "LMS_API_SERVER_INFO_PATH": "/var/folders/s3/gyfm82zx1b1952wrnw13l8k00000gn/T/pacer-p6c-81615/pacer-test-home-udrb9W/lms-server.json"
+      },
+      "zone": "Asia/Ho_Chi_Minh",
+      "alive": [
+        0
+      ],
+      "op": "snapshot",
+      "protocol": 2,
+      "setup": {
+        "checkedAt": 1791633600,
+        "complete": false,
+        "ready": false,
+        "items": [
+          {
+            "id": "binary",
+            "title": "pacer",
+            "required": true,
+            "status": "done",
+            "detail": "0.17.7"
+          },
+          {
+            "id": "planner",
+            "title": "Planner",
+            "required": true,
+            "status": "pending",
+            "detail": "claude-code · signed out",
+            "command": "run claude and log in"
+          },
+          {
+            "id": "service",
+            "title": "Background service",
+            "required": true,
+            "status": "pending",
+            "command": "pacer service install",
+            "action": "service.install"
+          },
+          {
+            "id": "connect",
+            "title": "Connect planner",
+            "required": true,
+            "status": "pending",
+            "detail": "Integration missing or changed",
+            "command": "pacer init",
+            "action": "agent.connect",
+            "agent": "claude-code",
+            "installed": false
+          },
+          {
+            "id": "link",
+            "title": "Link",
+            "required": true,
+            "status": "done"
+          },
+          {
+            "id": "executor",
+            "title": "Executor",
+            "required": false,
+            "status": "pending",
+            "detail": "no executor configured",
+            "command": "pacer runner add",
+            "action": "nav:add-executor"
+          },
+          {
+            "id": "usage",
+            "title": "Budget data",
+            "required": false,
+            "status": "pending",
+            "detail": "Start a session in claude-code once"
+          },
+          {
+            "id": "first",
+            "title": "First delegation",
+            "required": false,
+            "status": "pending",
+            "action": "onboarding.try"
+          },
+          {
+            "id": "agent:codex",
+            "title": "Codex",
+            "required": false,
+            "status": "pending",
+            "detail": "Optional · not connected",
+            "command": "pacer init",
+            "action": "agent.connect",
+            "agent": "codex",
+            "installed": false
+          },
+          {
+            "id": "agent:cursor",
+            "title": "Cursor",
+            "required": false,
+            "status": "pending",
+            "detail": "Optional · not connected",
+            "command": "pacer init",
+            "action": "agent.connect",
+            "agent": "cursor",
+            "installed": false
+          },
+          {
+            "id": "agent:opencode",
+            "title": "OpenCode",
+            "required": false,
+            "status": "pending",
+            "detail": "Optional · not connected",
+            "command": "pacer init",
+            "action": "agent.connect",
+            "agent": "opencode",
+            "installed": false
+          }
+        ],
+        "integration": {
+          "configuration": "unverified",
+          "invocation": "unverified"
+        }
+      },
+      "policy": {
+        "mode": "open",
+        "plugins": 0
+      },
+      "machine": {
+        "os": "PLATFORM",
+        "arch": "ARCH",
+        "memoryPressure": "normal",
+        "memoryPressureLimit": "critical",
+        "loadPerCore": 0,
+        "loadLimit": null,
+        "open": true
+      },
+      "service": {
+        "version": "0.17.7",
+        "protocol": "2.8.0",
+        "pid": 0,
+        "startedAt": 0,
+        "notifiers": {
+          "os": null,
+          "terminal": null,
+          "browser": null
+        },
+        "notifier": null
+      },
+      "desktopUpdates": [],
+      "serviceInstalled": false,
+      "status": {
+        "generatedAt": 1,
+        "strategy": "default",
+        "planner": "claude-code",
+        "mode": "normal",
+        "disabled": false,
+        "calendarPace": false,
+        "providers": [],
+        "executors": {
+          "ranked": [
+            {
+              "id": "codex",
+              "score": 1,
+              "verdict": "BEHIND",
+              "reason": ""
+            }
+          ],
+          "excluded": []
+        }
+      },
+      "useCache": false,
+      "sessions": {
+        "revision": "981bf89a42423d34e695e4a5f9c67656008121169e638202486d3fa527402dce",
+        "active": [
+          {
+            "task_id": "t-20261010-190000-0002",
+            "executor": "codex"
+          }
+        ]
+      }
+    },
+    "tasks": [
+      {
+        "rev": 2,
+        "id": "t-20261010-190000-0002",
+        "createdAt": 1791633600,
+        "brief": {
+          "goal": "Probe sessions",
+          "repo": "$HOME"
+        },
+        "kind": null,
+        "requestedExecutor": "codex",
+        "timeoutS": 60,
+        "state": "running",
+        "attempts": []
+      },
+      {
+        "rev": 2,
+        "id": "t-20261010-190000-0001",
+        "createdAt": 1791633600,
+        "brief": {
+          "goal": "Probe sessions",
+          "repo": "$HOME"
+        },
+        "kind": null,
+        "requestedExecutor": "codex",
+        "timeoutS": 60,
+        "state": "running",
+        "attempts": []
+      }
+    ],
+    "tables": {
+      "messages": [],
+      "msg_liveness": [],
+      "agent_sessions": [
+        {
+          "id": "ses-s6-local-ended",
+          "task": "t-20261010-190000-0001",
+          "request_id": "ses-s6-local-ended",
+          "payload": "{}",
+          "record": "{\"id\":\"ses-s6-local-ended\",\"task_id\":\"t-20261010-190000-0001\",\"ordinal\":1,\"executor\":\"codex\",\"request\":\"Probe\",\"cwd\":\"$HOME\",\"createdAt\":1791633600,\"rev\":1,\"attempt\":1,\"state\":\"ended\",\"attempts\":[{\"number\":1,\"state\":\"ended\"}]}"
+        },
+        {
+          "id": "ses-s6-remote",
+          "task": "t-20261010-190000-0002",
+          "request_id": "ses-s6-remote",
+          "payload": "{}",
+          "record": "{\"id\":\"ses-s6-remote\",\"task_id\":\"t-20261010-190000-0002\",\"ordinal\":1,\"executor\":\"codex\",\"request\":\"Probe\",\"cwd\":\"$HOME\",\"createdAt\":1791633600,\"rev\":1,\"attempt\":1,\"state\":\"starting\",\"attempts\":[{\"number\":1,\"state\":\"starting\"}]}"
+        }
+      ]
+    },
+    "files": {
+      "state/attention.json": "{\"setup:connect\":{\"since\":1791633600},\"setup:planner\":{\"since\":1791633600},\"setup:service\":{\"since\":1791633600}}",
+      "strategy.yaml": "planner: claude-code\nproviders:\n  claude-code: {}\n  codex: {}\n"
+    },
+    "expected": {
+      "protocol": "2.8.0",
+      "seq": 0,
+      "snapshot": {
+        "seq": 0,
+        "at": 0,
+        "mode": null,
+        "policy": {
+          "mode": "open",
+          "plugins": 0
+        },
+        "machine": {
+          "agentSessionsRevision": "981bf89a42423d34e695e4a5f9c67656008121169e638202486d3fa527402dce",
+          "os": "PLATFORM",
+          "arch": "ARCH",
+          "used": 3,
+          "max": 1,
+          "hardCap": null,
+          "unlimited": true,
+          "memoryPressure": "normal",
+          "memoryPressureLimit": "critical",
+          "loadPerCore": 0,
+          "loadLimit": null,
+          "open": true
+        },
+        "pause": null,
+        "attention": [
+          {
+            "id": "setup:service",
+            "kind": "setup",
+            "severity": "problem",
+            "repo": null,
+            "title": "Login service",
+            "detail": "Setup required",
+            "raisedAt": 1791633600,
+            "since": 1791633600,
+            "actions": [
+              {
+                "label": "Open settings",
+                "op": "ui.open",
+                "params": {
+                  "view": "settings",
+                  "section": "service"
+                }
+              }
+            ],
+            "notify": "all"
+          }
+        ],
+        "service": {
+          "version": "0.17.7",
           "protocol": "2.8.0",
           "pid": 0,
           "startedAt": 0,
@@ -12207,1216 +13528,6 @@
             "updatedAt": 1791633600,
             "acceptanceState": "none",
             "runnerAlive": false,
-            "fullTitle": "Probe sessions",
-            "rev": 2,
-            "queue": null,
-            "repo": {
-              "key": "local:FIXTURE",
-              "label": "FIXTURE_HOME",
-              "path": "$HOME",
-              "identityUnverified": true
-            },
-            "kind": null,
-            "host": null,
-            "account": null,
-            "model": null
-          },
-          {
-            "id": "t-20261010-190000-0001",
-            "title": "Probe sessions",
-            "state": "done",
-            "goal": "Probe sessions",
-            "executor": null,
-            "backend": null,
-            "worktree": null,
-            "updatedAt": 1791633600,
-            "acceptanceState": "none",
-            "dismissed": true,
-            "activeAgentSessions": 1,
-            "fullTitle": "Probe sessions",
-            "rev": 2,
-            "queue": null,
-            "repo": {
-              "key": "local:FIXTURE",
-              "label": "FIXTURE_HOME",
-              "path": "$HOME",
-              "identityUnverified": true
-            },
-            "kind": null,
-            "host": null,
-            "account": null,
-            "model": null
-          }
-        ],
-        "strategies": [
-          {
-            "name": "default",
-            "active": true,
-            "summary": "Codex first, Claude keeps 15%",
-            "description": ""
-          }
-        ],
-        "v": 1,
-        "budget": {
-          "generatedAt": 1,
-          "strategy": "default",
-          "planner": "claude-code",
-          "mode": "normal",
-          "providers": [],
-          "ranked": [
-            {
-              "id": "codex",
-              "verdict": "BEHIND"
-            }
-          ]
-        },
-        "alerts": [],
-        "console": null,
-        "consoles": [],
-        "serviceInstalled": false
-      }
-    }
-  },
-  {
-    "group": 6,
-    "input": {
-      "home": "$HOME",
-      "pacerHome": "$HOME/.pacer",
-      "now": 1791633600,
-      "env": {},
-      "zone": "Asia/Ho_Chi_Minh",
-      "alive": [
-        0
-      ],
-      "op": "snapshot",
-      "protocol": 3,
-      "setup": {
-        "checkedAt": 1791633600,
-        "complete": false,
-        "ready": false,
-        "items": [
-          {
-            "id": "binary",
-            "title": "pacer",
-            "required": true,
-            "status": "done",
-            "detail": "0.14.0"
-          },
-          {
-            "id": "planner",
-            "title": "Planner",
-            "required": true,
-            "status": "pending",
-            "detail": "claude-code · signed out",
-            "command": "run claude and log in"
-          },
-          {
-            "id": "service",
-            "title": "Background service",
-            "required": true,
-            "status": "pending",
-            "command": "pacer service install",
-            "action": "service.install"
-          },
-          {
-            "id": "connect",
-            "title": "Connect planner",
-            "required": true,
-            "status": "pending",
-            "detail": "Integration missing or changed",
-            "command": "pacer init",
-            "action": "agent.connect",
-            "agent": "claude-code",
-            "installed": false
-          },
-          {
-            "id": "link",
-            "title": "Link",
-            "required": true,
-            "status": "done"
-          },
-          {
-            "id": "executor",
-            "title": "Executor",
-            "required": false,
-            "status": "pending",
-            "detail": "no executor configured",
-            "command": "pacer runner add",
-            "action": "nav:add-executor"
-          },
-          {
-            "id": "usage",
-            "title": "Budget data",
-            "required": false,
-            "status": "pending",
-            "detail": "Start a session in claude-code once"
-          },
-          {
-            "id": "first",
-            "title": "First delegation",
-            "required": false,
-            "status": "pending",
-            "action": "onboarding.try"
-          },
-          {
-            "id": "agent:codex",
-            "title": "Codex",
-            "required": false,
-            "status": "pending",
-            "detail": "Optional · not connected",
-            "command": "pacer init",
-            "action": "agent.connect",
-            "agent": "codex",
-            "installed": false
-          },
-          {
-            "id": "agent:cursor",
-            "title": "Cursor",
-            "required": false,
-            "status": "pending",
-            "detail": "Optional · not connected",
-            "command": "pacer init",
-            "action": "agent.connect",
-            "agent": "cursor",
-            "installed": false
-          },
-          {
-            "id": "agent:opencode",
-            "title": "OpenCode",
-            "required": false,
-            "status": "pending",
-            "detail": "Optional · not connected",
-            "command": "pacer init",
-            "action": "agent.connect",
-            "agent": "opencode",
-            "installed": false
-          }
-        ],
-        "integration": {
-          "configuration": "unverified",
-          "invocation": "unverified"
-        }
-      },
-      "policy": {
-        "mode": "open",
-        "plugins": 0
-      },
-      "machine": {
-        "os": "PLATFORM",
-        "arch": "ARCH",
-        "memoryPressure": "normal",
-        "memoryPressureLimit": "critical",
-        "loadPerCore": 0,
-        "loadLimit": null,
-        "open": true
-      },
-      "service": {
-        "version": "0.14.0",
-        "protocol": "3.0.0",
-        "pid": 0,
-        "startedAt": 0,
-        "notifiers": {
-          "os": null,
-          "terminal": null,
-          "browser": null
-        },
-        "notifier": null
-      },
-      "desktopUpdates": [],
-      "serviceInstalled": false,
-      "status": {
-        "generatedAt": 1,
-        "strategy": "default",
-        "planner": "claude-code",
-        "mode": "normal",
-        "disabled": false,
-        "calendarPace": false,
-        "providers": [],
-        "executors": {
-          "ranked": [
-            {
-              "id": "codex",
-              "score": 1,
-              "verdict": "BEHIND",
-              "reason": ""
-            }
-          ],
-          "excluded": []
-        }
-      },
-      "useCache": false,
-      "sessions": {
-        "revision": "b45452382d3969198be96df984935a144d1d2f5476fd077a18325f49a6ef52a3",
-        "active": [
-          {
-            "task_id": "t-20261010-190000-0001",
-            "executor": "codex"
-          }
-        ]
-      }
-    },
-    "tasks": [
-      {
-        "rev": 2,
-        "id": "t-20261010-190000-0002",
-        "createdAt": 1791633600,
-        "brief": {
-          "goal": "Probe sessions",
-          "repo": "$HOME"
-        },
-        "kind": null,
-        "requestedExecutor": "codex",
-        "timeoutS": 60,
-        "state": "running",
-        "attempts": []
-      },
-      {
-        "rev": 2,
-        "id": "t-20261010-190000-0001",
-        "createdAt": 1791633600,
-        "brief": {
-          "goal": "Probe sessions",
-          "repo": "$HOME"
-        },
-        "kind": null,
-        "requestedExecutor": null,
-        "timeoutS": 60,
-        "state": "done",
-        "attempts": [],
-        "dismissed": true,
-        "settledAt": 1791633600
-      }
-    ],
-    "tables": {
-      "messages": [],
-      "msg_liveness": [],
-      "agent_sessions": [
-        {
-          "id": "ses-s5-old",
-          "task": "t-20261010-190000-0001",
-          "request_id": "ses-s5-old",
-          "payload": "{}",
-          "record": "{\"id\":\"ses-s5-old\",\"task_id\":\"t-20261010-190000-0001\",\"ordinal\":1,\"executor\":\"codex\",\"request\":\"Probe\",\"cwd\":\"$HOME\",\"createdAt\":1791633600,\"rev\":1,\"attempt\":1,\"state\":\"starting\",\"attempts\":[{\"number\":1,\"state\":\"starting\"}]}"
-        },
-        {
-          "id": "ses-s5-done",
-          "task": "t-20261010-190000-0002",
-          "request_id": "ses-s5-done",
-          "payload": "{}",
-          "record": "{\"id\":\"ses-s5-done\",\"task_id\":\"t-20261010-190000-0002\",\"ordinal\":1,\"executor\":\"codex\",\"request\":\"Probe\",\"cwd\":\"$HOME\",\"createdAt\":1791633600,\"rev\":1,\"attempt\":1,\"state\":\"ended\",\"attempts\":[{\"number\":1,\"state\":\"ended\"}]}"
-        }
-      ]
-    },
-    "files": {
-      "state/attention.json": "{\"setup:connect\":{\"since\":1791633600},\"setup:planner\":{\"since\":1791633600},\"setup:service\":{\"since\":1791633600}}",
-      "strategy.yaml": "planner: claude-code\nproviders:\n  claude-code: {}\n  codex: {}\n"
-    },
-    "expected": {
-      "protocol": "3.0.0",
-      "seq": 3000000000000,
-      "snapshot": {
-        "seq": 3000000000000,
-        "at": 0,
-        "mode": null,
-        "policy": {
-          "mode": "open",
-          "plugins": 0
-        },
-        "desktopUpdates": [],
-        "machine": {
-          "agentSessionsRevision": "b45452382d3969198be96df984935a144d1d2f5476fd077a18325f49a6ef52a3",
-          "os": "PLATFORM",
-          "arch": "ARCH",
-          "used": 2,
-          "max": 9007199254740991,
-          "hardCap": null,
-          "unlimited": true,
-          "memoryPressure": "normal",
-          "memoryPressureLimit": "critical",
-          "loadPerCore": 0,
-          "loadLimit": null,
-          "open": true
-        },
-        "pause": null,
-        "attention": [
-          {
-            "id": "setup:connect",
-            "kind": "setup",
-            "severity": "problem",
-            "repo": null,
-            "title": "Connect planner",
-            "detail": "Setup required",
-            "raisedAt": 1791633600,
-            "since": 1791633600,
-            "actions": [
-              {
-                "label": "Open settings",
-                "op": "ui.open",
-                "params": {
-                  "view": "settings",
-                  "section": "connect"
-                }
-              }
-            ],
-            "notify": "all"
-          },
-          {
-            "id": "setup:planner",
-            "kind": "setup",
-            "severity": "problem",
-            "repo": null,
-            "title": "Planner",
-            "detail": "Setup required",
-            "raisedAt": 1791633600,
-            "since": 1791633600,
-            "actions": [
-              {
-                "label": "Open settings",
-                "op": "ui.open",
-                "params": {
-                  "view": "settings",
-                  "section": "planner"
-                }
-              }
-            ],
-            "notify": "all"
-          },
-          {
-            "id": "setup:service",
-            "kind": "setup",
-            "severity": "problem",
-            "repo": null,
-            "title": "Background service",
-            "detail": "Setup required",
-            "raisedAt": 1791633600,
-            "since": 1791633600,
-            "actions": [
-              {
-                "label": "Open settings",
-                "op": "ui.open",
-                "params": {
-                  "view": "settings",
-                  "section": "service"
-                }
-              }
-            ],
-            "notify": "all"
-          }
-        ],
-        "service": {
-          "version": "0.14.0",
-          "protocol": "3.0.0",
-          "pid": 0,
-          "startedAt": 0,
-          "notifiers": {
-            "os": null,
-            "terminal": null,
-            "browser": null
-          },
-          "notifier": null
-        },
-        "planner": {
-          "runner": "claude-code",
-          "agent": "claude-code",
-          "usedPct": null,
-          "pacePct": null,
-          "deltaPts": null,
-          "verdict": "unknown",
-          "activeHoursLeft": null,
-          "resetsAt": null,
-          "window": null,
-          "stale": false,
-          "advice": "No usage reading for the planner yet.",
-          "mode": "normal"
-        },
-        "executors": [
-          {
-            "id": "claude-code",
-            "agent": "claude-code",
-            "account": "claude-code",
-            "host": null,
-            "model": null,
-            "rank": "planner",
-            "enabled": true,
-            "state": "ready",
-            "tone": "good",
-            "sub": "Usage unknown · this Mac",
-            "usedPct": null,
-            "pacePct": null,
-            "paceReason": "no limit reported",
-            "slots": {
-              "used": 0,
-              "max": 1
-            },
-            "lastCheck": null,
-            "recentFailures": 0,
-            "next": false
-          },
-          {
-            "id": "codex",
-            "agent": "codex",
-            "account": "codex",
-            "host": null,
-            "model": null,
-            "rank": 1,
-            "enabled": true,
-            "state": "full",
-            "tone": "info",
-            "sub": "Codex busy (1/1)",
-            "reason": "Codex busy (1/1)",
-            "usedPct": null,
-            "pacePct": null,
-            "paceReason": "no limit reported",
-            "slots": {
-              "used": 1,
-              "max": 1
-            },
-            "lastCheck": null,
-            "recentFailures": 0,
-            "next": false
-          }
-        ],
-        "accounts": [
-          {
-            "stale": true,
-            "capturedAt": null,
-            "name": "claude-code",
-            "agent": "claude-code",
-            "source": "default",
-            "usedPct": null,
-            "pacePct": null,
-            "window": null,
-            "resetsAt": null,
-            "verdict": "UNKNOWN",
-            "signedIn": null,
-            "executors": [
-              "claude-code"
-            ],
-            "spendUsdWeek": null,
-            "capUsdWeek": null
-          },
-          {
-            "stale": true,
-            "capturedAt": null,
-            "name": "codex",
-            "agent": "codex",
-            "source": "default",
-            "usedPct": null,
-            "pacePct": null,
-            "window": null,
-            "resetsAt": null,
-            "verdict": "UNKNOWN",
-            "signedIn": null,
-            "executors": [
-              "codex"
-            ],
-            "spendUsdWeek": null,
-            "capUsdWeek": null
-          }
-        ],
-        "hosts": [],
-        "repos": [
-          {
-            "key": "local:FIXTURE",
-            "label": "FIXTURE_HOME",
-            "path": "$HOME",
-            "identityUnverified": true
-          }
-        ],
-        "setup": {
-          "policy": {
-            "mode": "open",
-            "plugins": 0
-          },
-          "complete": false,
-          "ready": false,
-          "open": 3,
-          "items": [
-            {
-              "id": "binary",
-              "title": "pacer",
-              "required": true,
-              "status": "done",
-              "detail": "0.14.0"
-            },
-            {
-              "id": "planner",
-              "title": "Planner",
-              "required": true,
-              "status": "pending",
-              "detail": "claude-code · signed out",
-              "command": "run claude and log in"
-            },
-            {
-              "id": "service",
-              "title": "Background service",
-              "required": true,
-              "status": "pending",
-              "command": "pacer service install",
-              "action": "service.install"
-            },
-            {
-              "id": "connect",
-              "title": "Connect planner",
-              "required": true,
-              "status": "pending",
-              "detail": "Integration missing or changed",
-              "command": "pacer init",
-              "action": "agent.connect",
-              "agent": "claude-code",
-              "installed": false
-            },
-            {
-              "id": "link",
-              "title": "Link",
-              "required": true,
-              "status": "done"
-            },
-            {
-              "id": "executor",
-              "title": "Executor",
-              "required": false,
-              "status": "done",
-              "detail": "codex"
-            },
-            {
-              "id": "usage",
-              "title": "Budget data",
-              "required": false,
-              "status": "pending",
-              "detail": "Start a session in claude-code once"
-            },
-            {
-              "id": "first",
-              "title": "First delegation",
-              "required": false,
-              "status": "pending",
-              "action": "onboarding.try"
-            },
-            {
-              "id": "agent:codex",
-              "title": "Codex",
-              "required": false,
-              "status": "pending",
-              "detail": "Optional · not connected",
-              "command": "pacer init",
-              "action": "agent.connect",
-              "agent": "codex",
-              "installed": false
-            },
-            {
-              "id": "agent:cursor",
-              "title": "Cursor",
-              "required": false,
-              "status": "pending",
-              "detail": "Optional · not connected",
-              "command": "pacer init",
-              "action": "agent.connect",
-              "agent": "cursor",
-              "installed": false
-            },
-            {
-              "id": "agent:opencode",
-              "title": "OpenCode",
-              "required": false,
-              "status": "pending",
-              "detail": "Optional · not connected",
-              "command": "pacer init",
-              "action": "agent.connect",
-              "agent": "opencode",
-              "installed": false
-            }
-          ]
-        },
-        "counts": {
-          "attention": 3,
-          "problems": 3,
-          "review": 0,
-          "running": 2,
-          "queued": 0,
-          "ready": 0,
-          "executors": 1,
-          "setupOpen": 3,
-          "hostsWithProblems": 0,
-          "byRepo": {
-            "local:FIXTURE": {
-              "review": 0,
-              "running": 2,
-              "attention": 0
-            }
-          }
-        },
-        "today": {
-          "since": 1791565200,
-          "done": 0,
-          "accepted": 0,
-          "rejected": 0,
-          "failed": 0,
-          "byRepo": {}
-        },
-        "tasks": [
-          {
-            "id": "t-20261010-190000-0002",
-            "title": "Probe sessions",
-            "state": "running",
-            "goal": "Probe sessions",
-            "executor": null,
-            "backend": null,
-            "worktree": null,
-            "updatedAt": 1791633600,
-            "acceptanceState": "none",
-            "runnerAlive": false,
-            "fullTitle": "Probe sessions",
-            "rev": 2,
-            "queue": null,
-            "repo": {
-              "key": "local:FIXTURE",
-              "label": "FIXTURE_HOME",
-              "path": "$HOME",
-              "identityUnverified": true
-            },
-            "kind": null,
-            "host": null,
-            "account": null,
-            "model": null
-          },
-          {
-            "id": "t-20261010-190000-0001",
-            "title": "Probe sessions",
-            "state": "done",
-            "goal": "Probe sessions",
-            "executor": null,
-            "backend": null,
-            "worktree": null,
-            "updatedAt": 1791633600,
-            "acceptanceState": "none",
-            "dismissed": true,
-            "activeAgentSessions": 1,
-            "fullTitle": "Probe sessions",
-            "rev": 2,
-            "queue": null,
-            "repo": {
-              "key": "local:FIXTURE",
-              "label": "FIXTURE_HOME",
-              "path": "$HOME",
-              "identityUnverified": true
-            },
-            "kind": null,
-            "host": null,
-            "account": null,
-            "model": null
-          }
-        ],
-        "strategies": [
-          {
-            "name": "default",
-            "active": true,
-            "summary": "Codex first, Claude keeps 15%",
-            "description": ""
-          }
-        ]
-      }
-    }
-  },
-  {
-    "group": 7,
-    "input": {
-      "home": "$HOME",
-      "pacerHome": "$HOME/.pacer",
-      "now": 1791633600,
-      "env": {},
-      "zone": "Asia/Ho_Chi_Minh",
-      "alive": [
-        0
-      ],
-      "op": "snapshot",
-      "protocol": 2,
-      "setup": {
-        "checkedAt": 1791633600,
-        "complete": false,
-        "ready": false,
-        "items": [
-          {
-            "id": "binary",
-            "title": "pacer",
-            "required": true,
-            "status": "done",
-            "detail": "0.14.0"
-          },
-          {
-            "id": "planner",
-            "title": "Planner",
-            "required": true,
-            "status": "pending",
-            "detail": "claude-code · signed out",
-            "command": "run claude and log in"
-          },
-          {
-            "id": "service",
-            "title": "Background service",
-            "required": true,
-            "status": "pending",
-            "command": "pacer service install",
-            "action": "service.install"
-          },
-          {
-            "id": "connect",
-            "title": "Connect planner",
-            "required": true,
-            "status": "pending",
-            "detail": "Integration missing or changed",
-            "command": "pacer init",
-            "action": "agent.connect",
-            "agent": "claude-code",
-            "installed": false
-          },
-          {
-            "id": "link",
-            "title": "Link",
-            "required": true,
-            "status": "done"
-          },
-          {
-            "id": "executor",
-            "title": "Executor",
-            "required": false,
-            "status": "pending",
-            "detail": "no executor configured",
-            "command": "pacer runner add",
-            "action": "nav:add-executor"
-          },
-          {
-            "id": "usage",
-            "title": "Budget data",
-            "required": false,
-            "status": "pending",
-            "detail": "Start a session in claude-code once"
-          },
-          {
-            "id": "first",
-            "title": "First delegation",
-            "required": false,
-            "status": "pending",
-            "action": "onboarding.try"
-          },
-          {
-            "id": "agent:codex",
-            "title": "Codex",
-            "required": false,
-            "status": "pending",
-            "detail": "Optional · not connected",
-            "command": "pacer init",
-            "action": "agent.connect",
-            "agent": "codex",
-            "installed": false
-          },
-          {
-            "id": "agent:cursor",
-            "title": "Cursor",
-            "required": false,
-            "status": "pending",
-            "detail": "Optional · not connected",
-            "command": "pacer init",
-            "action": "agent.connect",
-            "agent": "cursor",
-            "installed": false
-          },
-          {
-            "id": "agent:opencode",
-            "title": "OpenCode",
-            "required": false,
-            "status": "pending",
-            "detail": "Optional · not connected",
-            "command": "pacer init",
-            "action": "agent.connect",
-            "agent": "opencode",
-            "installed": false
-          }
-        ],
-        "integration": {
-          "configuration": "unverified",
-          "invocation": "unverified"
-        }
-      },
-      "policy": {
-        "mode": "open",
-        "plugins": 0
-      },
-      "machine": {
-        "os": "PLATFORM",
-        "arch": "ARCH",
-        "memoryPressure": "normal",
-        "memoryPressureLimit": "critical",
-        "loadPerCore": 0,
-        "loadLimit": null,
-        "open": true
-      },
-      "service": {
-        "version": "0.14.0",
-        "protocol": "3.0.0",
-        "pid": 0,
-        "startedAt": 0,
-        "notifiers": {
-          "os": null,
-          "terminal": null,
-          "browser": null
-        },
-        "notifier": null
-      },
-      "desktopUpdates": [],
-      "serviceInstalled": false,
-      "status": {
-        "generatedAt": 1,
-        "strategy": "default",
-        "planner": "claude-code",
-        "mode": "normal",
-        "disabled": false,
-        "calendarPace": false,
-        "providers": [],
-        "executors": {
-          "ranked": [
-            {
-              "id": "codex",
-              "score": 1,
-              "verdict": "BEHIND",
-              "reason": ""
-            }
-          ],
-          "excluded": []
-        }
-      },
-      "useCache": false,
-      "sessions": {
-        "revision": "981bf89a42423d34e695e4a5f9c67656008121169e638202486d3fa527402dce",
-        "active": [
-          {
-            "task_id": "t-20261010-190000-0002",
-            "executor": "codex"
-          }
-        ]
-      }
-    },
-    "tasks": [
-      {
-        "rev": 2,
-        "id": "t-20261010-190000-0002",
-        "createdAt": 1791633600,
-        "brief": {
-          "goal": "Probe sessions",
-          "repo": "$HOME"
-        },
-        "kind": null,
-        "requestedExecutor": "codex",
-        "timeoutS": 60,
-        "state": "running",
-        "attempts": []
-      },
-      {
-        "rev": 2,
-        "id": "t-20261010-190000-0001",
-        "createdAt": 1791633600,
-        "brief": {
-          "goal": "Probe sessions",
-          "repo": "$HOME"
-        },
-        "kind": null,
-        "requestedExecutor": "codex",
-        "timeoutS": 60,
-        "state": "running",
-        "attempts": []
-      }
-    ],
-    "tables": {
-      "messages": [],
-      "msg_liveness": [],
-      "agent_sessions": [
-        {
-          "id": "ses-s6-local-ended",
-          "task": "t-20261010-190000-0001",
-          "request_id": "ses-s6-local-ended",
-          "payload": "{}",
-          "record": "{\"id\":\"ses-s6-local-ended\",\"task_id\":\"t-20261010-190000-0001\",\"ordinal\":1,\"executor\":\"codex\",\"request\":\"Probe\",\"cwd\":\"$HOME\",\"createdAt\":1791633600,\"rev\":1,\"attempt\":1,\"state\":\"ended\",\"attempts\":[{\"number\":1,\"state\":\"ended\"}]}"
-        },
-        {
-          "id": "ses-s6-remote",
-          "task": "t-20261010-190000-0002",
-          "request_id": "ses-s6-remote",
-          "payload": "{}",
-          "record": "{\"id\":\"ses-s6-remote\",\"task_id\":\"t-20261010-190000-0002\",\"ordinal\":1,\"executor\":\"codex\",\"request\":\"Probe\",\"cwd\":\"$HOME\",\"createdAt\":1791633600,\"rev\":1,\"attempt\":1,\"state\":\"starting\",\"attempts\":[{\"number\":1,\"state\":\"starting\"}]}"
-        }
-      ]
-    },
-    "files": {
-      "state/attention.json": "{\"setup:connect\":{\"since\":1791633600},\"setup:planner\":{\"since\":1791633600},\"setup:service\":{\"since\":1791633600}}",
-      "strategy.yaml": "planner: claude-code\nproviders:\n  claude-code: {}\n  codex: {}\n"
-    },
-    "expected": {
-      "protocol": "2.8.0",
-      "seq": 0,
-      "snapshot": {
-        "seq": 0,
-        "at": 0,
-        "mode": null,
-        "policy": {
-          "mode": "open",
-          "plugins": 0
-        },
-        "machine": {
-          "agentSessionsRevision": "981bf89a42423d34e695e4a5f9c67656008121169e638202486d3fa527402dce",
-          "os": "PLATFORM",
-          "arch": "ARCH",
-          "used": 3,
-          "max": 1,
-          "hardCap": null,
-          "unlimited": true,
-          "memoryPressure": "normal",
-          "memoryPressureLimit": "critical",
-          "loadPerCore": 0,
-          "loadLimit": null,
-          "open": true
-        },
-        "pause": null,
-        "attention": [
-          {
-            "id": "setup:service",
-            "kind": "setup",
-            "severity": "problem",
-            "repo": null,
-            "title": "Login service",
-            "detail": "Setup required",
-            "raisedAt": 1791633600,
-            "since": 1791633600,
-            "actions": [
-              {
-                "label": "Open settings",
-                "op": "ui.open",
-                "params": {
-                  "view": "settings",
-                  "section": "service"
-                }
-              }
-            ],
-            "notify": "all"
-          }
-        ],
-        "service": {
-          "version": "0.14.0",
-          "protocol": "2.8.0",
-          "pid": 0,
-          "startedAt": 0,
-          "notifiers": {
-            "os": null,
-            "terminal": null,
-            "browser": null
-          },
-          "notifier": null
-        },
-        "planner": {
-          "runner": "claude-code",
-          "agent": "claude-code",
-          "usedPct": null,
-          "pacePct": null,
-          "deltaPts": null,
-          "verdict": "unknown",
-          "activeHoursLeft": null,
-          "resetsAt": null,
-          "window": null,
-          "stale": false,
-          "advice": "No usage reading for the planner yet.",
-          "mode": "normal"
-        },
-        "executors": [
-          {
-            "id": "claude-code",
-            "agent": "claude-code",
-            "account": "claude-code",
-            "host": null,
-            "model": null,
-            "rank": "planner",
-            "enabled": true,
-            "state": "ready",
-            "tone": "good",
-            "sub": "Usage unknown · this Mac",
-            "usedPct": null,
-            "pacePct": null,
-            "paceReason": "no limit reported",
-            "slots": {
-              "used": 0,
-              "max": 1
-            },
-            "lastCheck": null,
-            "recentFailures": 0,
-            "next": false
-          },
-          {
-            "id": "codex",
-            "agent": "codex",
-            "account": "codex",
-            "host": null,
-            "model": null,
-            "rank": 1,
-            "enabled": true,
-            "state": "full",
-            "tone": "info",
-            "sub": "Codex busy (1/1)",
-            "reason": "Codex busy (1/1)",
-            "usedPct": null,
-            "pacePct": null,
-            "paceReason": "no limit reported",
-            "slots": {
-              "used": 1,
-              "max": 1
-            },
-            "lastCheck": null,
-            "recentFailures": 0,
-            "next": false
-          }
-        ],
-        "accounts": [
-          {
-            "stale": true,
-            "capturedAt": null,
-            "name": "claude-code",
-            "agent": "claude-code",
-            "source": "default",
-            "usedPct": null,
-            "pacePct": null,
-            "window": null,
-            "resetsAt": null,
-            "verdict": "UNKNOWN",
-            "signedIn": null,
-            "executors": [
-              "claude-code"
-            ],
-            "spendUsdWeek": null,
-            "capUsdWeek": null
-          },
-          {
-            "stale": true,
-            "capturedAt": null,
-            "name": "codex",
-            "agent": "codex",
-            "source": "default",
-            "usedPct": null,
-            "pacePct": null,
-            "window": null,
-            "resetsAt": null,
-            "verdict": "UNKNOWN",
-            "signedIn": null,
-            "executors": [
-              "codex"
-            ],
-            "spendUsdWeek": null,
-            "capUsdWeek": null
-          }
-        ],
-        "hosts": [],
-        "repos": [
-          {
-            "key": "local:FIXTURE",
-            "label": "FIXTURE_HOME",
-            "path": "$HOME",
-            "identityUnverified": true
-          }
-        ],
-        "setup": {
-          "complete": false,
-          "open": 1,
-          "items": [
-            {
-              "id": "binary",
-              "title": "Binary",
-              "status": "done",
-              "required": true
-            },
-            {
-              "id": "strategy",
-              "title": "Strategy",
-              "status": "done",
-              "required": true
-            },
-            {
-              "id": "service",
-              "title": "Login service",
-              "status": "pending",
-              "required": true
-            },
-            {
-              "id": "link",
-              "title": "Link",
-              "status": "done",
-              "required": true
-            },
-            {
-              "id": "live",
-              "title": "Live plugin",
-              "status": "pending",
-              "required": false
-            },
-            {
-              "id": "agent:claude-code",
-              "title": "Claude Code",
-              "status": "pending",
-              "required": false
-            },
-            {
-              "id": "agent:codex",
-              "title": "Codex",
-              "status": "pending",
-              "required": false
-            },
-            {
-              "id": "agent:cursor",
-              "title": "Cursor",
-              "status": "pending",
-              "required": false
-            },
-            {
-              "id": "agent:opencode",
-              "title": "OpenCode",
-              "status": "pending",
-              "required": false
-            }
-          ]
-        },
-        "counts": {
-          "attention": 1,
-          "problems": 1,
-          "review": 0,
-          "running": 2,
-          "queued": 0,
-          "ready": 0,
-          "executors": 1,
-          "setupOpen": 1,
-          "hostsWithProblems": 0,
-          "byRepo": {
-            "local:FIXTURE": {
-              "review": 0,
-              "running": 2,
-              "attention": 0
-            }
-          }
-        },
-        "today": {
-          "since": 1791565200,
-          "done": 0,
-          "accepted": 0,
-          "rejected": 0,
-          "failed": 0,
-          "byRepo": {}
-        },
-        "tasks": [
-          {
-            "id": "t-20261010-190000-0002",
-            "title": "Probe sessions",
-            "state": "running",
-            "goal": "Probe sessions",
-            "executor": null,
-            "backend": null,
-            "worktree": null,
-            "updatedAt": 1791633600,
-            "acceptanceState": "none",
-            "runnerAlive": false,
             "activeAgentSessions": 1,
             "fullTitle": "Probe sessions",
             "rev": 2,
@@ -13493,7 +13604,11 @@
       "home": "$HOME",
       "pacerHome": "$HOME/.pacer",
       "now": 1791633600,
-      "env": {},
+      "env": {
+        "PACER_PORT": "64141",
+        "OLLAMA_HOST": "http://127.0.0.1:64142",
+        "LMS_API_SERVER_INFO_PATH": "/var/folders/s3/gyfm82zx1b1952wrnw13l8k00000gn/T/pacer-p6c-81615/pacer-test-home-udrb9W/lms-server.json"
+      },
       "zone": "Asia/Ho_Chi_Minh",
       "alive": [
         0
@@ -13510,7 +13625,7 @@
             "title": "pacer",
             "required": true,
             "status": "done",
-            "detail": "0.14.0"
+            "detail": "0.17.7"
           },
           {
             "id": "planner",
@@ -13621,7 +13736,7 @@
         "open": true
       },
       "service": {
-        "version": "0.14.0",
+        "version": "0.17.7",
         "protocol": "3.0.0",
         "pid": 0,
         "startedAt": 0,
@@ -13812,7 +13927,7 @@
           }
         ],
         "service": {
-          "version": "0.14.0",
+          "version": "0.17.7",
           "protocol": "3.0.0",
           "pid": 0,
           "startedAt": 0,
@@ -13945,7 +14060,7 @@
               "title": "pacer",
               "required": true,
               "status": "done",
-              "detail": "0.14.0"
+              "detail": "0.17.7"
             },
             {
               "id": "planner",
@@ -14062,6 +14177,7 @@
           "failed": 0,
           "byRepo": {}
         },
+        "runs": [],
         "tasks": [
           {
             "id": "t-20261010-190000-0002",
@@ -14132,7 +14248,11 @@
       "home": "$HOME",
       "pacerHome": "$HOME/.pacer",
       "now": 1791633600,
-      "env": {},
+      "env": {
+        "PACER_PORT": "64141",
+        "OLLAMA_HOST": "http://127.0.0.1:64142",
+        "LMS_API_SERVER_INFO_PATH": "/var/folders/s3/gyfm82zx1b1952wrnw13l8k00000gn/T/pacer-p6c-81615/pacer-test-home-udrb9W/lms-server.json"
+      },
       "zone": "Asia/Ho_Chi_Minh",
       "alive": [
         0
@@ -14149,7 +14269,7 @@
             "title": "pacer",
             "required": true,
             "status": "done",
-            "detail": "0.14.0"
+            "detail": "0.17.7"
           },
           {
             "id": "planner",
@@ -14260,8 +14380,8 @@
         "open": true
       },
       "service": {
-        "version": "0.14.0",
-        "protocol": "3.0.0",
+        "version": "0.17.7",
+        "protocol": "2.8.0",
         "pid": 0,
         "startedAt": 0,
         "notifiers": {
@@ -14413,7 +14533,7 @@
           }
         ],
         "service": {
-          "version": "0.14.0",
+          "version": "0.17.7",
           "protocol": "2.8.0",
           "pid": 0,
           "startedAt": 0,
@@ -14706,7 +14826,11 @@
       "home": "$HOME",
       "pacerHome": "$HOME/.pacer",
       "now": 1791633600,
-      "env": {},
+      "env": {
+        "PACER_PORT": "64141",
+        "OLLAMA_HOST": "http://127.0.0.1:64142",
+        "LMS_API_SERVER_INFO_PATH": "/var/folders/s3/gyfm82zx1b1952wrnw13l8k00000gn/T/pacer-p6c-81615/pacer-test-home-udrb9W/lms-server.json"
+      },
       "zone": "Asia/Ho_Chi_Minh",
       "alive": [
         0
@@ -14723,7 +14847,7 @@
             "title": "pacer",
             "required": true,
             "status": "done",
-            "detail": "0.14.0"
+            "detail": "0.17.7"
           },
           {
             "id": "planner",
@@ -14834,7 +14958,7 @@
         "open": true
       },
       "service": {
-        "version": "0.14.0",
+        "version": "0.17.7",
         "protocol": "3.0.0",
         "pid": 0,
         "startedAt": 0,
@@ -15030,7 +15154,7 @@
           }
         ],
         "service": {
-          "version": "0.14.0",
+          "version": "0.17.7",
           "protocol": "3.0.0",
           "pid": 0,
           "startedAt": 0,
@@ -15163,7 +15287,7 @@
               "title": "pacer",
               "required": true,
               "status": "done",
-              "detail": "0.14.0"
+              "detail": "0.17.7"
             },
             {
               "id": "planner",
@@ -15280,6 +15404,7 @@
           "failed": 0,
           "byRepo": {}
         },
+        "runs": [],
         "tasks": [
           {
             "id": "t-20261010-190000-0002",

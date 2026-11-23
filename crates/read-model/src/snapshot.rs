@@ -1,4 +1,6 @@
-use crate::{Error, attention, capacity, events::V3_CURSOR_BASE, js::*, read, summary, tasks};
+use crate::{
+    Error, attention, capacity, events::V3_CURSOR_BASE, js::*, read, runs, summary, tasks,
+};
 use pacer_config::strategy::{list_strategy_reads, load_strategy, validate_strategy};
 use pacer_foundation::Ctx;
 use pacer_store::{TaskFilter, TaskStore, awaits_answer, read_latest};
@@ -142,6 +144,7 @@ impl SnapshotResult {
     pub fn v2(&self) -> Value {
         let mut s = self.snapshot.clone();
         remove(&mut s, "desktopUpdates");
+        remove(&mut s, "runs");
         let setup = summary::legacy_setup(&s["setup"]);
         let mut items: Vec<_> = array(&s["attention"])
             .iter()
@@ -524,8 +527,11 @@ impl ReadModel {
             service["starting"] = json!(true);
         }
         let strategies = list_strategy_reads(&ctx.pacer_home).unwrap_or(json!([]));
+        let runs = runs::snapshot_runs(ctx);
+        // Key order matches TS liveSnapshot: buildReadModel fields (…, today, runs)
+        // then tasks and strategies appended after the spread.
         let snapshot = json!({
-        "seq":number(V3_CURSOR_BASE+num(&legacy["seq"])),"at":legacy["at"],"mode":legacy["mode"],"policy":p.policy,"desktopUpdates":p.desktop_updates,"machine":machine,"pause":read_pause(ctx),"attention":attention,"service":service,"planner":planner,"executors":executors,"accounts":accounts,"hosts":hosts,"repos":repos,"setup":setup,"counts":summary::counts(&tasks,&executors,&setup,&hosts,&attention),"today":summary::today(ctx.now,&tasks,zone),"tasks":snapshot_tasks,"strategies":strategies}
+        "seq":number(V3_CURSOR_BASE+num(&legacy["seq"])),"at":legacy["at"],"mode":legacy["mode"],"policy":p.policy,"desktopUpdates":p.desktop_updates,"machine":machine,"pause":read_pause(ctx),"attention":attention,"service":service,"planner":planner,"executors":executors,"accounts":accounts,"hosts":hosts,"repos":repos,"setup":setup,"counts":summary::counts(&tasks,&executors,&setup,&hosts,&attention),"today":summary::today(ctx.now,&tasks,zone),"runs":runs,"tasks":snapshot_tasks,"strategies":strategies}
         );
         let (console, consoles) = self.consoles.read(ctx, text(&p.service["version"]), alive);
         legacy["console"] = console;

@@ -175,15 +175,9 @@ fn question_entity_events_are_v3_only() {
 }
 
 #[test]
-fn letter_matches_typescript_hash() {
-    // Bun: let h=0; for (const c of "run_abcdefghij") h = (h*31+c.charCodeAt(0))>>>0; String.fromCharCode(65+(h%26))
-    assert_eq!(attention::run_attention_letter("run_abcdefghij").len(), 1);
-    let mut h: u32 = 0;
-    for b in b"run_abcdefghij" {
-        h = h.wrapping_mul(31).wrapping_add(u32::from(*b));
-    }
-    let expected = char::from(b'A' + (h % 26) as u8).to_string();
-    assert_eq!(attention::run_attention_letter("run_abcdefghij"), expected);
+fn letter_matches_resolve_run_letters() {
+    // Lone letterless id → "A" (same as TS resolveRunLetters / attentionLetterForRun).
+    assert_eq!(attention::run_attention_letter("run_abcdefghij"), "A");
 }
 
 #[test]

@@ -9065,6 +9065,7 @@ impl<'de> ::serde::Deserialize<'de> for ProjectMessagingRemoveParamsRepo {
 ///                    "ancestor",
 ///                    "top_peer",
 ///                    "same_tree",
+///                    "run_peer",
 ///                    "none"
 ///                  ]
 ///                },
@@ -9396,6 +9397,7 @@ impl<'de> ::serde::Deserialize<'de> for ProjectMessagingSetParamsRepo {
 ///              "ancestor",
 ///              "top_peer",
 ///              "same_tree",
+///              "run_peer",
 ///              "none"
 ///            ]
 ///          },
@@ -9911,6 +9913,7 @@ impl ::std::default::Default for ProjectMessagingSetParamsRulesItemLimits {
 ///          "ancestor",
 ///          "top_peer",
 ///          "same_tree",
+///          "run_peer",
 ///          "none"
 ///        ]
 ///      },
@@ -9956,6 +9959,7 @@ impl ::std::convert::From<::std::vec::Vec<ProjectMessagingSetParamsRulesItemRela
 ///    "ancestor",
 ///    "top_peer",
 ///    "same_tree",
+///    "run_peer",
 ///    "none"
 ///  ]
 ///}
@@ -9990,6 +9994,8 @@ pub enum ProjectMessagingSetParamsRulesItemRelationVariant1Item {
     TopPeer,
     #[serde(rename = "same_tree")]
     SameTree,
+    #[serde(rename = "run_peer")]
+    RunPeer,
     #[serde(rename = "none")]
     None,
 }
@@ -10009,6 +10015,7 @@ impl ::std::fmt::Display for ProjectMessagingSetParamsRulesItemRelationVariant1I
             Self::Ancestor => f.write_str("ancestor"),
             Self::TopPeer => f.write_str("top_peer"),
             Self::SameTree => f.write_str("same_tree"),
+            Self::RunPeer => f.write_str("run_peer"),
             Self::None => f.write_str("none"),
         }
     }
@@ -10025,6 +10032,7 @@ impl ::std::str::FromStr for ProjectMessagingSetParamsRulesItemRelationVariant1I
             "ancestor" => Ok(Self::Ancestor),
             "top_peer" => Ok(Self::TopPeer),
             "same_tree" => Ok(Self::SameTree),
+            "run_peer" => Ok(Self::RunPeer),
             "none" => Ok(Self::None),
             _ => Err("invalid value".into()),
         }

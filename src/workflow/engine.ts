@@ -28,9 +28,10 @@ import { backEdgeIndexes } from "./validate";
 import { evalCondition, parseCondition } from "./condition";
 import { renderPrompt } from "./template";
 import {
-  attachStepTask, claimStepAnswer, claimStepSettlement, fireEdge, getDefinition, getRun, insertFanoutBranches, insertJoinStep, insertRun, insertStep, listQuestions, recordDecision, rootRunId, runEntityValue, setGraphStatus, setPublishOptIn, stepByTask, stepsOfRun, taskByRequestId,
+  attachStepTask, claimStepAnswer, claimStepSettlement, clearEntryLease, ENTRY_LEASE_S, fireEdge, getDefinition, getRun, insertFanoutBranches, insertJoinStep, insertRun, insertStep, listQuestions, liveRunsNeedingEntry, recordDecision, rootRunId, runEntityValue, setGraphStatus, setPublishOptIn, stepByTask, stepsOfRun, taskByRequestId,
   updateRun, updateStep, withdrawOpenQuestionsForRun, workflowDatabase, type RunPatch, type RunRow, type StepKey, type StepRow,
 } from "./store";
+import { isTransientError } from "./transient";
 import { chooseStepChildRunId, completeWakeupRef, enqueueWakeup, stepWakeRef } from "./wakeups";
 import { budgetForDefinition, serializeBudget, serializeSpent } from "./budget";
 import { canAutoApproveGenerate, canAutoDecide } from "./auto";
@@ -42,8 +43,9 @@ import { ensureRunBranch, isCodeStep } from "./branch";
 import { branchReportFor, settleRunGitOnTerminal } from "./cleanup";
 import { isPlainObject, type AgentStep, type ChooseWorkflowStep, type FanoutStep, type GenerateStep, type HumanStep, type JsonSchemaLite, type StepResultSchema, type WorkflowDef } from "./schema";
 import { loadStrategy } from "../config/strategy";
+import { runPriorityOf, stepDispatchOptions, taskPriorityFor, type RunPriority } from "./priority";
+import { isPersonPaused, isRunStepPaused, readPacingMode, syncRunPacingPause } from "./pacing";
 import { missingNeedsPrompt, validateEvidenceResult, type EvidenceNeed } from "./evidence";
-
 /** Wake the root orchestrator for an auto-effective waiting human step. */
 function wakeAutoHumanStep(ctx: Ctx, run: RunRow, stepId: string, attempt: number, stepDef: HumanStep): void {
   if (!canAutoDecide(getRun(ctx, rootRunId(ctx, run.id)) ?? run, stepId, stepDef)) return;
@@ -318,6 +320,10 @@ async function attachAndSettle(ctx: Ctx, key: StepKey, taskId: string, e: Engine
 export async function startStep(ctx: Ctx, run: RunRow, def: WorkflowDef, stepId: string, branch?: string, o?: StartOptions): Promise<StepRow> {
   const e = withDefaults(o);
   liveRun(ctx, run.id); // a terminal run starts nothing
+  // Pause takes effect at step boundaries: no new step while paused.
+  if (isRunStepPaused(getRun(ctx, run.id) ?? run)) {
+    throw new CoreError("not_allowed", `run ${run.id} is paused (${(getRun(ctx, run.id) ?? run).pausedReason})`);
+  }
   const stepDef = def.steps[stepId];
   if (!stepDef) throw new CoreError("not_found", `workflow '${def.id}' has no step '${stepId}'`);
   if (stepDef.type === "end") throw new CoreError("invalid_input", `step '${stepId}' is an end step and never runs as a task`);
@@ -589,18 +595,22 @@ async function delegateAgentRow(ctx: Ctx, run: RunRow, row: StepRow, stepDef: Ag
   const key = keyOf(row);
   const requestId = stepRequestId(run.id, row.stepId, row.attempt, row.branch);
   const live = getRun(ctx, run.id) ?? run;
+  const priority = taskPriorityFor(runPriorityOf(live));
+  const workNode = isWorkNodeRun(live);
+  const dispatch = stepDispatchOptions(priority, workNode);
   const brief = await codeStepBrief(ctx, live, stepDef, prompt);
   // Code steps must get a dedicated worktree/branch from the run tip (I2).
   const codePlacement = isCodeStep(stepDef)
     ? { worktree: "new" as const, worktree_reason: "workflow code step" }
     : {};
-  const task = isWorkNodeRun(live)
+  const task = workNode
     ? await startStepTask(ctx, live, {
       brief,
       kind: stepDef.kind,
       ...(stepDef.difficulty ? { difficulty: stepDef.difficulty } : {}),
       title: stepTitle(live, row.stepId, row.branch),
       requestId,
+      priority,
       ...codePlacement,
     }, e.deps.delegate, e.spawn)
     : await e.deps.delegate(ctx, {
@@ -609,6 +619,7 @@ async function delegateAgentRow(ctx: Ctx, run: RunRow, row: StepRow, stepDef: Ag
       ...(stepDef.difficulty ? { difficulty: stepDef.difficulty } : {}),
       title: stepTitle(live, row.stepId, row.branch),
       requestId,
+      ...(dispatch ? { dispatch } : {}),
       ...codePlacement,
     }, e.spawn);
   // Re-read after the await: the run may have gone terminal while the delegation was
@@ -654,17 +665,21 @@ async function delegateFanoutBranch(ctx: Ctx, run: RunRow, row: StepRow, stepDef
   const key = keyOf(row);
   const live = getRun(ctx, run.id) ?? run;
   const requestId = stepRequestId(run.id, row.stepId, row.attempt, branch);
+  const priority = taskPriorityFor(runPriorityOf(live));
+  const workNode = isWorkNodeRun(live);
+  const dispatch = stepDispatchOptions(priority, workNode);
   const brief = await codeStepBrief(ctx, live, stepDef.each, prompt);
   const codePlacement = isCodeStep(stepDef.each)
     ? { worktree: "new" as const, worktree_reason: "workflow code step" }
     : {};
-  const task = isWorkNodeRun(live)
+  const task = workNode
     ? await startStepTask(ctx, live, {
       brief,
       kind: stepDef.each.kind,
       ...(stepDef.each.difficulty ? { difficulty: stepDef.each.difficulty } : {}),
       title: stepTitle(live, row.stepId, branch),
       requestId,
+      priority,
       ...codePlacement,
     }, e.deps.delegate, e.spawn)
     : await e.deps.delegate(ctx, {
@@ -673,6 +688,7 @@ async function delegateFanoutBranch(ctx: Ctx, run: RunRow, row: StepRow, stepDef
       ...(stepDef.each.difficulty ? { difficulty: stepDef.each.difficulty } : {}),
       title: stepTitle(live, row.stepId, branch),
       requestId,
+      ...(dispatch ? { dispatch } : {}),
       ...codePlacement,
     }, e.spawn);
   if (isTerminal(getRun(ctx, run.id))) {
@@ -922,9 +938,71 @@ async function seedFinishedAndResume(
 
 /** Starts a run: creates the run record and starts its entry step. A failing start
  *  fails the run (never leaves it silently stuck) and rethrows. */
+/**
+ * Start def.entry for a live, unpaused run that has no step rows yet (paused at
+ * start left nothing durable). Idempotent: existing steps, a pending pause, or an
+ * active startRun entry lease are no-ops. Used after pacing/person resume and on
+ * every tick (after the lease expires, recovers a crashed startRun).
+ */
+export async function startEntryIfNeeded(
+  ctx: Ctx,
+  runId: string,
+  o?: StartOptions,
+): Promise<boolean> {
+  const run = getRun(ctx, runId);
+  if (!run || RUN_TERMINAL.includes(run.status)) return false;
+  if (isRunStepPaused(run)) return false;
+  if (run.entryLeaseUntil != null && run.entryLeaseUntil > ctx.now) return false;
+  if (stepsOfRun(ctx, runId).length > 0) return false;
+  const def = getDefinition(ctx, run.workflow);
+  if (!def) return false;
+  // Crash between insertRun and ensureRootWorkNode: recover the root before entry.
+  if (isWorkNodeRun(run)) ensureRootWorkNode(ctx, run);
+  if (def.steps[def.entry]?.type === "end") {
+    await patchRun(ctx, runId, { status: "done" }, withDefaults(o));
+    clearEntryLease(ctx, runId);
+    return true;
+  }
+  try {
+    await startStep(ctx, getRun(ctx, runId)!, def, def.entry, undefined, o);
+    clearEntryLease(ctx, runId);
+    return true;
+  } catch (e) {
+    if (e instanceof CoreError && e.code === "not_allowed" && String(e.message).includes("is paused")) {
+      return false;
+    }
+    throw e;
+  }
+}
+
+export type StartPendingOptions = StartOptions & {
+  /** Limit to this run and its live descendants (run.resume). */
+  rootRunId?: string;
+};
+
+/** After pacing clears, start entry for every live unpaused run with no steps. */
+export async function startPendingEntries(
+  ctx: Ctx,
+  o?: StartPendingOptions,
+): Promise<number> {
+  let started = 0;
+  for (const run of liveRunsNeedingEntry(ctx, { rootRunId: o?.rootRunId, now: ctx.now })) {
+    try {
+      if (await startEntryIfNeeded(ctx, run.id, o)) started++;
+    } catch (e) {
+      // Lock held by another connection must not fail the run — leave it for the next tick.
+      if (isTransientError(e)) continue;
+      try {
+        await failRun(ctx, run.id, `entry start failed: ${e instanceof Error ? e.message : String(e)}`, undefined, o?.deps);
+      } catch { /* next tick retries failRun itself */ }
+    }
+  }
+  return started;
+}
+
 export async function startRun(
   ctx: Ctx,
-  input: { workflow: string; repo: string; brief: string; title?: string; publish?: "draft" },
+  input: { workflow: string; repo: string; brief: string; title?: string; priority?: RunPriority; publish?: "draft" },
   spawn?: SpawnRunner,
   deps: EngineDeps = defaultEngineDeps,
   child?: {
@@ -934,6 +1012,7 @@ export async function startRun(
     orchestratorTaskId?: string;
     sessionId?: string;
     seedFinished?: SeedFinished;
+    priority?: RunPriority;
   },
 ): Promise<RunRow> {
   const def = getDefinition(ctx, input.workflow);
@@ -945,15 +1024,22 @@ export async function startRun(
   }
   const budget = child ? undefined : budgetForDefinition(def);
   // Generated/choose children inherit the parent's pinned step mode (plain vs work_node).
-  const parentStepMode = child
-    ? getRun(ctx, child.parentRunId)?.stepMode
-    : undefined;
+  const parent = child ? getRun(ctx, child.parentRunId) : null;
+  const parentStepMode = parent?.stepMode;
+  const priority = child
+    ? (child.priority ?? runPriorityOf(parent))
+    : (input.priority ?? "normal");
+  // Inherit a parent person pause so a child STARTED after the pause is also paused.
+  const inheritPersonPause = !!(child && parent && isPersonPaused(parent));
   const run = insertRun(ctx, {
     workflow: def.id,
     version: def.version,
     repo: input.repo,
     brief: input.brief,
     title: input.title,
+    priority,
+    entryLeaseUntil: ctx.now + ENTRY_LEASE_S,
+    ...(inheritPersonPause ? { pausedReason: "person" as const } : {}),
     ...(budget ? {
       budget: serializeBudget(budget),
       spent: serializeSpent({ orchestratorTurns: 0, messageTurns: 0 }),
@@ -970,17 +1056,34 @@ export async function startRun(
   if (input.publish === "draft" && !child) setPublishOptIn(ctx, run.id, "draft");
   await publishRunChange(ctx, getRun(ctx, run.id) ?? run); // clients see the run even when its start then fails
   try {
-    const live = getRun(ctx, run.id)!;
+    let live = getRun(ctx, run.id)!;
+    // Apply mode-driven pause before the entry step so strict/emergency never
+    // starts a background (or normal) step that should already be paused.
+    // Person pause (including inherited) is left alone by syncRunPacingPause.
+    try {
+      const mode = await readPacingMode(ctx);
+      live = syncRunPacingPause(ctx, live, mode);
+    } catch { /* mode read must not fail start */ }
     if (isWorkNodeRun(live)) ensureRootWorkNode(ctx, live);
     if (def.steps[def.entry]?.type === "end") await patchRun(ctx, run.id, { status: "done" });
     else if (child?.seedFinished && child.seedFinished.finishedIds.length > 0) {
       await seedFinishedAndResume(ctx, getRun(ctx, run.id)!, def, child.seedFinished, { deps, spawn });
+    } else if (isRunStepPaused(live)) {
+      // Mode/person pause at start: keep the run, start no entry step.
     } else {
       await startStep(ctx, getRun(ctx, run.id)!, def, def.entry, undefined, { deps, spawn });
     }
   } catch (e) {
+    // A pause refusal is not a failed start — the run stays live without a step.
+    if (e instanceof CoreError && e.code === "not_allowed" && String(e.message).includes("is paused")) {
+      clearEntryLease(ctx, run.id);
+      return getRun(ctx, run.id) ?? run;
+    }
     await failRun(ctx, run.id, `start failed: ${e instanceof Error ? e.message : String(e)}`, undefined, deps);
     throw e;
+  } finally {
+    // startRun finished (or paused-at-start): release ownership so a later resume/tick can start.
+    clearEntryLease(ctx, run.id);
   }
   const finished = getRun(ctx, run.id) ?? run;
   if (RUN_TERMINAL.includes(finished.status) && finished.parentRunId && finished.parentStep) {
@@ -1270,6 +1373,9 @@ export async function joinFanout(ctx: Ctx, run: RunRow, def: WorkflowDef, settle
 async function advanceFrom(ctx: Ctx, runId: string, def: WorkflowDef, settled: StepRow, result: unknown, e: EngineOptions): Promise<void> {
   const run = getRun(ctx, runId);
   if (isTerminal(run)) return;
+  // Pause at step boundaries: the settled step stays done; leave advanced_at unset
+  // so the tick re-advances once the pause clears.
+  if (run && isRunStepPaused(run)) return;
   const stepId = settled.stepId;
   // One yield before the edges fire: concurrent advancements (a settlement racing a
   // tick re-advance, say) then both decide from the same state, and it is the

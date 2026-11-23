@@ -636,103 +636,99 @@ impl<'de> ::serde::Deserialize<'de> for RunCleanupParamsId {
 ///
 /// ```json
 ///{
-///  "type": "object",
-///  "required": [
-///    "choice",
-///    "id",
-///    "reason",
-///    "step"
-///  ],
-///  "properties": {
-///    "choice": {
-///      "type": "string",
-///      "maxLength": 4000,
-///      "minLength": 1
+///  "anyOf": [
+///    {
+///      "type": "object",
+///      "required": [
+///        "id",
+///        "kind",
+///        "summary"
+///      ],
+///      "properties": {
+///        "id": {
+///          "type": "string",
+///          "pattern": "^run_[a-z2-7]{10}$"
+///        },
+///        "kind": {
+///          "type": "string",
+///          "const": "summary"
+///        },
+///        "reason": {
+///          "type": "string",
+///          "maxLength": 4000,
+///          "minLength": 1
+///        },
+///        "summary": {
+///          "type": "string",
+///          "minLength": 1
+///        }
+///      },
+///      "additionalProperties": false
 ///    },
-///    "id": {
-///      "type": "string",
-///      "pattern": "^run_[a-z2-7]{10}$"
-///    },
-///    "reason": {
-///      "type": "string",
-///      "maxLength": 4000,
-///      "minLength": 1
-///    },
-///    "step": {
-///      "type": "string",
-///      "maxLength": 128,
-///      "minLength": 1
+///    {
+///      "type": "object",
+///      "required": [
+///        "choice",
+///        "id",
+///        "reason",
+///        "step"
+///      ],
+///      "properties": {
+///        "choice": {
+///          "type": "string",
+///          "maxLength": 4000,
+///          "minLength": 1
+///        },
+///        "id": {
+///          "type": "string",
+///          "pattern": "^run_[a-z2-7]{10}$"
+///        },
+///        "kind": {
+///          "type": "string",
+///          "const": "decide"
+///        },
+///        "reason": {
+///          "type": "string",
+///          "maxLength": 4000,
+///          "minLength": 1
+///        },
+///        "step": {
+///          "type": "string",
+///          "maxLength": 128,
+///          "minLength": 1
+///        }
+///      },
+///      "additionalProperties": false
 ///    }
-///  },
-///  "additionalProperties": false
+///  ]
 ///}
 /// ```
 /// </details>
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
-#[serde(deny_unknown_fields)]
-pub struct RunDecideParams {
-    pub choice: RunDecideParamsChoice,
-    pub id: RunDecideParamsId,
-    pub reason: RunDecideParamsReason,
-    pub step: RunDecideParamsStep,
+#[serde(untagged, deny_unknown_fields)]
+pub enum RunDecideParams {
+    Variant0 {
+        id: RunDecideParamsVariant0Id,
+        kind: ::std::string::String,
+        #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+        reason: ::std::option::Option<RunDecideParamsVariant0Reason>,
+        summary: RunDecideParamsVariant0Summary,
+    },
+    Variant1 {
+        choice: RunDecideParamsVariant1Choice,
+        id: RunDecideParamsVariant1Id,
+        #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+        kind: ::std::option::Option<::std::string::String>,
+        reason: RunDecideParamsVariant1Reason,
+        step: RunDecideParamsVariant1Step,
+    },
 }
-///`RunDecideParamsChoice`
-///
-/// <details><summary>JSON schema</summary>
-///
-/// ```json
-///{
-///  "type": "string",
-///  "maxLength": 4000,
-///  "minLength": 1
-///}
-/// ```
-/// </details>
-#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-#[serde(transparent)]
-pub struct RunDecideParamsChoice(::std::string::String);
-impl ::std::ops::Deref for RunDecideParamsChoice {
-    type Target = ::std::string::String;
-    fn deref(&self) -> &::std::string::String {
-        &self.0
+impl ::std::convert::From<&Self> for RunDecideParams {
+    fn from(value: &RunDecideParams) -> Self {
+        value.clone()
     }
 }
-impl ::std::convert::From<RunDecideParamsChoice> for ::std::string::String {
-    fn from(value: RunDecideParamsChoice) -> Self {
-        value.0
-    }
-}
-impl ::std::str::FromStr for RunDecideParamsChoice {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4000usize {
-            return Err("longer than 4000 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
-    }
-}
-impl ::std::convert::TryFrom<&str> for RunDecideParamsChoice {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl<'de> ::serde::Deserialize<'de> for RunDecideParamsChoice {
-    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
-    where
-        D: ::serde::Deserializer<'de>,
-    {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
-    }
-}
-///`RunDecideParamsId`
+///`RunDecideParamsVariant0Id`
 ///
 /// <details><summary>JSON schema</summary>
 ///
@@ -745,19 +741,19 @@ impl<'de> ::serde::Deserialize<'de> for RunDecideParamsChoice {
 /// </details>
 #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[serde(transparent)]
-pub struct RunDecideParamsId(::std::string::String);
-impl ::std::ops::Deref for RunDecideParamsId {
+pub struct RunDecideParamsVariant0Id(::std::string::String);
+impl ::std::ops::Deref for RunDecideParamsVariant0Id {
     type Target = ::std::string::String;
     fn deref(&self) -> &::std::string::String {
         &self.0
     }
 }
-impl ::std::convert::From<RunDecideParamsId> for ::std::string::String {
-    fn from(value: RunDecideParamsId) -> Self {
+impl ::std::convert::From<RunDecideParamsVariant0Id> for ::std::string::String {
+    fn from(value: RunDecideParamsVariant0Id) -> Self {
         value.0
     }
 }
-impl ::std::str::FromStr for RunDecideParamsId {
+impl ::std::str::FromStr for RunDecideParamsVariant0Id {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
@@ -768,13 +764,13 @@ impl ::std::str::FromStr for RunDecideParamsId {
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for RunDecideParamsId {
+impl ::std::convert::TryFrom<&str> for RunDecideParamsVariant0Id {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
-impl<'de> ::serde::Deserialize<'de> for RunDecideParamsId {
+impl<'de> ::serde::Deserialize<'de> for RunDecideParamsVariant0Id {
     fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
     where
         D: ::serde::Deserializer<'de>,
@@ -786,7 +782,7 @@ impl<'de> ::serde::Deserialize<'de> for RunDecideParamsId {
             })
     }
 }
-///`RunDecideParamsReason`
+///`RunDecideParamsVariant0Reason`
 ///
 /// <details><summary>JSON schema</summary>
 ///
@@ -800,19 +796,19 @@ impl<'de> ::serde::Deserialize<'de> for RunDecideParamsId {
 /// </details>
 #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[serde(transparent)]
-pub struct RunDecideParamsReason(::std::string::String);
-impl ::std::ops::Deref for RunDecideParamsReason {
+pub struct RunDecideParamsVariant0Reason(::std::string::String);
+impl ::std::ops::Deref for RunDecideParamsVariant0Reason {
     type Target = ::std::string::String;
     fn deref(&self) -> &::std::string::String {
         &self.0
     }
 }
-impl ::std::convert::From<RunDecideParamsReason> for ::std::string::String {
-    fn from(value: RunDecideParamsReason) -> Self {
+impl ::std::convert::From<RunDecideParamsVariant0Reason> for ::std::string::String {
+    fn from(value: RunDecideParamsVariant0Reason) -> Self {
         value.0
     }
 }
-impl ::std::str::FromStr for RunDecideParamsReason {
+impl ::std::str::FromStr for RunDecideParamsVariant0Reason {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() > 4000usize {
@@ -824,13 +820,13 @@ impl ::std::str::FromStr for RunDecideParamsReason {
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for RunDecideParamsReason {
+impl ::std::convert::TryFrom<&str> for RunDecideParamsVariant0Reason {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
-impl<'de> ::serde::Deserialize<'de> for RunDecideParamsReason {
+impl<'de> ::serde::Deserialize<'de> for RunDecideParamsVariant0Reason {
     fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
     where
         D: ::serde::Deserializer<'de>,
@@ -842,7 +838,225 @@ impl<'de> ::serde::Deserialize<'de> for RunDecideParamsReason {
             })
     }
 }
-///`RunDecideParamsStep`
+///`RunDecideParamsVariant0Summary`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct RunDecideParamsVariant0Summary(::std::string::String);
+impl ::std::ops::Deref for RunDecideParamsVariant0Summary {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<RunDecideParamsVariant0Summary> for ::std::string::String {
+    fn from(value: RunDecideParamsVariant0Summary) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for RunDecideParamsVariant0Summary {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for RunDecideParamsVariant0Summary {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for RunDecideParamsVariant0Summary {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`RunDecideParamsVariant1Choice`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 4000,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct RunDecideParamsVariant1Choice(::std::string::String);
+impl ::std::ops::Deref for RunDecideParamsVariant1Choice {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<RunDecideParamsVariant1Choice> for ::std::string::String {
+    fn from(value: RunDecideParamsVariant1Choice) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for RunDecideParamsVariant1Choice {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 4000usize {
+            return Err("longer than 4000 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for RunDecideParamsVariant1Choice {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for RunDecideParamsVariant1Choice {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`RunDecideParamsVariant1Id`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^run_[a-z2-7]{10}$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct RunDecideParamsVariant1Id(::std::string::String);
+impl ::std::ops::Deref for RunDecideParamsVariant1Id {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<RunDecideParamsVariant1Id> for ::std::string::String {
+    fn from(value: RunDecideParamsVariant1Id) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for RunDecideParamsVariant1Id {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^run_[a-z2-7]{10}$").unwrap());
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^run_[a-z2-7]{10}$\"".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for RunDecideParamsVariant1Id {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for RunDecideParamsVariant1Id {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`RunDecideParamsVariant1Reason`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 4000,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct RunDecideParamsVariant1Reason(::std::string::String);
+impl ::std::ops::Deref for RunDecideParamsVariant1Reason {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<RunDecideParamsVariant1Reason> for ::std::string::String {
+    fn from(value: RunDecideParamsVariant1Reason) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for RunDecideParamsVariant1Reason {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 4000usize {
+            return Err("longer than 4000 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for RunDecideParamsVariant1Reason {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for RunDecideParamsVariant1Reason {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`RunDecideParamsVariant1Step`
 ///
 /// <details><summary>JSON schema</summary>
 ///
@@ -856,19 +1070,19 @@ impl<'de> ::serde::Deserialize<'de> for RunDecideParamsReason {
 /// </details>
 #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[serde(transparent)]
-pub struct RunDecideParamsStep(::std::string::String);
-impl ::std::ops::Deref for RunDecideParamsStep {
+pub struct RunDecideParamsVariant1Step(::std::string::String);
+impl ::std::ops::Deref for RunDecideParamsVariant1Step {
     type Target = ::std::string::String;
     fn deref(&self) -> &::std::string::String {
         &self.0
     }
 }
-impl ::std::convert::From<RunDecideParamsStep> for ::std::string::String {
-    fn from(value: RunDecideParamsStep) -> Self {
+impl ::std::convert::From<RunDecideParamsVariant1Step> for ::std::string::String {
+    fn from(value: RunDecideParamsVariant1Step) -> Self {
         value.0
     }
 }
-impl ::std::str::FromStr for RunDecideParamsStep {
+impl ::std::str::FromStr for RunDecideParamsVariant1Step {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() > 128usize {
@@ -880,13 +1094,13 @@ impl ::std::str::FromStr for RunDecideParamsStep {
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for RunDecideParamsStep {
+impl ::std::convert::TryFrom<&str> for RunDecideParamsVariant1Step {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
-impl<'de> ::serde::Deserialize<'de> for RunDecideParamsStep {
+impl<'de> ::serde::Deserialize<'de> for RunDecideParamsVariant1Step {
     fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
     where
         D: ::serde::Deserializer<'de>,
@@ -1087,6 +1301,92 @@ impl ::std::convert::TryFrom<&str> for RunListParamsStatus {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
+    }
+}
+///`RunPauseParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "expect_rev",
+///    "id"
+///  ],
+///  "properties": {
+///    "expect_rev": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "exclusiveMinimum": 0.0
+///    },
+///    "id": {
+///      "type": "string",
+///      "pattern": "^run_[a-z2-7]{10}$"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct RunPauseParams {
+    pub expect_rev: ::std::num::NonZeroU64,
+    pub id: RunPauseParamsId,
+}
+///`RunPauseParamsId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^run_[a-z2-7]{10}$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct RunPauseParamsId(::std::string::String);
+impl ::std::ops::Deref for RunPauseParamsId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<RunPauseParamsId> for ::std::string::String {
+    fn from(value: RunPauseParamsId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for RunPauseParamsId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^run_[a-z2-7]{10}$").unwrap());
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^run_[a-z2-7]{10}$\"".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for RunPauseParamsId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for RunPauseParamsId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
     }
 }
 ///`RunPublishParams`
@@ -1301,6 +1601,92 @@ impl<'de> ::serde::Deserialize<'de> for RunPublishParamsTitle {
             })
     }
 }
+///`RunResumeParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "expect_rev",
+///    "id"
+///  ],
+///  "properties": {
+///    "expect_rev": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "exclusiveMinimum": 0.0
+///    },
+///    "id": {
+///      "type": "string",
+///      "pattern": "^run_[a-z2-7]{10}$"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct RunResumeParams {
+    pub expect_rev: ::std::num::NonZeroU64,
+    pub id: RunResumeParamsId,
+}
+///`RunResumeParamsId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^run_[a-z2-7]{10}$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct RunResumeParamsId(::std::string::String);
+impl ::std::ops::Deref for RunResumeParamsId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<RunResumeParamsId> for ::std::string::String {
+    fn from(value: RunResumeParamsId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for RunResumeParamsId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^run_[a-z2-7]{10}$").unwrap());
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^run_[a-z2-7]{10}$\"".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for RunResumeParamsId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for RunResumeParamsId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
 ///`RunRetryOrchestratorParams`
 ///
 /// <details><summary>JSON schema</summary>
@@ -1376,6 +1762,85 @@ impl ::std::convert::TryFrom<&str> for RunRetryOrchestratorParamsId {
     }
 }
 impl<'de> ::serde::Deserialize<'de> for RunRetryOrchestratorParamsId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`RunSeenParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "id"
+///  ],
+///  "properties": {
+///    "id": {
+///      "type": "string",
+///      "pattern": "^run_[a-z2-7]{10}$"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct RunSeenParams {
+    pub id: RunSeenParamsId,
+}
+///`RunSeenParamsId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^run_[a-z2-7]{10}$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct RunSeenParamsId(::std::string::String);
+impl ::std::ops::Deref for RunSeenParamsId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<RunSeenParamsId> for ::std::string::String {
+    fn from(value: RunSeenParamsId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for RunSeenParamsId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^run_[a-z2-7]{10}$").unwrap());
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^run_[a-z2-7]{10}$\"".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for RunSeenParamsId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for RunSeenParamsId {
     fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
     where
         D: ::serde::Deserializer<'de>,
@@ -1793,6 +2258,168 @@ impl<'de> ::serde::Deserialize<'de> for RunSetPlannerParamsPlanner {
             })
     }
 }
+///`RunSetPriorityParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "expect_rev",
+///    "id",
+///    "priority"
+///  ],
+///  "properties": {
+///    "expect_rev": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "exclusiveMinimum": 0.0
+///    },
+///    "id": {
+///      "type": "string",
+///      "pattern": "^run_[a-z2-7]{10}$"
+///    },
+///    "priority": {
+///      "type": "string",
+///      "enum": [
+///        "urgent",
+///        "normal",
+///        "background"
+///      ]
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct RunSetPriorityParams {
+    pub expect_rev: ::std::num::NonZeroU64,
+    pub id: RunSetPriorityParamsId,
+    pub priority: RunSetPriorityParamsPriority,
+}
+///`RunSetPriorityParamsId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^run_[a-z2-7]{10}$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct RunSetPriorityParamsId(::std::string::String);
+impl ::std::ops::Deref for RunSetPriorityParamsId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<RunSetPriorityParamsId> for ::std::string::String {
+    fn from(value: RunSetPriorityParamsId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for RunSetPriorityParamsId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^run_[a-z2-7]{10}$").unwrap());
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^run_[a-z2-7]{10}$\"".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for RunSetPriorityParamsId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for RunSetPriorityParamsId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`RunSetPriorityParamsPriority`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "urgent",
+///    "normal",
+///    "background"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum RunSetPriorityParamsPriority {
+    #[serde(rename = "urgent")]
+    Urgent,
+    #[serde(rename = "normal")]
+    Normal,
+    #[serde(rename = "background")]
+    Background,
+}
+impl ::std::convert::From<&Self> for RunSetPriorityParamsPriority {
+    fn from(value: &RunSetPriorityParamsPriority) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for RunSetPriorityParamsPriority {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Urgent => f.write_str("urgent"),
+            Self::Normal => f.write_str("normal"),
+            Self::Background => f.write_str("background"),
+        }
+    }
+}
+impl ::std::str::FromStr for RunSetPriorityParamsPriority {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "urgent" => Ok(Self::Urgent),
+            "normal" => Ok(Self::Normal),
+            "background" => Ok(Self::Background),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for RunSetPriorityParamsPriority {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
 ///`RunStartParams`
 ///
 /// <details><summary>JSON schema</summary>
@@ -1810,6 +2437,14 @@ impl<'de> ::serde::Deserialize<'de> for RunSetPlannerParamsPlanner {
 ///      "type": "string",
 ///      "maxLength": 8000,
 ///      "minLength": 1
+///    },
+///    "priority": {
+///      "type": "string",
+///      "enum": [
+///        "urgent",
+///        "normal",
+///        "background"
+///      ]
 ///    },
 ///    "publish": {
 ///      "type": "string",
@@ -1839,6 +2474,8 @@ impl<'de> ::serde::Deserialize<'de> for RunSetPlannerParamsPlanner {
 #[serde(deny_unknown_fields)]
 pub struct RunStartParams {
     pub brief: RunStartParamsBrief,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub priority: ::std::option::Option<RunStartParamsPriority>,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub publish: ::std::option::Option<::std::string::String>,
     pub repo: RunStartParamsRepo,
@@ -1900,6 +2537,72 @@ impl<'de> ::serde::Deserialize<'de> for RunStartParamsBrief {
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
+    }
+}
+///`RunStartParamsPriority`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "urgent",
+///    "normal",
+///    "background"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum RunStartParamsPriority {
+    #[serde(rename = "urgent")]
+    Urgent,
+    #[serde(rename = "normal")]
+    Normal,
+    #[serde(rename = "background")]
+    Background,
+}
+impl ::std::convert::From<&Self> for RunStartParamsPriority {
+    fn from(value: &RunStartParamsPriority) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for RunStartParamsPriority {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Urgent => f.write_str("urgent"),
+            Self::Normal => f.write_str("normal"),
+            Self::Background => f.write_str("background"),
+        }
+    }
+}
+impl ::std::str::FromStr for RunStartParamsPriority {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "urgent" => Ok(Self::Urgent),
+            "normal" => Ok(Self::Normal),
+            "background" => Ok(Self::Background),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for RunStartParamsPriority {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
     }
 }
 ///`RunStartParamsRepo`

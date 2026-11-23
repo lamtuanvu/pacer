@@ -11,11 +11,13 @@ import { commandArgs } from "./accounts";
 import type { Command, Result } from "./types";
 import type { Ctx } from "../types";
 
-const USAGE = "usage: pacer run start <workflow> --brief <text> [--repo <path>] [--title <t>] [--publish draft] | list [--status <s>] | show <id> | graph <id> [--version N] | submit-graph --file <path> --id <run> --step <step> | answer <id> <step> <answer> | stop <id> | sync <id> | publish <id> --title <t> --body-file <path> [--draft] | cleanup <id> [--delete-branch] [--yes] | auto <id> on|off | planner <id> <agent> | budget <id> [--turns N] [--messages N] | decide <id> <step> <choice> --reason <text> | choose <id> <step> <workflow> --reason <text> [--json]";
+const USAGE = "usage: pacer run start <workflow> --brief <text> [--repo <path>] [--title <t>] [--priority urgent|normal|background] [--publish draft] | list [--status <s>] | show <id> | graph <id> [--version N] | submit-graph --file <path> --id <run> --step <step> | answer <id> <step> <answer> | stop <id> | sync <id> | publish <id> --title <t> --body-file <path> [--draft] | cleanup <id> [--delete-branch] [--yes] | auto <id> on|off | planner <id> <agent> | budget <id> [--turns N] [--messages N] | priority <id> urgent|normal|background | pause <id> | resume <id> | seen <id> | decide <id> <step> <choice> --reason <text> | decide --json '{\"id\",\"kind\":\"summary\",\"summary\":\"…\"}' | decide <id> --json '{\"kind\":\"summary\",\"summary\":\"…\"}' | choose <id> <step> <workflow> --reason <text> [--json]";
 const STEP_USAGE = "usage: pacer step result --json '<JSON object>' | --file <path> | artifact <path> --label <text> | skip <id> <step> | retry <id> <step>";
 
 async function call(ctx: Ctx, op: string, params: Record<string, unknown>, deps: OpDeps): Promise<unknown> {
   assertCallerCanInvoke(ctx, op, params);
+  // Tests force in-process; a run grant otherwise selects HTTP only (API-5b).
+  if (ctx.env.PACER_API === "inprocess") return callOp(ctx, op, params, deps);
   const client = await connectClient(ctx, { protocol: 3, opDeps: deps });
   try {
     return client.kind === "inprocess" ? await callOp(ctx, op, params, deps) : await client.call(op, params);
@@ -29,8 +31,24 @@ async function gitTopLevel(ctx: Ctx): Promise<string | undefined> {
   return top || undefined;
 }
 
-interface RunLike { id: string; workflow: string; version: number; status: string; rev: number; reason?: string }
+interface RunLike {
+  id: string;
+  workflow: string;
+  version: number;
+  status: string;
+  rev: number;
+  reason?: string;
+  priority?: string;
+  pausedReason?: string;
+}
 interface StepLike { stepId: string; attempt: number; branch?: string; taskId?: string; status: string; error?: string }
+
+function runListLine(r: RunLike): string {
+  const bits = [r.id, r.status, `${r.workflow}@${r.version}`, r.priority ?? "normal"];
+  if (r.pausedReason) bits.push(`paused:${r.pausedReason}`);
+  if (r.reason) bits.push(r.reason);
+  return bits.join("  ");
+}
 
 function stepLabel(step: StepLike): string {
   const attempt = step.attempt > 1 ? `#${step.attempt}` : "";
@@ -51,26 +69,32 @@ export async function runCmd(args: string[], ctx: Ctx, deps: OpDeps = {}): Promi
   const json = rest.includes("--json");
   try {
     if (sub === "start") {
-      const { pos, flags } = commandArgs(rest, ["brief", "repo", "title", "publish"], ["json"]);
+      const { pos, flags } = commandArgs(rest, ["brief", "repo", "title", "priority", "publish"], ["json"]);
       if (pos.length !== 1 || !flags.brief) throw Error(USAGE);
       if (flags.publish !== undefined && flags.publish !== "draft") throw Error("--publish accepts only draft");
       const repo = String(flags.repo ?? await gitTopLevel(ctx) ?? "");
       if (!repo) throw Error("no --repo given and the current directory is not a git repository");
+      if (flags.priority !== undefined && !["urgent", "normal", "background"].includes(String(flags.priority))) {
+        throw Error(USAGE);
+      }
       const params = {
-        workflow: pos[0], repo, brief: String(flags.brief),
+        workflow: pos[0],
+        repo,
+        brief: String(flags.brief),
         ...(flags.title ? { title: String(flags.title) } : {}),
+        ...(flags.priority ? { priority: String(flags.priority) } : {}),
         ...(flags.publish === "draft" ? { publish: "draft" as const } : {}),
       };
       const run = await call(ctx, "run.start", params, deps) as RunLike;
       if (json) return { code: 0, out: JSON.stringify(run, null, 2), err: "" };
-      return { code: 0, out: `${run.id}  ${run.status}`, err: "" };
+      return { code: 0, out: `${run.id}  ${run.status}${run.priority && run.priority !== "normal" ? `  ${run.priority}` : ""}`, err: "" };
     }
     if (sub === "list") {
       const { pos, flags } = commandArgs(rest, ["status"], ["json"]);
       if (pos.length) throw Error(USAGE);
       const runs = await call(ctx, "run.list", flags.status ? { status: String(flags.status) } : {}, deps) as RunLike[];
       if (json) return { code: 0, out: JSON.stringify(runs, null, 2), err: "" };
-      return { code: 0, out: runs.map(r => `${r.id}  ${r.status}  ${r.workflow}@${r.version}${r.reason ? `  ${r.reason}` : ""}`).join("\n"), err: "" };
+      return { code: 0, out: runs.map(runListLine).join("\n"), err: "" };
     }
     if (sub === "show") {
       const { pos, flags } = commandArgs(rest, [], ["json"]);
@@ -171,7 +195,63 @@ export async function runCmd(args: string[], ctx: Ctx, deps: OpDeps = {}): Promi
       if (json) return { code: 0, out: JSON.stringify(run, null, 2), err: "" };
       return { code: 0, out: `${run.id}  budget updated`, err: "" };
     }
+    if (sub === "priority") {
+      const { pos } = commandArgs(rest, [], ["json"]);
+      if (pos.length !== 2 || !["urgent", "normal", "background"].includes(pos[1]!)) throw Error(USAGE);
+      const got = await call(ctx, "run.get", { id: pos[0] }, deps) as { run: RunLike };
+      const run = await call(ctx, "run.set_priority", {
+        id: pos[0], priority: pos[1], expect_rev: got.run.rev,
+      }, deps) as RunLike;
+      if (json) return { code: 0, out: JSON.stringify(run, null, 2), err: "" };
+      return { code: 0, out: `${run.id}  priority ${pos[1]}`, err: "" };
+    }
+    if (sub === "pause" || sub === "resume") {
+      const { pos } = commandArgs(rest, [], ["json"]);
+      if (pos.length !== 1) throw Error(USAGE);
+      const got = await call(ctx, "run.get", { id: pos[0] }, deps) as { run: RunLike };
+      const run = await call(ctx, sub === "pause" ? "run.pause" : "run.resume", {
+        id: pos[0], expect_rev: got.run.rev,
+      }, deps) as RunLike;
+      if (json) return { code: 0, out: JSON.stringify(run, null, 2), err: "" };
+      return {
+        code: 0,
+        out: `${run.id}  ${sub}${run.pausedReason ? `  ${run.pausedReason}` : ""}`,
+        err: "",
+      };
+    }
+    if (sub === "seen") {
+      const { pos } = commandArgs(rest, [], ["json"]);
+      if (pos.length !== 1) throw Error(USAGE);
+      const run = await call(ctx, "run.seen", { id: pos[0] }, deps) as RunLike;
+      if (json) return { code: 0, out: JSON.stringify(run, null, 2), err: "" };
+      return { code: 0, out: `${run.id}  seen`, err: "" };
+    }
     if (sub === "decide") {
+      // Summary forms:
+      //   decide --json '{"id","kind":"summary","summary":"…"}'
+      //   decide <id> --json '{"kind":"summary","summary":"…"}'  (id from argv)
+      // Bare --json (no value) remains an output flag for the step/choice form.
+      const jsonIdx = rest.indexOf("--json");
+      const jsonValue = jsonIdx >= 0 && rest[jsonIdx + 1] && !rest[jsonIdx + 1]!.startsWith("--")
+        ? rest[jsonIdx + 1]
+        : undefined;
+      if (jsonValue !== undefined) {
+        let payload: unknown;
+        try { payload = JSON.parse(jsonValue); }
+        catch { throw Error("--json needs one JSON object as its value"); }
+        if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+          throw Error("--json must carry a JSON object");
+        }
+        const body = { ...(payload as Record<string, unknown>) };
+        if (body.kind !== "summary") throw Error(USAGE);
+        if (typeof body.id !== "string" || !body.id) {
+          const positionalId = rest.find((a, i) => i !== jsonIdx && i !== jsonIdx + 1 && !a.startsWith("--"));
+          if (positionalId) body.id = positionalId;
+        }
+        if (typeof body.id !== "string" || !body.id) throw Error(USAGE);
+        const run = await call(ctx, "run.decide", body, deps) as RunLike & { summary?: string };
+        return { code: 0, out: JSON.stringify(run, null, 2), err: "" };
+      }
       const { pos, flags } = commandArgs(rest, ["reason"], ["json"]);
       if (pos.length < 3 || !flags.reason) throw Error(USAGE);
       const run = await call(ctx, "run.decide", {
@@ -274,6 +354,6 @@ export async function stepCmd(args: string[], ctx: Ctx, deps: OpDeps = {}): Prom
 }
 
 export const COMMANDS: Command[] = [
-  { name: "run", usage: "run start|list|show|graph|submit-graph|answer|stop|sync|publish|cleanup|auto|planner|budget|decide|choose    start and follow runs", run: (args, ctx) => runCmd(args, ctx) },
+  { name: "run", usage: "run start|list|show|graph|submit-graph|answer|stop|sync|publish|cleanup|auto|planner|budget|priority|pause|resume|seen|decide|choose    start and follow runs", run: (args, ctx) => runCmd(args, ctx) },
   { name: "step", usage: "step result --json <object> | --file <path> | artifact <path> --label <text> | skip <id> <step> | retry <id> <step>    report or resolve a workflow step", run: (args, ctx) => stepCmd(args, ctx) },
 ];

@@ -4,7 +4,7 @@ import { CoreError } from "../core/errors";
 export const MSG_KINDS = ["message", "question", "answer", "report", "nudge", "close"] as const;
 export type MsgKind = typeof MSG_KINDS[number];
 export type ParticipantKind = "human" | "external" | "launched" | "broker";
-export const RELATIONS = ["self", "parent", "child", "sibling", "descendant", "ancestor", "top_peer", "same_tree", "none"] as const;
+export const RELATIONS = ["self", "parent", "child", "sibling", "descendant", "ancestor", "top_peer", "same_tree", "run_peer", "none"] as const;
 export type Relation = typeof RELATIONS[number];
 export type MsgStatus = "held" | "pending" | "delivered" | "read";
 

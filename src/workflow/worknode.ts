@@ -22,6 +22,7 @@ import {
   type RunRow,
 } from "./store";
 import type { WorkflowDef } from "./schema";
+import { stepDispatchOptions } from "./priority";
 
 /** Schema cap for work options.maxDescendants. */
 const MAX_DESCENDANTS_CAP = 1000;
@@ -207,6 +208,8 @@ export interface StartStepTaskInput {
   difficulty?: DelegateInput["difficulty"];
   title: string;
   requestId: string;
+  /** Mapped run priority for the work node (Phase 6). */
+  priority?: number;
   worktree?: DelegateInput["worktree"];
   worktree_reason?: DelegateInput["worktree_reason"];
 }
@@ -230,6 +233,9 @@ export async function startStepTask(
     updateTask(ctx, rootId, t => { t.state = "running"; });
   }
   // Errors from registerWork (capacity, parent closed, …) must fail the step.
+  const dispatch = input.priority !== undefined
+    ? stepDispatchOptions(input.priority, true)
+    : undefined;
   return delegate(ctx, {
     brief: input.brief,
     kind: input.kind,
@@ -237,6 +243,7 @@ export async function startStepTask(
     title: input.title,
     requestId: input.requestId,
     workParent: rootId,
+    ...(dispatch ? { dispatch } : {}),
     ...(input.worktree ? { worktree: input.worktree } : {}),
     ...(input.worktree_reason ? { worktree_reason: input.worktree_reason } : {}),
   }, spawn);

@@ -7,6 +7,7 @@ mod consoles;
 pub mod events;
 pub mod js;
 pub mod retry;
+pub mod runs;
 mod snapshot;
 mod summary;
 pub mod task_detail;
