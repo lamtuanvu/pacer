@@ -31,7 +31,7 @@ export class ServeSession implements HostClient {
     for (let i = 0; ; i++) {
       try {
         this.token = readFileSync(join(this.env.PACER_HOME!, "token"), "utf8").trim();
-        if ((await fetch(`${this.base}/v3/hello`, { headers: { Authorization: `Bearer ${this.token}` }, signal: AbortSignal.timeout(500) })).ok) break;
+        if ((await fetch(`${this.base}/v2/hello`, { headers: { Authorization: `Bearer ${this.token}` }, signal: AbortSignal.timeout(500) })).ok) break;
       } catch { /* Wait for this serve only. */ }
       if (child.exitCode !== null || i > 750) { child.kill("SIGKILL"); throw Error(`serve did not start:\n${this.stderr.join("")}`); }
       await Bun.sleep(20);

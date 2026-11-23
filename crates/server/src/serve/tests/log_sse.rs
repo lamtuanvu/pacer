@@ -33,6 +33,8 @@ async fn listener_with_core(
     let port = socket.local_addr().unwrap().port();
     let ctx = Ctx::with(home.into(), home.into(), Default::default(), 1000.0);
     let status = crate::native::status_runtime::serve_runtime(core.clone());
+    let core_build = Arc::new(meta_routes::CoreBuild::from_core(&[], &HashMap::new()));
+    let snapshot_cache = meta_routes::snapshot_cache(core.clone(), ctx.clone());
     let state = Arc::new(Listener {
         core,
         status,
@@ -45,6 +47,11 @@ async fn listener_with_core(
         plugins: crate::native::plugins::Service::default(),
         forward_log_follow: forwarded,
         forward_events: false,
+        core_build,
+        snapshot_cache,
+        forward_hello: false,
+        forward_snapshot: false,
+        forward_session_exchange: false,
     });
     let app = Router::new()
         .fallback(any(handle))

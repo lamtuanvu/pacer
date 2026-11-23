@@ -17,6 +17,8 @@ async fn listener(home: &std::path::Path, forwarded: bool) -> (u16, tokio::task:
     let port = socket.local_addr().unwrap().port();
     let ctx = Ctx::with(home.into(), home.into(), Default::default(), 1000.0);
     let core = Arc::new(core_child::CoreChild::unavailable());
+    let core_build = Arc::new(meta_routes::CoreBuild::from_core(&[], &HashMap::new()));
+    let snapshot_cache = meta_routes::snapshot_cache(core.clone(), ctx.clone());
     let state = Arc::new(Listener {
         core: core.clone(),
         status: crate::native::status_runtime::serve_runtime(core),
@@ -29,6 +31,11 @@ async fn listener(home: &std::path::Path, forwarded: bool) -> (u16, tokio::task:
         plugins: crate::native::plugins::Service::default(),
         forward_log_follow: false,
         forward_events: forwarded,
+        core_build,
+        snapshot_cache,
+        forward_hello: false,
+        forward_snapshot: false,
+        forward_session_exchange: false,
     });
     let app = Router::new().fallback(any(handle)).with_state(state);
     let server = tokio::spawn(async move {

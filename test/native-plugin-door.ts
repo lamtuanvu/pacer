@@ -143,7 +143,7 @@ export async function serve(h: Home, forward = "", options: Options = tsOwner) {
   for (let i = 0; i < 500; i++) {
     try {
       token = readFileSync(join(h.state, "token"), "utf8").trim();
-      if ((await fetch(`${base}/v3/hello`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(500) })).ok) break;
+      if ((await fetch(`${base}/v2/hello`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(500) })).ok) break;
     } catch { /* Wait for this child only. */ }
     if (child.exitCode !== null) throw Error(await logs);
     await Bun.sleep(20);

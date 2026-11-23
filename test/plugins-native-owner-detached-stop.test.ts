@@ -49,7 +49,7 @@ async function door(h: Home & { bin: string }, nativeHost: "0" | "1") {
   for (let i = 0; ; i++) {
     try {
       token = readFileSync(join(h.state, "token"), "utf8").trim();
-      if ((await fetch(`${base}/v3/hello`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(500) })).ok) break;
+      if ((await fetch(`${base}/v2/hello`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(500) })).ok) break;
     } catch { /* Wait for this child only. */ }
     if (child.exitCode !== null || i > 750) { child.kill("SIGKILL"); throw Error(`serve did not start:\n${await logs}`); }
     await Bun.sleep(20);

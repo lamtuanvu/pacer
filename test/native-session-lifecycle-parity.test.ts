@@ -61,7 +61,7 @@ async function serve(dir: string, forward: boolean) {
   for (let n = 0; n < 2000 && !token && child.exitCode === null; n++) {
     try {
       const candidate = readFileSync(join(env.PACER_HOME, "token"), "utf8").trim();
-      if ((await fetch(`${base}/v3/hello`, { headers: { Authorization: `Bearer ${candidate}` }, signal: AbortSignal.timeout(500) })).ok) token = candidate;
+      if ((await fetch(`${base}/v2/hello`, { headers: { Authorization: `Bearer ${candidate}` }, signal: AbortSignal.timeout(500) })).ok) token = candidate;
     } catch { /* the service is still starting */ }
     if (!token) await Bun.sleep(20);
   }

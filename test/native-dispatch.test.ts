@@ -112,7 +112,7 @@ test.skipIf(!front)("HTTP native route enforces auth, version, body limit and fo
     let token = "";
     for (let n = 0; n < 500; n++) {
       try { token = readFileSync(join(fixture.env.PACER_HOME, "token"), "utf8").trim();
-        const response = await fetch(base + "/v3/hello", { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(500) });
+        const response = await fetch(base + "/v2/hello", { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(500) });
         if (response.ok) break;
       } catch {}
       await Bun.sleep(20);
@@ -167,7 +167,7 @@ test.skipIf(!front)("PACER_FORWARD_OPS forces HTTP echo back to TypeScript", asy
     let ready = false;
     for (let n = 0; n < 500; n++) {
       try { token = readFileSync(join(fixture.env.PACER_HOME, "token"), "utf8").trim();
-        const response = await fetch(base + "/v3/hello", { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(500) });
+        const response = await fetch(base + "/v2/hello", { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(500) });
         if (response.ok) { ready = true; break; }
       } catch {}
       await Bun.sleep(20);
@@ -205,7 +205,7 @@ test.skipIf(!productionFront)("HTTP config environment matches the forwarded cor
         for (let attempt=0; attempt<500; attempt++) {
           try {
             token = readFileSync(join(fixture.env.PACER_HOME, "token"), "utf8").trim();
-            if ((await fetch(base+"/v3/hello", {headers:{Authorization:`Bearer ${token}`}, signal:AbortSignal.timeout(500)})).ok) {ready=true; break;}
+            if ((await fetch(base+"/v2/hello", {headers:{Authorization:`Bearer ${token}`}, signal:AbortSignal.timeout(500)})).ok) {ready=true; break;}
           } catch {}
           await Bun.sleep(20);
         }
