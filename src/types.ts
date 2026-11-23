@@ -100,7 +100,13 @@ export interface Ctx {
   readOnly?: boolean; // Suppress cache writes for strategy previews.
   home: string;       // user home (agent logs live under it)
   pacerHome: string;  // pacer state dir
-  now: number;        // unix seconds
+  now: number;        // unix seconds (request snapshot; may be stale during long work)
+  /**
+   * Live clock for lease claim/renew/expiry (unix seconds). When unset, those paths use
+   * `Date.now()/1000` so a frozen `now` snapshot cannot keep writing the same deadline.
+   * Tests inject this (fakeCtx binds it to mutable `now`) for deterministic advancement.
+   */
+  clock?: () => number;
   env: Record<string, string | undefined>;
   run: RunFn;
   which: (bin: string) => string | null;

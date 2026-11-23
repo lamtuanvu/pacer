@@ -403,7 +403,11 @@ export const workflowOps: Record<string, OpDef> = {
       // Scope to the resumed tree — do not scan every live run on each person resume.
       const { deps: engine, spawn } = engineDeps(deps);
       try {
-        await startPendingEntries(ctx, { deps: engine, spawn, rootRunId: updated.id });
+        // Resume must not consume the durable transient entry-start budget (batch H);
+        // the tick still counts toward the time/attempt bound.
+        await startPendingEntries(ctx, {
+          deps: engine, spawn, rootRunId: updated.id, countTransient: false,
+        });
       } catch { /* tick retries */ }
       const live = getRun(ctx, updated.id) ?? updated;
       try {

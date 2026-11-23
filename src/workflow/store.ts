@@ -3,6 +3,8 @@
 // Definitions are immutable per version; run updates go through expect_rev.
 import type { Database, SQLQueryBindings } from "bun:sqlite";
 import { randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { taskDatabase } from "../tasks/store";
 import type { TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
@@ -141,6 +143,8 @@ export function workflowDatabase(ctx: Ctx): Database {
     if (!runColumns.includes("entry_seed")) db.exec("ALTER TABLE workflow_runs ADD COLUMN entry_seed TEXT");
     // Phase 6 batch G: durable transient entry-start attempt count (survives restarts).
     if (!runColumns.includes("entry_start_attempts")) db.exec("ALTER TABLE workflow_runs ADD COLUMN entry_start_attempts INTEGER NOT NULL DEFAULT 0");
+    // Phase 6 batch H: wall-clock of the first transient entry-start failure (time-based bound).
+    if (!runColumns.includes("entry_first_transient_at")) db.exec("ALTER TABLE workflow_runs ADD COLUMN entry_first_transient_at REAL");
     // Backfill letters for live letterless rows inside this write transaction only (never on read).
     // Used set includes ALL existing letters (terminal rows too) so the unique index cannot throw.
     {
@@ -329,17 +333,58 @@ export interface RunRow {
   entrySeed?: { finishedIds: string[]; results: Record<string, unknown> };
   /** Phase 6 batch G: durable count of transient entry-start failures. */
   entryStartAttempts?: number;
+  /** Phase 6 batch H: unix seconds of the first durable transient entry-start failure. */
+  entryFirstTransientAt?: number;
 }
 
 /** How long an entry-start owner holds exclusive ownership after claim/renew (seconds). */
 export const ENTRY_LEASE_S = 30;
 
 /**
- * After this many durable transient entry-start failures, fail the run (I1).
- * Sized above a short live SQLITE_BUSY window (several tick cycles) so a brief
- * lock does not fail a healthy run, while a stuck lock still terminates.
+ * Effective entry-lease length. Sandbox/live drivers may shorten via
+ * `$PACER_HOME/entry-lease-s` (1–120) without rebuilding; production stays at ENTRY_LEASE_S.
  */
-export const ENTRY_START_TRANSIENT_MAX = 32;
+export function entryLeaseSeconds(ctx: Ctx): number {
+  try {
+    const n = Number(readFileSync(join(ctx.pacerHome, "entry-lease-s"), "utf8").trim());
+    if (Number.isFinite(n) && n >= 1 && n <= 120) return n;
+  } catch { /* default */ }
+  return ENTRY_LEASE_S;
+}
+
+/**
+ * Optional startRun fault delay (ms) from `$PACER_HOME/start-run-delay-ms` (0–120_000).
+ * Live P14 uses this so a tick can race a slow start without a product rebuild.
+ */
+export function startRunDelayMs(ctx: Ctx): number {
+  try {
+    const n = Number(readFileSync(join(ctx.pacerHome, "start-run-delay-ms"), "utf8").trim());
+    if (Number.isFinite(n) && n > 0 && n <= 120_000) return Math.floor(n);
+  } catch { /* none */ }
+  return 0;
+}
+
+/**
+ * Minimum wall-clock seconds of durable transient entry-start failures before failRun.
+ * Attempt count alone is not enough: BUSY_SNAPSHOT-style errors return immediately, so
+ * a writer held for tens of seconds would burn a pure attempt budget too fast.
+ */
+export const ENTRY_START_TRANSIENT_MIN_S = 5 * 60;
+
+/**
+ * Secondary attempt cap for durable transient entry-start failures (batch H).
+ * The time bound is primary; this stops unbounded spinning if the clock stalls.
+ */
+export const ENTRY_START_TRANSIENT_MAX = 256;
+
+/**
+ * Live unix seconds for entry-lease deadlines and expiry checks.
+ * Prefer `ctx.clock` (tests bind it to mutable `ctx.now`); production falls back to
+ * `Date.now()/1000` so a request-scoped `ctx.now` snapshot cannot freeze renewals.
+ */
+export function leaseNow(ctx: Ctx): number {
+  return ctx.clock?.() ?? Date.now() / 1000;
+}
 
 /** Opaque entry-lease owner token (hex). */
 export function newEntryOwner(): string {
@@ -498,6 +543,7 @@ interface RunDbRow {
   entry_owner?: string | null;
   entry_seed?: string | null;
   entry_start_attempts?: number | null;
+  entry_first_transient_at?: number | null;
 }
 interface StepDbRow {
   run_id: string; step_id: string; attempt: number; branch: string | null; task_id: string | null;
@@ -576,6 +622,9 @@ function runFromRow(row: RunDbRow): RunRow {
   }
   if (row.entry_start_attempts != null && row.entry_start_attempts > 0) {
     out.entryStartAttempts = row.entry_start_attempts;
+  }
+  if (row.entry_first_transient_at != null) {
+    out.entryFirstTransientAt = row.entry_first_transient_at;
   }
   return out;
 }
@@ -728,6 +777,8 @@ export function insertRun(ctx: Ctx, r: NewRun): RunRow {
  * Atomically claim or renew exclusive entry-start ownership in ONE UPDATE.
  * Succeeds only when the run is live and (lease free/expired OR same owner).
  * Returns true iff changes === 1.
+ * Optional `db` lets a second SQLite connection on the same file call the same
+ * claim (batch H concurrency tests) without retyping the SQL.
  */
 export function claimEntryLease(
   ctx: Ctx,
@@ -735,10 +786,11 @@ export function claimEntryLease(
   owner: string,
   until: number,
   now: number,
+  db?: Database,
 ): boolean {
   if (!runId || !owner) return false;
-  const db = workflowDatabase(ctx);
-  const result = db.transaction(() => db.query(
+  const handle = db ?? workflowDatabase(ctx);
+  const result = handle.transaction(() => handle.query(
     `UPDATE workflow_runs
      SET entry_lease_until = ?, entry_owner = ?
      WHERE id = ?
@@ -789,32 +841,65 @@ export function clearEntryLease(ctx: Ctx, runId: string, owner?: string): void {
   }
 }
 
-/** Clear durable entry seed after it has been applied (no rev bump). */
+/**
+ * Clear durable entry seed after it has been applied (no rev bump).
+ * Retries a bounded number of times on SQLITE_BUSY and logs a diagnostic (like clearEntryLease).
+ */
 export function clearEntrySeed(ctx: Ctx, runId: string): void {
-  try {
-    workflowDatabase(ctx).query(
-      "UPDATE workflow_runs SET entry_seed = NULL WHERE id = ?",
-    ).run(runId);
-  } catch { /* missing table / concurrent */ }
+  const maxTries = 4;
+  let lastErr: unknown;
+  for (let i = 0; i < maxTries; i++) {
+    try {
+      workflowDatabase(ctx).query(
+        "UPDATE workflow_runs SET entry_seed = NULL WHERE id = ?",
+      ).run(runId);
+      return;
+    } catch (err) {
+      lastErr = err;
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!/locked|BUSY|busy/i.test(msg) || i === maxTries - 1) break;
+    }
+  }
+  if (lastErr) {
+    console.warn(
+      `pacer: clearEntrySeed failed for ${runId} after ${maxTries} tries: ${
+        lastErr instanceof Error ? lastErr.message : String(lastErr)
+      }`,
+    );
+  }
 }
 
-/** Bump durable transient entry-start attempts; returns the new count. */
-export function bumpEntryStartAttempts(ctx: Ctx, runId: string): number {
+/**
+ * Record one durable transient entry-start failure: bump attempts and stamp
+ * `entry_first_transient_at` on the first failure (batch H time-based bound).
+ */
+export function bumpEntryStartAttempts(
+  ctx: Ctx,
+  runId: string,
+  now: number = leaseNow(ctx),
+): { attempts: number; firstAt: number } {
   const db = workflowDatabase(ctx);
-  db.query(
-    "UPDATE workflow_runs SET entry_start_attempts = COALESCE(entry_start_attempts, 0) + 1 WHERE id = ?",
-  ).run(runId);
-  const row = db.query<{ entry_start_attempts: number }, [string]>(
-    "SELECT entry_start_attempts FROM workflow_runs WHERE id = ?",
+  db.transaction(() => {
+    db.query(
+      `UPDATE workflow_runs
+       SET entry_start_attempts = COALESCE(entry_start_attempts, 0) + 1,
+           entry_first_transient_at = COALESCE(entry_first_transient_at, ?)
+       WHERE id = ?`,
+    ).run(now, runId);
+  }).immediate();
+  const row = db.query<{ entry_start_attempts: number; entry_first_transient_at: number | null }, [string]>(
+    "SELECT entry_start_attempts, entry_first_transient_at FROM workflow_runs WHERE id = ?",
   ).get(runId);
-  return row?.entry_start_attempts ?? 0;
+  const attempts = row?.entry_start_attempts ?? 0;
+  const firstAt = row?.entry_first_transient_at ?? now;
+  return { attempts, firstAt };
 }
 
-/** Reset transient entry-start attempts after a successful start. */
+/** Reset transient entry-start budget after a successful start. */
 export function resetEntryStartAttempts(ctx: Ctx, runId: string): void {
   try {
     workflowDatabase(ctx).query(
-      "UPDATE workflow_runs SET entry_start_attempts = 0 WHERE id = ?",
+      "UPDATE workflow_runs SET entry_start_attempts = 0, entry_first_transient_at = NULL WHERE id = ?",
     ).run(runId);
   } catch { /* */ }
 }
@@ -830,7 +915,7 @@ export function liveRunsNeedingEntry(
   opts: { rootRunId?: string; now?: number } = {},
 ): RunRow[] {
   const db = workflowDatabase(ctx);
-  const now = opts.now ?? ctx.now;
+  const now = opts.now ?? leaseNow(ctx);
   // Needs work when there are no steps yet, or a durable seed still awaits apply.
   const needClause = `(
          NOT EXISTS (SELECT 1 FROM workflow_steps s WHERE s.run_id = r.id)
