@@ -2060,7 +2060,7 @@
           "content": [
             {
               "type": "text",
-              "text": "{\n \"config\": {\n  \"defaults\": true,\n  \"rules\": [],\n  \"message\": {\n   \"max_bytes\": 65536\n  },\n  \"tree\": {\n   \"max_turns\": 50\n  },\n  \"liveness\": {\n   \"interval_s\": 60,\n   \"backoff_max_s\": 900,\n   \"max_nudges\": 3,\n   \"nudge_in_modes\": [\n    \"relaxed\",\n    \"normal\"\n   ],\n   \"escalate_after_s\": 900,\n   \"caller_wake_after_s\": 300,\n   \"retry_delivery\": true\n  },\n  \"hooks\": {\n   \"stop\": \"block\",\n   \"stop_release_after\": 2\n  },\n  \"grants\": {\n   \"user_started_tasks\": \"on\"\n  },\n  \"keep_worktree_days\": 7\n },\n \"rules\": [\n  {\n   \"effect\": \"allow\",\n   \"from_kind\": \"human\",\n   \"layer\": \"default\"\n  },\n  {\n   \"effect\": \"allow\",\n   \"to_kind\": \"human\",\n   \"layer\": \"default\"\n  },\n  {\n   \"effect\": \"allow\",\n   \"from_position\": \"top\",\n   \"relation\": [\n    \"child\",\n    \"top_peer\"\n   ],\n   \"layer\": \"default\"\n  },\n  {\n   \"effect\": \"allow\",\n   \"from_position\": \"child\",\n   \"relation\": [\n    \"parent\"\n   ],\n   \"layer\": \"default\"\n  },\n  {\n   \"effect\": \"allow\",\n   \"from_position\": \"child\",\n   \"relation\": [\n    \"sibling\",\n    \"child\"\n   ],\n   \"grant\": \"required\",\n   \"layer\": \"default\"\n  },\n  {\n   \"effect\": \"allow\",\n   \"from_kind\": \"external\",\n   \"relation\": [\n    \"child\"\n   ],\n   \"layer\": \"default\"\n  },\n  {\n   \"effect\": \"allow\",\n   \"relation\": [\n    \"run_peer\"\n   ],\n   \"layer\": \"default\"\n  }\n ]\n}"
+              "text": "{\n \"config\": {\n  \"defaults\": true,\n  \"rules\": [],\n  \"message\": {\n   \"max_bytes\": 65536\n  },\n  \"tree\": {\n   \"max_turns\": 50\n  },\n  \"liveness\": {\n   \"interval_s\": 60,\n   \"backoff_max_s\": 900,\n   \"max_nudges\": 3,\n   \"nudge_in_modes\": [\n    \"relaxed\",\n    \"normal\",\n    \"strict\",\n    \"emergency\"\n   ],\n   \"escalate_after_s\": 900,\n   \"caller_wake_after_s\": 300,\n   \"caller_wake_in_modes\": [\n    \"relaxed\",\n    \"normal\"\n   ],\n   \"retry_delivery\": true\n  },\n  \"hooks\": {\n   \"stop\": \"block\",\n   \"stop_release_after\": 2\n  },\n  \"grants\": {\n   \"user_started_tasks\": \"on\"\n  },\n  \"keep_worktree_days\": 7\n },\n \"rules\": [\n  {\n   \"effect\": \"allow\",\n   \"from_kind\": \"human\",\n   \"layer\": \"default\"\n  },\n  {\n   \"effect\": \"allow\",\n   \"to_kind\": \"human\",\n   \"layer\": \"default\"\n  },\n  {\n   \"effect\": \"allow\",\n   \"from_position\": \"top\",\n   \"relation\": [\n    \"child\",\n    \"top_peer\"\n   ],\n   \"layer\": \"default\"\n  },\n  {\n   \"effect\": \"allow\",\n   \"from_position\": \"child\",\n   \"relation\": [\n    \"parent\"\n   ],\n   \"layer\": \"default\"\n  },\n  {\n   \"effect\": \"allow\",\n   \"from_position\": \"child\",\n   \"relation\": [\n    \"sibling\",\n    \"child\"\n   ],\n   \"grant\": \"required\",\n   \"layer\": \"default\"\n  },\n  {\n   \"effect\": \"allow\",\n   \"from_kind\": \"external\",\n   \"relation\": [\n    \"child\"\n   ],\n   \"layer\": \"default\"\n  },\n  {\n   \"effect\": \"allow\",\n   \"relation\": [\n    \"run_peer\"\n   ],\n   \"layer\": \"default\"\n  }\n ]\n}"
             }
           ],
           "structuredContent": {
@@ -2079,10 +2079,16 @@
                 "max_nudges": 3,
                 "nudge_in_modes": [
                   "relaxed",
-                  "normal"
+                  "normal",
+                  "strict",
+                  "emergency"
                 ],
                 "escalate_after_s": 900,
                 "caller_wake_after_s": 300,
+                "caller_wake_in_modes": [
+                  "relaxed",
+                  "normal"
+                ],
                 "retry_delivery": true
               },
               "hooks": {

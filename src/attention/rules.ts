@@ -96,6 +96,8 @@ export function deriveItems(input: RuleInput): AttentionItem[] {
     if (t.liveness?.stalled) {
       const detail = t.liveness.reason === "no_progress"
         ? `No progress for ${Math.max(1, Math.floor((input.now - t.liveness.since) / 60))} min`
+        : t.liveness.reason === "silent_prompt"
+        ? `Waiting at prompt with no open question for ${Math.max(1, Math.floor((input.now - t.liveness.since) / 60))} min`
         : t.liveness.reason === "caller_decision" ? `Waiting for ${callerLabel(t.liveness.waitingOn)} to review and decide`
         : `Conversation stalled: ${t.liveness.reason}`;
       add("stalled", t.id, t.goal, detail, [open("Open messages", { view: "task", id: t.id, tab: "messages" })],

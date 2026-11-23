@@ -6335,6 +6335,18 @@ Params JSON Schema:
               "emergency"
             ]
           }
+        },
+        "caller_wake_in_modes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "relaxed",
+              "normal",
+              "strict",
+              "emergency"
+            ]
+          }
         }
       },
       "additionalProperties": false

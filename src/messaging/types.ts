@@ -44,11 +44,15 @@ export const messagingConfigSchema = z.object({
     interval_s: z.number().int().min(10).default(60),
     backoff_max_s: z.number().int().min(10).default(900),
     max_nudges: z.number().int().min(0).default(3),
-    nudge_in_modes: z.array(z.enum(["relaxed", "normal", "strict", "emergency"])).default(["relaxed", "normal"]),
+    // Executor nudges (idle_run, silent_prompt, no_progress, cycle, undelivered). Default includes
+    // strict/emergency: those modes save the planner's budget, not the executor's.
+    nudge_in_modes: z.array(z.enum(["relaxed", "normal", "strict", "emergency"])).default(["relaxed", "normal", "strict", "emergency"]),
     // How long an external or human participant may block others before the human is alerted.
     escalate_after_s: z.number().int().min(10).default(900),
     // How long a settled task may owe its caller a decision before the caller itself is woken.
     caller_wake_after_s: z.number().int().min(10).default(300),
+    // Planner wakes (caller_decision ping/resume). Strict/emergency stay off by default.
+    caller_wake_in_modes: z.array(z.enum(["relaxed", "normal", "strict", "emergency"])).default(["relaxed", "normal"]),
     retry_delivery: z.boolean().default(true),
   }).strict().prefault({}),
   hooks: z.object({ stop: z.enum(["block", "inject_only", "off"]).default("block"), stop_release_after: z.number().int().min(1).default(2) }).strict().prefault({}),
