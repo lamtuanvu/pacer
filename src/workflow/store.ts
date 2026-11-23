@@ -334,8 +334,12 @@ export interface RunRow {
 /** How long an entry-start owner holds exclusive ownership after claim/renew (seconds). */
 export const ENTRY_LEASE_S = 30;
 
-/** After this many durable transient entry-start failures, fail the run (I1). */
-export const ENTRY_START_TRANSIENT_MAX = 8;
+/**
+ * After this many durable transient entry-start failures, fail the run (I1).
+ * Sized above a short live SQLITE_BUSY window (several tick cycles) so a brief
+ * lock does not fail a healthy run, while a stuck lock still terminates.
+ */
+export const ENTRY_START_TRANSIENT_MAX = 32;
 
 /** Opaque entry-lease owner token (hex). */
 export function newEntryOwner(): string {
