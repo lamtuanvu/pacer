@@ -126,7 +126,7 @@ test.skipIf(!front)("stdio msg.policy matches the TypeScript core byte for byte"
       if (scenario.name === "layered") {
         const results = native.lines.map(line => JSON.parse(line));
         // The fixture exercises every layer, holds, grants, rate caps and denials rather than defaults alone.
-        expect(results[1].result.rules.map((r: { layer: string }) => r.layer)).toEqual(["tree", "project", "project", "global", "global", "global", ...Array(6).fill("default")]);
+        expect(results[1].result.rules.map((r: { layer: string }) => r.layer)).toEqual(["tree", "project", "project", "global", "global", "global", ...Array(7).fill("default")]);
         expect(results[1].result.config.tree.max_turns).toBe(4);
         const decisions = results.slice(6, 31).map(r => r.result.check.decision === "allow" ? `allow:${r.result.check.layer}:${r.result.check.hold}` : r.result.check.error.data?.reason ?? r.result.check.error.code);
         for (const d of ["allow:tree:true", "allow:default:false", "msg_forbidden", "msg_cap_reached", "not_found", "allow:project:false"]) expect(decisions).toContain(d);

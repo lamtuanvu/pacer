@@ -5,6 +5,7 @@ use pacer_store::{
     StoreError, TaskStore,
     messages::{count_sent_since, parent_of, root_of, task_of},
 };
+use rusqlite::OptionalExtension;
 use serde_json::{Map, Value, json};
 use std::path::Path;
 
@@ -13,6 +14,7 @@ type Result<T> = std::result::Result<T, StoreError>;
 const MAX_DEPTH: usize = 64;
 
 fn default_rules() -> Value {
+    // Kept last so ordinary default rule indices stay stable (src/messaging/policy.ts).
     json!([
         {"effect":"allow","from_kind":"human"},
         {"effect":"allow","to_kind":"human"},
@@ -20,6 +22,7 @@ fn default_rules() -> Value {
         {"effect":"allow","from_position":"child","relation":["parent"]},
         {"effect":"allow","from_position":"child","relation":["sibling","child"],"grant":"required"},
         {"effect":"allow","from_kind":"external","relation":["child"]},
+        {"effect":"allow","relation":["run_peer"]},
     ])
 }
 
@@ -202,6 +205,49 @@ fn is_top(store: &mut Store<'_>, p: &str) -> Result<bool> {
     })
 }
 
+/// Live-run participant id from stored workflow rows (`src/messaging/run-route.ts`).
+/// Opens the task store first, matching TypeScript's `workflowSchemaPresent`.
+fn run_id_for_participant(store: &mut Store<'_>, p: &str) -> Result<Option<String>> {
+    let db = store.db()?;
+    let has_steps: i64 = {
+        let conn = db.connection()?;
+        conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'workflow_steps'",
+            [],
+            |r| r.get(0),
+        )?
+    };
+    if has_steps == 0 {
+        return Ok(None);
+    }
+    let Some(task_id) = task_of(p) else {
+        return Ok(None);
+    };
+    if let Some(task) = db.read(task_id)? {
+        let kind = task.get("kind").and_then(Value::as_str).unwrap_or("");
+        if kind == "orchestrate" || kind == "workflow-root" {
+            return Ok(None);
+        }
+    }
+    let run_id: Option<String> = db
+        .connection()?
+        .query_row(
+            "SELECT s.run_id FROM workflow_steps s
+             JOIN workflow_runs r ON r.id = s.run_id
+             WHERE s.task_id = ? AND r.status NOT IN ('done', 'failed', 'stopped')
+             LIMIT 1",
+            [task_id],
+            |r| r.get(0),
+        )
+        .optional()?;
+    Ok(run_id)
+}
+
+fn both_run_participants(store: &mut Store<'_>, from: &str, to: &str) -> Result<bool> {
+    Ok(run_id_for_participant(store, from)?.is_some()
+        && run_id_for_participant(store, to)?.is_some())
+}
+
 /// `relation(ctx, from, to)`.
 fn relation(store: &mut Store<'_>, from: &str, to: &str) -> Result<&'static str> {
     if from == to {
@@ -232,6 +278,10 @@ fn relation(store: &mut Store<'_>, from: &str, to: &str) -> Result<&'static str>
     }
     if task_of(from).is_some() && task_of(to).is_some() && root(store, from)? == root(store, to)? {
         return Ok("same_tree");
+    }
+    // Ordinary relations first; run_peer only widens pairs that would be "none".
+    if both_run_participants(store, from, to)? {
+        return Ok("run_peer");
     }
     Ok("none")
 }
