@@ -155,8 +155,9 @@ export async function originRepoSlug(ctx: Ctx, repoOrWt: string): Promise<string
   const got = await ctx.run(["git", "-C", repoOrWt, "remote", "get-url", "origin"], 10_000);
   if (got.code !== 0) return null;
   const url = got.stdout.trim();
-  const m = /(?:github\.com[:/]|git@[^:]+:)([^/]+)\/([^/.]+?)(?:\.git)?$/i.exec(url)
-    || /[:/]([^/]+)\/([^/.]+?)(?:\.git)?$/i.exec(url);
+  // Repo names may contain dots (owner/my.repo); only a trailing .git is stripped.
+  const m = /(?:github\.com[:/]|git@[^:]+:)([^/]+)\/([^/]+?)(?:\.git)?$/i.exec(url)
+    || /[:/]([^/]+)\/([^/]+?)(?:\.git)?$/i.exec(url);
   if (!m) return null;
   return `${m[1]}/${m[2]}`;
 }

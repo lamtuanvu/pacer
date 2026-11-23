@@ -10,7 +10,7 @@ import {
   getRun, insertRun, recordDecision, setPublishOptIn, setRunConflict, setRunPrUrl, workflowDatabase,
 } from "../src/workflow/store";
 import { ensureRunBranch, integrationWorktree } from "../src/workflow/branch";
-import { publishRun } from "../src/workflow/publish";
+import { originRepoSlug, publishRun } from "../src/workflow/publish";
 
 /** Temp repo with a bare origin remote for real push tests. */
 async function repoWithBareOrigin() {
@@ -265,4 +265,20 @@ test("publish refuses a title that starts with '-' or contains NUL", async () =>
   await expect(publishRun(ctx, run.id, {
     draft: false, title: "x\u0000y", body: "b", expectRev: getRun(ctx, run.id)!.rev,
   })).rejects.toMatchObject({ code: "invalid_input", message: expect.stringMatching(/control/i) });
+});
+
+test("originRepoSlug accepts dots in repo names (https and ssh)", async () => {
+  const ctx = fakeCtx({ run: realRun });
+  const repo = gitRepo();
+  const cases: Array<{ remote: string; want: string }> = [
+    { remote: "https://github.com/owner/my.repo.git", want: "owner/my.repo" },
+    { remote: "https://github.com/owner/my.repo", want: "owner/my.repo" },
+    { remote: "git@github.com:owner/my.repo.git", want: "owner/my.repo" },
+    { remote: "ssh://git@github.com/owner/my.repo.git", want: "owner/my.repo" },
+  ];
+  for (const { remote, want } of cases) {
+    await ctx.run(["git", "-C", repo, "remote", "remove", "origin"], 5_000);
+    expect((await ctx.run(["git", "-C", repo, "remote", "add", "origin", remote], 5_000)).code).toBe(0);
+    expect(await originRepoSlug(ctx, repo)).toBe(want);
+  }
 });
