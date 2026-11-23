@@ -9,7 +9,7 @@ import type { Ctx } from "../types";
 import { commandArgs } from "./accounts";
 import type { Command, Result } from "./types";
 
-const USAGE = "usage: pacer plugin list [--json] | enable <id> [--yes] | disable <id> | remove <id> | doctor [<id>] [--json]\n       pacer plugin settings get <id> | set <id> --values <json> [--rev <n>]   |   pacer plugin ui list [--json]\n       pacer plugin install | update | status | uninstall   (pacer's own Orca panel plugin; no arguments)";
+const USAGE = "usage: pacer plugin list [--json] | enable <id> [--yes] | disable <id> | remove <id> | doctor [<id>] [--json]\n       pacer plugin settings get <id> | set <id> --values <json> [--rev <n>]   |   pacer plugin ui list [--json]\n       pacer plugin install [--approve <fingerprint>] | update [--approve <fingerprint>] | status | uninstall   (pacer's own Orca panel plugin)";
 /** `install`/`update`/`status`/`uninstall` manage pacer's own Orca panel plugin via the `orca` CLI; plugin settings are edited in Orca's own Settings UI, so `set` is no longer bridged. */
 const ORCA_VERBS = ["uninstall", "install", "update", "status"];
 /** Plugin commands share the service's executor-session policy. */

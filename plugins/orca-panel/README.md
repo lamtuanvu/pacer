@@ -30,6 +30,19 @@ Node, not Bun). Opening an Orca worktree uses host `workspace.open` and needs th
 `src/worker.test.ts` in Node with `orca/testing`. `bun x tsc -p .` type-checks against the
 typings `orca plugin types .` writes to `.orca/types/`.
 
+## Add it from the pacer app
+
+The macOS desktop app ships these files at `Contents/Resources/orca-panel`. Open
+**Settings › Apps**, choose Orca, and follow Add to Orca. pacer shows what Orca
+will grant and only continues after you press Allow and add.
+
+From a terminal (same folder this README lives in, or the bundled path above):
+
+```sh
+pacer plugin install
+pacer plugin install --approve <fingerprint>
+```
+
 ## Develop
 
 ```sh

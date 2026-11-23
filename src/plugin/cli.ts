@@ -2,24 +2,59 @@ import { renderUninstall } from "../install/index";
 import type { Result } from "../commands/types";
 import type { Ctx } from "../types";
 import { uninstallPlugin } from "./install";
-import { installOrcaPanel, resolveOrcaPanelDir, statusOrcaPanel, uninstallOrcaPanel, updateOrcaPanel } from "./orca-panel-cli";
+import {
+  installOrcaPanel,
+  resolveOrcaPanelDir,
+  statusOrcaPanel,
+  uninstallOrcaPanel,
+  updateOrcaPanel,
+} from "./orca-panel-cli";
 
-const USAGE = "usage: pacer plugin install | update | status | uninstall   (pacer's own Orca panel plugin; no arguments)";
+const USAGE =
+  "usage: pacer plugin install [--approve <fingerprint>] | update [--approve <fingerprint>] | status | uninstall\n" +
+  "       (pacer's own Orca panel plugin)";
+
+/** Parse `install|update [--approve <fp>]`; anything else is usage. */
+function parseVerb(args: string[]): { verb: "install" | "update" | "status" | "uninstall"; approve?: string } | { error: string } {
+  const [verb, ...rest] = args;
+  if (verb !== "install" && verb !== "update" && verb !== "status" && verb !== "uninstall") {
+    return { error: USAGE };
+  }
+  if (verb === "status" || verb === "uninstall") {
+    return rest.length === 0 ? { verb } : { error: USAGE };
+  }
+  if (rest.length === 0) return { verb };
+  if (rest.length === 2 && rest[0] === "--approve" && rest[1]) return { verb, approve: rest[1] };
+  return { error: USAGE };
+}
+
+function formatApproval(r: { error: string; needsApprove?: string; grants?: { what: string; why: string; description?: string }[] }): string {
+  const lines = [`pacer: orca plugin install needs approval: ${r.error}`];
+  if (r.grants?.length) {
+    lines.push("Orca will let pacer:");
+    for (const g of r.grants) lines.push(`  - ${g.what}${g.why && g.why !== g.what ? ` (${g.why})` : ""}`);
+  }
+  if (r.needsApprove) {
+    lines.push(`If you agree, run: pacer plugin install --approve ${r.needsApprove}`);
+  }
+  return lines.join("\n");
+}
 
 /** `pacer plugin install|update|status|uninstall` shells out to the `orca` CLI for pacer's bundled panel plugin only. */
 export async function pluginCli(args: string[], ctx: Ctx): Promise<Result> {
-  const [verb] = args;
-  if (args.length !== 1 || (verb !== "install" && verb !== "update" && verb !== "status" && verb !== "uninstall")) {
-    return { code: 2, out: "", err: USAGE };
-  }
+  const parsed = parseVerb(args);
+  if ("error" in parsed) return { code: 2, out: "", err: parsed.error };
+  const { verb, approve } = parsed;
   try {
     if (verb === "install" || verb === "update") {
-      const r = verb === "install" ? await installOrcaPanel(ctx.run, resolveOrcaPanelDir()) : await updateOrcaPanel(ctx.run);
+      const r = verb === "install"
+        ? await installOrcaPanel(ctx.run, resolveOrcaPanelDir(ctx.env, ctx.env.PACER_BIN || process.execPath), approve)
+        : await updateOrcaPanel(ctx.run, approve);
       if (r.ok) return { code: 0, out: `pacer panel plugin ${verb === "install" ? "installed in" : "updated in"} Orca`, err: "" };
-      const approve = "needsApprove" in r && r.needsApprove
-        ? ` Approve the plugin in Orca (fingerprint ${r.needsApprove}), then retry.`
-        : "";
-      return { code: approve ? 3 : 1, out: "", err: `pacer: orca plugin ${verb} failed: ${r.error}${approve}` };
+      if (r.needsApprove) {
+        return { code: 3, out: "", err: formatApproval(r) };
+      }
+      return { code: 1, out: "", err: `pacer: orca plugin ${verb} failed: ${r.error}` };
     }
     if (verb === "status") {
       const s = await statusOrcaPanel(ctx.run);

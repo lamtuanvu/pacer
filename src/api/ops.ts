@@ -36,6 +36,7 @@ import { pruneTasks, restoreTask } from "../tasks/retention";
 import { parseRunnerId } from "../config/runner-id";
 import { pacerArgv } from "../install/self";
 import * as plugins from "../core/plugins";
+import * as apps from "../apps";
 import * as attention from "../core/attention";
 import { taskDetail, retryOptions } from "../core/task-detail";
 import { isAbsolute } from "node:path";
@@ -649,6 +650,12 @@ export const OPS: Record<string, OpDef> = {
     strategy.remove(ctx, p.name);
     return {removed: true};
   })) }),
+  "apps.list": op({ description: "Host apps pacer can add itself to (today: Orca), with detect/status for each card.", params: z.object({}), handler: ctx => apps.listApps(ctx) }),
+  "apps.add": op({ description: "Add pacer to a host app. Without approve, returns approval_required with fingerprint and grants; with approve, finishes only for that exact fingerprint.", params: z.object({ id: z.string().min(1).max(64), approve: z.string().min(1).max(128).optional() }), handler: (ctx, p) => apps.addApp(ctx, p.id, p.approve) }),
+  "apps.open": op({ description: "Show pacer's panel in a host app (Orca: plugin open --panel pacer).", params: z.object({ id: z.string().min(1).max(64) }), handler: (ctx, p) => apps.openApp(ctx, p.id) }),
+  "apps.update": op({ description: "Update pacer's integration in a host app. May return approval_required like apps.add.", params: z.object({ id: z.string().min(1).max(64), approve: z.string().min(1).max(128).optional() }), handler: (ctx, p) => apps.updateApp(ctx, p.id, p.approve) }),
+  "apps.remove": op({ description: "Remove pacer's own integration from a host app. Never touches other plugins.", params: z.object({ id: z.string().min(1).max(64) }), handler: (ctx, p) => apps.removeApp(ctx, p.id) }),
+
   "plugin.list": op({ description: "Discovered plugins with state, capabilities, grants and pid; starts nothing.", params: z.object({}), handler: ctx => plugins.list(ctx) }),
   "plugin.enable": op({ description: "Enable a plugin. An installed plugin without a matching grant returns needs_grant with its capability set until called with grant: true.", params: z.object({ id: pluginId, grant: z.boolean().optional() }), handler: (ctx, p) => mutation(ctx, "plugins", () => plugins.enable(ctx, p.id, p.grant ?? false)) }),
   "plugin.disable": op({ description: "Stop a plugin and record it as disabled.", params: z.object({ id: pluginId }), handler: (ctx, p) => mutation(ctx, "plugins", () => plugins.disable(ctx, p.id)) }),

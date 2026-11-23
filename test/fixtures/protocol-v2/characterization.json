@@ -17066,7 +17066,7 @@
     "input": {
       "coreBuild": {
         "schemaVersion": 1,
-        "releaseVersion": "0.16.0",
+        "releaseVersion": "0.17.4",
         "buildId": "development-uncompiled",
         "role": "core",
         "targetOs": "darwin",
@@ -17074,7 +17074,7 @@
       },
       "protocol": "3.0.0",
       "previous": "2.8.0",
-      "pacer": "0.16.0",
+      "pacer": "0.17.4",
       "ops": [
         "account.add",
         "account.adopt",
@@ -17093,6 +17093,11 @@
         "agent.undo",
         "api.describe",
         "api.list",
+        "apps.add",
+        "apps.list",
+        "apps.open",
+        "apps.remove",
+        "apps.update",
         "assistant.ask",
         "assistant.cancel",
         "assistant.candidates",
@@ -17346,7 +17351,7 @@
     },
     "output": {
       "protocol": "2.8.0",
-      "pacer": "0.16.0",
+      "pacer": "0.17.4",
       "ops": [
         "account.add",
         "account.adopt",
@@ -18152,6 +18157,97 @@
               "maxLength": 256
             }
           },
+          "additionalProperties": false
+        }
+      },
+      "apps.add": {
+        "description": "Add pacer to a host app. Without approve, returns approval_required with fingerprint and grants; with approve, finishes only for that exact fingerprint.",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "approve": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "apps.list": {
+        "description": "Host apps pacer can add itself to (today: Orca), with detect/status for each card.",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        }
+      },
+      "apps.open": {
+        "description": "Show pacer's panel in a host app (Orca: plugin open --panel pacer).",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "apps.remove": {
+        "description": "Remove pacer's own integration from a host app. Never touches other plugins.",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "apps.update": {
+        "description": "Update pacer's integration in a host app. May return approval_required like apps.add.",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "approve": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          "required": [
+            "id"
+          ],
           "additionalProperties": false
         }
       },
@@ -19054,6 +19150,7 @@
                 "pacing.fill_threshold",
                 "pacing.balance",
                 "update_check",
+                "update_channel",
                 "terminal.app",
                 "terminal.open"
               ]
@@ -20354,7 +20451,7 @@
         }
       },
       "dispatch.list": {
-        "description": "Page through work roots or children, optionally filtered by repository and state.",
+        "description": "Page through work roots or children, optionally filtered by repository and state. Each row carries the executor, its account and the attempt's model (`account`, `model`) beside `executor`.",
         "params": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "type": "object",
@@ -27867,6 +27964,11 @@
     "project.strategy.remove",
     "task.prune",
     "task.restore",
+    "apps.list",
+    "apps.add",
+    "apps.open",
+    "apps.update",
+    "apps.remove",
     "plugin.list",
     "plugin.enable",
     "plugin.disable",
