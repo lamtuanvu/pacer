@@ -387,30 +387,69 @@ test("a silent_prompt stall is nudged into the live session without stopping it"
   } finally { stop.mockRestore(); }
 });
 
-test("silent_prompt Stop without progress does not reset nudges; max_nudges then escalates", async () => {
-  // report.at (silentSince) moves on every turn-ended Stop; progressMark must use lastProgressAt so nudges accumulate.
+test("silent_prompt nudges survive working gaps until max_nudges; file progress resets", async () => {
+  // After a nudge the agent leaves needs-input (stall absent). The row must be kept so the next Stop continues the count.
   const ctx = fakeCtx({ now: 1_000_000 });
   const task = createTask(ctx, { brief: { goal: "stuck", repo: tmpDir() }, kind: "feature", requestedExecutor: null, timeoutS: 600 });
   const dir = tmpDir();
-  writeNeedsInputReport(dir, ctx.now - 700);
-  updateTask(ctx, task.id, t => {
-    t.state = "running";
-    t.attemptStartedAt = ctx.now - 700;
-    t.progress = { phase: "needs-input", lastOutputAt: ctx.now - 1, lastChangeAt: ctx.now - 3600, gitObserved: true } as typeof t.progress;
-    t.run = { dir, attempt: 1, executor: "codex", startedAt: ctx.now - 700, mode: "new", workdir: tmpDir(), logFile: "/dev/null", session: "interactive" };
-  });
+  const workdir = tmpDir();
+  const started = ctx.now - 700;
+  const lastChange = ctx.now - 3600;
+  const apply = (phase: "needs-input" | "working", at: number, reportAt?: number, changeAt = lastChange) => {
+    if (phase === "needs-input") writeNeedsInputReport(dir, reportAt ?? at - 700);
+    updateTask(ctx, task.id, t => {
+      t.state = "running";
+      t.attemptStartedAt = started;
+      t.progress = { phase, lastOutputAt: at - 1, lastChangeAt: changeAt, gitObserved: true } as typeof t.progress;
+      t.run = { dir, attempt: 1, executor: "codex", startedAt: started, mode: "new", workdir, logFile: "/dev/null", session: "interactive" };
+    });
+  };
   const node = `task:${task.id}`;
   const stop = spyOn(runs, "stopRun").mockResolvedValue({ code: 143, killed: false });
   try {
-    for (const at of [0, 60, 180, 420, 900]) {
-      // Agent ends another turn at the prompt: fresh report.at, still past idle_after, no real progress.
-      writeNeedsInputReport(dir, ctx.now + at - 700);
-      await brokerTick({ ...ctx, now: ctx.now + at }, { mode });
-    }
+    // Arm, then nudge 1 after interval_s.
+    apply("needs-input", ctx.now);
+    await brokerTick(ctx, { mode });
+    apply("needs-input", ctx.now + 60, ctx.now + 60 - 700);
+    await brokerTick({ ...ctx, now: ctx.now + 60 }, { mode });
+    expect(byRequest(ctx, "broker", `nudge:${node}:a1:1`)).not.toBeNull();
+
+    // Agent replies: phase leaves needs-input; stall absent but row retained.
+    apply("working", ctx.now + 70);
+    await brokerTick({ ...ctx, now: ctx.now + 70 }, { mode });
+    expect(getLiveness(ctx, node)).toMatchObject({ reason: "silent_prompt", nudges: 1 });
+
+    // Fresh Stop at the prompt (new report.at); idle_after elapsed; continues as nudge 2.
+    apply("needs-input", ctx.now + 180, ctx.now + 180 - 700);
+    await brokerTick({ ...ctx, now: ctx.now + 180 }, { mode });
+    expect(byRequest(ctx, "broker", `nudge:${node}:a1:2`)).not.toBeNull();
+
+    apply("working", ctx.now + 200);
+    await brokerTick({ ...ctx, now: ctx.now + 200 }, { mode });
+    expect(getLiveness(ctx, node)).toMatchObject({ reason: "silent_prompt", nudges: 2 });
+
+    apply("needs-input", ctx.now + 420, ctx.now + 420 - 700);
+    await brokerTick({ ...ctx, now: ctx.now + 420 }, { mode });
     expect(byRequest(ctx, "broker", `nudge:${node}:a1:3`)).not.toBeNull();
     expect(byRequest(ctx, "broker", `nudge:${node}:a1:4`)).toBeNull();
     expect(getLiveness(ctx, node)).toMatchObject({ reason: "silent_prompt", nudges: 3, stalledAt: ctx.now + 420, escalatedAt: ctx.now + 420 });
+
+    // Another working→prompt cycle must not insert a fourth nudge.
+    apply("working", ctx.now + 500);
+    await brokerTick({ ...ctx, now: ctx.now + 500 }, { mode });
+    apply("needs-input", ctx.now + 900, ctx.now + 900 - 700);
+    await brokerTick({ ...ctx, now: ctx.now + 900 }, { mode });
+    expect(byRequest(ctx, "broker", `nudge:${node}:a1:4`)).toBeNull();
+    expect(getLiveness(ctx, node)).toMatchObject({ reason: "silent_prompt", nudges: 3, stalledAt: ctx.now + 420 });
     expect(stop.mock.calls).toEqual([]);
+
+    // Real file progress clears the row so a later silent_prompt starts at nudges 0.
+    apply("working", ctx.now + 950, undefined, ctx.now + 950);
+    await brokerTick({ ...ctx, now: ctx.now + 950 }, { mode });
+    expect(getLiveness(ctx, node)).toBeNull();
+    apply("needs-input", ctx.now + 1600, ctx.now + 1600 - 700, ctx.now + 950);
+    await brokerTick({ ...ctx, now: ctx.now + 1600 }, { mode });
+    expect(getLiveness(ctx, node)).toMatchObject({ reason: "silent_prompt", nudges: 0, stalledAt: null });
   } finally { stop.mockRestore(); }
 });
 

@@ -52,7 +52,21 @@ function progressMark(ctx: Ctx, stall: Stall, snapshot: ReturnType<typeof buildS
     : task?.progress?.lastOutputAt;
   // A caller's ladder restarts when another of its tasks settles, so each pending decision gets wakes.
   const pending = stall.reason === "caller_decision" ? stall.blocking : undefined;
-  return JSON.stringify([task?.state, task?.attempts.length, task?.settledAt, moved, last?.id, pending]);
+  // silent_prompt retains across temporary working gaps only while this attempt's progressMark still matches.
+  const attempt = stall.reason === "silent_prompt" ? task?.run?.attempt ?? 0 : null;
+  return JSON.stringify([task?.state, task?.attempts.length, task?.settledAt, moved, last?.id, pending, attempt]);
+}
+
+/**
+ * After a silent_prompt nudge the agent often leaves needs-input briefly; analyzeLiveness then has no stall and
+ * the broker would clear the row, resetting nudges forever. Keep the row while the same attempt is still running
+ * and lastProgressAt has not moved past the row's progressMark. Clear on real progress, settle, or new attempt.
+ */
+function retainAbsentSilentPrompt(ctx: Ctx, row: { reason: string; node: string; progressMark: string | null }, snapshot: ReturnType<typeof buildSnapshot>): boolean {
+  if (row.reason !== "silent_prompt" || !row.progressMark) return false;
+  const seen = snapshot.tasks.find(n => `task:${n.task.id}` === row.node);
+  if (!seen || seen.task.state !== "running" || !seen.task.run) return false;
+  return progressMark(ctx, { node: row.node, reason: "silent_prompt", blocking: [] }, snapshot) === row.progressMark;
 }
 
 function publishRow(ctx: Ctx, row: LivenessUpsert | null, node: string): void {
@@ -77,6 +91,7 @@ export async function brokerTick(ctx: Ctx, deps: BrokerDeps): Promise<BrokerRepo
       const stalls = analyzeLiveness(snapshot, ctx.now);
       const present = new Set(stalls.map(s => s.node));
       for (const row of listLiveness(ctx)) if (row.reason && !present.has(row.node)) {
+        if (retainAbsentSilentPrompt(ctx, row, snapshot)) continue;
         clearLiveness(ctx, row.node); publishRow(ctx, null, row.node);
       }
       let actions = 0;
