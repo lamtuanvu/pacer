@@ -4,6 +4,15 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Changed
+
+- **`messaging.liveness.nudge_in_modes` defaults to all four modes** (`relaxed`, `normal`, `strict`, `emergency`). Executor nudges (idle, silent prompt, no-progress, cycle, undelivered retry) now run in strict and emergency too; those modes still save the planner's budget. Planner wakes use the new `messaging.liveness.caller_wake_in_modes` (default `relaxed`, `normal`), so planners are still not woken in strict or emergency unless you opt in.
+
+### Fixed
+
+- **Interactive resume turns no longer tell the agent both "do not run pacer report" and "completion requires running pacer report".** Interactive runners get a live turn prompt so the session can finish with `pacer report`.
+- **A delegated interactive session stuck in phase `needs-input` with no open pacer question is detected as a `silent_prompt` stall** after `execution.idle_after_min` and nudged to finish with `pacer report` or ask a question, instead of waiting forever while active time is paused. Human conversation tasks waiting at their prompt stay exempt.
+
 ## [0.17.9] - 2026-11-23
 
 ### Added

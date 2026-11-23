@@ -45,7 +45,7 @@ function msg(from: string, to: string, o: Partial<Message> = {}): Message {
     status: "pending", createdAt: NOW - 50, deliveredAt: null, readAt: null, turnId: null, ...o };
 }
 const node = (t: TaskRecord, o: Partial<SnapshotTask> = {}): SnapshotTask => ({ task: t, work: false, parent: "external:planner", depth: 1, lastProgressAt: NOW, ...o });
-const snap = (o: Partial<LivenessSnapshot>): LivenessSnapshot => ({ tasks: [], unread: [], questions: [], retryDelivery: true, noProgressS: 1800, ...o });
+const snap = (o: Partial<LivenessSnapshot>): LivenessSnapshot => ({ tasks: [], unread: [], questions: [], retryDelivery: true, noProgressS: 1800, idleAfterS: 600, ...o });
 
 test("a settled task with a pending message is undelivered", () => {
   const t = task("t-a");
@@ -143,10 +143,78 @@ test("a running task with output but no progress for 30 min is no_progress", () 
 
 test("a driving or needs-input task is never no_progress", () => {
   for (const phase of ["driving", "needs-input"]) {
-    expect(analyzeLiveness(snap({ tasks: [node(working(phase), { lastProgressAt: NOW - 7200 })] }), NOW)).toEqual([]);
+    // Fresh silentSince keeps needs-input out of silent_prompt; driving stays exempt entirely.
+    expect(analyzeLiveness(snap({ tasks: [node(working(phase), { lastProgressAt: NOW - 7200, silentSince: NOW - 5 })] }), NOW)).toEqual([]);
   }
   // A settled task is not a run.
   expect(analyzeLiveness(snap({ tasks: [node(working("working", { state: "done" }), { lastProgressAt: NOW - 7200 })] }), NOW)).toEqual([]);
+});
+
+test("a needs-input run with no open question becomes silent_prompt after idle_after_min", () => {
+  const stalled = working("needs-input", {
+    attemptStartedAt: NOW - 700,
+    progress: { phase: "needs-input", lastOutputAt: NOW - 600, lastChangeAt: NOW - 3600, gitObserved: true } as TaskRecord["progress"],
+  });
+  expect(analyzeLiveness(snap({ tasks: [node(stalled, { silentSince: NOW - 600 })] }), NOW))
+    .toEqual([expect.objectContaining({ node: "task:t-a", reason: "silent_prompt" })]);
+  // Still inside the idle window.
+  expect(analyzeLiveness(snap({ tasks: [node(working("needs-input"), { silentSince: NOW - 5 })] }), NOW)).toEqual([]);
+  // An open task.question or question message means someone owes an answer.
+  const withQuestion = working("needs-input", {
+    question: { text: "which?", at: NOW - 700 },
+    progress: { phase: "needs-input", lastOutputAt: NOW - 700, lastChangeAt: NOW - 3600, gitObserved: true } as TaskRecord["progress"],
+  });
+  expect(analyzeLiveness(snap({ tasks: [node(withQuestion, { silentSince: NOW - 700 })] }), NOW)).toEqual([]);
+  const q = msg("task:t-a", "external:planner", { kind: "question", status: "delivered" });
+  expect(analyzeLiveness(snap({
+    tasks: [node(working("needs-input", { progress: { phase: "needs-input", lastOutputAt: NOW - 700, lastChangeAt: NOW - 3600, gitObserved: true } as TaskRecord["progress"] }), { silentSince: NOW - 700 })],
+    questions: [q],
+  }), NOW)).toEqual([]);
+});
+
+test("a conversation task at its prompt is never silent_prompt", () => {
+  for (const activity of ["waiting", "idle"] as const) {
+    const atPrompt = working("needs-input", {
+      interactionMode: "conversation",
+      conversation: { activity },
+      attemptStartedAt: NOW - 700,
+      progress: { phase: "needs-input", lastOutputAt: NOW - 700, lastChangeAt: NOW - 3600, gitObserved: true } as TaskRecord["progress"],
+    });
+    expect(analyzeLiveness(snap({ tasks: [node(atPrompt, { silentSince: NOW - 700 })] }), NOW)).toEqual([]);
+    const waiting = working("working", {
+      interactionMode: "conversation",
+      conversation: { activity },
+      progress: { phase: "working", lastOutputAt: NOW - 700, lastChangeAt: NOW - 3600, gitObserved: true } as TaskRecord["progress"],
+    });
+    expect(analyzeLiveness(snap({ tasks: [node(waiting)] }), NOW)).toEqual([]);
+  }
+});
+
+test("silent_prompt timer is not reset by a later lastOutputAt (terminal redraw)", () => {
+  // Viewer attach / spinner moves lastOutputAt while phase stays needs-input; silentSince stays put.
+  const t = working("needs-input", {
+    attemptStartedAt: NOW - 700,
+    progress: { phase: "needs-input", lastOutputAt: NOW - 1, lastChangeAt: NOW - 3600, gitObserved: true } as TaskRecord["progress"],
+  });
+  expect(analyzeLiveness(snap({ tasks: [node(t, { silentSince: NOW - 700 })] }), NOW))
+    .toEqual([expect.objectContaining({ node: "task:t-a", reason: "silent_prompt" })]);
+  expect(analyzeLiveness(snap({ tasks: [node(t, { silentSince: NOW - 100 })] }), NOW)).toEqual([]);
+});
+
+test("a human-controlled or testing run is never silent_prompt", () => {
+  const base = { phase: "needs-input" as const, lastOutputAt: NOW - 700, lastChangeAt: NOW - 3600, gitObserved: true };
+  expect(analyzeLiveness(snap({ tasks: [node(working("needs-input", { progress: { ...base, controlled: true } as TaskRecord["progress"] }), { silentSince: NOW - 700 })] }), NOW)).toEqual([]);
+  expect(analyzeLiveness(snap({ tasks: [node(working("testing", { progress: { ...base, phase: "testing" } as TaskRecord["progress"] }), { silentSince: NOW - 700 })] }), NOW)).toEqual([]);
+  expect(analyzeLiveness(snap({ tasks: [node(working("driving", { progress: { ...base, phase: "driving" } as TaskRecord["progress"] }), { silentSince: NOW - 700 })] }), NOW)).toEqual([]);
+});
+
+test("a takeover run at needs-input is never silent_prompt", () => {
+  const t = working("needs-input", {
+    attemptStartedAt: NOW - 700,
+    progress: { phase: "needs-input", lastOutputAt: NOW - 700, lastChangeAt: NOW - 3600, gitObserved: true } as TaskRecord["progress"],
+    run: { dir: "/tmp/x", attempt: 1, executor: "codex", startedAt: NOW - 700, mode: "new", workdir: "/tmp/w", logFile: "/dev/null", takeover: true } as TaskRecord["run"],
+  });
+  expect(analyzeLiveness(snap({ tasks: [node(t, { silentSince: NOW - 700 })] }), NOW)).toEqual([]);
 });
 
 test("a task in pacer's acceptance testing phase is never no_progress", () => {

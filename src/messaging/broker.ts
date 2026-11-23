@@ -1,7 +1,9 @@
+import { loadStrategy } from "../config/strategy";
 import { CoreError } from "../core/errors";
 import { withLock } from "../core/lock";
 import { requestReview } from "../core/tasks";
 import type { Mode } from "../engine/mode";
+import { executorExclusion } from "../executors/availability";
 import { publish } from "../link/publish";
 import { readTask, updateTask } from "../tasks/store";
 import type { TaskRecord } from "../tasks/types";
@@ -18,6 +20,20 @@ import { insertMessage, markRead } from "./store";
 import { messagesDatabase } from "./store";
 import { deliver } from "./turns";
 
+/**
+ * Cheap local guard: exhausted.json / blocked.json via executorExclusion (no provider I/O).
+ * Unknown executor → allow the nudge; only skip when we know the account cannot spend.
+ */
+function executorCanSpend(ctx: Ctx, task: TaskRecord | undefined): boolean {
+  const id = task?.run?.executor ?? task?.attempts.at(-1)?.executor;
+  if (!id) return true;
+  try {
+    return !executorExclusion(ctx, loadStrategy(ctx), id);
+  } catch {
+    return true;
+  }
+}
+
 export interface BrokerReport { skipped?: "locked" | "mode_unavailable"; stalls?: number; actions?: number }
 /** The wake step for a caller that owes a decision, injected so src/messaging never names a host or a planner. */
 export type CallerWakeResult = "sent" | "busy" | "gone" | "resumed" | "unavailable";
@@ -30,11 +46,27 @@ export interface BrokerDeps {
 function progressMark(ctx: Ctx, stall: Stall, snapshot: ReturnType<typeof buildSnapshot>): string {
   const n = snapshot.tasks.find(n => `task:${n.task.id}` === stall.node), task = n?.task;
   const last = messagesDatabase(ctx).query<{ id: string }, [string]>("SELECT id FROM messages WHERE sender=? AND kind<>'nudge' ORDER BY id DESC LIMIT 1").get(stall.node);
-  // A spinner moves lastOutputAt every tick; a no-progress stall resets only on progress.
-  const moved = stall.reason === "no_progress" ? n?.lastProgressAt : task?.progress?.lastOutputAt;
+  // A spinner moves lastOutputAt every tick; no_progress / silent_prompt reset only on real progress.
+  // silent_prompt must not use silentSince here: report.at moves on every Stop and would reset nudges forever.
+  const moved = stall.reason === "no_progress" || stall.reason === "silent_prompt" ? n?.lastProgressAt
+    : task?.progress?.lastOutputAt;
   // A caller's ladder restarts when another of its tasks settles, so each pending decision gets wakes.
   const pending = stall.reason === "caller_decision" ? stall.blocking : undefined;
-  return JSON.stringify([task?.state, task?.attempts.length, task?.settledAt, moved, last?.id, pending]);
+  // silent_prompt retains across temporary working gaps only while this attempt's progressMark still matches.
+  const attempt = stall.reason === "silent_prompt" ? task?.run?.attempt ?? 0 : null;
+  return JSON.stringify([task?.state, task?.attempts.length, task?.settledAt, moved, last?.id, pending, attempt]);
+}
+
+/**
+ * After a silent_prompt nudge the agent often leaves needs-input briefly; analyzeLiveness then has no stall and
+ * the broker would clear the row, resetting nudges forever. Keep the row while the same attempt is still running
+ * and lastProgressAt has not moved past the row's progressMark. Clear on real progress, settle, or new attempt.
+ */
+function retainAbsentSilentPrompt(ctx: Ctx, row: { reason: string; node: string; progressMark: string | null }, snapshot: ReturnType<typeof buildSnapshot>): boolean {
+  if (row.reason !== "silent_prompt" || !row.progressMark) return false;
+  const seen = snapshot.tasks.find(n => `task:${n.task.id}` === row.node);
+  if (!seen || seen.task.state !== "running" || !seen.task.run) return false;
+  return progressMark(ctx, { node: row.node, reason: "silent_prompt", blocking: [] }, snapshot) === row.progressMark;
 }
 
 function publishRow(ctx: Ctx, row: LivenessUpsert | null, node: string): void {
@@ -59,6 +91,7 @@ export async function brokerTick(ctx: Ctx, deps: BrokerDeps): Promise<BrokerRepo
       const stalls = analyzeLiveness(snapshot, ctx.now);
       const present = new Set(stalls.map(s => s.node));
       for (const row of listLiveness(ctx)) if (row.reason && !present.has(row.node)) {
+        if (retainAbsentSilentPrompt(ctx, row, snapshot)) continue;
         clearLiveness(ctx, row.node); publishRow(ctx, null, row.node);
       }
       let actions = 0;
@@ -67,15 +100,21 @@ export async function brokerTick(ctx: Ctx, deps: BrokerDeps): Promise<BrokerRepo
         const node = stall.node;
         const root = taskOf(node) ? rootOf(ctx, node) : undefined;
         const config = effectivePolicy(ctx, { root }).config.liveness;
-        const allowed = config.nudge_in_modes.includes(mode);
+        // Executor nudges vs planner wakes: separate mode gates. Strict saves the planner's budget only.
+        const nudgeAllowed = config.nudge_in_modes.includes(mode);
+        const wakeAllowed = config.caller_wake_in_modes.includes(mode);
         const old = getLiveness(ctx, node);
         const mark = progressMark(ctx, stall, snapshot), seen = snapshot.tasks.find(n => `task:${n.task.id}` === node);
         // Per attempt, so a retried task's pings are not taken for the previous attempt's.
         const pingId = (n: number) => `nudge:${node}:a${seen?.task.run?.attempt ?? 0}:${n}`;
         const changed = old?.progressMark !== mark || old.reason !== stall.reason;
         const row: LivenessUpsert = old && !changed ? { ...old } : {
-          // A no_progress stall started at the last progress, which the attention detail counts from.
-          node, reason: stall.reason, since: stall.reason === "no_progress" ? seen?.lastProgressAt ?? ctx.now : ctx.now, attempts: 0, nudges: 0, nextAt: ctx.now + config.interval_s,
+          // A no_progress / silent_prompt stall started at the last progress or prompt wait, which attention counts from.
+          node, reason: stall.reason,
+          since: stall.reason === "no_progress" ? seen?.lastProgressAt ?? ctx.now
+            : stall.reason === "silent_prompt" ? seen?.silentSince ?? seen?.task.attemptStartedAt ?? ctx.now
+            : ctx.now,
+          attempts: 0, nudges: 0, nextAt: ctx.now + config.interval_s,
           progressMark: mark, stalledAt: null, escalatedAt: null,
         };
         // A people node keeps its alert when its stall moves between unread messages and an owed decision,
@@ -86,21 +125,23 @@ export async function brokerTick(ctx: Ctx, deps: BrokerDeps): Promise<BrokerRepo
           row.stalledAt = old.stalledAt ?? row.stalledAt; row.escalatedAt = old.escalatedAt ?? row.escalatedAt;
         }
         row.reason = stall.reason;
-        const nudged = stall.reason === "cycle" || stall.reason === "idle_run" || stall.reason === "no_progress";
+        const nudged = stall.reason === "cycle" || stall.reason === "idle_run" || stall.reason === "no_progress" || stall.reason === "silent_prompt";
+        // An exhausted/blocked executor account cannot spend on a nudge — escalate instead (local marks only).
+        const canSpend = !nudged && stall.reason !== "undelivered" ? true : executorCanSpend(ctx, seen?.task);
         // Nudges wait one interval after the stall is first seen; a zero cap or a mode without nudges escalates at once.
-        if (ctx.now < row.nextAt && nudged && allowed && config.max_nudges > 0) { upsertLiveness(ctx, row); continue; }
+        if (ctx.now < row.nextAt && nudged && nudgeAllowed && canSpend && config.max_nudges > 0) { upsertLiveness(ctx, row); continue; }
         if (ctx.now < row.nextAt && !changed) continue;
         let acted = false;
         let stallNow = false;
         if (stall.reason === "undelivered") {
-          if (!allowed) stallNow = true;
+          if (!nudgeAllowed || !canSpend) stallNow = true;
           else {
             const result = (await deliver(ctx, node, deps.spawnRunner)).delivery;
             acted = true;
             stallNow = ["cap", "no_session", "closed", "live_unavailable"].includes(result);
           }
         } else if (stall.reason === "no_progress") {
-          if (!allowed) stallNow = true;
+          if (!nudgeAllowed || !canSpend) stallNow = true;
           // Ping first; only pings that go unanswered stop the run.
           else if (row.nudges < config.max_nudges) {
             insertMessage(ctx, { taskId: taskOf(node), rootId: rootOf(ctx, node), from: "broker", to: node,
@@ -127,8 +168,18 @@ export async function brokerTick(ctx: Ctx, deps: BrokerDeps): Promise<BrokerRepo
               await stopRun(run.dir);
             }
           }
+        } else if (stall.reason === "silent_prompt") {
+          // Keep the live session; tell it to finish with pacer report or ask a real question.
+          if (!nudgeAllowed || !canSpend || row.nudges >= config.max_nudges) stallNow = true;
+          else {
+            insertMessage(ctx, { taskId: taskOf(node), rootId: rootOf(ctx, node), from: "broker", to: node,
+              kind: "nudge", body: "pacer: you are waiting at your prompt with no open question. Finish with `pacer report --outcome done|failed`, or ask a question via pacer.",
+              replyTo: null, requestId: pingId(row.nudges + 1) });
+            await deliver(ctx, node, deps.spawnRunner);
+            row.nudges++; acted = true;
+          }
         } else if (nudged) {
-          if ((stall.reason === "cycle" && !stall.deepest) || !allowed || row.nudges >= config.max_nudges) stallNow = true;
+          if ((stall.reason === "cycle" && !stall.deepest) || !nudgeAllowed || !canSpend || row.nudges >= config.max_nudges) stallNow = true;
           else if (node === stall.deepest && !cycleTargets.has(node)) {
             cycleTargets.add(node);
             const chain = `${node} → ${stall.waitingOn ?? node} → ${node}`;
@@ -152,7 +203,7 @@ export async function brokerTick(ctx: Ctx, deps: BrokerDeps): Promise<BrokerRepo
           const notify = () => { stallNow = true; acted = true; };
           const due = ctx.now >= row.since + config.caller_wake_after_s;
           const escalate = ctx.now >= row.since + config.escalate_after_s;
-          if (!allowed) notify();
+          if (!wakeAllowed) notify();
           else if (!due || row.nudges >= config.max_nudges) { if (escalate) notify(); }
           else {
             // The oldest pending decision the caller can be reached for and told about.
@@ -183,11 +234,11 @@ export async function brokerTick(ctx: Ctx, deps: BrokerDeps): Promise<BrokerRepo
             } else if (escalate) notify();
           }
         } else if (stall.reason === "unread_external") {
-          if (!allowed || ctx.now >= row.since + config.escalate_after_s) {
+          if (!nudgeAllowed || ctx.now >= row.since + config.escalate_after_s) {
             row.escalatedAt ??= ctx.now; acted = true;
           }
         } else if (stall.reason === "unread_human") {
-          if (!allowed || ctx.now >= row.since + config.escalate_after_s) row.escalatedAt ??= ctx.now;
+          if (!nudgeAllowed || ctx.now >= row.since + config.escalate_after_s) row.escalatedAt ??= ctx.now;
           acted = true;
         }
         if (acted) {

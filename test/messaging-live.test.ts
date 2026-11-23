@@ -293,6 +293,32 @@ test("a running interactive delegated task is driven live; a takeover run never 
   expect(store.pendingFor(take.ctx, `task:${take.id}`).length).toBe(1);
 });
 
+test("a silent_prompt nudge is typed while the session stays turn-ended after idle_prompt", async () => {
+  // Live CT-11: idle_prompt used to rewrite turn-ended → needs-input, so betweenTurns never typed nudges.
+  const { agentHook } = await import("../src/session/reports");
+  const { ctx, id, dir, run } = setup({ mode: "task" });
+  const session = fakeSession(dir);
+  await session.ready;
+  agentHook(dir, { hook_event_name: "Stop", last_assistant_message: "waiting at prompt" });
+  agentHook(dir, { hook_event_name: "Notification", notification_type: "idle_prompt", message: "Claude is waiting for your input" });
+  const { readReport } = await import("../src/session/reports");
+  expect(readReport(dir)?.status).toBe("turn-ended");
+  store.insertMessage(ctx, {
+    taskId: id, rootId: `task:${id}`, from: "broker", to: `task:${id}`, kind: "nudge",
+    body: "pacer: you are waiting at your prompt with no open question. Finish with `pacer report --outcome done|failed`, or ask a question via pacer.",
+    replyTo: null, requestId: `nudge:task:${id}:a1:1`,
+  });
+  // needs-input report status would block typing; turn-ended (post idle_prompt) must claim and type.
+  await liveTick(ctx, readTask(ctx, id)!, run, state({ status: "needs-input" }), deps);
+  expect(session.input.length).toBe(0);
+  expect(store.pendingFor(ctx, `task:${id}`).length).toBe(1);
+  await liveTick(ctx, readTask(ctx, id)!, run, state({ status: "turn-ended" }), deps);
+  const typed = Buffer.concat(session.input).toString();
+  expect(typed).toContain("waiting at your prompt");
+  expect(store.pendingFor(ctx, `task:${id}`).length).toBe(0);
+  expect(readTask(ctx, id)!.liveTurn).toBeTruthy();
+});
+
 test("an ended conversation is live_unavailable and keeps the message pending", async () => {
   const { ctx, id } = setup();
   updateTask(ctx, id, t => { t.state = "done"; t.conversation = { activity: "ended" }; });

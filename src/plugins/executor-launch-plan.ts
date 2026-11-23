@@ -53,7 +53,7 @@ export async function planOwnedLaunch(ctx: Ctx, input: { cfg: ProviderCfg; task:
   const pendingTurn = task.pendingTurn;
   // Claiming is idempotent for one turn id, so a restart before START sends the same messages once.
   const turn = pendingTurn ? claimTurnMessages(ctx, task) : null;
-  const prompt = turn ? renderTurnPrompt(ctx, task, turn.messages) : brief;
+  const prompt = turn ? renderTurnPrompt(ctx, task, turn.messages, { live: interactive }) : brief;
   const instructions = interactive ? `\n\nInteractive pacer session: completion requires running pacer report --task ${task.id} --outcome done --summary "<result>" (or --outcome failed). Run pacer report with the launch environment unchanged; do not override PACER_HOME or HOME for it. Before asking the user, run pacer report --status needs-input --summary "<question>"; when resuming use --status running. Do not infer completion from the terminal. PACER_RUN_DIR identifies this attempt. You may write a longer Markdown result to $PACER_TRANSCRIPT_REPORT.\n` : "";
   // The session captured when the turn started; the runner has already cleared task.run.
   const priorSession = turn && !pendingTurn?.replay
