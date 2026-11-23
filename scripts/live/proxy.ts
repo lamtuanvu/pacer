@@ -3,6 +3,7 @@ import type { ServerWebSocket } from "bun";
 import { readFileSync } from "node:fs";
 import { record, type Session } from "./core";
 import { authorizeSeedRepair } from "./repair";
+import { authorizeSeedPluginRemove } from "./plugin-remove";
 import { authorizeFixtureRequest } from "./ota-request";
 import { FIXTURE_UPDATE_OPS } from "./ota-exercise-record";
 import { createOtaRequestTrace, emitOtaRequestTrace } from "./ota-request-trace";
@@ -79,7 +80,7 @@ export function startProxy(session: Session) {
       const traceOp = FIXTURE_UPDATE_OPS.find(operation => url.pathname === `/v3/ops/${operation}`);
       const trace = traceOp ? createOtaRequestTrace(session, traceOp) : undefined;
       const op = refusedOp(req.method, url.pathname);
-      if (op && !await authorizeSeedRepair(session, req) && !await authorizeFixtureRequest(session, req, trace)) {
+      if (op && !await authorizeSeedRepair(session, req) && !await authorizeSeedPluginRemove(session, req) && !await authorizeFixtureRequest(session, req, trace)) {
         const message = `Live validation D8: ${op} changes the real user environment`;
         record(session, { kind: "note", behavior: `D8 blocked ${op}`, surface: "API proxy", verdict: "UNVERIFIED", steps: `${req.method} ${url.pathname}`, text: message });
         emitOtaRequestTrace(trace, { stage: "forward", outcome: "refused", status: 403 });
