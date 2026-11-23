@@ -70,8 +70,13 @@ pub fn same_path(a: &str, b: &str) -> bool {
     }
 }
 
-fn plugin_name(plugin: &Map<String, Value>) -> String {
-    obj_string(plugin, "name", "plugin")
+/// `pluginName(plugin)` (index.ts): the plugin's name, or `"plugin"` when the
+/// entry is not an object or has no name.
+fn plugin_name(plugin: &Value) -> String {
+    match plugin.as_object() {
+        Some(map) => obj_string(map, "name", "plugin"),
+        None => "plugin".to_owned(),
+    }
 }
 
 /// True when every listed plugin is an allowlisted builtin (`source` + `path: "builtin"`).
@@ -197,7 +202,7 @@ pub fn parse_claude_run(stdout: &str, expect: Option<&ClaudeInitExpect>) -> Valu
                     && same_path(cwd, &e.cwd)
                     && version == e.version
             });
-            let want_pacer = expect.map_or(false, |e| e.pacer_mcp);
+            let want_pacer = expect.is_some_and(|e| e.pacer_mcp);
             let want_tools: Vec<String> = expect.map(|e| e.tools.clone()).unwrap_or_default();
             let surface_ok = if want_pacer {
                 listed
@@ -236,10 +241,7 @@ pub fn parse_claude_run(stdout: &str, expect: Option<&ClaudeInitExpect>) -> Valu
                 }
                 if let Some(plugins) = &plugins {
                     for plugin in plugins {
-                        tools.push(json!({
-                            "tool": plugin_name(plugin.as_object().expect("plugin object")),
-                            "status": "available"
-                        }));
+                        tools.push(json!({ "tool": plugin_name(plugin), "status": "available" }));
                     }
                 }
                 if let Some(slash) = &slash {

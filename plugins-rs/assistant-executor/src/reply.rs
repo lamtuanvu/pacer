@@ -187,7 +187,7 @@ async fn run(host: &Host, refs: &Refs, c: &AskCommand) -> Result<RunValue, Plugi
 /// non-zero exit (index.ts `resumeFailed`).
 fn resume_failed(r: &RunValue, o: &Value) -> bool {
     !r.timed_out
-        && o.get("text").and_then(Value::as_str).map_or(true, str::is_empty)
+        && o.get("text").and_then(Value::as_str).is_none_or(str::is_empty)
         && (r.code != 0 || o.get("error").is_some())
 }
 
@@ -319,8 +319,8 @@ pub async fn reply(params: Value, ctx: Ctx) -> HandlerResult {
     // Claude CONTROL digest-only: host already answered after mcp_status failed.
     let control_digest_ok = out.get("claudeControl").and_then(Value::as_bool) == Some(true)
         && out.get("toolsHealthy").and_then(Value::as_bool) == Some(false)
-        && !out.get("text").and_then(Value::as_str).map_or(true, str::is_empty)
-        && !out.get("error").and_then(Value::as_str).map_or(true, str::is_empty)
+        && !out.get("text").and_then(Value::as_str).is_none_or(str::is_empty)
+        && !out.get("error").and_then(Value::as_str).is_none_or(str::is_empty)
         && out
             .get("error")
             .and_then(Value::as_str)

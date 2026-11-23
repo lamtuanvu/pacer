@@ -426,7 +426,7 @@ pub fn assistant_settings_set(ctx: &Ctx, params: Value) -> OpFuture<'_> {
                 } else {
                     "an endpoint account with a model"
                 };
-                return Err(CoreError::new(Code::InvalidInput, &format!("Choose {want}."))
+                return Err(CoreError::new(Code::InvalidInput, format!("Choose {want}."))
                     .hint("Add one in Settings › Accounts."));
             }
         }
