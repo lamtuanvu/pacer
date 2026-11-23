@@ -67,7 +67,7 @@ async function serve(dir: string, forward: boolean) {
   }
   if (!token) { child.kill("SIGKILL"); throw new Error(`service did not start: ${await stderr}`); }
   const post = async (op: string, body: string, headers: Record<string, string> = {}) => {
-    const response = await fetch(`${base}/v3/ops/${op}`, { method: "POST", headers: { Authorization: `Bearer ${token}`, ...headers }, body, signal: AbortSignal.timeout(30000) });
+    const response = await fetch(`${base}/v3/ops/${op}`, { method: "POST", headers: { Authorization: `Bearer ${token}`, Connection: "close", ...headers }, body, keepalive: false, signal: AbortSignal.timeout(30000) });
     return { status: response.status, body: await response.text() };
   };
   const raw = (path: string, init: RequestInit) => fetch(base + path, init);
