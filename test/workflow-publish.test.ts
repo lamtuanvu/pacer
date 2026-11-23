@@ -267,6 +267,16 @@ test("publish refuses a title that starts with '-' or contains NUL", async () =>
   })).rejects.toMatchObject({ code: "invalid_input", message: expect.stringMatching(/control/i) });
 });
 
+test("publish refuses a whitespace-only title", async () => {
+  const { ctx, run } = await seededPublishable();
+  const { bin } = installGhStub(ctx.home);
+  withGhPath(ctx, bin);
+  await approveFresh(ctx, run);
+  await expect(publishRun(ctx, run.id, {
+    draft: false, title: "   \t  ", body: "b", expectRev: getRun(ctx, run.id)!.rev,
+  })).rejects.toMatchObject({ code: "invalid_input", message: expect.stringMatching(/title/i) });
+});
+
 test("originRepoSlug accepts dots in repo names (https and ssh)", async () => {
   const ctx = fakeCtx({ run: realRun });
   const repo = gitRepo();

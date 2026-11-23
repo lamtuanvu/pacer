@@ -63,7 +63,7 @@ export type PublishInput = {
 export type PublishResult = { pr_url: string; run: RunRow };
 
 function validatePublishInput(input: PublishInput): void {
-  if (typeof input.title !== "string" || input.title.length < 1 || input.title.length > TITLE_MAX) {
+  if (typeof input.title !== "string" || input.title.trim().length < 1 || input.title.length > TITLE_MAX) {
     throw new CoreError("invalid_input", `title must be 1..${TITLE_MAX} characters`);
   }
   // Leading '-' is refused so titles cannot be mistaken for argv flags when passed to gh.
