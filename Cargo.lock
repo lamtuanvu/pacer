@@ -1469,6 +1469,7 @@ dependencies = [
  "pacer-bundled-assistant-executor",
  "pacer-bundled-classify",
  "pacer-bundled-endpoints",
+ "pacer-bundled-exec-direct",
  "pacer-bundled-exec-orca",
  "pacer-bundled-notify",
  "pacer-bundled-remote-caller",
@@ -1527,6 +1528,16 @@ dependencies = [
  "serde_json",
  "tokio",
  "url",
+]
+
+[[package]]
+name = "pacer-bundled-exec-direct"
+version = "0.0.0"
+dependencies = [
+ "pacer-plugin",
+ "regex",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

@@ -17,6 +17,7 @@ pacer-bundled-remote-caller = { path = "../../plugins-rs/pacer-remote-caller" }
 pacer-bundled-assistant = { path = "../../plugins-rs/pacer-assistant" }
 pacer-bundled-assistant-executor = { path = "../../plugins-rs/assistant-executor" }
 pacer-bundled-exec-orca = { path = "../../plugins-rs/pacer-exec-orca" }
+pacer-bundled-exec-direct = { path = "../../plugins-rs/pacer-exec-direct" }
 tokio.workspace = true
 
 [dev-dependencies]

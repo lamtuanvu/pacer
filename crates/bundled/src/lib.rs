@@ -25,7 +25,7 @@ pub const TABLE: &[Bundled] = &[
     Bundled { id: "assistant-executor", manifest: pacer_bundled_assistant_executor::MANIFEST, run: Some(pacer_bundled_assistant_executor::plugin) },
     Bundled { id: "pacer-ssh", manifest: include_str!("../manifests/pacer-ssh.json"), run: None },
     Bundled { id: "pacer-remote-caller", manifest: pacer_bundled_remote_caller::MANIFEST, run: Some(pacer_bundled_remote_caller::plugin) },
-    Bundled { id: "pacer-exec-direct", manifest: include_str!("../manifests/pacer-exec-direct.json"), run: None },
+    Bundled { id: "pacer-exec-direct", manifest: pacer_bundled_exec_direct::MANIFEST, run: Some(pacer_bundled_exec_direct::plugin) },
     Bundled { id: "pacer-exec-orca", manifest: pacer_bundled_exec_orca::MANIFEST, run: Some(pacer_bundled_exec_orca::plugin) },
 ];
 
