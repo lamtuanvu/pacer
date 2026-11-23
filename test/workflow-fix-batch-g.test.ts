@@ -203,6 +203,11 @@ describe("I1: bounded transient entry start", () => {
     );
     await startPendingEntries(ctx, { deps });
     expect(getRun(ctx, run.id)!.status).toBe("running");
+    // Sustained blips within the gap cadence so last_transient stays fresh (batch I).
+    for (let t = 30; t <= ENTRY_START_TRANSIENT_MIN_S - 10; t += 30) {
+      (ctx as { now: number }).now = NOW + t;
+      await startPendingEntries(ctx, { deps });
+    }
     (ctx as { now: number }).now = NOW + ENTRY_START_TRANSIENT_MIN_S + 1;
     await startPendingEntries(ctx, { deps });
     const failed = getRun(ctx, run.id)!;

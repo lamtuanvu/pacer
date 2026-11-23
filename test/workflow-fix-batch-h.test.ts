@@ -223,49 +223,37 @@ describe("I2: ENTRY PK collision via insertStep stub", () => {
   });
 
   test("startPendingEntries UNIQUE as already-started: run not failed, exactly one entry task", async () => {
+    // Strengthened in batch I (afterEntryClaim interleave); keep a stub-path regression here.
     const ctx = fakeCtx({ now: NOW });
     addChain(ctx);
     const { deps } = stubDeps();
     const run = insertRun(ctx, {
       workflow: CHAIN.id, version: 1, repo: tmpDir(), brief: "pk-pending",
     });
-    // Pre-create the winning entry task; pending will treat a bubbled UNIQUE as already-started.
-    const row = insertStep(ctx, { runId: run.id, stepId: "one", attempt: 1, status: "running" });
-    const task = createTask(ctx, {
-      brief: { goal: "winner", repo: tmpDir() }, kind: "research", requestedExecutor: null, timeoutS: 600,
-      requestId: `wf:${run.id}:one:1:`,
-    });
-    workflowDatabase(ctx).query(
-      "UPDATE workflow_steps SET task_id = ? WHERE run_id = ? AND step_id = ? AND attempt = 1 AND branch = ''",
-    ).run(task.id, run.id, "one");
-    void row;
     clearEntryLease(ctx, run.id);
-    // Make the run look like it still needs entry, then bubble UNIQUE from startEntryIfNeeded.
-    let guardChecks = 0;
-    const realSteps = store.stepsOfRun;
-    const stepsSpy = spyOn(store, "stepsOfRun").mockImplementation((c, id) => {
-      guardChecks++;
-      if (guardChecks === 1) return [];
-      return realSteps(c, id);
+    let inserted = false;
+    const n = await startPendingEntries(ctx, {
+      deps,
+      afterEntryClaim: (c, id) => {
+        if (inserted) return;
+        inserted = true;
+        // Second starter wins the ENTRY row between claim and insert.
+        const row = insertStep(c, { runId: id, stepId: "one", attempt: 1, status: "running" });
+        const task = createTask(c, {
+          brief: { goal: "winner", repo: tmpDir() }, kind: "research", requestedExecutor: null, timeoutS: 600,
+          requestId: `wf:${id}:one:1:`,
+        });
+        workflowDatabase(c).query(
+          "UPDATE workflow_steps SET task_id = ? WHERE run_id = ? AND step_id = ? AND attempt = 1 AND branch = ''",
+        ).run(task.id, id, "one");
+        void row;
+      },
     });
-    // Hide the winner during startAgentStep's UNIQUE catch so the error bubbles to pending.
-    const insertSpy = spyOn(store, "insertStep").mockImplementation(() => {
-      stepsSpy.mockImplementation(() => []);
-      throw new Error(UNIQUE_ENTRY_PK);
-    });
-    try {
-      // After bubble, restore visibility for assertions.
-      const n = await startPendingEntries(ctx, { deps });
-      stepsSpy.mockImplementation((c, id) => realSteps(c, id));
-      // startEntryIfNeeded catch may return true (already started) before pending's catch.
-      expect(n).toBeGreaterThanOrEqual(0);
-      expect(getRun(ctx, run.id)!.status).toBe("running");
-      expect(getRun(ctx, run.id)!.reason).toBeUndefined();
-      expect(entryTasks(ctx, run.id)).toBe(1);
-    } finally {
-      insertSpy.mockRestore();
-      stepsSpy.mockRestore();
-    }
+    expect(n).toBe(1);
+    expect(getRun(ctx, run.id)!.status).toBe("running");
+    expect(getRun(ctx, run.id)!.reason).toBeUndefined();
+    expect(entryTasks(ctx, run.id)).toBe(1);
+    expect(stepsOfRun(ctx, run.id).filter(s => s.stepId === "one")).toHaveLength(1);
   });
 });
 
@@ -329,6 +317,11 @@ describe("I5: time-based transient bound", () => {
     await startPendingEntries(ctx, { deps });
     expect(getRun(ctx, run.id)!.entryStartAttempts).toBe(1);
     expect(getRun(ctx, run.id)!.entryFirstTransientAt).toBe(NOW);
+    // Sustained: refresh last_transient within the gap cadence while time crosses the window.
+    for (let t = 30; t <= ENTRY_START_TRANSIENT_MIN_S - 10; t += 30) {
+      (ctx as { now: number }).now = NOW + t;
+      await startPendingEntries(ctx, { deps });
+    }
     (ctx as { now: number }).now = NOW + ENTRY_START_TRANSIENT_MIN_S + 1;
     await startPendingEntries(ctx, { deps });
     const failed = getRun(ctx, run.id)!;
@@ -348,12 +341,13 @@ describe("I5: time-based transient bound", () => {
     workflowDatabase(ctx).exec(
       `CREATE TRIGGER wf_h_cap BEFORE INSERT ON workflow_steps WHEN NEW.run_id = '${run.id}' BEGIN SELECT RAISE(ABORT, 'database is locked'); END`,
     );
-    for (let i = 0; i < ENTRY_START_TRANSIENT_MAX; i++) {
-      await startPendingEntries(ctx, { deps });
-      if (getRun(ctx, run.id)!.status === "failed") break;
-    }
+    // Seed just under the cap (batch I raised the max); one more transient must fail.
+    workflowDatabase(ctx).query(
+      "UPDATE workflow_runs SET entry_start_attempts = ?, entry_first_transient_at = ?, entry_last_transient_at = ? WHERE id = ?",
+    ).run(ENTRY_START_TRANSIENT_MAX - 1, NOW, NOW, run.id);
+    await startPendingEntries(ctx, { deps });
     expect(getRun(ctx, run.id)!.status).toBe("failed");
-  }, 60_000);
+  });
 });
 
 describe("I6: bumpEntryStartAttempts failure does not abort the loop", () => {
