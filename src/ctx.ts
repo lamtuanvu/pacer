@@ -20,14 +20,14 @@ export function assertPacerHomeAllowed(path: string): void {
 
 /**
  * Harness-only entry-lease / start-delay knobs. Honored only when an explicit
- * test-mode flag is present (PACER_LIVE_HARNESS=1 or NODE_ENV=test). Values are
+ * harness flag is present (PACER_LIVE_HARNESS=1); unit tests inject Ctx fields directly. Values are
  * read once at makeCtx (serve boot) and copied onto Ctx — never from $PACER_HOME files.
  */
 export function harnessEntryOverrides(env: Record<string, string | undefined>): {
   entryLeaseS?: number;
   startRunDelayMs?: number;
 } {
-  const allowed = env.PACER_LIVE_HARNESS === "1" || env.NODE_ENV === "test";
+  const allowed = env.PACER_LIVE_HARNESS === "1";
   if (!allowed) return {};
   const out: { entryLeaseS?: number; startRunDelayMs?: number } = {};
   const lease = Number(env.PACER_TEST_ENTRY_LEASE_S);
