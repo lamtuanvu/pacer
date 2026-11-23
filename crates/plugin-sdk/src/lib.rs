@@ -10,6 +10,8 @@ mod serve;
 pub mod testing;
 #[cfg(feature = "testing")]
 pub use testing::HostError;
+#[cfg(feature = "usage")]
+pub mod usage;
 pub mod wire;
 
 /// Plugin protocol types, re-exported from the generated protocol crates (CRATE-3 area split).

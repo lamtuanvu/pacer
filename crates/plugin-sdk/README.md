@@ -248,6 +248,44 @@ reassembled value; `hello_result()` exposes the raw `plugin.hello` reply. An
 error response with only `code`/`message` maps to `HostError` so tests can also
 use `on_capability` unchanged.
 
+## Usage reader IO
+
+With the Cargo `usage` feature (`--features pacer-plugin/usage`), the SDK
+exposes `pacer_plugin::usage` (the port of `@pacer/plugin` `usage.ts`): the
+`ReaderIo` host-adapter that quota readers use to read files, spawn providers
+and own a usage-state lease without touching the ambient filesystem or process
+state. Every read, stat, list, range, spawn and usage-state interaction is
+mapped onto the fixed capability methods (`capability.fs.read`, …,
+`capability.process.spawn`, `capability.usage.state.*`) in
+`pacer_plugin::usage::reader_io`, matching `createUsageReaderIO` in the TS
+SDK byte-for-byte:
+
+```rust
+use pacer_plugin::{
+    Manifest, Plugin,
+    usage::{ReaderIo, reader_io},
+};
+use serde_json::json;
+
+let plugin = Plugin::new(Manifest(
+    json!({"id":"u","version":"1.0.0","publisher":"t","host":"^1","contributes":{"usage":{}}}),
+))
+.handle("usage.read", |params, ctx| async move {
+    let io = reader_io(&ctx.host);
+    let Some((text, _mtime)) = io.read(params["path"].as_str().unwrap_or("")).await? else {
+        return Ok(json!({"windows": [], "error": "missing"}));
+    };
+    Ok(json!({"windows": [], "text": text}))
+});
+```
+
+`usage` brings the `ReaderIo` trait along with its `read`/`list`/`stat`/
+`range`/`run`/`cached_fetch`/`cursors`, the `FileInfo`, `RunResult`,
+`Cursor` and `CursorFiles` types, and `reader_io(&host)`. Bundled provider
+readers (`plugins-rs/pacer-usage`) are built on it and share the same
+capability contract, so a single set of host answers drives both the TypeScript
+and the Rust readers to identical transcripts.
+
 ## Protocol reference
 
 See [docs/plugin-protocol.md](../../docs/plugin-protocol.md) for the wire
