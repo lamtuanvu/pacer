@@ -4,7 +4,7 @@
  * Measures the wall time of the five status read surfaces a user or client hits:
  *   status-line   `pacer status --line --no-color` through the Rust front door
  *   v3-snapshot   GET  /v3/snapshot      (token-protected local API)
- *   v2-snapshot   GET  /v1/snapshot      (legacy v2 surface)
+ *   v2-snapshot   GET  /v2/snapshot      (legacy v2 surface)
  *   limits.check  POST /v3/ops/limits.check {}
  *   snapshot.get  POST /v3/ops/snapshot.get {}
  *
@@ -67,7 +67,7 @@ async function round(s: { argv: string[]; env: NodeJS.ProcessEnv; token: string;
   const [status, v3, v2, lc, sg] = await Promise.all([
     Promise.resolve().then(() => statusLine(s.argv, s.env)),
     fetchMs(`${base}/v3/snapshot`, s.token),
-    fetchMs(`${base}/v1/snapshot`, s.token),
+    fetchMs(`${base}/v2/snapshot`, s.token),
     fetchMs(`${base}/v3/ops/limits.check`, s.token, { method: "POST", body: "{}" }),
     fetchMs(`${base}/v3/ops/snapshot.get`, s.token, { method: "POST", body: "{}" }),
   ]);
