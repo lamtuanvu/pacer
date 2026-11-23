@@ -145,6 +145,11 @@ export function eventsSince(ctx:Ctx,since:number,protocol:2|3=2):{events:ApiEven
       };
     }
   }
+  // promptWait is v3-only; strip it from the v2 task event form before attach.
+  if(e.type==='task'&&v2.data&&typeof v2.data==='object'&&!Array.isArray(v2.data)){
+    const {promptWait:_pw,...data}=v2.data as Record<string,unknown>;
+    v2={...v2,data};
+  }
   Object.defineProperty(event,V2_EVENT,{value:e.type==="planner"||e.type==="desktop.update"||v3OnlyEvent(e)?null:v2});
   return event;
  });

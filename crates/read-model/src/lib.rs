@@ -1,7 +1,7 @@
 //! Read-model composition over the shared fixture/state homes. No operations are
 //! registered: TypeScript remains the runtime owner. External probes are explicit
 //! inputs, so reading a snapshot never spawns an agent or reads its credentials.
-mod attention;
+pub mod attention;
 pub mod capacity;
 mod consoles;
 pub mod events;

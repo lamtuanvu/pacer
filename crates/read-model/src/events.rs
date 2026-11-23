@@ -63,9 +63,10 @@ pub fn to_v2_event(e: &Value) -> Option<Value> {
         "assistant",
         "machine",
         "message",
-        // Workflow runs and decisions are v3-only: their entity events never reach v2 clients.
+        // Workflow runs, decisions and structured questions are v3-only.
         "run",
         "decision",
+        "question",
         "discovery.found",
         "control",
     ]
@@ -80,6 +81,12 @@ pub fn to_v2_event(e: &Value) -> Option<Value> {
     } else {
         num(&e["seq"])
     });
+    // promptWait is v3-only; strip it from task event payloads on the frozen 2.x surface.
+    if e["type"] == "task"
+        && let Some(map) = out["data"].as_object_mut()
+    {
+        map.remove("promptWait");
+    }
     Some(out)
 }
 pub fn events_since(
@@ -177,6 +184,7 @@ pub fn events_since(
                 || e["type"] == "desktop.update"
                 || e["type"] == "run"
                 || e["type"] == "decision"
+                || e["type"] == "question"
                 || v3_only(&e)
             {
                 continue;
@@ -200,6 +208,12 @@ pub fn events_since(
                             (num(&e["data"]["problems"]) - workflow_problems as f64).max(0.0),
                         );
                     }
+                }
+                // promptWait is v3-only; strip it from task event payloads.
+                if e["type"] == "task"
+                    && let Some(map) = v["data"].as_object_mut()
+                {
+                    map.remove("promptWait");
                 }
                 converted.push(v);
             }

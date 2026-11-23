@@ -2,12 +2,315 @@
 // exhaustion and orchestrator failures, with actions that include expect_rev and
 // concrete run.set_budget / run.set_planner params. since/raisedAt are stable via
 // spent.attention_at (no orchestrator-attention.json / budget-attention.json).
+// Phase 4 also raises /v3-only items for open person-answerer structured questions (D10).
 import type { Ctx } from "../types";
-import type { Action, AttentionItem } from "../attention/types";
+import type { Action, AttentionItem, AttentionUnblocks } from "../attention/types";
+import { sortItems } from "../attention/rules";
 import { PLANNERS } from "../config/strategy";
 import { agentInfo } from "../view-model/agents";
-import { liveRuns, type RunRow } from "./store";
+import {
+  getRun,
+  listOpenPersonQuestions,
+  liveRuns,
+  workflowSchemaPresent,
+  type QuestionAskerKind,
+  type QuestionBlocks,
+  type QuestionRow,
+  type RunRow,
+} from "./store";
+import { taskDatabase } from "../tasks/store";
 import { isBudgetBlocked, parseBudget, parseSpent } from "./budget";
+
+/** Person-facing cue so human-step / planner / executor questions differ on Dispatch. */
+function askerCue(kind: QuestionAskerKind): string {
+  if (kind === "human_step") return "Needs your approval";
+  if (kind === "orchestrator") return "Asked by the workflow planner";
+  return "Asked by a step";
+}
+
+/** Clip to `max` Unicode code points (never split a surrogate pair). */
+export function clipCodePoints(s: string, max: number, ellipsis = false): string {
+  const points = Array.from(s);
+  if (points.length <= max) return s;
+  const head = points.slice(0, max).join("");
+  return ellipsis ? `${head}…` : head;
+}
+
+const OPTION_DETAIL_CLIP = 40;
+const OPTION_BUTTON_MAX_CODE_POINTS = 80;
+const QUESTION_TITLE_CLIP = 80;
+const FULL_QUESTION_CLIP = 200;
+const RUN_DETAIL_CLIP = 80;
+const ANSWER_CHAR_LIMIT = 2000;
+const OPTION_BUTTON_CAP = 3;
+
+/** Collapse newlines to spaces so title/detail stay one line before clipping. */
+export function collapseNewlines(s: string): string {
+  return s.replace(/\r\n|\r|\n/g, " ");
+}
+
+/**
+ * Shared TS/Rust trim: space, tab, CR, LF, NBSP only (not JS trim's U+FEFF/U+0085).
+ * Used after collapseNewlines so CR/LF are already spaces.
+ */
+export function trimSharedWhitespace(s: string): string {
+  return s.replace(/^[\t\n\r \u00A0]+|[\t\n\r \u00A0]+$/g, "");
+}
+
+/** One-line question body for title/detail: collapse newlines, then shared trim. */
+function collapsedQuestionText(text: string): string {
+  return trimSharedWhitespace(collapseNewlines(text));
+}
+
+/** Plain-word option list for the attention detail (yes_no always yes/no). */
+function optionWords(q: QuestionRow): string[] | null {
+  if (q.answerType === "yes_no") return ["yes", "no"];
+  if (q.answerType === "approve_revise") {
+    return q.options?.length ? q.options.map(o => o.value) : ["approve", "revise"];
+  }
+  if (q.options?.length) return q.options.map(o => o.value);
+  return null;
+}
+
+function complementaryYesNo(first: string): string {
+  const lower = first.toLowerCase();
+  if (lower === "yes") {
+    if (first === "Yes") return "No";
+    if (first === "YES") return "NO";
+    return "no";
+  }
+  if (first === "No") return "Yes";
+  if (first === "NO") return "YES";
+  return "yes";
+}
+
+/** UI-3: capitalise yes/no button labels; params keep the validator spelling. */
+function yesNoButtonLabel(answer: string): string {
+  const lower = answer.toLowerCase();
+  if (lower === "yes") return "Yes";
+  if (lower === "no") return "No";
+  return answer;
+}
+
+/** Run title for detail, or the workflow slug when untitled (never a run id). */
+function runDetailSubject(run: Pick<RunRow, "title" | "workflow">): string {
+  const raw = typeof run.title === "string"
+    ? trimSharedWhitespace(collapseNewlines(run.title))
+    : "";
+  return clipCodePoints(raw || run.workflow, RUN_DETAIL_CLIP);
+}
+
+/** An option that would not fit a Dispatch button (m2). */
+function optionFitsButton(value: string): boolean {
+  return value.length <= ANSWER_CHAR_LIMIT
+    && Array.from(value).length <= OPTION_BUTTON_MAX_CODE_POINTS;
+}
+
+/** Up to 3 option buttons; recommended first. Shared by `single` and custom `approve_revise`. */
+function optionChoiceActions(
+  id: string,
+  expect_rev: number,
+  values: string[],
+  recommended?: string | null,
+): Action[] {
+  if (values.length === 0) return [];
+  const ordered = recommended && values.includes(recommended)
+    ? [recommended, ...values.filter(v => v !== recommended)]
+    : values;
+  const buttonable = ordered.filter(optionFitsButton);
+  return buttonable.slice(0, OPTION_BUTTON_CAP).map((answer, i) => {
+    const action: Action = {
+      label: clipCodePoints(answer, OPTION_DETAIL_CLIP, true),
+      op: "question.answer",
+      params: { id, expect_rev, answer },
+    };
+    if (i === 0) action.style = "primary";
+    return action;
+  });
+}
+
+/**
+ * Actions whose first entry can succeed via a direct op call (UI-13 / Dispatch
+ * renders only the first action). Text/multi and other shapes have no op action.
+ */
+export function runQuestionActions(q: QuestionRow): Action[] {
+  const id = q.id;
+  const expect_rev = q.rev;
+  if (q.answerType === "yes_no") {
+    const first = q.recommended && ["yes", "no"].includes(q.recommended.toLowerCase())
+      ? q.recommended
+      : "Yes";
+    const second = complementaryYesNo(first);
+    return [
+      {
+        label: yesNoButtonLabel(first),
+        op: "question.answer",
+        params: { id, expect_rev, answer: first },
+        style: "primary",
+      },
+      {
+        label: yesNoButtonLabel(second),
+        op: "question.answer",
+        params: { id, expect_rev, answer: second },
+      },
+    ];
+  }
+  if (q.answerType === "approve_revise") {
+    const values = q.options?.map(o => o.value) ?? [];
+    if (values.length === 0) {
+      return [
+        { label: "Approve", op: "question.answer", params: { id, expect_rev, answer: "approve" }, style: "primary" },
+      ];
+    }
+    const approveSpelling = values.find(v => v.toLowerCase() === "approve");
+    if (approveSpelling !== undefined) {
+      return [
+        {
+          label: "Approve",
+          op: "question.answer",
+          params: { id, expect_rev, answer: approveSpelling },
+          style: "primary",
+        },
+      ];
+    }
+    // Custom options without "approve" — same as single (I-1).
+    return optionChoiceActions(id, expect_rev, values, q.recommended);
+  }
+  if (q.answerType === "single" && q.options && q.options.length > 0) {
+    return optionChoiceActions(id, expect_rev, q.options.map(o => o.value), q.recommended);
+  }
+  return [];
+}
+
+/**
+ * Title: the question itself (one line). When longer than 80 code points, clip to
+ * 79 and append … so the tray/Dispatch line shows the text was truncated (I-1).
+ */
+export function runQuestionTitle(q: QuestionRow): string {
+  const collapsed = collapsedQuestionText(q.text);
+  if (Array.from(collapsed).length <= QUESTION_TITLE_CLIP) return collapsed;
+  return clipCodePoints(collapsed, QUESTION_TITLE_CLIP - 1, true);
+}
+
+/**
+ * Detail: first-button cue (when present), run title/slug, asker cue, Full question
+ * when the title was clipped, options / recommended (newlines collapsed, clipped),
+ * CLI hint last when needed (UI-1 / I-1 / I-3).
+ */
+export function runQuestionDetail(
+  q: QuestionRow,
+  actions: Action[],
+  run: Pick<RunRow, "title" | "workflow">,
+): string {
+  const parts: string[] = [];
+  if (actions.length > 0) {
+    parts.push(`The first button answers "${actions[0]!.label}".`);
+  }
+  parts.push(`${runDetailSubject(run)}.`, `${askerCue(q.askerKind)}.`);
+  const collapsed = collapsedQuestionText(q.text);
+  if (Array.from(collapsed).length > QUESTION_TITLE_CLIP) {
+    parts.push(`Full question: ${clipCodePoints(collapsed, FULL_QUESTION_CLIP, true)}.`);
+  }
+  const opts = optionWords(q);
+  if (opts) {
+    parts.push(`Options: ${opts.map(o => clipCodePoints(collapseNewlines(o), OPTION_DETAIL_CLIP, true)).join(" / ")}.`);
+  }
+  if (q.recommended) {
+    parts.push(`Recommended: ${clipCodePoints(collapseNewlines(q.recommended), OPTION_DETAIL_CLIP, true)}.`);
+  }
+  // m1: CLI hint when no buttons, or when listed options exceed the buttons shown.
+  if (actions.length === 0 || (opts !== null && opts.length > actions.length)) {
+    parts.push(`Answer with: pacer answer ${q.id} "<your answer>"`);
+  }
+  return parts.join(" ");
+}
+
+/**
+ * Asker task ids whose open person-answerer blocking (step/branch) question raises
+ * a `question:q_` item — suppress the ordinary `question:<taskId>` twin (I6 / I-1 / I-4).
+ * `blocks:nothing` and `answerer:orchestrator` questions do not suppress.
+ * Never creates the workflow schema (ordinary task.ask/answer must stay schema-free).
+ */
+export function openBlockingPersonQuestionAskerIds(ctx: Ctx): Set<string> {
+  try {
+    if (!workflowSchemaPresent(ctx)) return new Set();
+    const rows = taskDatabase(ctx).query<{ asker_task_id: string | null }, []>(
+      `SELECT asker_task_id FROM workflow_questions
+       WHERE status = 'open' AND answerer = 'person' AND blocks IN ('step', 'branch')
+         AND asker_task_id IS NOT NULL`,
+    ).all();
+    return new Set(rows.map(r => r.asker_task_id!).filter(Boolean));
+  } catch {
+    return new Set();
+  }
+}
+
+/** Drop ordinary task.answer attention items for askers covered by openBlockingPersonQuestionAskerIds. */
+export function suppressOrdinaryQuestionItems<T extends { kind: string; taskId?: string }>(
+  items: T[],
+  askers: Set<string>,
+): T[] {
+  if (askers.size === 0) return items;
+  return items.filter(i => !(i.kind === "question" && i.taskId && askers.has(i.taskId)));
+}
+
+/** Stable A–Z letter from a run id until Phase 6 assigns fixed letters. */
+export function runAttentionLetter(runId: string): string {
+  let h = 0;
+  for (let i = 0; i < runId.length; i++) h = (h * 31 + runId.charCodeAt(i)) >>> 0;
+  return String.fromCharCode(65 + (h % 26));
+}
+
+function unblocksFor(blocks: QuestionBlocks): AttentionUnblocks {
+  if (blocks === "branch") return "branch";
+  if (blocks === "nothing") return "nothing";
+  return "run";
+}
+
+function questionPayload(q: QuestionRow): Record<string, unknown> {
+  const out: Record<string, unknown> = {
+    id: q.id,
+    text: q.text,
+    answerType: q.answerType,
+    blocks: q.blocks,
+    rev: q.rev,
+    askerKind: q.askerKind,
+  };
+  if (q.options) out.options = q.options;
+  if (q.recommended) out.recommended = q.recommended;
+  if (q.artifact) out.artifact = q.artifact;
+  if (q.suggested) out.suggested = q.suggested;
+  if (q.askerTaskId) out.askerTaskId = q.askerTaskId;
+  if (q.branch) out.branch = q.branch;
+  return out;
+}
+
+function runQuestionItem(ctx: Ctx, q: QuestionRow, run: RunRow): AttentionItem {
+  const unblocks = unblocksFor(q.blocks);
+  const at = q.createdAt || ctx.now;
+  const actions = runQuestionActions(q);
+  const runTitle = run.title || run.workflow;
+  return {
+    id: `question:${q.id}`,
+    kind: "question",
+    severity: unblocks === "nothing" ? "decide" : "blocked",
+    repo: null,
+    title: runQuestionTitle(q),
+    detail: runQuestionDetail(q, actions, run),
+    raisedAt: at,
+    since: at,
+    notify: unblocks === "nothing" ? "all" : "important",
+    actions,
+    unblocks,
+    run: {
+      id: run.id,
+      letter: runAttentionLetter(run.id),
+      title: runTitle,
+      priority: "normal",
+    },
+    question: questionPayload(q),
+  };
+}
 
 function attentionClock(ctx: Ctx, run: RunRow, kind = "default"): number {
   const spent = parseSpent(run.spent);
@@ -29,9 +332,7 @@ function attentionClock(ctx: Ctx, run: RunRow, kind = "default"): number {
  * line, at most 60 code points, with an ellipsis when clipped.
  */
 function clipTitleLine(line: string, maxCodePoints = 60): string {
-  // Count Unicode code points so a surrogate pair (emoji) is never split.
-  const points = Array.from(line);
-  return points.length > maxCodePoints ? `${points.slice(0, maxCodePoints).join("")}…` : line;
+  return clipCodePoints(line, maxCodePoints, true);
 }
 
 function workflowSubject(run: RunRow): string {
@@ -111,9 +412,15 @@ function blockedFailureActions(run: RunRow): Action[] {
   return actions;
 }
 
-/** Attention items for live runs: blocked orchestrator and budget thresholds. */
+/** Attention items for live runs: blocked orchestrator, budget thresholds, and person questions. */
 export function deriveWorkflowAttention(ctx: Ctx): AttentionItem[] {
   const items: AttentionItem[] = [];
+  const liveById = new Map(liveRuns(ctx).map(r => [r.id, r]));
+  for (const q of listOpenPersonQuestions(ctx)) {
+    const run = liveById.get(q.runId) ?? getRun(ctx, q.runId);
+    if (!run || (run.status !== "running" && run.status !== "waiting")) continue;
+    items.push(runQuestionItem(ctx, q, run));
+  }
   for (const run of liveRuns(ctx)) {
     // Child runs share the root's orchestrator/budget attention.
     if (run.parentRunId) continue;
@@ -210,7 +517,7 @@ export function deriveWorkflowAttention(ctx: Ctx): AttentionItem[] {
       });
     }
   }
-  return items;
+  return sortItems(items);
 }
 
 /** Budget / message attention for a run from the live derive path. */

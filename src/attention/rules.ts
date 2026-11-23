@@ -4,7 +4,7 @@ import { awaitsAnswer } from "../tasks/types";
 import { parseRunnerId } from "../config/runner-id";
 import { executorName } from "../link/notification";
 import { workActionRequestId } from "../work/action-id";
-import type { Action, AttentionItem, AttentionKind } from "./types";
+import type { Action, AttentionItem, AttentionKind, AttentionUnblocks, RunAttentionPriority } from "./types";
 import { discoveryPrompts, type DiscoveryRuleInput } from "../discovery/prompts";
 
 export interface RuleInput {
@@ -19,9 +19,23 @@ export interface RuleInput {
 const callerLabel = (p?: string) => /^external:([a-z-]+)/.exec(p ?? "")?.[1] ?? "the caller";
 const displayName = (id: string | null) => executorName(id ? parseRunnerId(id)?.agent ?? id : null);
 const open = (label: string, params: Action["params"]): Action => ({ label, op: "ui.open", params });
+/** Clip by Unicode code points so a surrogate pair is never split (m4). */
+const clipCodePoints = (s: string, max: number) => {
+  const points = Array.from(s);
+  return points.length > max ? points.slice(0, max).join("") : s;
+};
 const severityOrder = { blocked: 0, problem: 1, decide: 2 };
+const unblocksOrder: Record<AttentionUnblocks, number> = { run: 0, branch: 1, nothing: 2 };
+const priorityOrder: Record<RunAttentionPriority, number> = { urgent: 0, normal: 1, background: 2 };
 export function sortItems(items: AttentionItem[]): AttentionItem[] {
-  return items.sort((a,b) => severityOrder[a.severity]-severityOrder[b.severity] || a.since-b.since || a.id.localeCompare(b.id));
+  // Total order: ordinary items use sentinel unblocks=nothing and priority=normal
+  // so mixed run/ordinary triples cannot cycle (I9).
+  return items.sort((a, b) =>
+    severityOrder[a.severity] - severityOrder[b.severity]
+    || unblocksOrder[a.unblocks ?? "nothing"] - unblocksOrder[b.unblocks ?? "nothing"]
+    || priorityOrder[a.run?.priority ?? "normal"] - priorityOrder[b.run?.priority ?? "normal"]
+    || a.since - b.since
+    || a.id.localeCompare(b.id));
 }
 export function deriveItems(input: RuleInput): AttentionItem[] {
   const items: AttentionItem[] = [];
@@ -54,6 +68,30 @@ export function deriveItems(input: RuleInput): AttentionItem[] {
       ],extra);
     } else if (t.state === "running" && t.progress?.phase === "idle") {
       add("stuck",t.id,t.goal,"Waiting for output",[open("Open task",{view:"task",id:t.id}),{label:"Stop it",op:"task.stop",params:{id:t.id},style:"danger"}],extra);
+    }
+    if (t.state === "running" && t.promptWait) {
+      const raw = clipCodePoints(t.promptWait.text, 200);
+      items.push({
+        id: `prompt_wait:${t.id}`,
+        kind: "stuck",
+        severity: "blocked",
+        repo: t.repo,
+        taskId: t.id,
+        title: t.goal,
+        // UI-1: Convert sentence first, then the captured terminal text.
+        detail: `Convert hands the question to the workflow planner, who answers or asks you. ${raw}`,
+        raisedAt: t.promptWait.at,
+        since: t.promptWait.at,
+        notify: "important",
+        actions: [
+          // Convert first: Dispatch/tray show only the first action; convert_prompt
+          // succeeds with { id } alone (UI evidence batch G).
+          { label: "Convert to question", op: "question.convert_prompt", params: { id: t.id }, style: "primary" },
+          open("Answer in terminal", { view: "task", id: t.id, tab: "terminal" }),
+        ],
+        ...(t.executor ? { executor: t.executor } : {}),
+        ...(t.host ? { host: t.host } : {}),
+      });
     }
     if (t.liveness?.stalled) {
       const detail = t.liveness.reason === "no_progress"

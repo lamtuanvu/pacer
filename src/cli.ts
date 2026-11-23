@@ -478,7 +478,8 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
     return {code:2,out:"",err:"pacer: work grants only allow scoped dispatch commands"};
   if (ctx.env.PACER_ASSISTANT_GRANT && cmd !== "mcp")
     return {code:2,out:"",err:"pacer: an assistant grant only allows the MCP server"};
-  // Orchestrator turns: review/stop/step result|skip|retry|artifact / run decide|choose|submit-graph|sync|publish.
+  // Orchestrator turns: review/stop/step result|skip|retry|artifact / run decide|choose|submit-graph|sync|publish,
+  // plus structured question answer/escalate/ask (Phase 4). Never delegate or run.answer.
   // run.cleanup stays person-only (refused here and in the op).
   if (ctx.env.PACER_ROLE === "orchestrator" || ctx.env.PACER_RUN_GRANT) {
     const sub = rest[0];
@@ -486,11 +487,12 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
       cmd === "review" || cmd === "stop"
       || (cmd === "step" && (sub === "result" || sub === "skip" || sub === "retry" || sub === "artifact"))
       || (cmd === "run" && (sub === "decide" || sub === "choose" || sub === "submit-graph" || sub === "sync" || sub === "publish"))
+      || cmd === "answer" || cmd === "question" || cmd === "ask"
       || cmd === "api" || cmd === "mcp";
     if (!allowed) {
       return {
         code: 2, out: "",
-        err: "pacer: orchestrator role only allows review, stop, step result|skip|retry|artifact, run decide|choose|submit-graph|sync|publish",
+        err: "pacer: orchestrator role only allows review, stop, step result|skip|retry|artifact, run decide|choose|submit-graph|sync|publish, answer, question, ask --type ...",
       };
     }
   }
@@ -537,14 +539,30 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
     case "answer": {
       try {
         const pos: string[] = [];
-        let json = false, options = true;
-        for (const a of rest) {
+        let json = false, options = true, note: string | undefined, expectRev: number | undefined;
+        for (let i = 0; i < rest.length; i++) {
+          const a = rest[i]!;
           if (options && a === "--") { options = false; continue; }
           if (options && a === "--json") json = true;
-          else if (options && a.startsWith("--")) throw new Error(`unknown option: ${a}`);
+          else if (options && (a === "--note" || a.startsWith("--note="))) {
+            note = a.includes("=") ? a.slice(a.indexOf("=") + 1) : rest[++i];
+          } else if (options && (a === "--expect-rev" || a.startsWith("--expect-rev="))) {
+            const raw = a.includes("=") ? a.slice(a.indexOf("=") + 1) : rest[++i];
+            expectRev = Number(raw);
+          } else if (options && a.startsWith("--")) throw new Error(`unknown option: ${a}`);
           else pos.push(a);
         }
-        if (pos.length !== 2) throw new Error('usage: pacer answer <task> "<text>" [--json] [--]');
+        if (pos.length !== 2) throw new Error('usage: pacer answer <task|question> "<text>" [--note] [--expect-rev] [--json] [--]');
+        if (pos[0]!.startsWith("q_")) {
+          const current = await callOp(ctx, "question.get", { id: pos[0] }) as { rev: number };
+          const result = await callOp(ctx, "question.answer", {
+            id: pos[0],
+            answer: pos[1],
+            ...(note !== undefined ? { note } : {}),
+            expect_rev: expectRev ?? current.rev,
+          }, { spawnRunner: cliDeps.spawnRunner });
+          return { code: 0, out: JSON.stringify(result, null, json ? 2 : undefined), err: "" };
+        }
         const result = await callOp(ctx,"task.answer",{id:pos[0],text:pos[1]},{spawnRunner:cliDeps.spawnRunner,participant:localHuman(ctx)});
         return {code:0,out:JSON.stringify(result,null,json?2:undefined),err:""};
       } catch(e) {return {code:2,out:"",err:explain(e)};}
@@ -558,7 +576,59 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
       } catch (e) { return { code: 2, out: "", err: explain(e) }; }
     }
     case "ask": {
-      // Executors ask the planner; everyone else asks the assistant.
+      // Structured flags → question.ask; executors without flags use task.ask; else assistant.
+      const structured = rest.some(a => a === "--type" || a.startsWith("--type=")
+        || a === "--option" || a.startsWith("--option=")
+        || a === "--recommend" || a.startsWith("--recommend=")
+        || a === "--blocks" || a.startsWith("--blocks=")
+        || a === "--artifact" || a.startsWith("--artifact=")
+        || a === "--step" || a.startsWith("--step=")
+        || a === "--attempt" || a.startsWith("--attempt="));
+      if (structured) {
+        try {
+          const options: { value: string }[] = [];
+          let type: string | undefined, recommend: string | undefined, blocks = "step", text: string | undefined;
+          let artifact: string | undefined, stepId: string | undefined, attempt: number | undefined;
+          for (let i = 0; i < rest.length; i++) {
+            const a = rest[i]!;
+            if (a === "--type" || a.startsWith("--type=")) type = a.includes("=") ? a.slice(7) : rest[++i];
+            else if (a === "--option" || a.startsWith("--option=")) {
+              const v = a.includes("=") ? a.slice(9) : rest[++i];
+              if (v) options.push({ value: v });
+            } else if (a === "--recommend" || a.startsWith("--recommend=")) {
+              recommend = a.includes("=") ? a.slice(12) : rest[++i];
+            } else if (a === "--blocks" || a.startsWith("--blocks=")) {
+              blocks = (a.includes("=") ? a.slice(9) : rest[++i]) ?? "step";
+            } else if (a === "--artifact" || a.startsWith("--artifact=")) {
+              artifact = a.includes("=") ? a.slice(11) : rest[++i];
+            } else if (a === "--step" || a.startsWith("--step=")) {
+              stepId = a.includes("=") ? a.slice(7) : rest[++i];
+            } else if (a === "--attempt" || a.startsWith("--attempt=")) {
+              const raw = a.includes("=") ? a.slice(10) : rest[++i];
+              attempt = Number(raw);
+              if (!Number.isInteger(attempt) || attempt < 1) {
+                throw new Error('usage: pacer ask --type <kind> [--option ...] [--recommend] [--blocks] [--artifact] [--step] [--attempt] "<text>"');
+              }
+            } else if (a.startsWith("--")) throw new Error(`unknown option ${a}`);
+            else if (text === undefined) text = a;
+            else throw new Error('usage: pacer ask --type <kind> [--option ...] [--recommend] [--blocks] [--artifact] [--step] [--attempt] "<text>"');
+          }
+          if (!type || !text?.trim()) {
+            throw new Error('usage: pacer ask --type <kind> [--option ...] [--recommend] [--blocks] [--artifact] [--step] [--attempt] "<text>"');
+          }
+          const result = await callOp(ctx, "question.ask", {
+            text,
+            answerType: type,
+            blocks,
+            ...(options.length ? { options } : {}),
+            ...(recommend ? { recommended: recommend } : {}),
+            ...(artifact ? { artifact } : {}),
+            ...(stepId ? { stepId } : {}),
+            ...(attempt !== undefined ? { attempt } : {}),
+          });
+          return { code: 0, out: JSON.stringify(result), err: "" };
+        } catch (e) { return { code: 2, out: "", err: e instanceof Error ? e.message : String(e) }; }
+      }
       if (!isExecutorSession(ctx)) return askCommand(rest, ctx);
       try {
         const id = core.tasks.requireAskingExecutor(ctx);

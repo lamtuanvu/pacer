@@ -42,6 +42,7 @@ export const POLICY_EVENT_TYPES = [
   "machine",
   "run",
   "decision",
+  "question",
   "assistant",
   "discovery.found",
   "control",

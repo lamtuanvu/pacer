@@ -3475,6 +3475,30 @@
         "seq": 7,
         "data": {}
       }
+    },
+    {
+      "input": {
+        "type": "task",
+        "seq": 3000000000001,
+        "data": {
+          "id": "t-wait",
+          "state": "running",
+          "fullTitle": "preserved",
+          "promptWait": {
+            "text": "Proceed? (y/n)",
+            "at": 1
+          }
+        }
+      },
+      "output": {
+        "type": "task",
+        "seq": 1,
+        "data": {
+          "id": "t-wait",
+          "state": "running",
+          "fullTitle": "preserved"
+        }
+      }
     }
   ],
   "snapshots": [
@@ -3852,6 +3876,246 @@
             "at": 2
           }
         ],
+        "console": null,
+        "consoles": [],
+        "serviceInstalled": false
+      }
+    },
+    {
+      "id": "strip-prompt-wait",
+      "input": {
+        "seq": 3000000000000,
+        "at": 42,
+        "mode": "normal",
+        "tasks": [
+          {
+            "id": "t-wait",
+            "state": "running",
+            "fullTitle": "preserved",
+            "derived": {},
+            "promptWait": {
+              "text": "Proceed? (y/n)",
+              "at": 1
+            }
+          }
+        ],
+        "strategies": [
+          "old",
+          {
+            "name": "inactive",
+            "active": false
+          },
+          {
+            "name": "chosen",
+            "active": true
+          },
+          {
+            "name": "later",
+            "active": true
+          }
+        ],
+        "planner": {
+          "runner": "p",
+          "mode": "normal",
+          "stale": true
+        },
+        "accounts": [
+          {
+            "name": "a",
+            "verdict": "GO",
+            "resetsAt": 60,
+            "window": "week"
+          }
+        ],
+        "policy": {
+          "mode": "normal"
+        },
+        "pause": null,
+        "today": {
+          "since": 0,
+          "done": 0,
+          "accepted": 0,
+          "rejected": 0,
+          "failed": 0,
+          "byRepo": {}
+        },
+        "hosts": [],
+        "repos": [],
+        "executors": [],
+        "machine": {
+          "used": 0,
+          "max": 9007199254740991,
+          "hardCap": null,
+          "unlimited": true
+        },
+        "setup": {
+          "items": []
+        },
+        "attention": [],
+        "counts": {
+          "attention": 99,
+          "problems": 99,
+          "setupOpen": 99,
+          "other": 3
+        },
+        "service": {
+          "protocol": "3.0.0",
+          "version": "fixture"
+        },
+        "desktopUpdates": [
+          {
+            "id": "hidden"
+          }
+        ],
+        "extra": {
+          "preserved": true
+        }
+      },
+      "output": {
+        "seq": 0,
+        "at": 42,
+        "mode": "normal",
+        "tasks": [
+          {
+            "id": "t-wait",
+            "state": "running",
+            "fullTitle": "preserved",
+            "derived": {}
+          }
+        ],
+        "strategies": [
+          "old",
+          {
+            "name": "inactive",
+            "active": false
+          },
+          {
+            "name": "chosen",
+            "active": true
+          },
+          {
+            "name": "later",
+            "active": true
+          }
+        ],
+        "planner": {
+          "runner": "p",
+          "mode": "normal",
+          "stale": true
+        },
+        "accounts": [
+          {
+            "name": "a",
+            "verdict": "GO",
+            "resetsAt": 60,
+            "window": "week"
+          }
+        ],
+        "policy": {
+          "mode": "normal"
+        },
+        "pause": null,
+        "today": {
+          "since": 0,
+          "done": 0,
+          "accepted": 0,
+          "rejected": 0,
+          "failed": 0,
+          "byRepo": {}
+        },
+        "hosts": [],
+        "repos": [],
+        "executors": [],
+        "machine": {
+          "used": 0,
+          "max": 1,
+          "hardCap": null,
+          "unlimited": true
+        },
+        "setup": {
+          "complete": false,
+          "open": 4,
+          "items": [
+            {
+              "id": "binary",
+              "title": "Binary",
+              "status": "pending",
+              "required": true
+            },
+            {
+              "id": "strategy",
+              "title": "Strategy",
+              "status": "pending",
+              "required": true
+            },
+            {
+              "id": "service",
+              "title": "Login service",
+              "status": "pending",
+              "required": true
+            },
+            {
+              "id": "link",
+              "title": "Link",
+              "status": "pending",
+              "required": true
+            },
+            {
+              "id": "live",
+              "title": "Live plugin",
+              "status": "pending",
+              "required": false
+            },
+            {
+              "id": "agent:claude-code",
+              "title": "Claude Code",
+              "status": "pending",
+              "required": false
+            },
+            {
+              "id": "agent:codex",
+              "title": "Codex",
+              "status": "pending",
+              "required": false
+            },
+            {
+              "id": "agent:cursor",
+              "title": "Cursor",
+              "status": "pending",
+              "required": false
+            },
+            {
+              "id": "agent:opencode",
+              "title": "OpenCode",
+              "status": "pending",
+              "required": false
+            }
+          ]
+        },
+        "attention": [],
+        "counts": {
+          "attention": 0,
+          "problems": 0,
+          "setupOpen": 4,
+          "other": 3
+        },
+        "service": {
+          "protocol": "2.8.0",
+          "version": "fixture"
+        },
+        "extra": {
+          "preserved": true
+        },
+        "v": 1,
+        "budget": {
+          "generatedAt": 42,
+          "strategy": "chosen",
+          "planner": "p",
+          "mode": "normal",
+          "providers": [],
+          "ranked": []
+        },
+        "alerts": [],
         "console": null,
         "consoles": [],
         "serviceInstalled": false
@@ -17237,6 +17501,12 @@
         "project.strategy.list",
         "project.strategy.remove",
         "project.strategy.set",
+        "question.answer",
+        "question.ask",
+        "question.convert_prompt",
+        "question.escalate",
+        "question.get",
+        "question.list",
         "repo.add",
         "repo.list",
         "repo.remove",
@@ -17363,6 +17633,7 @@
         "machine",
         "run",
         "decision",
+        "question",
         "assistant",
         "discovery.found",
         "control"
@@ -22659,6 +22930,217 @@
             "executors",
             "expect_rev"
           ],
+          "additionalProperties": false
+        }
+      },
+      "question.answer": {
+        "description": "Answer a structured run question as the current answerer (person or orchestrator grant).",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^q_[a-z2-7]{10}$"
+            },
+            "answer": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000
+            },
+            "note": {
+              "type": "string",
+              "maxLength": 4000
+            },
+            "expect_rev": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "id",
+            "answer",
+            "expect_rev"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "question.ask": {
+        "description": "Ask a structured run question from an executor step or the orchestrator grant.",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1000
+            },
+            "answerType": {
+              "type": "string",
+              "enum": [
+                "single",
+                "multi",
+                "text",
+                "yes_no",
+                "approve_revise"
+              ]
+            },
+            "options": {
+              "maxItems": 12,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "note": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                },
+                "required": [
+                  "value"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "recommended": {
+              "type": "string",
+              "minLength": 1
+            },
+            "blocks": {
+              "type": "string",
+              "enum": [
+                "step",
+                "branch",
+                "nothing"
+              ]
+            },
+            "artifact": {
+              "type": "string",
+              "minLength": 1
+            },
+            "stepId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "attempt": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "branch": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "runId": {
+              "type": "string",
+              "pattern": "^run_[a-z2-7]{10}$"
+            }
+          },
+          "required": [
+            "text",
+            "answerType",
+            "blocks"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "question.convert_prompt": {
+        "description": "Convert a step task's prompt-wait mark into a structured question. Never types into the terminal.",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "question.escalate": {
+        "description": "Escalate an open orchestrator-answerer question to the person with a suggested answer.",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^q_[a-z2-7]{10}$"
+            },
+            "suggested": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4000
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4000
+            },
+            "expect_rev": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "id",
+            "suggested",
+            "reason",
+            "expect_rev"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "question.get": {
+        "description": "Read one structured run question by id.",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^q_[a-z2-7]{10}$"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "question.list": {
+        "description": "List structured run questions, optionally for one run.",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "run": {
+              "type": "string",
+              "pattern": "^run_[a-z2-7]{10}$"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "open",
+                "answered",
+                "withdrawn"
+              ]
+            }
+          },
           "additionalProperties": false
         }
       },
@@ -28634,6 +29116,12 @@
     "run.sync_base",
     "run.publish",
     "run.cleanup",
+    "question.ask",
+    "question.answer",
+    "question.escalate",
+    "question.get",
+    "question.list",
+    "question.convert_prompt",
     "session.agent.list",
     "session.agent.get",
     "session.agent.create",

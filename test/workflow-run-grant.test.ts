@@ -318,7 +318,12 @@ describe("orchestrator grant end-to-end (executorEnv → connectClient → HTTP)
     expect(RUN_GRANT_OPS).toContain("step.skip");
     expect(RUN_GRANT_OPS).toContain("step.retry");
     expect(RUN_GRANT_OPS as readonly string[]).not.toContain("run.answer");
-    expect(RUN_GRANT_OPS as readonly string[]).not.toContain("question.answer");
+    expect(RUN_GRANT_OPS as readonly string[]).toContain("question.ask");
+    expect(RUN_GRANT_OPS as readonly string[]).toContain("question.answer");
+    expect(RUN_GRANT_OPS as readonly string[]).toContain("question.escalate");
+    expect(RUN_GRANT_OPS as readonly string[]).toContain("question.get");
+    expect(RUN_GRANT_OPS as readonly string[]).toContain("question.list");
+    expect(RUN_GRANT_OPS as readonly string[]).not.toContain("question.convert_prompt");
     expect(RUN_GRANT_OPS as readonly string[]).toContain("run.submit_graph");
   });
 
