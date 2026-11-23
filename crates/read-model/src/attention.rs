@@ -705,7 +705,7 @@ pub fn raised(
                 "question",
                 id,
                 title,
-                &clip_code_points(text(&t["question"]["text"]), 200, false),
+                &slice(text(&t["question"]["text"]), 200),
                 vec![
                     action(
                         "Answer",
@@ -923,7 +923,7 @@ pub fn raised(
                 e["raisedAt"] = q["at"].clone();
             }
             let detail = if truth(q) {
-                clip_code_points(text(&q["text"]), 200, false)
+                slice(text(&q["text"]), 200)
             } else {
                 format!(
                     "{} unread message{}",
