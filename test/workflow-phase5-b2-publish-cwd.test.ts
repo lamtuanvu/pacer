@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fakeCtx, gitRepo, realRun, tmpDir } from "./helpers";
 import {
@@ -80,18 +80,20 @@ test("gh pr list and create run with cwd set to the integration worktree", async
 
   const info = await gitInfo(ctx.run, repo);
   if ("error" in info) throw new Error(info.error);
-  const expectedWt = resolve(integrationWorktreePath(ctx, info.top, run.id));
+  const expectedWt = realpathSync(resolve(integrationWorktreePath(ctx, info.top, run.id)));
+  const repoRoot = realpathSync(resolve(info.top));
 
   const lines = (await Bun.file(log).text()).trim().split("\n")
     .map(l => JSON.parse(l) as { argv: string[]; cwd: string });
   expect(lines.length).toBeGreaterThanOrEqual(1);
   for (const line of lines) {
-    expect(resolve(line.cwd)).toBe(expectedWt);
+    const cwd = realpathSync(resolve(line.cwd));
+    expect(cwd).toBe(expectedWt);
+    expect(cwd).not.toBe(repoRoot);
   }
   expect(lines.some(l => l.argv.includes("list"))).toBe(true);
   expect(lines.some(l => l.argv.includes("create"))).toBe(true);
 });
-
 test("publish rejects a recovered non-https PR URL", async () => {
   const { ctx, repo } = await repoWithBareOrigin();
   workflowDatabase(ctx);
