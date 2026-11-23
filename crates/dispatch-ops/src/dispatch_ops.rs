@@ -1,6 +1,5 @@
 //! Native `dispatch.*` reads over the shared work graph and active strategy.
-//! Callers holding a work grant never reach these handlers: the front doors
-//! forward every operation while `PACER_WORK_GRANT` is set.
+//! Work-grant callers reach these handlers through `pacer_work::authorize_work_operation`.
 #![allow(clippy::result_large_err)]
 use pacer_config::strategy::{default_dispatch_config, load_strategy};
 use pacer_foundation::{
@@ -41,25 +40,10 @@ const STATES: &[&str] = &[
     "needs_input",
 ];
 
-/// `authorizeWorkOperation` for callers without a work grant.
-pub(crate) fn authorize(ctx: &Ctx) -> Result<(), CoreError> {
-    if ctx
-        .env
-        .get("PACER_ENFORCEMENT_TOKEN")
-        .is_some_and(|token| !token.is_empty())
-    {
-        return Err(CoreError::new(
-            Code::NotAllowed,
-            "Enforcement identity only reports a native child denial",
-        ));
-    }
-    if ctx.env.get("PACER_ROLE").map(String::as_str) == Some("executor") {
-        return Err(CoreError::new(
-            Code::NotAllowed,
-            "A scoped work grant is required",
-        ));
-    }
-    Ok(())
+/// `authorizeWorkOperation` for the named operation and params.
+pub(crate) fn authorize(ctx: &Ctx, name: &str, params: &Value) -> Result<(), CoreError> {
+    let is_executor = ctx.env.get("PACER_ROLE").map(String::as_str) == Some("executor");
+    pacer_work::authorize_work_operation(ctx, name, params, is_executor)
 }
 
 /// Transports pass absent params as `{}`.
@@ -231,7 +215,7 @@ pub(crate) fn with_reads<T>(
 
 pub fn dispatch_config_get(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
-        authorize(ctx)?;
+        authorize(ctx, "dispatch.config.get", &params)?;
         params_object(&params)?;
         let strategy = load_strategy(&ctx.pacer_home)
             .map_err(|error| CoreError::new(Code::Internal, error.to_string()))?;
@@ -264,19 +248,57 @@ pub fn dispatch_config_get(ctx: &Ctx, params: Value) -> OpFuture<'_> {
 
 pub fn dispatch_tree(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
-        authorize(ctx)?;
+        authorize(ctx, "dispatch.tree", &params)?;
         let p = params_object(&params)?;
         let mut issues = Vec::new();
         string_issues("id", p.get("id"), Some(128), &mut issues);
         finish(issues)?;
-        let id = p["id"].as_str().unwrap_or_default();
-        with_reads(ctx, |reads| reads.scoped_tree(id))
+        let id = p["id"].as_str().unwrap_or_default().to_owned();
+        let granted = ctx.env.contains_key("PACER_WORK_GRANT");
+        with_reads(ctx, move |reads| {
+            let mut tree = reads.scoped_tree(&id)?;
+            // `scopedWorkTree` under a work grant re-roots at the requested id
+            // (`src/core/work.ts`): rootId becomes id, that node's parentId is null,
+            // and dependencies are filtered to the visible subtree.
+            if granted {
+                grant_reroot_tree(&mut tree, &id);
+            }
+            Ok(tree)
+        })
     })
+}
+
+/// Apply the work-grant remapping from TypeScript `scopedWorkTree`.
+fn grant_reroot_tree(tree: &mut Value, id: &str) {
+    let Some(obj) = tree.as_object_mut() else {
+        return;
+    };
+    obj.insert("rootId".into(), Value::String(id.to_owned()));
+    let Some(nodes) = obj.get_mut("nodes").and_then(Value::as_array_mut) else {
+        return;
+    };
+    let visible: std::collections::HashSet<String> = nodes
+        .iter()
+        .filter_map(|n| n.get("taskId").and_then(Value::as_str).map(str::to_owned))
+        .collect();
+    for node in nodes {
+        let Some(node) = node.as_object_mut() else {
+            continue;
+        };
+        node.insert("rootId".into(), Value::String(id.to_owned()));
+        let is_root = node.get("taskId").and_then(Value::as_str) == Some(id);
+        if is_root {
+            node.insert("parentId".into(), Value::Null);
+        }
+        if let Some(deps) = node.get_mut("dependencies").and_then(Value::as_array_mut) {
+            deps.retain(|dep| dep.as_str().is_some_and(|dep_id| visible.contains(dep_id)));
+        }
+    }
 }
 
 pub fn dispatch_events(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
-        authorize(ctx)?;
+        authorize(ctx, "dispatch.events", &params)?;
         let p = params_object(&params)?;
         let mut issues = Vec::new();
         string_issues("id", p.get("id"), Some(128), &mut issues);
@@ -292,7 +314,7 @@ pub fn dispatch_events(ctx: &Ctx, params: Value) -> OpFuture<'_> {
 
 pub fn dispatch_list(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
-        authorize(ctx)?;
+        authorize(ctx, "dispatch.list", &params)?;
         let p = params_object(&params)?;
         let mut issues = Vec::new();
         if let Some(relation) = p.get("relation") {

@@ -22,10 +22,10 @@ fn caller_follows_typescript_precedence() {
     let local = Caller::Id("external:local".into());
     let human = Caller::Id("human".into());
     assert_eq!(id(&[], "/tmp"), local);
-    assert_eq!(
-        id(&[("PACER_WORK_GRANT", "pwg_x")], "/tmp"),
-        Caller::Forward
-    );
+    // A malformed work grant is refused (never forwarded as another identity).
+    let grant_err = caller(&ctx(&[("PACER_WORK_GRANT", "pwg_x")]), Some("/tmp")).unwrap_err();
+    assert_eq!(grant_err.code, Code::NotAllowed);
+    assert_eq!(grant_err.message, "Invalid work grant");
     assert_eq!(
         id(&[("PACER_ENFORCEMENT_TOKEN", "pet_x")], "/tmp"),
         Caller::Forward
@@ -183,7 +183,8 @@ fn human_receipts_and_grants_stay_forwarded() {
         "msg.inbox",
         &ctx(&[(CALLER_AUTH_ENV, "app")])
     ));
-    assert!(msg_stays_forwarded(
+    // Work-grant callers resolve natively; a malformed grant is refused, not forwarded.
+    assert!(!msg_stays_forwarded(
         "msg.log",
         &ctx(&[("PACER_WORK_GRANT", "pwg_x")])
     ));

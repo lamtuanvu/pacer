@@ -11,6 +11,7 @@ serde_json.workspace = true
 pacer-config = { path = "../config" }
 pacer-foundation = { path = "../foundation" }
 pacer-store = { path = "../store" }
+pacer-work = { path = "../work" }
 tokio.workspace = true
 
 [dev-dependencies]

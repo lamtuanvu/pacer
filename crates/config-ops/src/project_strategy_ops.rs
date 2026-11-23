@@ -336,8 +336,14 @@ fn write(
     .map_err(|error| CoreError::new(Code::Unavailable, error.to_string()))?
 }
 
+fn authorize(ctx: &Ctx, op: &str, params: &Value) -> Result<(), CoreError> {
+    let is_executor = ctx.env.get("PACER_ROLE").map(String::as_str) == Some("executor");
+    pacer_work::authorize_work_operation(ctx, op, params, is_executor)
+}
+
 pub fn project_strategy_list(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
+        authorize(ctx, "project.strategy.list", &params)?;
         parse("project.strategy.list", &params)?;
         let data = policies(ctx)?;
         let strategy = strategy(ctx)?;
@@ -361,6 +367,7 @@ pub fn project_strategy_list(ctx: &Ctx, params: Value) -> OpFuture<'_> {
 
 pub fn project_strategy_get(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
+        authorize(ctx, "project.strategy.get", &params)?;
         let p = parse("project.strategy.get", &params)?;
         let repo = resolve(ctx, &p.repo)?;
         let data = policies(ctx)?;
@@ -375,6 +382,7 @@ pub fn project_strategy_get(ctx: &Ctx, params: Value) -> OpFuture<'_> {
 
 pub fn project_strategy_set(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
+        authorize(ctx, "project.strategy.set", &params)?;
         let p = parse("project.strategy.set", &params)?;
         let repo = if Path::new(&p.repo).is_absolute() {
             register(ctx, &p.repo, true)?
@@ -395,6 +403,7 @@ pub fn project_strategy_set(ctx: &Ctx, params: Value) -> OpFuture<'_> {
 
 pub fn project_strategy_remove(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
+        authorize(ctx, "project.strategy.remove", &params)?;
         let p = parse("project.strategy.remove", &params)?;
         let repo = resolve(ctx, &p.repo)?;
         let strategy = strategy(ctx)?;

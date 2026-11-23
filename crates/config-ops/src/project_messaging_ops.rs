@@ -194,8 +194,14 @@ fn repo_key(params: &Map<String, Value>) -> Result<&str, CoreError> {
     }
 }
 
+fn authorize(ctx: &Ctx, op: &str, params: &Value) -> Result<(), CoreError> {
+    let is_executor = ctx.env.get("PACER_ROLE").map(String::as_str) == Some("executor");
+    pacer_work::authorize_work_operation(ctx, op, params, is_executor)
+}
+
 pub fn project_messaging_get(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
+        authorize(ctx, "project.messaging.get", &params)?;
         let p = parse("project.messaging.get", params)?;
         project_messaging::get(&ctx.pacer_home, repo_key(&p)?)
     })
@@ -203,6 +209,7 @@ pub fn project_messaging_get(ctx: &Ctx, params: Value) -> OpFuture<'_> {
 
 pub fn project_messaging_set(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
+        authorize(ctx, "project.messaging.set", &params)?;
         let mut p = parse("project.messaging.set", params)?;
         let repo = repo_key(&p)?.to_owned();
         let expect_rev = p["expect_rev"].as_i64().unwrap_or(-1);
@@ -218,6 +225,7 @@ pub fn project_messaging_set(ctx: &Ctx, params: Value) -> OpFuture<'_> {
 
 pub fn project_messaging_remove(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
+        authorize(ctx, "project.messaging.remove", &params)?;
         let p = parse("project.messaging.remove", params)?;
         let expect_rev = p["expect_rev"].as_i64().unwrap_or(-1);
         project_messaging::write(ctx, repo_key(&p)?, expect_rev, None)
