@@ -3,6 +3,8 @@
 //! implementation (`src/usage` and `src/engine/evidence.ts`). Inputs and outputs
 //! are `serde_json::Value` in the TypeScript JSON shapes.
 
+#![allow(clippy::result_large_err)] // CoreError is the shared public operation ABI.
+
 pub mod evidence;
 pub mod freshness;
 mod freshness_generated;

@@ -39,6 +39,7 @@ export function fakeCtx(o: Partial<Ctx> = {}): Ctx {
     home,
     pacerHome: o.pacerHome ?? join(home, ".pacer"),
     now: o.now ?? localTs(2026, 10, 10, 19, 0),
+    ...(o.readOnly !== undefined ? { readOnly: o.readOnly } : {}),
     env: { PACER_PORT: process.env.PACER_PORT ?? String(closedPort()), OLLAMA_HOST: process.env.OLLAMA_HOST ?? `http://127.0.0.1:${closedPort()}`, LMS_API_SERVER_INFO_PATH: process.env.LMS_API_SERVER_INFO_PATH, ...o.env },
     run: o.run ?? (async () => ({ code: 127, stdout: "", stderr: "not available in tests" })),
     which: o.which ?? (() => "/usr/bin/fake"),

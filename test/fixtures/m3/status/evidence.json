@@ -1,0 +1,1300 @@
+[
+  {
+    "name": "fact:int",
+    "input": {
+      "scope": {
+        "account": "one",
+        "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "source": "provider-cli",
+      "observedAt": 1000000,
+      "validUntil": null,
+      "reason": "quota_observed",
+      "value": {
+        "name": "weekly",
+        "usedPct": 15,
+        "resetsAt": 1604800,
+        "lengthS": 604800,
+        "paced": true
+      }
+    },
+    "expected": {
+      "id": "8be87526be30889d68efdf2f",
+      "scope": {
+        "account": "one",
+        "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "source": "provider-cli",
+      "observedAt": 1000000,
+      "validUntil": null,
+      "reason": "quota_observed",
+      "value": {
+        "name": "weekly",
+        "usedPct": 15,
+        "resetsAt": 1604800,
+        "lengthS": 604800,
+        "paced": true
+      }
+    }
+  },
+  {
+    "name": "fact:fractional",
+    "input": {
+      "scope": {
+        "account": "one",
+        "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "source": "provider-cli",
+      "observedAt": 1000000,
+      "validUntil": null,
+      "reason": "quota_observed",
+      "value": {
+        "name": "weekly",
+        "usedPct": 0.30000000000000004,
+        "resetsAt": 1604800,
+        "lengthS": 604800,
+        "paced": true
+      }
+    },
+    "expected": {
+      "id": "fd11297c037c67e0bac570af",
+      "scope": {
+        "account": "one",
+        "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "source": "provider-cli",
+      "observedAt": 1000000,
+      "validUntil": null,
+      "reason": "quota_observed",
+      "value": {
+        "name": "weekly",
+        "usedPct": 0.30000000000000004,
+        "resetsAt": 1604800,
+        "lengthS": 604800,
+        "paced": true
+      }
+    }
+  },
+  {
+    "name": "fact:1e21",
+    "input": {
+      "scope": {
+        "account": "one",
+        "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "source": "provider-cli",
+      "observedAt": 1000000,
+      "validUntil": null,
+      "reason": "quota_observed",
+      "value": {
+        "name": "weekly",
+        "usedPct": 1e+21,
+        "resetsAt": 1604800,
+        "lengthS": 604800,
+        "paced": true
+      }
+    },
+    "expected": {
+      "id": "8e0436ec6a6baa10a2691dc3",
+      "scope": {
+        "account": "one",
+        "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "source": "provider-cli",
+      "observedAt": 1000000,
+      "validUntil": null,
+      "reason": "quota_observed",
+      "value": {
+        "name": "weekly",
+        "usedPct": 1e+21,
+        "resetsAt": 1604800,
+        "lengthS": 604800,
+        "paced": true
+      }
+    }
+  },
+  {
+    "name": "fact:null-value",
+    "input": {
+      "scope": {
+        "account": "one",
+        "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "source": "provider-cli",
+      "observedAt": null,
+      "validUntil": null,
+      "reason": "quota_observed",
+      "value": null
+    },
+    "expected": {
+      "id": "0a8474726b5d80812e0a7b03",
+      "scope": {
+        "account": "one",
+        "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "source": "provider-cli",
+      "observedAt": null,
+      "validUntil": null,
+      "reason": "quota_observed",
+      "value": null
+    }
+  },
+  {
+    "name": "fact:budget-policy",
+    "input": {
+      "scope": {
+        "account": "one",
+        "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "source": "provider-cli",
+      "observedAt": 1000000,
+      "validUntil": null,
+      "reason": "quota_observed",
+      "value": {
+        "name": "weekly",
+        "usedPct": 15,
+        "resetsAt": 1604800,
+        "lengthS": 604800,
+        "paced": true
+      },
+      "budgetPolicy": "model.fast"
+    },
+    "expected": {
+      "id": "c4a8d6bcc6d96689bd0350e7",
+      "scope": {
+        "account": "one",
+        "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "source": "provider-cli",
+      "observedAt": 1000000,
+      "validUntil": null,
+      "reason": "quota_observed",
+      "value": {
+        "name": "weekly",
+        "usedPct": 15,
+        "resetsAt": 1604800,
+        "lengthS": 604800,
+        "paced": true
+      },
+      "budgetPolicy": "model.fast"
+    }
+  },
+  {
+    "name": "reading:quota-windows",
+    "input": {
+      "scope": {
+        "account": "one",
+        "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "reading": {
+        "windows": [
+          {
+            "name": "5h",
+            "usedPct": 20,
+            "resetsAt": 1003600,
+            "lengthS": 18000,
+            "paced": false
+          },
+          {
+            "name": "7d",
+            "usedPct": 10,
+            "resetsAt": null,
+            "lengthS": 604800,
+            "paced": true
+          }
+        ],
+        "capturedAt": 1000000,
+        "stale": false
+      },
+      "usage": "quota"
+    },
+    "expected": {
+      "availability": [
+        {
+          "id": "3b393b40badf5619f1973628",
+          "scope": {
+            "account": "one",
+            "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "source": "session-log",
+          "observedAt": 1000000,
+          "validUntil": 1003600,
+          "reason": "usage_observed",
+          "value": "ready"
+        }
+      ],
+      "budget": [
+        {
+          "id": "50003d052232b2af85169b04",
+          "scope": {
+            "account": "one",
+            "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "source": "session-log",
+          "observedAt": 1000000,
+          "validUntil": null,
+          "reason": "quota_observed",
+          "value": {
+            "name": "5h",
+            "usedPct": 20,
+            "resetsAt": 1003600,
+            "lengthS": 18000,
+            "paced": false
+          }
+        },
+        {
+          "id": "a5031207b243f073b13a1c82",
+          "scope": {
+            "account": "one",
+            "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "source": "session-log",
+          "observedAt": 1000000,
+          "validUntil": null,
+          "reason": "quota_observed",
+          "value": {
+            "name": "7d",
+            "usedPct": 10,
+            "resetsAt": null,
+            "lengthS": 604800,
+            "paced": true
+          }
+        }
+      ],
+      "spending": []
+    }
+  },
+  {
+    "name": "reading:reactive-limit-skipped",
+    "input": {
+      "scope": {
+        "account": "one",
+        "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "reading": {
+        "windows": [
+          {
+            "name": "limit",
+            "usedPct": 0,
+            "resetsAt": null,
+            "lengthS": 18000,
+            "paced": false
+          }
+        ],
+        "capturedAt": 1000000,
+        "stale": false,
+        "source": "reactive"
+      },
+      "usage": "reactive"
+    },
+    "expected": {
+      "availability": [
+        {
+          "id": "28d6a52f576ae6b597b397ad",
+          "scope": {
+            "account": "one",
+            "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "source": "configuration",
+          "observedAt": 0,
+          "validUntil": null,
+          "reason": "measurement_contract",
+          "value": "ready"
+        }
+      ],
+      "budget": [],
+      "spending": []
+    }
+  },
+  {
+    "name": "reading:availability",
+    "input": {
+      "scope": {
+        "account": "one",
+        "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "reading": {
+        "windows": [
+          {
+            "name": "5h",
+            "usedPct": 20,
+            "resetsAt": 1003600,
+            "lengthS": 18000,
+            "paced": false
+          }
+        ],
+        "capturedAt": 1000000,
+        "stale": false,
+        "source": "status-line",
+        "availability": {
+          "state": "ready",
+          "reason": "usage_observed",
+          "validUntil": 1007200
+        }
+      },
+      "usage": "quota"
+    },
+    "expected": {
+      "availability": [
+        {
+          "id": "3bdebcffb1f53d67d9d7260a",
+          "scope": {
+            "account": "one",
+            "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "source": "status-line",
+          "observedAt": 1000000,
+          "validUntil": 1007200,
+          "reason": "usage_observed",
+          "value": "ready"
+        }
+      ],
+      "budget": [
+        {
+          "id": "97e5d018a28f3c101ca58ea3",
+          "scope": {
+            "account": "one",
+            "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "source": "status-line",
+          "observedAt": 1000000,
+          "validUntil": null,
+          "reason": "quota_observed",
+          "value": {
+            "name": "5h",
+            "usedPct": 20,
+            "resetsAt": 1003600,
+            "lengthS": 18000,
+            "paced": false
+          }
+        }
+      ],
+      "spending": []
+    }
+  },
+  {
+    "name": "reading:metered-spend",
+    "input": {
+      "scope": {
+        "account": "one",
+        "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "reading": {
+        "windows": [],
+        "capturedAt": 1000000,
+        "stale": false,
+        "source": "metered",
+        "spendUsd": 12.4,
+        "spending": {
+          "creditsAvailable": true,
+          "creditBalance": null,
+          "paidConsumption": "observed"
+        }
+      },
+      "usage": "metered"
+    },
+    "expected": {
+      "availability": [
+        {
+          "id": "d14fc408a73726d683dd796d",
+          "scope": {
+            "account": "one",
+            "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "source": "metered",
+          "observedAt": 1000000,
+          "validUntil": 1086400,
+          "reason": "usage_observed",
+          "value": "ready"
+        }
+      ],
+      "budget": [],
+      "spending": [
+        {
+          "id": "6a61e4d2a6f534e9ae239c4b",
+          "scope": {
+            "account": "one",
+            "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "source": "metered",
+          "observedAt": 1000000,
+          "validUntil": 1007200,
+          "reason": "spending_observed",
+          "value": {
+            "creditsAvailable": true,
+            "creditBalance": null,
+            "paidConsumption": "observed"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "reading:error-no-usage",
+    "input": {
+      "scope": {
+        "account": "one",
+        "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "reading": {
+        "windows": [],
+        "capturedAt": null,
+        "stale": true,
+        "source": "status-line",
+        "error": "down"
+      },
+      "usage": "quota"
+    },
+    "expected": {
+      "availability": [],
+      "budget": [],
+      "spending": []
+    }
+  },
+  {
+    "name": "reading:alternatives",
+    "input": {
+      "scope": {
+        "account": "one",
+        "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "reading": {
+        "windows": [
+          {
+            "name": "5h",
+            "usedPct": 20,
+            "resetsAt": 1003600,
+            "lengthS": 18000,
+            "paced": false
+          }
+        ],
+        "capturedAt": 1000000,
+        "stale": false,
+        "alternatives": [
+          {
+            "windows": [
+              {
+                "name": "5h",
+                "usedPct": 30,
+                "resetsAt": 1003600,
+                "lengthS": 18000,
+                "paced": false
+              }
+            ],
+            "capturedAt": 1000000,
+            "stale": false,
+            "source": "session-log"
+          }
+        ]
+      },
+      "usage": "quota"
+    },
+    "expected": {
+      "availability": [
+        {
+          "id": "3b393b40badf5619f1973628",
+          "scope": {
+            "account": "one",
+            "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "source": "session-log",
+          "observedAt": 1000000,
+          "validUntil": 1003600,
+          "reason": "usage_observed",
+          "value": "ready"
+        },
+        {
+          "id": "3b393b40badf5619f1973628",
+          "scope": {
+            "account": "one",
+            "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "source": "session-log",
+          "observedAt": 1000000,
+          "validUntil": 1003600,
+          "reason": "usage_observed",
+          "value": "ready"
+        }
+      ],
+      "budget": [
+        {
+          "id": "50003d052232b2af85169b04",
+          "scope": {
+            "account": "one",
+            "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "source": "session-log",
+          "observedAt": 1000000,
+          "validUntil": null,
+          "reason": "quota_observed",
+          "value": {
+            "name": "5h",
+            "usedPct": 20,
+            "resetsAt": 1003600,
+            "lengthS": 18000,
+            "paced": false
+          }
+        },
+        {
+          "id": "df5a275bae4bf0744e79e26f",
+          "scope": {
+            "account": "one",
+            "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "source": "session-log",
+          "observedAt": 1000000,
+          "validUntil": null,
+          "reason": "quota_observed",
+          "value": {
+            "name": "5h",
+            "usedPct": 30,
+            "resetsAt": 1003600,
+            "lengthS": 18000,
+            "paced": false
+          }
+        }
+      ],
+      "spending": []
+    }
+  },
+  {
+    "name": "reading:given-evidence",
+    "input": {
+      "scope": {
+        "account": "one",
+        "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "reading": {
+        "windows": [],
+        "capturedAt": 1000000,
+        "stale": false,
+        "evidence": {
+          "availability": [],
+          "budget": [
+            {
+              "id": "434db6ca98d58ddecf34f880",
+              "scope": {
+                "account": "one",
+                "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              "source": "given",
+              "observedAt": 1000000,
+              "validUntil": null,
+              "reason": "quota_observed",
+              "value": {
+                "name": "weekly",
+                "usedPct": 15,
+                "resetsAt": 1604800,
+                "lengthS": 604800,
+                "paced": true
+              }
+            }
+          ],
+          "spending": []
+        }
+      },
+      "usage": "quota"
+    },
+    "expected": {
+      "availability": [],
+      "budget": [
+        {
+          "id": "434db6ca98d58ddecf34f880",
+          "scope": {
+            "account": "one",
+            "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "source": "given",
+          "observedAt": 1000000,
+          "validUntil": null,
+          "reason": "quota_observed",
+          "value": {
+            "name": "weekly",
+            "usedPct": 15,
+            "resetsAt": 1604800,
+            "lengthS": 604800,
+            "paced": true
+          }
+        }
+      ],
+      "spending": []
+    }
+  },
+  {
+    "name": "reconcile:newest-observation",
+    "input": {
+      "previous": {
+        "availability": [],
+        "budget": [
+          {
+            "id": "714892d2befcb09b934eacf7",
+            "scope": {
+              "account": "one",
+              "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "source": "provider-cli",
+            "observedAt": 999900,
+            "validUntil": null,
+            "reason": "quota_observed",
+            "value": {
+              "name": "5h",
+              "usedPct": 20,
+              "resetsAt": 1003600,
+              "lengthS": 18000,
+              "paced": false
+            }
+          }
+        ],
+        "spending": []
+      },
+      "incoming": {
+        "availability": [],
+        "budget": [
+          {
+            "id": "8152a1bca7c9365172256704",
+            "scope": {
+              "account": "one",
+              "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "source": "provider-cli",
+            "observedAt": 1000000,
+            "validUntil": null,
+            "reason": "quota_observed",
+            "value": {
+              "name": "5h",
+              "usedPct": 20,
+              "resetsAt": 1003600,
+              "lengthS": 18000,
+              "paced": false
+            }
+          }
+        ],
+        "spending": []
+      },
+      "now": 1000000
+    },
+    "expected": {
+      "facts": {
+        "availability": [],
+        "budget": [
+          {
+            "id": "8152a1bca7c9365172256704",
+            "scope": {
+              "account": "one",
+              "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "source": "provider-cli",
+            "observedAt": 1000000,
+            "validUntil": null,
+            "reason": "quota_observed",
+            "value": {
+              "name": "5h",
+              "usedPct": 20,
+              "resetsAt": 1003600,
+              "lengthS": 18000,
+              "paced": false
+            }
+          }
+        ],
+        "spending": []
+      },
+      "conflicts": []
+    }
+  },
+  {
+    "name": "reconcile:config-beats-provider-cli",
+    "input": {
+      "previous": {
+        "availability": [],
+        "budget": [
+          {
+            "id": "8152a1bca7c9365172256704",
+            "scope": {
+              "account": "one",
+              "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "source": "provider-cli",
+            "observedAt": 1000000,
+            "validUntil": null,
+            "reason": "quota_observed",
+            "value": {
+              "name": "5h",
+              "usedPct": 20,
+              "resetsAt": 1003600,
+              "lengthS": 18000,
+              "paced": false
+            }
+          }
+        ],
+        "spending": []
+      },
+      "incoming": {
+        "availability": [],
+        "budget": [
+          {
+            "id": "dac2e947b2be0a514ea43142",
+            "scope": {
+              "account": "one",
+              "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "source": "configuration",
+            "observedAt": 1000000,
+            "validUntil": null,
+            "reason": "config_limit",
+            "value": {
+              "name": "5h",
+              "usedPct": 90,
+              "resetsAt": 1003600,
+              "lengthS": 18000,
+              "paced": false
+            }
+          }
+        ],
+        "spending": []
+      },
+      "now": 1000000
+    },
+    "expected": {
+      "facts": {
+        "availability": [],
+        "budget": [
+          {
+            "id": "dac2e947b2be0a514ea43142",
+            "scope": {
+              "account": "one",
+              "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "source": "configuration",
+            "observedAt": 1000000,
+            "validUntil": null,
+            "reason": "config_limit",
+            "value": {
+              "name": "5h",
+              "usedPct": 90,
+              "resetsAt": 1003600,
+              "lengthS": 18000,
+              "paced": false
+            }
+          }
+        ],
+        "spending": []
+      },
+      "conflicts": []
+    }
+  },
+  {
+    "name": "reconcile:equal-authority-conflict",
+    "input": {
+      "previous": {
+        "availability": [],
+        "budget": [
+          {
+            "id": "8152a1bca7c9365172256704",
+            "scope": {
+              "account": "one",
+              "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "source": "provider-cli",
+            "observedAt": 1000000,
+            "validUntil": null,
+            "reason": "quota_observed",
+            "value": {
+              "name": "5h",
+              "usedPct": 20,
+              "resetsAt": 1003600,
+              "lengthS": 18000,
+              "paced": false
+            }
+          }
+        ],
+        "spending": []
+      },
+      "incoming": {
+        "availability": [],
+        "budget": [
+          {
+            "id": "4fae284795e9dea602231ad0",
+            "scope": {
+              "account": "one",
+              "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "source": "session-log",
+            "observedAt": 1000000,
+            "validUntil": null,
+            "reason": "quota_observed",
+            "value": {
+              "name": "5h",
+              "usedPct": 35,
+              "resetsAt": 1003600,
+              "lengthS": 18000,
+              "paced": false
+            }
+          }
+        ],
+        "spending": []
+      },
+      "now": 1000000
+    },
+    "expected": {
+      "facts": {
+        "availability": [],
+        "budget": [
+          {
+            "id": "8152a1bca7c9365172256704",
+            "scope": {
+              "account": "one",
+              "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "source": "provider-cli",
+            "observedAt": 1000000,
+            "validUntil": null,
+            "reason": "quota_observed",
+            "value": {
+              "name": "5h",
+              "usedPct": 20,
+              "resetsAt": 1003600,
+              "lengthS": 18000,
+              "paced": false
+            }
+          }
+        ],
+        "spending": []
+      },
+      "conflicts": []
+    }
+  },
+  {
+    "name": "reconcile:zero-hour-retired",
+    "input": {
+      "previous": {
+        "availability": [],
+        "budget": [
+          {
+            "id": "5620c2de722e54f6016e6e7e",
+            "scope": {
+              "account": "one",
+              "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "source": "session-log",
+            "observedAt": 913600,
+            "validUntil": null,
+            "reason": "quota_observed",
+            "value": {
+              "name": "0h",
+              "usedPct": null,
+              "resetsAt": null,
+              "lengthS": 0,
+              "paced": false
+            }
+          }
+        ],
+        "spending": []
+      },
+      "incoming": {
+        "availability": [],
+        "budget": [
+          {
+            "id": "69725ac763eeec6017e75553",
+            "scope": {
+              "account": "one",
+              "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "source": "provider-cli",
+            "observedAt": 1000000,
+            "validUntil": null,
+            "reason": "quota_observed",
+            "value": {
+              "name": "7d",
+              "usedPct": 10,
+              "resetsAt": null,
+              "lengthS": 604800,
+              "paced": true
+            }
+          }
+        ],
+        "spending": []
+      },
+      "now": 1000000
+    },
+    "expected": {
+      "facts": {
+        "availability": [],
+        "budget": [
+          {
+            "id": "69725ac763eeec6017e75553",
+            "scope": {
+              "account": "one",
+              "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "source": "provider-cli",
+            "observedAt": 1000000,
+            "validUntil": null,
+            "reason": "quota_observed",
+            "value": {
+              "name": "7d",
+              "usedPct": 10,
+              "resetsAt": null,
+              "lengthS": 604800,
+              "paced": true
+            }
+          }
+        ],
+        "spending": []
+      },
+      "conflicts": []
+    }
+  },
+  {
+    "name": "reconcile:newer-measurement-drops-execution-limit",
+    "input": {
+      "previous": {
+        "availability": [],
+        "budget": [
+          {
+            "id": "3ec17773e3e09457f63637ac",
+            "scope": {
+              "account": "one",
+              "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "source": "execution",
+            "observedAt": 992800,
+            "validUntil": null,
+            "reason": "quota_failure",
+            "value": {
+              "name": "limit",
+              "usedPct": 100,
+              "resetsAt": 1007200,
+              "lengthS": 21600,
+              "paced": false
+            }
+          }
+        ],
+        "spending": []
+      },
+      "incoming": {
+        "availability": [],
+        "budget": [
+          {
+            "id": "69725ac763eeec6017e75553",
+            "scope": {
+              "account": "one",
+              "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "source": "provider-cli",
+            "observedAt": 1000000,
+            "validUntil": null,
+            "reason": "quota_observed",
+            "value": {
+              "name": "7d",
+              "usedPct": 10,
+              "resetsAt": null,
+              "lengthS": 604800,
+              "paced": true
+            }
+          },
+          {
+            "id": "9331e1799e0a609cc075d32d",
+            "scope": {
+              "account": "one",
+              "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "source": "session-log",
+            "observedAt": 1000000,
+            "validUntil": null,
+            "reason": "quota_observed",
+            "value": {
+              "name": "7d",
+              "usedPct": 30,
+              "resetsAt": null,
+              "lengthS": 604800,
+              "paced": true
+            }
+          }
+        ],
+        "spending": []
+      },
+      "now": 1000000
+    },
+    "expected": {
+      "facts": {
+        "availability": [],
+        "budget": [
+          {
+            "id": "69725ac763eeec6017e75553",
+            "scope": {
+              "account": "one",
+              "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "source": "provider-cli",
+            "observedAt": 1000000,
+            "validUntil": null,
+            "reason": "quota_observed",
+            "value": {
+              "name": "7d",
+              "usedPct": 10,
+              "resetsAt": null,
+              "lengthS": 604800,
+              "paced": true
+            }
+          }
+        ],
+        "spending": []
+      },
+      "conflicts": []
+    }
+  },
+  {
+    "name": "reconcile:expired-cooldown",
+    "input": {
+      "previous": {
+        "availability": [],
+        "budget": [
+          {
+            "id": "e5c9a6d4d65defb7c432aa72",
+            "scope": {
+              "account": "one",
+              "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "source": "execution",
+            "observedAt": 913600,
+            "validUntil": null,
+            "reason": "quota_failure",
+            "value": {
+              "name": "limit",
+              "usedPct": 100,
+              "resetsAt": 999900,
+              "lengthS": 21600,
+              "paced": false
+            }
+          }
+        ],
+        "spending": []
+      },
+      "incoming": {
+        "availability": [],
+        "budget": [],
+        "spending": []
+      },
+      "now": 1000000
+    },
+    "expected": {
+      "facts": {
+        "availability": [],
+        "budget": [],
+        "spending": []
+      },
+      "conflicts": []
+    }
+  },
+  {
+    "name": "reconcile:omitted-lapsed-window-retired",
+    "input": {
+      "previous": {
+        "availability": [],
+        "budget": [
+          {
+            "id": "eb5ccf45775858a15991fe4c",
+            "scope": {
+              "account": "one",
+              "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "source": "status-line",
+            "observedAt": 980000,
+            "validUntil": null,
+            "reason": "quota_observed",
+            "value": {
+              "name": "5h",
+              "usedPct": 14,
+              "resetsAt": 999000,
+              "lengthS": 18000,
+              "paced": false
+            }
+          }
+        ],
+        "spending": []
+      },
+      "incoming": {
+        "availability": [],
+        "budget": [
+          {
+            "id": "da71ccc9f5444f227ec0d194",
+            "scope": {
+              "account": "one",
+              "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "source": "status-line",
+            "observedAt": 1000000,
+            "validUntil": null,
+            "reason": "quota_observed",
+            "value": {
+              "name": "7d",
+              "usedPct": 10,
+              "resetsAt": null,
+              "lengthS": 604800,
+              "paced": true
+            }
+          }
+        ],
+        "spending": []
+      },
+      "now": 1000000
+    },
+    "expected": {
+      "facts": {
+        "availability": [],
+        "budget": [
+          {
+            "id": "da71ccc9f5444f227ec0d194",
+            "scope": {
+              "account": "one",
+              "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "source": "status-line",
+            "observedAt": 1000000,
+            "validUntil": null,
+            "reason": "quota_observed",
+            "value": {
+              "name": "7d",
+              "usedPct": 10,
+              "resetsAt": null,
+              "lengthS": 604800,
+              "paced": true
+            }
+          }
+        ],
+        "spending": []
+      },
+      "conflicts": []
+    }
+  },
+  {
+    "name": "reconcile:availability-pruned",
+    "input": {
+      "previous": {
+        "availability": [
+          {
+            "id": "ccb748e084c7f23e86eb4bfa",
+            "scope": {
+              "account": "one",
+              "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "source": "execution",
+            "observedAt": -1592000,
+            "validUntil": null,
+            "reason": "execution_success",
+            "value": "ready"
+          }
+        ],
+        "budget": [],
+        "spending": []
+      },
+      "incoming": {
+        "availability": [],
+        "budget": [],
+        "spending": []
+      },
+      "now": 1000000
+    },
+    "expected": {
+      "facts": {
+        "availability": [
+          {
+            "id": "ccb748e084c7f23e86eb4bfa",
+            "scope": {
+              "account": "one",
+              "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "source": "execution",
+            "observedAt": -1592000,
+            "validUntil": null,
+            "reason": "execution_success",
+            "value": "ready"
+          }
+        ],
+        "budget": [],
+        "spending": []
+      },
+      "conflicts": []
+    }
+  },
+  {
+    "name": "reconcile:conflict-sorted-dropped",
+    "input": {
+      "previous": {
+        "availability": [],
+        "budget": [
+          {
+            "id": "8152a1bca7c9365172256704",
+            "scope": {
+              "account": "one",
+              "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "source": "provider-cli",
+            "observedAt": 1000000,
+            "validUntil": null,
+            "reason": "quota_observed",
+            "value": {
+              "name": "5h",
+              "usedPct": 20,
+              "resetsAt": 1003600,
+              "lengthS": 18000,
+              "paced": false
+            }
+          },
+          {
+            "id": "4fae284795e9dea602231ad0",
+            "scope": {
+              "account": "one",
+              "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "source": "session-log",
+            "observedAt": 1000000,
+            "validUntil": null,
+            "reason": "quota_observed",
+            "value": {
+              "name": "5h",
+              "usedPct": 35,
+              "resetsAt": 1003600,
+              "lengthS": 18000,
+              "paced": false
+            }
+          }
+        ],
+        "spending": []
+      },
+      "incoming": {
+        "availability": [],
+        "budget": [],
+        "spending": []
+      },
+      "now": 1000000
+    },
+    "expected": {
+      "facts": {
+        "availability": [],
+        "budget": [
+          {
+            "id": "8152a1bca7c9365172256704",
+            "scope": {
+              "account": "one",
+              "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "source": "provider-cli",
+            "observedAt": 1000000,
+            "validUntil": null,
+            "reason": "quota_observed",
+            "value": {
+              "name": "5h",
+              "usedPct": 20,
+              "resetsAt": 1003600,
+              "lengthS": 18000,
+              "paced": false
+            }
+          }
+        ],
+        "spending": []
+      },
+      "conflicts": []
+    }
+  }
+]
