@@ -535,24 +535,24 @@ mod messaging_liveness_tests {
 
     #[test]
     fn liveness_defaults_split_nudge_and_caller_wake_modes() {
-        let cfg = messaging(&json!({})).expect("defaults");
+        let cfg = messaging(&json!({}));
         assert_eq!(
-            cfg["liveness"]["nudge_in_modes"],
-            json!(["relaxed", "normal", "strict", "emergency"])
+            cfg.as_ref()
+                .map(|v| v["liveness"]["nudge_in_modes"].clone()),
+            Some(json!(["relaxed", "normal", "strict", "emergency"]))
         );
         assert_eq!(
-            cfg["liveness"]["caller_wake_in_modes"],
-            json!(["relaxed", "normal"])
+            cfg.map(|v| v["liveness"]["caller_wake_in_modes"].clone()),
+            Some(json!(["relaxed", "normal"]))
         );
     }
 
     #[test]
     fn caller_wake_in_modes_parses_and_rejects_unknown() {
-        let ok = messaging(&json!({"liveness":{"caller_wake_in_modes":["strict","emergency"]}}))
-            .expect("valid modes");
+        let ok = messaging(&json!({"liveness":{"caller_wake_in_modes":["strict","emergency"]}}));
         assert_eq!(
-            ok["liveness"]["caller_wake_in_modes"],
-            json!(["strict", "emergency"])
+            ok.map(|v| v["liveness"]["caller_wake_in_modes"].clone()),
+            Some(json!(["strict", "emergency"]))
         );
         assert!(messaging(&json!({"liveness":{"caller_wake_in_modes":["turbo"]}})).is_none());
         assert!(messaging(&json!({"liveness":{"nudge_in_modes":["turbo"]}})).is_none());

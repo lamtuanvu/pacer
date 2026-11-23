@@ -340,7 +340,9 @@ mod tests {
 
     #[test]
     fn caller_wake_in_modes_is_accepted_on_project_liveness() {
-        let value = liveness(&json!({"caller_wake_in_modes":["strict"],"nudge_in_modes":["normal"]})).unwrap();
+        let value =
+            liveness(&json!({"caller_wake_in_modes":["strict"],"nudge_in_modes":["normal"]}))
+                .unwrap();
         assert_eq!(value["caller_wake_in_modes"], json!(["strict"]));
         assert_eq!(value["nudge_in_modes"], json!(["normal"]));
         assert!(liveness(&json!({"caller_wake_in_modes":["nope"]})).is_none());
