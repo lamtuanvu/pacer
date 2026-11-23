@@ -42,3 +42,25 @@ test("appsPageView labels available count and trust caption", () => {
   expect(page.availableLabel).toBe("Available · 1");
   expect(page.trustCaption).toContain("only after you confirm");
 });
+
+test("empty grants never enter approving — failed with the no-grants board reason and terminal fallback", () => {
+  const card = appsCardView(base, { approval: { fingerprint: "ap-empty", grants: [] } });
+  expect(card.phase).toBe("failed");
+  expect(card.error).toBe(
+    "Orca didn’t say what it would allow, so pacer won’t ask you to approve it here.",
+  );
+  expect(card.grants).toBeUndefined();
+  expect(card.fingerprint).toBeUndefined();
+  expect(card.terminalCommands?.install).toContain("/tmp/orca-panel");
+  expect(card.pill).toEqual({ label: "Couldn't add", tone: "bad" });
+});
+
+test("stale approval re-shows grants with the board expired status line", () => {
+  const grants = [{ kind: "storage:own", what: "w", why: "y", icon: "i" }];
+  const card = appsCardView(base, { approval: { fingerprint: "ap-new", grants, stale: true } });
+  expect(card.phase).toBe("approving");
+  expect(card.expired).toBe(true);
+  expect(card.grants).toEqual(grants);
+  expect(card.fingerprint).toBe("ap-new");
+  expect(appsCardView(base, { approval: { fingerprint: "ap1", grants } }).expired).toBeFalsy();
+});

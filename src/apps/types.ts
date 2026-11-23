@@ -2,6 +2,10 @@ import type { AppGrant } from "./grants";
 
 export type AppId = "orca";
 
+/** Board no-grants fail reason: approval_required with nothing parseable to show. */
+export const ORCA_NO_GRANTS_REASON =
+  "Orca didn’t say what it would allow, so pacer won’t ask you to approve it here.";
+
 /** One host app pacer can add itself to. */
 export interface AppInfo {
   id: AppId;

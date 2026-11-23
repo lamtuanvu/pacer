@@ -30,10 +30,10 @@ function parseVerb(args: string[]): { verb: "install" | "update" | "status" | "u
 
 function formatApproval(r: { error: string; needsApprove?: string; grants?: { what: string; why: string; description?: string }[] }): string {
   const lines = [`pacer: orca plugin install needs approval: ${r.error}`];
-  if (r.grants?.length) {
-    lines.push("Orca will let pacer:");
-    for (const g of r.grants) lines.push(`  - ${g.what}${g.why && g.why !== g.what ? ` (${g.why})` : ""}`);
-  }
+  // Empty / unparseable grants: print Orca's own message only — never an empty list or a blind --approve.
+  if (!r.grants?.length) return lines.join("\n");
+  lines.push("Orca will let pacer:");
+  for (const g of r.grants) lines.push(`  - ${g.what}${g.why && g.why !== g.what ? ` (${g.why})` : ""}`);
   if (r.needsApprove) {
     lines.push(`If you agree, run: pacer plugin install --approve ${r.needsApprove}`);
   }

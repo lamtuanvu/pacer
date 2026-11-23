@@ -12,7 +12,8 @@ import {
   updateOrcaPanel,
 } from "../plugin/orca-panel-cli";
 import type { Ctx } from "../types";
-import type { AppActionResult, AppAddResult, AppInfo, AppStatus } from "./types";
+import type { AppGrant } from "./grants";
+import { ORCA_NO_GRANTS_REASON, type AppActionResult, type AppAddResult, type AppInfo, type AppStatus } from "./types";
 
 export const ORCA_APP: AppInfo = {
   id: "orca",
@@ -78,34 +79,30 @@ export async function orcaStatus(ctx: Ctx): Promise<AppStatus> {
   };
 }
 
+function approvalOrNoGrants(fingerprint: string, grants: AppGrant[] | undefined, stale?: boolean): AppAddResult {
+  const list = grants ?? [];
+  if (!list.length) return { status: "error", id: "orca", error: ORCA_NO_GRANTS_REASON };
+  return {
+    status: "approval_required",
+    id: "orca",
+    fingerprint,
+    grants: list,
+    ...(stale ? { stale: true } : {}),
+  };
+}
+
 export async function orcaAdd(ctx: Ctx, approve?: string): Promise<AppAddResult> {
   const panelDir = resolveOrcaPanelDir(ctx.env, ctx.env.PACER_BIN || process.execPath);
   const r = await installOrcaPanel(ctx.run, panelDir, approve);
   if (r.ok) return { status: "added", id: "orca" };
-  if (r.needsApprove) {
-    return {
-      status: "approval_required",
-      id: "orca",
-      fingerprint: r.needsApprove,
-      grants: r.grants ?? [],
-      ...(r.stale ? { stale: true } : {}),
-    };
-  }
+  if (r.needsApprove) return approvalOrNoGrants(r.needsApprove, r.grants, r.stale);
   return { status: "error", id: "orca", error: r.error };
 }
 
 export async function orcaUpdate(ctx: Ctx, approve?: string): Promise<AppAddResult> {
   const r = await updateOrcaPanel(ctx.run, approve);
   if (r.ok) return { status: "added", id: "orca" };
-  if (r.needsApprove) {
-    return {
-      status: "approval_required",
-      id: "orca",
-      fingerprint: r.needsApprove,
-      grants: r.grants ?? [],
-      ...(r.stale ? { stale: true } : {}),
-    };
-  }
+  if (r.needsApprove) return approvalOrNoGrants(r.needsApprove, r.grants, r.stale);
   return { status: "error", id: "orca", error: r.error };
 }
 

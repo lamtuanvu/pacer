@@ -44,6 +44,29 @@ test("pacer plugin install prints grants and the exact --approve retry", async (
   expect(r.err).toContain("pacer plugin install --approve ap1-abc");
 });
 
+test("pacer plugin install with empty grants prints Orca's message, not an empty grant list", async () => {
+  const dir = panelDir();
+  const ctx = fakeCtx({
+    env: { [ORCA_PANEL_DIR_ENV]: dir },
+    run: async () => ({
+      code: 3,
+      stdout: "",
+      stderr: JSON.stringify({
+        error: {
+          code: "approval_required",
+          message: "plugin needs your approval in Orca",
+          data: { approvalFingerprint: "ap-empty", grants: {} },
+        },
+      }),
+    }),
+  });
+  const r = await main(["plugin", "install"], ctx);
+  expect(r.code).toBe(3);
+  expect(r.err).toContain("plugin needs your approval in Orca");
+  expect(r.err).not.toContain("Orca will let pacer:");
+  expect(r.err).not.toContain("--approve");
+});
+
 test("pacer plugin install --approve <fp> retries with that fingerprint", async () => {
   const dir = panelDir();
   const calls: string[][] = [];

@@ -1,5 +1,5 @@
 import type { AppGrant } from "../apps/grants";
-import type { AppStatus } from "../apps/types";
+import { ORCA_NO_GRANTS_REASON, type AppStatus } from "../apps/types";
 
 /** UI phase for one Apps card; decided only from the service status + local approve/error state. */
 export type AppsCardPhase =
@@ -26,6 +26,8 @@ export interface AppsCardView {
   error?: string;
   grants?: AppGrant[];
   fingerprint?: string;
+  /** Board expired status: re-shown grants after approval_stale. */
+  expired?: boolean;
   oldPlugin: boolean;
   panelDir: string | null;
   terminalCommands?: { install: string; approve: string };
@@ -45,9 +47,28 @@ const TRUST =
 
 export interface AppsCardLocalState {
   /** Pending approval from the last apps.add / apps.update without approve. */
-  approval?: { fingerprint: string; grants: AppGrant[] };
+  approval?: { fingerprint: string; grants: AppGrant[]; stale?: boolean };
   /** Last hard failure message (couldn't add). */
   error?: string;
+}
+
+function failedCard(base: AppsCardView, app: AppStatus, error: string): AppsCardView {
+  return {
+    ...base,
+    phase: "failed",
+    hostVersion: presenceHost(app),
+    pill: { label: "Couldn't add", tone: "bad" },
+    cardTone: "bad",
+    error,
+    ...(app.panelDir
+      ? {
+          terminalCommands: {
+            install: `orca plugin install ${JSON.stringify(app.panelDir)}`,
+            approve: `orca plugin install ${JSON.stringify(app.panelDir)} --approve <fingerprint>`,
+          },
+        }
+      : {}),
+  };
 }
 
 /** Pure card view for Settings › Apps; keeps every board decision out of the Preact tree. */
@@ -64,32 +85,21 @@ export function appsCardView(app: AppStatus, local: AppsCardLocalState = {}): Ap
   };
 
   if (local.approval) {
+    if (!local.approval.grants.length) {
+      return failedCard(base, app, ORCA_NO_GRANTS_REASON);
+    }
     return {
       ...base,
       phase: "approving",
       hostVersion: presenceHost(app),
       grants: local.approval.grants,
       fingerprint: local.approval.fingerprint,
+      ...(local.approval.stale ? { expired: true } : {}),
     };
   }
 
   if (local.error) {
-    return {
-      ...base,
-      phase: "failed",
-      hostVersion: presenceHost(app),
-      pill: { label: "Couldn't add", tone: "bad" },
-      cardTone: "bad",
-      error: local.error,
-      ...(app.panelDir
-        ? {
-            terminalCommands: {
-              install: `orca plugin install ${JSON.stringify(app.panelDir)}`,
-              approve: `orca plugin install ${JSON.stringify(app.panelDir)} --approve <fingerprint>`,
-            },
-          }
-        : {}),
-    };
+    return failedCard(base, app, local.error);
   }
 
   switch (app.presence.kind) {

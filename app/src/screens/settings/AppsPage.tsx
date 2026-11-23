@@ -86,8 +86,11 @@ function AppsCard({
           <span className="pc-settings-board__caption">{card.whereToFind}</span>
         )}
 
-        {card.phase === "approving" && card.grants && (
+        {card.phase === "approving" && card.grants && card.grants.length > 0 && (
           <div role="group" aria-labelledby={`apps-grants-${card.id}`} className="pc-apps-grants">
+            {card.expired && (
+              <p role="status" className="pc-apps-expired">That approval expired. Check what Orca will allow, then confirm again.</p>
+            )}
             <b id={`apps-grants-${card.id}`}>Orca will let pacer:</b>
             <ul className="pc-apps-grants__list">
               {card.grants.map((g) => (
@@ -187,7 +190,16 @@ export function AppsPage({ initialData }: { initialData?: { apps: AppStatus[] } 
 
   function handleAddResult(id: string, data: AppAddResult) {
     if (data.status === "approval_required") {
-      setLocal((prev) => ({ ...prev, [id]: { approval: { fingerprint: data.fingerprint, grants: data.grants } } }));
+      setLocal((prev) => ({
+        ...prev,
+        [id]: {
+          approval: {
+            fingerprint: data.fingerprint,
+            grants: data.grants,
+            ...(data.stale ? { stale: true } : {}),
+          },
+        },
+      }));
       return;
     }
     if (data.status === "error") {

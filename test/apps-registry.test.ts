@@ -161,6 +161,30 @@ test("addApp returns approval_required with grants; approve finishes; stale retu
   expect(stale).toMatchObject({ status: "approval_required", fingerprint: "ap1-new", stale: true });
 });
 
+test("addApp with approval_required but no parseable grants returns the no-grants error", async () => {
+  const run: RunFn = async (argv) => {
+    if (argv.includes("install")) {
+      return ok(
+        JSON.stringify({
+          ok: false,
+          error: {
+            code: "approval_required",
+            message: "Orca's raw approval message",
+            data: { approvalFingerprint: "ap-empty", grants: {} },
+          },
+        }),
+      );
+    }
+    return ok();
+  };
+  const result = await addApp(ctxWith(run), "orca");
+  expect(result).toEqual({
+    status: "error",
+    id: "orca",
+    error: "Orca didn’t say what it would allow, so pacer won’t ask you to approve it here.",
+  });
+});
+
 test("open/update/remove and unknown id", async () => {
   const calls: string[][] = [];
   const run: RunFn = async (argv) => {
