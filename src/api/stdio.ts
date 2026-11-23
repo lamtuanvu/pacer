@@ -45,7 +45,7 @@ export async function runStdio(
       switch (r.method) {
         case "_internal.native-config.finish": {
           const key = o.nativeConfigKey;
-          if (!key || !r.params || typeof r.params !== "object" || (r.params as {key?: unknown}).key !== key || getCtx().env.PACER_WORK_GRANT) {
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as {key?: unknown}).key !== key) {
             throw new CoreError("unknown_op", "unknown operation");
           }
           const {finishNativeConfigEdit} = await import("../core/accounts");
@@ -55,7 +55,7 @@ export async function runStdio(
         }
         case "_internal.status-broker.parts": {
           const key = o.nativeConfigKey;
-          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key) {
             throw new CoreError("unknown_op", "unknown operation");
           }
           const { key: _key, ...params } = r.params as Record<string, unknown>;
@@ -65,7 +65,7 @@ export async function runStdio(
         }
         case "_internal.dispatch.parts": {
           const key = o.nativeConfigKey;
-          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key) {
             throw new CoreError("unknown_op", "unknown operation");
           }
           const { key: _key, ...params } = r.params as Record<string, unknown>;
@@ -76,7 +76,7 @@ export async function runStdio(
         }
         case "_internal.terminal.parts": {
           const key = o.nativeConfigKey;
-          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key) {
             throw new CoreError("unknown_op", "unknown operation");
           }
           const { key: _key, ...params } = r.params as Record<string, unknown>;
@@ -86,7 +86,7 @@ export async function runStdio(
         }
         case "_internal.session-probe.parts": {
           const key = o.nativeConfigKey;
-          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key) {
             throw new CoreError("unknown_op", "unknown operation");
           }
           const { sessionProbeParts } = await import("./session-probe-bridge");
@@ -95,7 +95,7 @@ export async function runStdio(
         }
         case "_internal.config-host.parts": {
           const key = o.nativeConfigKey;
-          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key) {
             throw new CoreError("unknown_op", "unknown operation");
           }
           const { configHostParts } = await import("./config-host-bridge");
@@ -104,7 +104,7 @@ export async function runStdio(
         }
         case "_internal.account-list.parts": {
           const key = o.nativeConfigKey;
-          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key) {
             throw new CoreError("unknown_op", "unknown operation");
           }
           const { accountListParts } = await import("./account-list-bridge");
@@ -113,7 +113,7 @@ export async function runStdio(
         }
         case "_internal.host-read.parts": {
           const key = o.nativeConfigKey;
-          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key) {
             throw new CoreError("unknown_op", "unknown operation");
           }
           const alias = (r.params as { alias?: unknown }).alias;
@@ -127,7 +127,7 @@ export async function runStdio(
         }
         case "_internal.task-read.parts": {
           const key = o.nativeConfigKey;
-          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key) {
             throw new CoreError("unknown_op", "unknown operation");
           }
           const id = (r.params as { id?: unknown }).id;
@@ -138,7 +138,7 @@ export async function runStdio(
         }
         case "_internal.snapshot-probe.parts": {
           const key = o.nativeConfigKey;
-          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key) {
             throw new CoreError("unknown_op", "unknown operation");
           }
           const { snapshotProbeParts } = await import("./snapshot-probe-bridge");
@@ -147,7 +147,7 @@ export async function runStdio(
         }
         case "_internal.task-wait.probe": {
           const key = o.nativeConfigKey;
-          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key) {
             throw new CoreError("unknown_op", "unknown operation");
           }
           const id = (r.params as { id?: unknown }).id;
@@ -158,7 +158,7 @@ export async function runStdio(
         }
         case "_internal.task-stop.probe": {
           const key = o.nativeConfigKey;
-          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key) {
             throw new CoreError("unknown_op", "unknown operation");
           }
           const id = (r.params as { id?: unknown }).id;
@@ -169,7 +169,7 @@ export async function runStdio(
         }
         case "_internal.task-stop.effects": {
           const key = o.nativeConfigKey;
-          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key) {
             throw new CoreError("unknown_op", "unknown operation");
           }
           const id = (r.params as { id?: unknown }).id;
@@ -181,7 +181,7 @@ export async function runStdio(
         }
         case "_internal.task-review.probe": {
           const key = o.nativeConfigKey;
-          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key) {
             throw new CoreError("unknown_op", "unknown operation");
           }
           const probeParams = (r.params as { params?: unknown }).params;
@@ -196,7 +196,7 @@ export async function runStdio(
         }
         case "_internal.task-review.effects": {
           const key = o.nativeConfigKey;
-          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key) {
             throw new CoreError("unknown_op", "unknown operation");
           }
           const id = (r.params as { id?: unknown }).id;
@@ -217,7 +217,7 @@ export async function runStdio(
         }
         case "_internal.task-auto-clean": {
           const key = o.nativeConfigKey;
-          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key) {
             throw new CoreError("unknown_op", "unknown operation");
           }
           const ids = (r.params as { ids?: unknown }).ids;
@@ -228,7 +228,7 @@ export async function runStdio(
         }
         case "_internal.msg.effects": {
           const key = o.nativeConfigKey;
-          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key) {
             throw new CoreError("unknown_op", "unknown operation");
           }
           const { msgEffectsBridge } = await import("./msg-bridge");
@@ -237,7 +237,7 @@ export async function runStdio(
         }
         case "_internal.host.effects": {
           const key = o.nativeConfigKey;
-          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key) {
             throw new CoreError("unknown_op", "unknown operation");
           }
           const { hostEffectsBridge } = await import("./host-effects-bridge");
@@ -246,7 +246,7 @@ export async function runStdio(
         }
         case "_internal.task-send": {
           const key = o.nativeConfigKey;
-          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key) {
             throw new CoreError("unknown_op", "unknown operation");
           }
           const { taskSendBridge } = await import("./task-send-bridge");
@@ -255,7 +255,7 @@ export async function runStdio(
         }
         case "_internal.assistant.turn": {
           const key = o.nativeConfigKey;
-          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key) {
             throw new CoreError("unknown_op", "unknown operation");
           }
           const { assistantTurnBridge, ASSISTANT_TURN_MAX } = await import("./assistant-turn-bridge");
@@ -265,7 +265,7 @@ export async function runStdio(
         }
         case "_internal.setup.effects": {
           const key = o.nativeConfigKey;
-          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key) {
             throw new CoreError("unknown_op", "unknown operation");
           }
           const { setupEffectsBridge } = await import("./setup-bridge");
@@ -274,7 +274,7 @@ export async function runStdio(
         }
         case "_internal.client-control": {
           const key = o.nativeConfigKey;
-          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key) {
             throw new CoreError("unknown_op", "unknown operation");
           }
           const { clientControlBridge } = await import("./client-control-bridge");
@@ -283,7 +283,7 @@ export async function runStdio(
         }
         case "_internal.setup.check": {
           const key = o.nativeConfigKey;
-          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key) {
             throw new CoreError("unknown_op", "unknown operation");
           }
           const snapshotProbe = (r.params as { snapshotProbe?: unknown }).snapshotProbe;
@@ -294,7 +294,7 @@ export async function runStdio(
         case "_internal.plugins": {
           // The front door's plugin channel: the HTTP door's `/_internal/plugins`, sealed by the sync key.
           const key = o.nativeConfigKey;
-          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT || protocol !== 3) {
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || protocol !== 3) {
             throw new CoreError("unknown_op", "unknown operation");
           }
           const { pluginNativeRequest } = await import("../serve/plugin-native");
@@ -303,7 +303,7 @@ export async function runStdio(
         }
         case "_internal.setup.doctor": {
           const key = o.nativeConfigKey;
-          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key) {
             throw new CoreError("unknown_op", "unknown operation");
           }
           const { setupDoctorBridge } = await import("./setup-doctor-bridge");
@@ -312,7 +312,7 @@ export async function runStdio(
         }
         case "_internal.desktop.capture": {
           const key = o.nativeConfigKey;
-          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key) {
             throw new CoreError("unknown_op", "unknown operation");
           }
           const { captureBridge } = await import("./desktop-capture-bridge");
@@ -321,7 +321,7 @@ export async function runStdio(
         }
         case "_internal.desktop.update": {
           const key = o.nativeConfigKey;
-          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key) {
             throw new CoreError("unknown_op", "unknown operation");
           }
           const { updateBridge } = await import("./desktop-update-bridge");
@@ -357,8 +357,14 @@ export async function runStdio(
         default: {
           if (getCtx().env.PACER_WORK_GRANT) {
             if (protocol !== 3) throw new CoreError("not_allowed", "Work grants require protocol 3");
-            const client = await connectClient(getCtx(), { protocol: 3 });
-            try { result = await client.call(r.method, r.params ?? {}); } finally { client.close(); }
+            // Paired Core (front-door child) must not HTTP-loop to the service; CLI-only
+            // Core without a host socket still re-proxies work-grant calls over HTTP.
+            if (o.nativeConfigKey || getCtx().env.PACER_HOST_SOCKET) {
+              result = await callOp(getCtx(), r.method, r.params ?? {}, o.opDeps);
+            } else {
+              const client = await connectClient(getCtx(), { protocol: 3 });
+              try { result = await client.call(r.method, r.params ?? {}); } finally { client.close(); }
+            }
           } else result = await (protocol===3?callOp:callV2Op)(getCtx(), r.method, r.params ?? {}, o.opDeps);
         }
       }

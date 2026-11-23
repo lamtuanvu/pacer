@@ -80,14 +80,27 @@ test("EOF drains pending requests and stops subscription polling", async () => {
   expect(out).toHaveLength(count);
 });
 
-test("private native edit hook refuses missing, incorrect and work-scoped credentials", async () => {
-  for (const env of [{}, {PACER_NATIVE_CONFIG_SYNC_KEY:"fixture-private-key"}, {PACER_NATIVE_CONFIG_SYNC_KEY:"fixture-private-key",PACER_WORK_GRANT:"fixture-grant"}]) {
-    const ctx=fakeCtx({env});
-    const params={key:env.PACER_WORK_GRANT?"fixture-private-key":"incorrect"};
-    async function* input(){yield JSON.stringify({jsonrpc:"2.0",id:1,method:"_internal.native-config.finish",params:{...params,op:"runner.set"}});}
-    const out: unknown[]=[];
-    await runStdio(ctx,input(),line=>out.push(JSON.parse(line)),{nativeConfigKey:env.PACER_NATIVE_CONFIG_SYNC_KEY});
-    expect(out).toMatchObject([{id:1,error:{code:-32601,data:{code:"unknown_op"}}}]);
+test("private native edit hook refuses missing and incorrect credentials", async () => {
+  // The sync key seals `_internal.*`. Work-grant clients never reach these methods
+  // through the front door (stdio refuses anything outside WORK_GRANT_OPS before
+  // Core forward); paired Core may serve bridges for the front door while a grant
+  // is inherited in its env.
+  for (const env of [{}, { PACER_NATIVE_CONFIG_SYNC_KEY: "fixture-private-key" }]) {
+    const ctx = fakeCtx({ env });
+    const params = { key: "incorrect" };
+    async function* input() {
+      yield JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "_internal.native-config.finish",
+        params: { ...params, op: "runner.set" },
+      });
+    }
+    const out: unknown[] = [];
+    await runStdio(ctx, input(), (line) => out.push(JSON.parse(line)), {
+      nativeConfigKey: env.PACER_NATIVE_CONFIG_SYNC_KEY,
+    });
+    expect(out).toMatchObject([{ id: 1, error: { code: -32601, data: { code: "unknown_op" } } }]);
     expect(JSON.stringify(out)).not.toContain("fixture-private-key");
   }
 });

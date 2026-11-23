@@ -18,6 +18,7 @@ pacer-store = { path = "../store" }
 pacer-lifecycle = { path = "../lifecycle" }
 pacer-repos = { path = "../repos" }
 pacer-models = { path = "../models" }
+pacer-work = { path = "../work" }
 pacer-js-json = { path = "../js-json" }
 regex = "1"
 icu_collator = { version = "=2.4.0", features = ["unstable"] }
