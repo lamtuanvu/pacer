@@ -4,6 +4,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.17.9] - 2026-11-23
+
 ### Added
 
 - **pacer in Orca's sidebar.** A new Orca panel shows your pace, what needs you (answer, accept, reject, retry in place), delegation from the worktree you're in, what's running (stop, watch in Orca, open its worktree), who runs next and what finished today, scoped to the Orca workspace you're in with an All repos view; its status bar item shows pace and how many items need you. Proposed with constitution amendment 0.27.0 ([ADR](docs/decisions/2026-11-19-revive-orca-panel.md), [design](docs/specs/2026-11-19-orca-panel-plugin-design.md)).
