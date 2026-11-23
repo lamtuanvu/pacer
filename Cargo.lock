@@ -1574,6 +1574,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-desktop-native"
+version = "0.0.0"
+dependencies = [
+ "core-foundation 0.10.1",
+ "hex",
+ "libproc",
+ "nix",
+ "pacer-desktop-update",
+ "pacer-foundation",
+ "pacer-js-json",
+ "rand 0.9.5",
+ "security-framework",
+ "serde_json",
+ "sha2",
+ "socket2",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "pacer-desktop-protocol"
 version = "0.0.0"
 dependencies = [
@@ -2065,7 +2085,6 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "chrono-tz",
- "core-foundation 0.10.1",
  "form_urlencoded",
  "futures-util",
  "hex",
@@ -2073,13 +2092,13 @@ dependencies = [
  "hyper",
  "hyper-util",
  "icu_collator",
- "libproc",
  "nix",
  "pacer-account-ops",
  "pacer-assistant-ops",
  "pacer-config",
  "pacer-config-ops",
  "pacer-core-bridge",
+ "pacer-desktop-native",
  "pacer-discovery-ops",
  "pacer-dispatch-ops",
  "pacer-engine",
@@ -2100,11 +2119,9 @@ dependencies = [
  "pacer-update",
  "rand 0.9.5",
  "ryu-js",
- "security-framework",
  "serde",
  "serde_json",
  "sha2",
- "socket2",
  "subtle",
  "tempfile",
  "tokio",

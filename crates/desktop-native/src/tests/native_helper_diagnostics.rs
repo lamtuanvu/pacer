@@ -137,7 +137,7 @@ fn cap_and_private_file_hold_across_separate_root_processes() {
     }
     let home = home();
     let executable = std::env::current_exe().unwrap();
-    let mut children=(0..4).map(|_|std::process::Command::new(&executable).args(["--exact","serve::native_helper_diagnostics::tests::cap_and_private_file_hold_across_separate_root_processes"]).env("PACER_DIAGNOSTIC_APPEND_CHILD",home.path()).stdout(std::process::Stdio::null()).spawn().unwrap()).collect::<Vec<_>>();
+    let mut children=(0..4).map(|_|std::process::Command::new(&executable).args(["--exact","native_helper_diagnostics::tests::cap_and_private_file_hold_across_separate_root_processes"]).env("PACER_DIAGNOSTIC_APPEND_CHILD",home.path()).stdout(std::process::Stdio::null()).spawn().unwrap()).collect::<Vec<_>>();
     for child in &mut children {
         assert!(child.wait().unwrap().success());
     }

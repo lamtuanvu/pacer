@@ -20,20 +20,10 @@ mod log_sse;
 #[path = "tests/log_sse.rs"]
 mod log_sse_tests;
 #[cfg(target_os = "macos")]
-mod native_bootstrap;
-#[cfg(target_os = "macos")]
-pub mod native_bundle;
-#[cfg(target_os = "macos")]
-pub mod native_context;
-#[cfg(target_os = "macos")]
-mod native_helper;
-#[cfg(target_os = "macos")]
-mod native_helper_diagnostics;
+pub use pacer_desktop_native::native_context;
 pub mod native_host;
 #[cfg(target_os = "macos")]
-pub mod native_listener;
-#[cfg(target_os = "macos")]
-pub mod native_trust;
+pub use pacer_desktop_native::NativeContext;
 pub mod proxy;
 pub mod sessions;
 pub mod ws;

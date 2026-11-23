@@ -85,6 +85,7 @@ Layers from bottom (0) to top. Budgets are the planned size at the end of M3; CR
 | 8 | `pacer-task-ops` (`crates/task-ops`) | Native task, session, snapshot and shared job operation handlers (reads, list, detail, review, stop, dismiss, diff, wait, `job.*`) | ≤ 2,500 | none |
 | 8 | `pacer-tui` (`crates/tui`) | Dashboard (an API client: ARCH-1) | 1,000–1,200 | `ratatui`, `crossterm` |
 | 8 | `pacer-bundled` (`crates/bundled`) | Table of bundled plugins (manifest text and entry function), from M3 plan 1 | ≤ 300 | none (depends on `plugins-rs/*`) |
+| 8 | `pacer-desktop-native` (`crates/desktop-native`) | Native desktop bridge on macOS: paired-app startup, socket listener, trust and bundle verification, helper processes, and the native identity/record surface for desktop updates (moved from `pacer-server` `serve`) | ≤ 1,500 | `security-framework` |
 | 9 | `pacer-server` (`crates/server`) | Op registry assembly, HTTP, SSE, WebSocket, stdio, MCP, bridge, embedded app assets | 2,000–2,500 | `axum`, `hyper`, `rmcp` |
 | 10 | `pacer-cli` (`crates/cli`) | Commands, renderers, status line, core exec and self-repair (M1–M2) | 3,000–3,500 | `clap` |
 | 11 | `pacer` (`crates/pacer`) | Binary | ≤ 500 | none |

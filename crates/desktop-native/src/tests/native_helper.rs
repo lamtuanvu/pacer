@@ -207,7 +207,7 @@ async fn incoming_many_rights_are_all_closed_without_darwin_truncation_leaks() {
     // Run alone so unrelated parallel tests cannot perturb process FD counts.
     if std::env::var_os("PACER_HELPER_FD_TEST_CHILD").is_none() {
         let output=std::process::Command::new(std::env::current_exe().unwrap())
-            .args(["--exact","serve::native_helper::tests::incoming_many_rights_are_all_closed_without_darwin_truncation_leaks"])
+            .args(["--exact","native_helper::tests::incoming_many_rights_are_all_closed_without_darwin_truncation_leaks"])
             .env("PACER_HELPER_FD_TEST_CHILD","1").output().unwrap();
         assert!(
             output.status.success(),
@@ -293,7 +293,7 @@ fn failure_diagnostic_is_bounded_whitelisted_and_does_not_use_readiness_or_shutd
 fn failure_diagnostic_closes_all_incoming_rights_without_leaks() {
     if std::env::var_os("PACER_TEST_FAILURE_DIAGNOSTIC_CHILD").is_none() {
         let status = std::process::Command::new(std::env::current_exe().unwrap())
-            .args(["--exact", "serve::native_helper::tests::failure_diagnostic_closes_all_incoming_rights_without_leaks"])
+            .args(["--exact", "native_helper::tests::failure_diagnostic_closes_all_incoming_rights_without_leaks"])
             .env("PACER_TEST_FAILURE_DIAGNOSTIC_CHILD", "1").status().unwrap();
         assert!(status.success());
         return;
