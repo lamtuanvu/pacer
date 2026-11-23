@@ -20,7 +20,9 @@ test("M1 gate modes split the checks between build and shard jobs without droppi
 test("the shard script lists exactly the tracked files Bun runs as tests", () => {
   const root = join(import.meta.dir, "..");
   const tracked = Bun.spawnSync(["git", "ls-files"], { cwd: root, stdout: "pipe" }).stdout.toString().split("\n");
-  const bunTests = tracked.filter(path => !path.split("/").includes("node_modules") && /[._](test|spec)\.[cm]?[jt]sx?$/.test(path));
+  // Plugin tests that import Orca's own `orca/testing` kit run only under `orca plugin test`.
+  const needsOrcaKit = (path: string) => path.startsWith("plugins/") && /from\s+['"]orca\/testing['"]/.test(readFileSync(join(root, path), "utf8"));
+  const bunTests = tracked.filter(path => !path.split("/").includes("node_modules") && /[._](test|spec)\.[cm]?[jt]sx?$/.test(path) && !needsOrcaKit(path));
   expect(bunTests.length).toBeGreaterThan(1000);
   expect(shardTestFiles(root, { SHARD_INDEX: "0", SHARD_COUNT: "1" }).sort()).toEqual(bunTests.sort());
 });
