@@ -213,9 +213,9 @@ export async function httpOp(session: Session, op: string, params: unknown): Pro
 
 /**
  * Fixed stdio plugin exchange with the native host off and on, on the sandbox's Rust front door.
- * A running sandbox service decides the flag-on owner (attach when it runs `--native-plugin-host`);
- * a sandbox stopped with `down --keep` is a home without a service. Accepts no operation, path or
- * environment override.
+ * A running sandbox service decides the flag-on owner (attach when it runs the native plugin
+ * owner, the default); a sandbox stopped with `down --keep` is a home without a service.
+ * Accepts no operation, path or environment override.
  */
 export async function exerciseNativePluginStdio(session: Session, stopService = false): Promise<void> {
   if (session.frontDoor !== "rust" || session.nativeForwardEcho || session.nativeForwardOps || session.realKeychain) {
@@ -223,11 +223,11 @@ export async function exerciseNativePluginStdio(session: Session, stopService = 
   }
   const serviceLive = !session.stopped && await healthy(session);
   if (!session.stopped && !serviceLive) throw Error("native plugin stdio requires a healthy sandbox or one stopped with down --keep");
-  if (stopService && !(serviceLive && session.nativePluginHost)) throw Error("--stop-service requires a healthy --native-plugin-host sandbox");
+  if (stopService && !(serviceLive && session.pluginOwner !== "ts")) throw Error("--stop-service requires a healthy sandbox running the native plugin owner (not --ts-plugin-host)");
   const home = join(session.root, "home");
   if (!existsSync(join(home, "plugins", PLUGIN))) installFixture("ui", join(home, "plugins"));
-  const where = serviceLive ? `beside the sandbox service (native host ${session.nativePluginHost ? "on" : "off"})` : "on the sandbox home with its service stopped";
-  const flagOn: PluginOwnership = serviceLive && session.nativePluginHost ? "attach" : "own";
+  const where = serviceLive ? `beside the sandbox service (native host ${session.pluginOwner === "ts" ? "off" : "on"})` : "on the sandbox home with its service stopped";
+  const flagOn: PluginOwnership = serviceLive && session.pluginOwner !== "ts" ? "attach" : "own";
   const runs: Array<["0" | "1", PluginOwnership]> = stopService ? [["1", "attach"]] : [["0", "core"], ["1", flagOn]];
   for (const [nativeHost, ownership] of runs) {
     const behavior = `Stdio plugin ops, native host ${nativeHost === "1" ? "on" : "off"} (${ownership})`;
