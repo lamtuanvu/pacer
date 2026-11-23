@@ -6,6 +6,7 @@
 //! helper process management, and the native identity/record surface used to
 //! drive desktop updates.
 
+pub mod control;
 pub mod identity;
 mod js_trim;
 mod native_bootstrap;
