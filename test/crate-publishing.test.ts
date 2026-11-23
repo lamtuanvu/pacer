@@ -99,9 +99,11 @@ test("independent protocol dry-run refusal prevents all uploads and SDK packagin
 test("0.3 release graph packages every independent area before the SDK", async () => {
   const { readFileSync } = await import("node:fs");
   const metadata = pluginCrateFolders.map(folder => Bun.TOML.parse(readFileSync(new URL(`../crates/${folder}/Cargo.toml`, import.meta.url), "utf8")) as { package: { name: string; version: string; publish: boolean }; dependencies: Record<string, unknown> });
-  for (const item of metadata) expect(item.package).toMatchObject({ version: "0.3.0", publish: true });
+  // #1225 bumped the assistant protocol and the SDK to 0.4.0; the other protocol crates stay at 0.3.0.
+  const expectedVersion = (name: string) => name === "pacer-plugin" || name === "pacer-plugin-assistant-protocol" ? "0.4.0" : "0.3.0";
+  for (const item of metadata) expect(item.package).toMatchObject({ version: expectedVersion(item.package.name), publish: true });
   const sdk = metadata.at(-1)!;
-  for (const item of metadata.slice(0, -1)) expect(sdk.dependencies[item.package.name]).toMatchObject({ version: "0.3.0" });
+  for (const item of metadata.slice(0, -1)) expect(sdk.dependencies[item.package.name]).toMatchObject({ version: expectedVersion(item.package.name) });
   expect(sdk.dependencies["pacer-plugin-policy-protocol"]).toBeUndefined();
   const calls: string[] = [];
   await expect(publishPluginCrates({
