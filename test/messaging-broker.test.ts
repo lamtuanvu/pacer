@@ -66,12 +66,28 @@ test("external unread messages escalate after the configured delay", async () =>
   expect(getLiveness(ctx, "external:planner")?.escalatedAt).toBe(ctx.now + 901);
 });
 
-test("strict mode escalates a refused delivery without starting a turn", async () => {
+test("when nudge_in_modes excludes strict, refused delivery escalates without starting a turn", async () => {
   const { ctx, id } = fixture();
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders: {claude-code: {}, codex: {}}\nmessaging:\n  liveness: {nudge_in_modes: [relaxed, normal]}\n");
   const spawned: string[] = [];
   await brokerTick(ctx, { mode: async () => "strict", spawnRunner: (_c, task) => { spawned.push(task); return 1; } });
   expect(spawned).toEqual([]);
   expect(getLiveness(ctx, `task:${id}`)?.stalledAt).toBe(ctx.now);
+});
+
+test("strict mode retries a refused delivery by default", async () => {
+  const { ctx, id } = fixture();
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders: {claude-code: {}, codex: {}}\n");
+  updateTask(ctx, id, t => {
+    t.run = { dir: tmpDir(), attempt: 1, executor: "codex", startedAt: 1, mode: "new", workdir: tmpDir(), logFile: "/dev/null", agentSession: { id: "sid-1", source: "header" } };
+    t.attempts = [{ executor: "codex", model: null, startedAt: 1, endedAt: 2, exitCode: 0, timedOut: false, limitHit: false, log: "" }];
+    t.result = { status: "done", executor: "codex", model: null, files: "", report: "done", backend: "direct" };
+  });
+  const spawned: string[] = [];
+  await brokerTick(ctx, { mode: async () => "strict", spawnRunner: (_c, task) => { spawned.push(task); return 1; } });
+  expect(spawned).toEqual([id]);
 });
 
 test("cycle nudges the deepest task with exponential backoff and clears after an answer", async () => {
@@ -195,14 +211,25 @@ test("broker timer is registered at 15 seconds and cleared on stop", async () =>
   } finally { cleared.mockRestore(); await server.stop(); }
 });
 
-test("strict mode escalates an idle run instead of nudging it", async () => {
+test("strict mode nudges an idle run by default", async () => {
   const ctx = fakeCtx({ now: 1_000_000 });
   const task = createTask(ctx, { brief: { goal: "idle", repo: tmpDir() }, kind: "feature", requestedExecutor: null, timeoutS: 600 });
-  updateTask(ctx, task.id, t => { t.state = "running"; t.progress = { phase: "idle", lastOutputAt: ctx.now - 500 } as typeof t.progress; });
+  const dir = tmpDir();
+  updateTask(ctx, task.id, t => {
+    t.state = "running";
+    t.progress = { phase: "idle", lastOutputAt: ctx.now - 500 } as typeof t.progress;
+    t.run = { dir, attempt: 1, executor: "codex", startedAt: ctx.now - 500, mode: "new", workdir: tmpDir(), logFile: "/dev/null" };
+  });
   const node = `task:${task.id}`;
-  await brokerTick(ctx, { mode: async () => "strict" as const });
-  expect(byRequest(ctx, "broker", `nudge:${node}:a0:1`)).toBeNull();
-  expect(getLiveness(ctx, node)).toMatchObject({ nudges: 0, stalledAt: ctx.now, escalatedAt: ctx.now });
+  const stop = spyOn(runs, "stopRun").mockResolvedValue({ code: 143, killed: false });
+  try {
+    await brokerTick(ctx, { mode: async () => "strict" as const });
+    // First tick only arms nextAt; the nudge fires after interval_s.
+    expect(byRequest(ctx, "broker", `nudge:${node}:a1:1`)).toBeNull();
+    await brokerTick({ ...ctx, now: ctx.now + 60 }, { mode: async () => "strict" as const });
+    expect(byRequest(ctx, "broker", `nudge:${node}:a1:1`)).not.toBeNull();
+    expect(stop).toHaveBeenCalled();
+  } finally { stop.mockRestore(); }
 });
 
 test("spinner output does not reset a no_progress stall", async () => {
@@ -317,17 +344,189 @@ test("a retried attempt gets its own no_progress pings and stopped pings never r
   } finally { stop.mockRestore(); }
 });
 
-test("strict mode escalates a no_progress stall instead of pinging it", async () => {
+test("strict mode pings a no_progress stall by default", async () => {
   const ctx = fakeCtx({ now: 1_000_000 });
-  const { id, node } = spinning(ctx, "spin");
+  const { node } = spinning(ctx, "spin");
   const stop = spyOn(runs, "stopRun").mockResolvedValue({ code: 143, killed: false });
   try {
     await brokerTick(ctx, { mode: async () => "strict" });
     expect(byRequest(ctx, "broker", `nudge:${node}:a1:1`)).toBeNull();
+    await brokerTick({ ...ctx, now: ctx.now + 60 }, { mode: async () => "strict" });
+    expect(byRequest(ctx, "broker", `nudge:${node}:a1:1`)).not.toBeNull();
     expect(stop.mock.calls).toEqual([]);
-    expect(getLiveness(ctx, node)).toMatchObject({ nudges: 0, stalledAt: ctx.now, escalatedAt: ctx.now });
-    expect(attention(ctx, id, ctx.now).some(i => i.kind === "stalled" && i.taskId === id)).toBe(true);
+    expect(getLiveness(ctx, node)?.nudges).toBe(1);
   } finally { stop.mockRestore(); }
+});
+
+function writeNeedsInputReport(dir: string, at: number) {
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "report.json"), JSON.stringify({ status: "needs-input", summary: "waiting at prompt", at }));
+}
+
+test("a silent_prompt stall is nudged into the live session without stopping it", async () => {
+  const ctx = fakeCtx({ now: 1_000_000 });
+  const task = createTask(ctx, { brief: { goal: "stuck", repo: tmpDir() }, kind: "feature", requestedExecutor: null, timeoutS: 600 });
+  const dir = tmpDir();
+  writeNeedsInputReport(dir, ctx.now - 700);
+  updateTask(ctx, task.id, t => {
+    t.state = "running";
+    t.attemptStartedAt = ctx.now - 700;
+    // Fresh lastOutputAt simulates a viewer attach redraw; the stall still uses report.at.
+    t.progress = { phase: "needs-input", lastOutputAt: ctx.now - 1, lastChangeAt: ctx.now - 3600, gitObserved: true } as typeof t.progress;
+    t.run = { dir, attempt: 1, executor: "codex", startedAt: ctx.now - 700, mode: "new", workdir: tmpDir(), logFile: "/dev/null", session: "interactive" };
+  });
+  const node = `task:${task.id}`;
+  const stop = spyOn(runs, "stopRun").mockResolvedValue({ code: 143, killed: false });
+  try {
+    await brokerTick(ctx, { mode });
+    await brokerTick({ ...ctx, now: ctx.now + 60 }, { mode });
+    const nudge = byRequest(ctx, "broker", `nudge:${node}:a1:1`);
+    expect(nudge?.body).toContain("pacer report");
+    expect(stop.mock.calls).toEqual([]);
+    expect(getLiveness(ctx, node)?.since).toBe(ctx.now - 700);
+  } finally { stop.mockRestore(); }
+});
+
+test("silent_prompt nudges survive working gaps until max_nudges; file progress resets", async () => {
+  // After a nudge the agent leaves needs-input (stall absent). The row must be kept so the next Stop continues the count.
+  const ctx = fakeCtx({ now: 1_000_000 });
+  const task = createTask(ctx, { brief: { goal: "stuck", repo: tmpDir() }, kind: "feature", requestedExecutor: null, timeoutS: 600 });
+  const dir = tmpDir();
+  const workdir = tmpDir();
+  const started = ctx.now - 700;
+  const lastChange = ctx.now - 3600;
+  const apply = (phase: "needs-input" | "working", at: number, reportAt?: number, changeAt = lastChange) => {
+    if (phase === "needs-input") writeNeedsInputReport(dir, reportAt ?? at - 700);
+    updateTask(ctx, task.id, t => {
+      t.state = "running";
+      t.attemptStartedAt = started;
+      t.progress = { phase, lastOutputAt: at - 1, lastChangeAt: changeAt, gitObserved: true } as typeof t.progress;
+      t.run = { dir, attempt: 1, executor: "codex", startedAt: started, mode: "new", workdir, logFile: "/dev/null", session: "interactive" };
+    });
+  };
+  const node = `task:${task.id}`;
+  const stop = spyOn(runs, "stopRun").mockResolvedValue({ code: 143, killed: false });
+  try {
+    // Arm, then nudge 1 after interval_s.
+    apply("needs-input", ctx.now);
+    await brokerTick(ctx, { mode });
+    apply("needs-input", ctx.now + 60, ctx.now + 60 - 700);
+    await brokerTick({ ...ctx, now: ctx.now + 60 }, { mode });
+    expect(byRequest(ctx, "broker", `nudge:${node}:a1:1`)).not.toBeNull();
+
+    // Agent replies: phase leaves needs-input; stall absent but row retained.
+    apply("working", ctx.now + 70);
+    await brokerTick({ ...ctx, now: ctx.now + 70 }, { mode });
+    expect(getLiveness(ctx, node)).toMatchObject({ reason: "silent_prompt", nudges: 1 });
+
+    // Fresh Stop at the prompt (new report.at); idle_after elapsed; continues as nudge 2.
+    apply("needs-input", ctx.now + 180, ctx.now + 180 - 700);
+    await brokerTick({ ...ctx, now: ctx.now + 180 }, { mode });
+    expect(byRequest(ctx, "broker", `nudge:${node}:a1:2`)).not.toBeNull();
+
+    apply("working", ctx.now + 200);
+    await brokerTick({ ...ctx, now: ctx.now + 200 }, { mode });
+    expect(getLiveness(ctx, node)).toMatchObject({ reason: "silent_prompt", nudges: 2 });
+
+    apply("needs-input", ctx.now + 420, ctx.now + 420 - 700);
+    await brokerTick({ ...ctx, now: ctx.now + 420 }, { mode });
+    expect(byRequest(ctx, "broker", `nudge:${node}:a1:3`)).not.toBeNull();
+    expect(byRequest(ctx, "broker", `nudge:${node}:a1:4`)).toBeNull();
+    expect(getLiveness(ctx, node)).toMatchObject({ reason: "silent_prompt", nudges: 3, stalledAt: ctx.now + 420, escalatedAt: ctx.now + 420 });
+
+    // Another working→prompt cycle must not insert a fourth nudge.
+    apply("working", ctx.now + 500);
+    await brokerTick({ ...ctx, now: ctx.now + 500 }, { mode });
+    apply("needs-input", ctx.now + 900, ctx.now + 900 - 700);
+    await brokerTick({ ...ctx, now: ctx.now + 900 }, { mode });
+    expect(byRequest(ctx, "broker", `nudge:${node}:a1:4`)).toBeNull();
+    expect(getLiveness(ctx, node)).toMatchObject({ reason: "silent_prompt", nudges: 3, stalledAt: ctx.now + 420 });
+    expect(stop.mock.calls).toEqual([]);
+
+    // Real file progress clears the row so a later silent_prompt starts at nudges 0.
+    apply("working", ctx.now + 950, undefined, ctx.now + 950);
+    await brokerTick({ ...ctx, now: ctx.now + 950 }, { mode });
+    expect(getLiveness(ctx, node)).toBeNull();
+    apply("needs-input", ctx.now + 1600, ctx.now + 1600 - 700, ctx.now + 950);
+    await brokerTick({ ...ctx, now: ctx.now + 1600 }, { mode });
+    expect(getLiveness(ctx, node)).toMatchObject({ reason: "silent_prompt", nudges: 0, stalledAt: null });
+  } finally { stop.mockRestore(); }
+});
+
+test("silent_prompt is not raised when a real question is open or a human controls the terminal", async () => {
+  const ctx = fakeCtx({ now: 1_000_000 });
+  const asked = createTask(ctx, { brief: { goal: "q", repo: tmpDir() }, kind: "feature", requestedExecutor: null, timeoutS: 600 });
+  const askedDir = tmpDir();
+  writeNeedsInputReport(askedDir, ctx.now - 700);
+  updateTask(ctx, asked.id, t => {
+    t.state = "running";
+    t.question = { text: "which branch?", at: ctx.now - 700 };
+    t.progress = { phase: "needs-input", lastOutputAt: ctx.now - 700, lastChangeAt: ctx.now - 3600, gitObserved: true } as typeof t.progress;
+    t.run = { dir: askedDir, attempt: 1, executor: "codex", startedAt: ctx.now - 700, mode: "new", workdir: tmpDir(), logFile: "/dev/null", session: "interactive" };
+  });
+  await brokerTick(ctx, { mode });
+  expect(getLiveness(ctx, `task:${asked.id}`)).toBeNull();
+
+  const controlled = createTask(ctx, { brief: { goal: "human", repo: tmpDir() }, kind: "feature", requestedExecutor: null, timeoutS: 600 });
+  const controlledDir = tmpDir();
+  writeNeedsInputReport(controlledDir, ctx.now - 700);
+  updateTask(ctx, controlled.id, t => {
+    t.state = "running";
+    t.progress = { phase: "needs-input", lastOutputAt: ctx.now - 700, lastChangeAt: ctx.now - 3600, gitObserved: true, controlled: true } as typeof t.progress;
+    t.run = { dir: controlledDir, attempt: 1, executor: "codex", startedAt: ctx.now - 700, mode: "new", workdir: tmpDir(), logFile: "/dev/null", session: "interactive" };
+  });
+  await brokerTick(ctx, { mode });
+  expect(getLiveness(ctx, `task:${controlled.id}`)).toBeNull();
+});
+
+test("a conversation task waiting at its prompt is never silent_prompt", async () => {
+  const ctx = fakeCtx({ now: 1_000_000 });
+  const task = createTask(ctx, { brief: { goal: "chat", repo: tmpDir() }, kind: "feature", requestedExecutor: null, timeoutS: 600, interactionMode: "conversation" });
+  const dir = tmpDir();
+  writeNeedsInputReport(dir, ctx.now - 700);
+  updateTask(ctx, task.id, t => {
+    t.state = "running";
+    t.interactionMode = "conversation";
+    t.conversation = { activity: "waiting" };
+    t.attemptStartedAt = ctx.now - 700;
+    t.progress = { phase: "needs-input", lastOutputAt: ctx.now - 700, lastChangeAt: ctx.now - 3600, gitObserved: true } as typeof t.progress;
+    t.run = { dir, attempt: 1, executor: "codex", startedAt: ctx.now - 700, mode: "current", workdir: tmpDir(), logFile: "/dev/null", session: "interactive", interactionMode: "conversation" };
+  });
+  await brokerTick(ctx, { mode });
+  expect(getLiveness(ctx, `task:${task.id}`)).toBeNull();
+});
+
+test("in strict mode unread_external escalates after escalate_after_s (not immediately)", async () => {
+  // Isolate unread_external from caller_decision: a human-origin settled task never owes the planner a wake.
+  const ctx = fakeCtx({ now: 1_000_000 });
+  const task = createTask(ctx, { brief: { goal: "g", repo: tmpDir() }, kind: "feature", requestedExecutor: null, timeoutS: 600 });
+  updateTask(ctx, task.id, t => { t.state = "done"; t.origin = "human"; });
+  insertMessage(ctx, { taskId: task.id, rootId: `task:${task.id}`, from: `task:${task.id}`, to: "external:peer", kind: "report", body: "done", replyTo: null, requestId: "report-strict" });
+  await brokerTick(ctx, { mode: async () => "strict" });
+  expect(getLiveness(ctx, "external:peer")).toMatchObject({ reason: "unread_external", escalatedAt: null });
+  await brokerTick({ ...ctx, now: ctx.now + 901 }, { mode: async () => "strict" });
+  expect(getLiveness(ctx, "external:peer")).toMatchObject({ reason: "unread_external", escalatedAt: ctx.now + 901 });
+});
+
+test("an exhausted executor account escalates instead of nudging silent_prompt", async () => {
+  const ctx = fakeCtx({ now: 1_000_000 });
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders: {claude-code: {}, codex: {}}\n");
+  const { markExhausted } = await import("../src/usage/reactive");
+  markExhausted(ctx, "codex", ctx.now + 3600, { manual: true });
+  const task = createTask(ctx, { brief: { goal: "stuck", repo: tmpDir() }, kind: "feature", requestedExecutor: null, timeoutS: 600 });
+  const dir = tmpDir();
+  writeNeedsInputReport(dir, ctx.now - 700);
+  updateTask(ctx, task.id, t => {
+    t.state = "running";
+    t.attemptStartedAt = ctx.now - 700;
+    t.progress = { phase: "needs-input", lastOutputAt: ctx.now - 700, lastChangeAt: ctx.now - 3600, gitObserved: true } as typeof t.progress;
+    t.run = { dir, attempt: 1, executor: "codex", startedAt: ctx.now - 700, mode: "new", workdir: tmpDir(), logFile: "/dev/null", session: "interactive" };
+  });
+  const node = `task:${task.id}`;
+  await brokerTick(ctx, { mode });
+  expect(byRequest(ctx, "broker", `nudge:${node}:a1:1`)).toBeNull();
+  expect(getLiveness(ctx, node)).toMatchObject({ reason: "silent_prompt", stalledAt: ctx.now, escalatedAt: ctx.now, nudges: 0 });
 });
 
 const callerMode = async () => "normal" as const;
@@ -435,7 +634,7 @@ test("a decision clears the ladder", async () => {
   } finally { aliveSpy.mockRestore(); }
 });
 
-test("strict mode notifies only", async () => {
+test("strict mode does not wake the planner by default", async () => {
   const ctx = fakeCtx({ now: 1_000_000 });
   callerTask(ctx);
   const aliveSpy = spyOn(callerReach, "callerAlive").mockResolvedValue("alive");
@@ -446,6 +645,22 @@ test("strict mode notifies only", async () => {
     expect(calls).toHaveLength(0);
     expect(aliveSpy).not.toHaveBeenCalled();
     expect(getLiveness(ctx, "external:claude-code:s1")?.escalatedAt).toBe(ctx.now);
+  } finally { aliveSpy.mockRestore(); }
+});
+
+test("caller_wake_in_modes including strict wakes the planner in strict mode", async () => {
+  const ctx = fakeCtx({ now: 1_000_000 });
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders: {claude-code: {}, codex: {}}\nmessaging:\n  liveness: {caller_wake_in_modes: [relaxed, normal, strict]}\n");
+  const task = callerTask(ctx);
+  const aliveSpy = spyOn(callerReach, "callerAlive").mockResolvedValue("alive");
+  const calls: string[] = [];
+  const callerWake = async (_c: any, _r: any, text: string) => { calls.push(text); return "sent" as const; };
+  try {
+    await brokerTick(ctx, { mode: async () => "strict" as const, callerWake });
+    await brokerTick({ ...ctx, now: ctx.now + 300 }, { mode: async () => "strict" as const, callerWake });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toContain(task.id);
   } finally { aliveSpy.mockRestore(); }
 });
 

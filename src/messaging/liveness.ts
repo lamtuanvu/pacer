@@ -1,6 +1,7 @@
-import { NO_PROGRESS_S, noProgressSeconds, validateExecution } from "../config/execution";
+import { IDLE_AFTER_S, NO_PROGRESS_S, noProgressSeconds, validateExecution } from "../config/execution";
 import { loadStrategy } from "../config/strategy";
 import { getWork } from "../dispatch/work";
+import { readReport } from "../session/reports";
 import { listTasksWhere } from "../tasks/store";
 import type { TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
@@ -10,7 +11,7 @@ import { getMessage, messagesDatabase } from "./store";
 import { isClosed } from "./turns";
 import type { Message } from "./types";
 
-export type StallReason = "undelivered" | "idle_run" | "no_progress" | "unread_external" | "unread_human" | "cycle" | "caller_decision";
+export type StallReason = "undelivered" | "idle_run" | "silent_prompt" | "no_progress" | "unread_external" | "unread_human" | "cycle" | "caller_decision";
 /**
  * A participant that holds the next move. `blocking` lists the nodes waiting on it; in a cycle, `waitingOn` is the
  * member it waits on and `deepest` the launched member with the greatest depth, if any.
@@ -19,10 +20,11 @@ export interface Stall { node: string; reason: StallReason; waitingOn?: string; 
 /**
  * `parent` is the participant a task reports to; `depth` counts task hops from its tree's root (0). `lastProgressAt` is the
  * latest file change or commit, attempt start or outgoing message other than a nudge; terminal output is not progress.
+ * `silentSince` is when the session entered needs-input (session-status / report `at`), not lastOutputAt — redraws must not reset the timer.
  */
-export interface SnapshotTask { task: TaskRecord; work: boolean; parent: string | null; depth: number; lastProgressAt: number }
-/** `noProgressS` is `execution.no_progress_min` in seconds. */
-export interface LivenessSnapshot { tasks: SnapshotTask[]; unread: Message[]; questions: Message[]; retryDelivery: boolean; noProgressS: number }
+export interface SnapshotTask { task: TaskRecord; work: boolean; parent: string | null; depth: number; lastProgressAt: number; silentSince?: number }
+/** `noProgressS` is `execution.no_progress_min` in seconds; `idleAfterS` is `execution.idle_after_min` in seconds. */
+export interface LivenessSnapshot { tasks: SnapshotTask[]; unread: Message[]; questions: Message[]; retryDelivery: boolean; noProgressS: number; idleAfterS: number }
 
 const WINDOW_S = 7 * 86400;
 const OPEN_STATES = ["queued", "running", "done", "partial", "failed", "limit", "needs_input"] as const;
@@ -40,8 +42,43 @@ export function owesDecision(t: TaskRecord): boolean {
 /** Phases in which a running task is idle (its own stall), waiting on someone else, being driven, or in pacer's own acceptance run. */
 const NO_PROGRESS_EXEMPT = new Set(["idle", "needs-input", "driving", "testing"]);
 
-function noProgressS(ctx: Ctx): number {
-  try { return noProgressSeconds(validateExecution(loadStrategy(ctx).execution)); } catch { return NO_PROGRESS_S; }
+function executionWindows(ctx: Ctx): { noProgressS: number; idleAfterS: number } {
+  try {
+    const ex = validateExecution(loadStrategy(ctx).execution);
+    return { noProgressS: noProgressSeconds(ex), idleAfterS: ex.idleAfterS ?? IDLE_AFTER_S };
+  } catch { return { noProgressS: NO_PROGRESS_S, idleAfterS: IDLE_AFTER_S }; }
+}
+
+/** True when the running task still owes someone an answer (task.question or an unanswered question message). */
+function hasOpenQuestion(p: string, t: TaskRecord, questions: Message[]): boolean {
+  if (t.question && t.question.answer === undefined) return true;
+  return questions.some(q => q.from === p);
+}
+
+/**
+ * A delegated interactive session sitting at its prompt with nobody to answer: phase needs-input and
+ * no open pacer question. Human `conversation` tasks (`delegate --interactive`) waiting at their prompt
+ * are waiting on the human and stay exempt (same as no_progress). Distinct from idle_run (no output)
+ * so the broker can nudge without stopping the live terminal.
+ */
+function silentAtPrompt(t: TaskRecord): boolean {
+  if (t.interactionMode === "conversation") return false;
+  if (t.state !== "running" || t.progress?.controlled || t.progress?.phase === "driving" || t.progress?.phase === "testing" || t.run?.takeover) return false;
+  return t.progress?.phase === "needs-input";
+}
+
+/**
+ * Wall-clock start of the needs-input wait. Prefer session-status / report.json `at` (stable while the
+ * agent sits at the prompt). Do not use lastOutputAt — terminal redraws (viewer attach, spinner) move it.
+ */
+export function silentPromptSince(t: TaskRecord): number {
+  if (t.run?.dir) {
+    try {
+      const report = readReport(t.run.dir);
+      if (report && (report.status === "needs-input" || report.status === "turn-ended") && Number.isFinite(report.at)) return report.at;
+    } catch { /* absent or unreadable */ }
+  }
+  return t.attemptStartedAt ?? t.run?.startedAt ?? t.createdAt;
 }
 
 /** Reads the open tasks, unread messages and unanswered questions the analysis needs. */
@@ -55,13 +92,15 @@ export function buildSnapshot(ctx: Ctx): LivenessSnapshot {
     for (let p = parent; p && taskOf(p) && depth < 64; p = parentOf(ctx, p)) depth++;
     const started = task.attemptStartedAt ?? task.run?.startedAt ?? task.createdAt;
     const lastProgressAt = Math.max(task.progress?.lastChangeAt ?? 0, started, lastSent.get(self)?.at ?? 0);
-    return { task, work: !!getWork(ctx, task.id), parent, depth, lastProgressAt };
+    const silentSince = silentAtPrompt(task) ? silentPromptSince(task) : undefined;
+    return { task, work: !!getWork(ctx, task.id), parent, depth, lastProgressAt, ...(silentSince !== undefined ? { silentSince } : {}) };
   });
   const ids = (sql: string, ...args: number[]) => db.query<{ id: string }, number[]>(sql).all(...args).map(r => getMessage(ctx, r.id)!).filter(Boolean);
   const unread = ids("SELECT id FROM messages WHERE status IN ('pending','delivered') ORDER BY id");
   const questions = ids(`SELECT id FROM messages q WHERE kind='question' AND status<>'held' AND created_at>=?
     AND NOT EXISTS (SELECT 1 FROM messages a WHERE a.reply_to=q.id AND a.kind='answer') ORDER BY id`, ctx.now - WINDOW_S);
-  return { tasks, unread, questions, retryDelivery: effectivePolicy(ctx).config.liveness.retry_delivery, noProgressS: noProgressS(ctx) };
+  const windows = executionWindows(ctx);
+  return { tasks, unread, questions, retryDelivery: effectivePolicy(ctx).config.liveness.retry_delivery, ...windows };
 }
 
 /** Pure: who holds the next move in each open conversation that is not moving. Nodes without a stall are absent. */
@@ -90,6 +129,12 @@ export function analyzeLiveness(snapshot: LivenessSnapshot, now: number): Stall[
   for (const [p, n] of open) {
     const t = n.task;
     if (t.state === "running" && t.progress?.phase === "idle") stalls.set(p, { node: p, reason: "idle_run", blocking: blocking(p) });
+    // Sitting at the prompt with no open question: not waiting on anyone legitimate. Wall-clock from
+    // silentSince (report/session-status at), after idle_after_min — distinct from idle_run so the live session is nudged, not stopped.
+    else if (silentAtPrompt(t) && !hasOpenQuestion(p, t, snapshot.questions)) {
+      const since = n.silentSince ?? t.attemptStartedAt ?? t.run?.startedAt ?? t.createdAt;
+      if (now - since >= snapshot.idleAfterS) stalls.set(p, { node: p, reason: "silent_prompt", blocking: blocking(p) });
+    }
     // Output keeps a spinner or retry loop out of idle_run; only progress clears this. A run without a readable worktree
     // (remote, or git failing) cannot show progress; a human typing, or a conversation at its prompt, holds the move.
     else if (t.state === "running" && t.progress?.gitObserved && !t.progress.controlled && !NO_PROGRESS_EXEMPT.has(t.progress.phase)

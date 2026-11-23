@@ -95,7 +95,13 @@ export function agentHook(dir: string, input: unknown): void {
   if (!text && typeof h.transcript_path === "string") text = lastAssistantText(h.transcript_path);
   if (text) writeFileSync(join(dir, "transcript-report.md"), text.slice(-16000), {mode: 0o600});
   const event = h.hook_event_name;
-  if (event === "PermissionRequest" || event === "Elicitation" || (event === "PreToolUse" && ["AskUserQuestion", "request_user_input"].includes(String(h.tool_name))) || (event === "Notification" && ["permission_prompt", "idle_prompt", "elicitation_dialog"].includes(String(h.notification_type)))) {
+  const notificationType = event === "Notification" ? String(h.notification_type) : "";
+  // Claude's idle_prompt fires ~60s after Stop while the agent sits at its prompt. Overwriting
+  // turn-ended with needs-input blocks live delivery (betweenTurns requires turn-ended), so
+  // silent_prompt nudges and planner follow-ups never get typed. Real waits still use needs-input.
+  const waitingNotification = ["permission_prompt", "idle_prompt", "elicitation_dialog"].includes(notificationType);
+  const idleAtTurnEnded = notificationType === "idle_prompt" && readReport(dir)?.status === "turn-ended";
+  if (event === "PermissionRequest" || event === "Elicitation" || (event === "PreToolUse" && ["AskUserQuestion", "request_user_input"].includes(String(h.tool_name))) || (waitingNotification && !idleAtTurnEnded)) {
     writeReport(dir, "needs-input", typeof h.message === "string" && h.message.trim() ? h.message.slice(0, 16000) : "Agent is waiting for input");
   } else if (event === "Stop") {
     storeReport(dir, "turn-ended", "Agent finished its turn; attach to answer or report completion");

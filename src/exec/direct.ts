@@ -617,7 +617,7 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
     if (choice.fallback) note += `launch mode: headless (${choice.fallback})\n\n`;
     const interactive = cfg.session === "interactive";
     turn = !conversation && task.pendingTurn ? claimTurnMessages(ctx, task) : null;
-    if (turn) prompt = renderTurnPrompt(ctx, task, turn.messages);
+    if (turn) prompt = renderTurnPrompt(ctx, task, turn.messages, { live: interactive });
     const instructions = interactive && !conversation ? `\n\nInteractive pacer session: completion requires running pacer report --task ${task.id} --outcome done --summary "<result>" (or --outcome failed). Run pacer report with the launch environment unchanged; do not override PACER_HOME or HOME for it. Before asking the user, run pacer report --status needs-input --summary "<question>"; when resuming use --status running. Do not infer completion from the terminal. PACER_RUN_DIR identifies this attempt. You may write a longer Markdown result to $PACER_TRANSCRIPT_REPORT.\n` : "";
     // The session captured when the turn started; the runner has already cleared task.run.
     const priorSession = turn && !pendingTurn?.replay

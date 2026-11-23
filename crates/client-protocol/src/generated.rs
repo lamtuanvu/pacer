@@ -8933,6 +8933,18 @@ impl<'de> ::serde::Deserialize<'de> for ProjectMessagingRemoveParamsRepo {
 ///          "maximum": 9007199254740991.0,
 ///          "minimum": 10.0
 ///        },
+///        "caller_wake_in_modes": {
+///          "type": "array",
+///          "items": {
+///            "type": "string",
+///            "enum": [
+///              "relaxed",
+///              "normal",
+///              "strict",
+///              "emergency"
+///            ]
+///          }
+///        },
 ///        "interval_s": {
 ///          "type": "integer",
 ///          "maximum": 9007199254740991.0,
@@ -9120,6 +9132,18 @@ pub struct ProjectMessagingSetParams {
 ///      "maximum": 9007199254740991.0,
 ///      "minimum": 10.0
 ///    },
+///    "caller_wake_in_modes": {
+///      "type": "array",
+///      "items": {
+///        "type": "string",
+///        "enum": [
+///          "relaxed",
+///          "normal",
+///          "strict",
+///          "emergency"
+///        ]
+///      }
+///    },
 ///    "interval_s": {
 ///      "type": "integer",
 ///      "maximum": 9007199254740991.0,
@@ -9152,6 +9176,9 @@ pub struct ProjectMessagingSetParams {
 pub struct ProjectMessagingSetParamsLiveness {
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub backoff_max_s: ::std::option::Option<i64>,
+    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
+    pub caller_wake_in_modes:
+        ::std::vec::Vec<ProjectMessagingSetParamsLivenessCallerWakeInModesItem>,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub interval_s: ::std::option::Option<i64>,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
@@ -9163,10 +9190,82 @@ impl ::std::default::Default for ProjectMessagingSetParamsLiveness {
     fn default() -> Self {
         Self {
             backoff_max_s: Default::default(),
+            caller_wake_in_modes: Default::default(),
             interval_s: Default::default(),
             max_nudges: Default::default(),
             nudge_in_modes: Default::default(),
         }
+    }
+}
+///`ProjectMessagingSetParamsLivenessCallerWakeInModesItem`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "relaxed",
+///    "normal",
+///    "strict",
+///    "emergency"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum ProjectMessagingSetParamsLivenessCallerWakeInModesItem {
+    #[serde(rename = "relaxed")]
+    Relaxed,
+    #[serde(rename = "normal")]
+    Normal,
+    #[serde(rename = "strict")]
+    Strict,
+    #[serde(rename = "emergency")]
+    Emergency,
+}
+impl ::std::convert::From<&Self> for ProjectMessagingSetParamsLivenessCallerWakeInModesItem {
+    fn from(value: &ProjectMessagingSetParamsLivenessCallerWakeInModesItem) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for ProjectMessagingSetParamsLivenessCallerWakeInModesItem {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Relaxed => f.write_str("relaxed"),
+            Self::Normal => f.write_str("normal"),
+            Self::Strict => f.write_str("strict"),
+            Self::Emergency => f.write_str("emergency"),
+        }
+    }
+}
+impl ::std::str::FromStr for ProjectMessagingSetParamsLivenessCallerWakeInModesItem {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "relaxed" => Ok(Self::Relaxed),
+            "normal" => Ok(Self::Normal),
+            "strict" => Ok(Self::Strict),
+            "emergency" => Ok(Self::Emergency),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for ProjectMessagingSetParamsLivenessCallerWakeInModesItem {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
     }
 }
 ///`ProjectMessagingSetParamsLivenessNudgeInModesItem`

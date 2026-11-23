@@ -707,6 +707,13 @@ fn stalled_detail(liveness: &Value, now: f64) -> String {
             (((now - since) / 60.0).floor() as i64).max(1)
         );
     }
+    if reason == "silent_prompt" {
+        let since = liveness["since"].as_f64().unwrap_or(now);
+        return format!(
+            "Waiting at prompt with no open question for {} min",
+            (((now - since) / 60.0).floor() as i64).max(1)
+        );
+    }
     if reason == "caller_decision" {
         let who = liveness["waitingOn"]
             .as_str()

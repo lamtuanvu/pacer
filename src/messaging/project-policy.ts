@@ -13,6 +13,7 @@ const livenessSchema = z.object({
   backoff_max_s: z.number().int().min(10).optional(),
   max_nudges: z.number().int().min(0).optional(),
   nudge_in_modes: z.array(z.enum(["relaxed", "normal", "strict", "emergency"])).optional(),
+  caller_wake_in_modes: z.array(z.enum(["relaxed", "normal", "strict", "emergency"])).optional(),
 }).strict();
 const entrySchema = messagingOverrideSchema.extend({
   rev: z.number().int().positive().safe(),

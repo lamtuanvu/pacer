@@ -44,6 +44,24 @@ test("Claude hooks signal waiting and working, capture transcripts, and never in
   expect(readReport(dir)?.status).toBe("turn-ended");
 });
 
+test("idle_prompt after Stop keeps turn-ended; permission_prompt still becomes needs-input", () => {
+  // Claude fires idle_prompt ~60s after Stop while sitting at the prompt. Overwriting turn-ended
+  // with needs-input blocked live typing of silent_prompt nudges and planner follow-ups.
+  const dir = tmpDir();
+  agentHook(dir, { hook_event_name: "Stop", last_assistant_message: "done for now" });
+  expect(readReport(dir)?.status).toBe("turn-ended");
+  agentHook(dir, { hook_event_name: "Notification", notification_type: "idle_prompt", message: "Claude is waiting for your input" });
+  expect(readReport(dir)?.status).toBe("turn-ended");
+  agentHook(dir, { hook_event_name: "Notification", notification_type: "permission_prompt", message: "Allow Bash?" });
+  expect(readReport(dir)?.status).toBe("needs-input");
+  expect(readReport(dir)?.summary).toContain("Allow Bash?");
+  // idle_prompt still marks needs-input when the session is not already turn-ended.
+  agentHook(dir, { hook_event_name: "UserPromptSubmit" });
+  expect(readReport(dir)?.status).toBe("running");
+  agentHook(dir, { hook_event_name: "Notification", notification_type: "idle_prompt", message: "idle again" });
+  expect(readReport(dir)?.status).toBe("needs-input");
+});
+
 test("per-launch settings stay in run directory; other agents keep account environment", () => {
   const dir = tmpDir();
   const launch = {argv: ["claude", "PROMPT"], cwd: dir};

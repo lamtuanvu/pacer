@@ -427,10 +427,16 @@
           "max_nudges": 3,
           "nudge_in_modes": [
             "relaxed",
-            "normal"
+            "normal",
+            "strict",
+            "emergency"
           ],
           "escalate_after_s": 900,
           "caller_wake_after_s": 300,
+          "caller_wake_in_modes": [
+            "relaxed",
+            "normal"
+          ],
           "retry_delivery": true
         },
         "hooks": {
@@ -1595,10 +1601,16 @@
           "max_nudges": 3,
           "nudge_in_modes": [
             "relaxed",
-            "normal"
+            "normal",
+            "strict",
+            "emergency"
           ],
           "escalate_after_s": 900,
           "caller_wake_after_s": 300,
+          "caller_wake_in_modes": [
+            "relaxed",
+            "normal"
+          ],
           "retry_delivery": true
         },
         "hooks": {
@@ -2590,10 +2602,16 @@
           "max_nudges": 3,
           "nudge_in_modes": [
             "relaxed",
-            "normal"
+            "normal",
+            "strict",
+            "emergency"
           ],
           "escalate_after_s": 900,
           "caller_wake_after_s": 300,
+          "caller_wake_in_modes": [
+            "relaxed",
+            "normal"
+          ],
           "retry_delivery": true
         },
         "hooks": {
