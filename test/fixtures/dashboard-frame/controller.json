@@ -1,0 +1,3435 @@
+{
+  "controller": [
+    {
+      "connection": "live",
+      "frame": " ▬┃ pacer   [ Home ]  Needs you 4  Tasks 2  Settings                                  All repos · Normal · ● live 08:00\n Claude Code planner  ━━━━━━━━━━━━━──┃────  63% of week used · pace 77%  ↓ Behind pace  10 active-h · resets Mon 08:00\n ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n   14 pts under pace — spend it.\n   \n   NEEDS YOU  4\n › ✕ Unavailable         buildbox is not answering                                ssh failed twice · last answe…  07:40\n   ✕ Failed              Retry budget refresh on 429                  acme/api    Failed twice on Antigravity ·…  07:50\n   ◐ Review requested    Fix flaky retry test in the payments client  acme/api    Tests passed · 11:58            07:30\n   ◐ Review requested    Add dark mode to the web header              acme/web    Tests passed · 12:13            07:45\n   \n   RUNNING  2 · 1 queued\n   ▶ Editing         Add SSH keepalive to remote runs                            acme/api      Codex · team on devbox  \n                     running 14m · 6 files · 2 commits · output 8s ago\n   … Idle            Split the settings page into sections                       acme/web      Claude Code             \n                     running 40m · 3 files · 0 commits · idle 6m\n   … Queued          Document the token sync                                     pacer         Antigravity             \n                     Waiting: this executor is running 1 of 1\n   \n   CAPACITY  2/4 executors ready\n   #   EXECUTOR                    STATUS                        PACE                       USAGE           USED  TASKS\n   P   Claude Code                 ▶ Busy                        Behind pace                ━━━━━━━━━─┃───   63%    1/1\n   1   Codex · team on devbox      ? Eligibility unknown   next  Behind pace                ─┃────────────    3%    1/3\n   2   Cursor                      ? Eligibility unknown         Behind pace · no limit r…  ──────────────     —    0/3\n   3   Antigravity                 ! Recent task failures        Behind pace · 2 recent f…  ──────────────    0%    0/1\n   4   Local model                 ✕ Unavailable                 Behind pace · LM Studio…   unmetered          —    0/1\n   \n   DONE TODAY  7 · 6 accepted\n   07:50  ✕ Failed              Retry budget refresh on 429          acme/api      Antigravity                         \n   07:45  ✓ Completed           Add dark mode to the web header      acme/web      Cursor                              \n   07:30  ✓ Completed           Fix flaky retry test in the paymen…  acme/api      Codex · team on devbox              \n   03:00  ✓ Completed           Rename runner ids in docs            pacer         Codex · team on devbox              \n   ✓ Accepted\n   02:00  ✓ Completed           Bump yaml to 2.8.2                   pacer         Local model                         \n   ✕ Rejected\n \n \n ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n \n ⏎ Run checks  . actions (2)  f repo scope  d delegate  ? help                       policy: unknown · pacer 0.0.0-test",
+      "height": 40,
+      "name": "home-live",
+      "now": 1800000000,
+      "ops": [
+        "host.check",
+        "host.set",
+        "task.retry",
+        "task.review",
+        "task.get",
+        "task.stop",
+        "task.attach",
+        "task.session",
+        "task.delegate",
+        "task.list",
+        "config.get",
+        "config.set",
+        "account.list",
+        "session.create",
+        "task.dismiss"
+      ],
+      "state": {
+        "screen": "home"
+      },
+      "timeZone": "UTC",
+      "version": "0.0.0-test",
+      "width": 120
+    },
+    {
+      "connection": "live",
+      "frame": " ▬┃ pacer   Home  [ Needs you ]  Tasks 2  Settings                                    All repos · Normal · ● live 08:00\n Claude Code planner  ━━━━━━━━━━━━━──┃────  63% of week used · pace 77%  ↓ Behind pace  10 active-h · resets Mon 08:00\n ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n   DECISIONS AND PROBLEMS                             │ Fix flaky retry test in the payments client\n   ✕ Unavailable        buildbox is not answering     │ ✓ Completed · Codex · team on devbox · ran 50m · pacer/review →\n   ssh failed twice · last answered 40m ago           │ main\n                                                      │ acme/api · finished 07:50\n   ✕ Failed             Retry budget refresh on 429   │ \n   Failed twice on Antigravity · test timed out after │ RESULT\n   120 s                                              │ Implemented and verified the change.\n                                                      │ — Outcome not recorded\n › ◐ Review requested   Fix flaky retry test in the…  │ Review requested: Please review these changes before\n   Tests passed · 11:58                               │ integrating.\n                                                      │ \n   ◐ Review requested   Add dark mode to the web hea… │ DELIVERY\n   Tests passed · 12:13                               │ Integration not recorded\n                                                      │ \n                                                      │ ╭ Done when ──────────────────────────────────────────────────╮\n                                                      │ │ bun test                                                    │\n                                                      │ │ ✓ Tests passed · 38 passed · checks ran 41 s · run by pacer │\n                                                      │ │ on devbox                                                   │\n                                                      │ ╰─────────────────────────────────────────────────────────────╯\n                                                      │ ╭ Why Codex · team on devbox ─────────────────────────────────╮\n                                                      │ │ Best available capacity                                     │\n                                                      │ │ Skipped other: Quota budget reached                         │\n                                                      │ ╰─────────────────────────────────────────────────────────────╯\n                                                      │ \n                                                      │ CHANGES  1 file · +3 −1\n                                                      │ M  src/example.ts                                    +3      −1\n                                                      │ \n                                                      │ ╭ Your verdict ───────────────────────────────────────────────╮\n                                                      │ │ a Mark accepted   s Send back   r Reject                    │\n                                                      │ │ t Retry on another executor                                 │\n                                                      │ │ Accept records the verdict; you merge the branch.           │\n                                                      │ ╰─────────────────────────────────────────────────────────────╯\n                                                      │ \n                                                      │ \n ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n \n a mark accepted  s send back  r reject  t retry on another executor  o show worktree path  ? help      policy: unknown",
+      "height": 40,
+      "name": "review-selected",
+      "now": 1800000000,
+      "ops": [
+        "host.check",
+        "host.set",
+        "task.retry",
+        "task.review",
+        "task.get",
+        "task.stop",
+        "task.attach",
+        "task.session",
+        "task.delegate",
+        "task.list",
+        "config.get",
+        "config.set",
+        "account.list",
+        "session.create",
+        "task.dismiss"
+      ],
+      "state": {
+        "screen": "review",
+        "selected": {
+          "review": "review:t-0412"
+        }
+      },
+      "timeZone": "UTC",
+      "version": "0.0.0-test",
+      "width": 120
+    },
+    {
+      "connection": "live",
+      "frame": " ▬┃ pacer   Home  Needs you 4  [ Tasks ]  Settings                                    All repos · Normal · ● live 08:00\n Claude Code planner  ━━━━━━━━━━━━━──┃────  63% of week used · pace 77%  ↓ Behind pace  10 active-h · resets Mon 08:00\n ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n   RUNNING  2 · 1 queued                        │ Fix flaky retry test in the payments client\n   Add SSH keepalive to remote runs         14m │ ✓ Completed · Codex · team on devbox · ran 50m · pacer/review → main\n   ▶ Editing                                    │ acme/api · finished 07:50\n   Split the settings page into sec…        40m │ \n   … Idle                                       │ RESULT\n   Document the token sync               queued │ Implemented and verified the change.\n   … Queued                                     │ — Outcome not recorded\n                                                │ Review requested: Please review these changes before integrating.\n   COMPLETED  5                                 │ \n   Retry budget refresh on 429            07:50 │ DELIVERY\n   ✕ Failed                                     │ Integration not recorded\n   Add dark mode to the web header        07:45 │ \n   ✓ Completed                                  │ ╭ Done when ────────────────────────────────────────────────────────╮\n › Fix flaky retry test in the paym…      07:30 │ │ bun test                                                          │\n   ✓ Completed                                  │ │ ✓ Tests passed · 38 passed · checks ran 41 s · run by pacer on    │\n   Rename runner ids in docs              03:00 │ │ devbox                                                            │\n   ✓ Completed                                  │ ╰───────────────────────────────────────────────────────────────────╯\n   Bump yaml to 2.8.2                     02:00 │ ╭ Why Codex · team on devbox ───────────────────────────────────────╮\n   ✓ Completed                                  │ │ Best available capacity                                           │\n                                                │ │ Skipped other: Quota budget reached                               │\n                                                │ ╰───────────────────────────────────────────────────────────────────╯\n                                                │ \n                                                │ CHANGES  1 file · +3 −1\n                                                │ M  src/example.ts                                          +3      −1\n                                                │ \n                                                │ ╭ Your verdict ─────────────────────────────────────────────────────╮\n                                                │ │ a Mark accepted   s Send back   r Reject                          │\n                                                │ │ t Retry on another executor                                       │\n                                                │ │ Accept records the verdict; you merge the branch.                 │\n                                                │ ╰───────────────────────────────────────────────────────────────────╯\n                                                │ \n                                                │ \n                                                │ \n                                                │ \n ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n \n ⏎ Review  a mark accepted  s send back  r reject  t retry on another executor  ? help                  policy: unknown",
+      "height": 40,
+      "name": "sessions-detail",
+      "now": 1800000000,
+      "ops": [
+        "host.check",
+        "host.set",
+        "task.retry",
+        "task.review",
+        "task.get",
+        "task.stop",
+        "task.attach",
+        "task.session",
+        "task.delegate",
+        "task.list",
+        "config.get",
+        "config.set",
+        "account.list",
+        "session.create",
+        "task.dismiss"
+      ],
+      "state": {
+        "focus": "detail",
+        "screen": "sessions",
+        "selected": {
+          "sessions": "session:t-0412"
+        }
+      },
+      "timeZone": "UTC",
+      "version": "0.0.0-test",
+      "width": 120
+    },
+    {
+      "connection": "live",
+      "frame": " ▬┃ pacer   Home  Needs you 4  Tasks 2  [ Settings ]                                  All repos · Normal · ● live 08:00\n Claude Code planner  ━━━━━━━━━━━━━──┃────  63% of week used · pace 77%  ↓ Behind pace  10 active-h · resets Mon 08:00\n ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n     Planner & pacing           │   ACCOUNTS\n   ▸ Accounts                   │   \n     Executors 2 down           │   Where quota comes from. An executor uses one account.\n     This machine               │   \n     Remote hosts 1 needs setup │ › team                                     codex · folder          ✓ Signed in       \n     Routing                    │   3% of week · resets Wed 08:00 · Historical usage · Reading 26h old · refresh ·     \n     Project strategies         │   Used by Codex · team on devbox · In use by 1 executor(s)                           \n     Strategies                 │   spare                                    claude · folder         ! Sign-in needed  \n     Updates                    │   Usage unknown · Not used\n     Notifications              │   \n     Appearance                 │   + Add account\n                                │   + Link Orca account\n                                │ \n                                │ \n                                │ \n                                │ \n                                │ \n                                │ \n                                │ \n                                │ \n                                │ \n                                │ \n                                │ \n                                │ \n                                │ \n                                │ \n                                │ \n                                │ \n                                │ \n                                │ \n                                │ \n                                │ \n                                │ \n                                │ \n ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n \n a add account  l link orca account  Esc sections  ? help                            policy: unknown · pacer 0.0.0-test",
+      "height": 40,
+      "name": "settings-accounts",
+      "now": 1800000000,
+      "ops": [
+        "host.check",
+        "host.set",
+        "task.retry",
+        "task.review",
+        "task.get",
+        "task.stop",
+        "task.attach",
+        "task.session",
+        "task.delegate",
+        "task.list",
+        "config.get",
+        "config.set",
+        "account.list",
+        "session.create",
+        "task.dismiss"
+      ],
+      "state": {
+        "focus": "detail",
+        "screen": "settings",
+        "section": "accounts"
+      },
+      "timeZone": "UTC",
+      "version": "0.0.0-test",
+      "width": 120
+    },
+    {
+      "connection": "live",
+      "frame": " ▬┃ pacer   [ Home ]  Needs you 4  Tasks 2  Settings                                  All repos · Normal · ● live 08:00\n Claude Code planner  ━━━━━━━━━━━━━──┃────  63% of week used · pace 77%  ↓ Behind pace  10 active-h · resets Mon 08:00\n ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n   14 pts under pace — spend it.\n   \n   NEEDS YOU  4\n › ✕ Unavailable         buildbox is not answering                                ssh failed twice · last answe…  07:40\n   ✕ Failed              Retry budget refresh on 429                  acme/api    Failed twice on Antigravity ·…  07:50\n   ◐ Review requested    Fix flaky retry test in the payments client  acme/api    Tests passed · 11:58            07:30\n   ◐ Review requested    Add dark mode to the web header              acme/web    Tests passed · 12:13            07:45\n   \n   RUNNING  2 · 1 queued\n   ▶ Editing         Add SSH keepalive to remote runs                            acme/api      Codex · team on devbox  \n                     running 14m · 6 files · 2 commits · output 8s ago\n   … Idle            Split the settings page into sections                       acme/web      Claude Code             \n                     running 40m · 3 files · 0 commits · idle 6m\n   … Queued          Document the token sync                                     pacer         Antigravity             \n                     Waiting: this executor is running 1 of 1\n   \n   CAPACITY  2/4 executors ready\n   #   EXECUTOR                    STATUS                        PACE                       USAGE           USED  TASKS\n   P   Claude Code                 ▶ Busy                        Behind pace                ━━━━━━━━━─┃───   63%    1/1\n   1   Codex · team on devbox      ? Eligibility unknown   next  Behind pace                ─┃────────────    3%    1/3\n   2   Cursor                      ? Eligibility unknown         Behind pace · no limit r…  ──────────────     —    0/3\n   3   Antigravity                 ! Recent task failures        Behind pace · 2 recent f…  ──────────────    0%    0/1\n   4   Local model                 ✕ Unavailable                 Behind pace · LM Studio…   unmetered          —    0/1\n   \n   DONE TODAY  7 · 6 accepted\n   07:50  ✕ Failed              Retry budget refresh on 429          acme/api      Antigravity                         \n   07:45  ✓ Completed           Add dark mode to the web header      acme/web      Cursor                              \n   07:30  ✓ Completed           Fix flaky retry test in the paymen…  acme/api      Codex · team on devbox              \n   03:00  ✓ Completed           Rename runner ids in docs            pacer         Codex · team on devbox              \n   ✓ Accepted\n   02:00  ✓ Completed           Bump yaml to 2.8.2                   pacer         Local model                         \n   ✕ Rejected\n \n \n ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n ✓ Saved. Undo: pacer config set planner codex\n ⏎ Run checks  . actions (2)  f repo scope  d delegate  ? help                       policy: unknown · pacer 0.0.0-test",
+      "height": 40,
+      "message": {
+        "text": "Saved. Undo: pacer config set planner codex",
+        "tone": "good"
+      },
+      "name": "home-message",
+      "now": 1800000000,
+      "ops": [
+        "host.check",
+        "host.set",
+        "task.retry",
+        "task.review",
+        "task.get",
+        "task.stop",
+        "task.attach",
+        "task.session",
+        "task.delegate",
+        "task.list",
+        "config.get",
+        "config.set",
+        "account.list",
+        "session.create",
+        "task.dismiss"
+      ],
+      "state": {
+        "screen": "home"
+      },
+      "timeZone": "UTC",
+      "version": "0.0.0-test",
+      "width": 120
+    },
+    {
+      "connection": "offline",
+      "frame": " ▬┃ pacer   [ Home ]  Needs you 4  Tasks 2  Settings              All repos · Normal · ○ not responding · updated 08:00\n Claude Code planner  ━━━━━━━━━━━━━──┃────  63% of week used · pace 77%  ↓ Behind pace  10 active-h · resets Mon 08:00\n ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n   14 pts under pace — spend it.\n   \n   NEEDS YOU  4\n › ✕ Unavailable         buildbox is not answering                                ssh failed twice · last answe…  07:40\n   ✕ Failed              Retry budget refresh on 429                  acme/api    Failed twice on Antigravity ·…  07:50\n   ◐ Review requested    Fix flaky retry test in the payments client  acme/api    Tests passed · 11:58            07:30\n   ◐ Review requested    Add dark mode to the web header              acme/web    Tests passed · 12:13            07:45\n   \n   RUNNING  2 · 1 queued\n   ▶ Editing         Add SSH keepalive to remote runs                            acme/api      Codex · team on devbox  \n                     running 14m · 6 files · 2 commits · output 8s ago\n   … Idle            Split the settings page into sections                       acme/web      Claude Code             \n                     running 40m · 3 files · 0 commits · idle 6m\n   … Queued          Document the token sync                                     pacer         Antigravity             \n                     Waiting: this executor is running 1 of 1\n   \n   CAPACITY  2/4 executors ready\n   #   EXECUTOR                    STATUS                        PACE                       USAGE           USED  TASKS\n   P   Claude Code                 ▶ Busy                        Behind pace                ━━━━━━━━━─┃───   63%    1/1\n   1   Codex · team on devbox      ? Eligibility unknown   next  Behind pace                ─┃────────────    3%    1/3\n   2   Cursor                      ? Eligibility unknown         Behind pace · no limit r…  ──────────────     —    0/3\n   3   Antigravity                 ! Recent task failures        Behind pace · 2 recent f…  ──────────────    0%    0/1\n   4   Local model                 ✕ Unavailable                 Behind pace · LM Studio…   unmetered          —    0/1\n   \n   DONE TODAY  7 · 6 accepted\n   07:50  ✕ Failed              Retry budget refresh on 429          acme/api      Antigravity                         \n   07:45  ✓ Completed           Add dark mode to the web header      acme/web      Cursor                              \n   07:30  ✓ Completed           Fix flaky retry test in the paymen…  acme/api      Codex · team on devbox              \n   03:00  ✓ Completed           Rename runner ids in docs            pacer         Codex · team on devbox              \n   ✓ Accepted\n   02:00  ✓ Completed           Bump yaml to 2.8.2                   pacer         Local model                         \n   ✕ Rejected\n \n \n ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n ✕ Service unavailable. R retries.\n ⏎ Run checks  . actions (2)  f repo scope  d delegate  ? help                       policy: unknown · pacer 0.0.0-test",
+      "height": 40,
+      "message": {
+        "text": "Service unavailable. R retries.",
+        "tone": "bad"
+      },
+      "name": "home-offline",
+      "now": 1800000000,
+      "ops": [
+        "host.check",
+        "host.set",
+        "task.retry",
+        "task.review",
+        "task.get",
+        "task.stop",
+        "task.attach",
+        "task.session",
+        "task.delegate",
+        "task.list",
+        "config.get",
+        "config.set",
+        "account.list",
+        "session.create",
+        "task.dismiss"
+      ],
+      "state": {
+        "screen": "home"
+      },
+      "timeZone": "UTC",
+      "version": "0.0.0-test",
+      "width": 120
+    },
+    {
+      "connection": "local",
+      "frame": " ▬┃ pacer   [ Home ]  Needs you 4  Tasks 2  Settings                                 All repos · Normal · ○ local 08:00\n Claude Code planner  ━━━━━━━━━━━━━──┃────  63% of week used · pace 77%  ↓ Behind pace  10 active-h · resets Mon 08:00\n ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n   14 pts under pace — spend it.\n   \n   NEEDS YOU  4\n › ✕ Unavailable         buildbox is not answering                                ssh failed twice · last answe…  07:40\n   ✕ Failed              Retry budget refresh on 429                  acme/api    Failed twice on Antigravity ·…  07:50\n   ◐ Review requested    Fix flaky retry test in the payments client  acme/api    Tests passed · 11:58            07:30\n   ◐ Review requested    Add dark mode to the web header              acme/web    Tests passed · 12:13            07:45\n   \n   RUNNING  2 · 1 queued\n   ▶ Editing         Add SSH keepalive to remote runs                            acme/api      Codex · team on devbox  \n                     running 14m · 6 files · 2 commits · output 8s ago\n   … Idle            Split the settings page into sections                       acme/web      Claude Code             \n                     running 40m · 3 files · 0 commits · idle 6m\n   … Queued          Document the token sync                                     pacer         Antigravity             \n                     Waiting: this executor is running 1 of 1\n   \n   CAPACITY  2/4 executors ready\n   #   EXECUTOR                    STATUS                        PACE                       USAGE           USED  TASKS\n   P   Claude Code                 ▶ Busy                        Behind pace                ━━━━━━━━━─┃───   63%    1/1\n   1   Codex · team on devbox      ? Eligibility unknown   next  Behind pace                ─┃────────────    3%    1/3\n   2   Cursor                      ? Eligibility unknown         Behind pace · no limit r…  ──────────────     —    0/3\n   3   Antigravity                 ! Recent task failures        Behind pace · 2 recent f…  ──────────────    0%    0/1\n   4   Local model                 ✕ Unavailable                 Behind pace · LM Studio…   unmetered          —    0/1\n   \n   DONE TODAY  7 · 6 accepted\n   07:50  ✕ Failed              Retry budget refresh on 429          acme/api      Antigravity                         \n   07:45  ✓ Completed           Add dark mode to the web header      acme/web      Cursor                              \n   07:30  ✓ Completed           Fix flaky retry test in the paymen…  acme/api      Codex · team on devbox              \n   03:00  ✓ Completed           Rename runner ids in docs            pacer         Codex · team on devbox              \n   ✓ Accepted\n   02:00  ✓ Completed           Bump yaml to 2.8.2                   pacer         Local model                         \n   ✕ Rejected\n \n \n ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n \n ⏎ Run checks  . actions (2)  f repo scope  d delegate  ? help                       policy: unknown · pacer 0.0.0-test",
+      "height": 40,
+      "name": "home-local",
+      "now": 1800000000,
+      "ops": [
+        "host.check",
+        "host.set",
+        "task.retry",
+        "task.review",
+        "task.get",
+        "task.stop",
+        "task.attach",
+        "task.session",
+        "task.delegate",
+        "task.list",
+        "config.get",
+        "config.set",
+        "account.list",
+        "session.create",
+        "task.dismiss"
+      ],
+      "state": {
+        "screen": "home"
+      },
+      "timeZone": "UTC",
+      "version": "0.0.0-test",
+      "width": 120
+    }
+  ],
+  "details": {
+    "t-0412": {
+      "value": {
+        "acceptance": {
+          "cmd": "bun test",
+          "durationS": 41,
+          "machine": "devbox",
+          "state": "passed",
+          "summary": "38 passed",
+          "tail": "38 passed"
+        },
+        "account": "team",
+        "attempts": [],
+        "backend": "headless",
+        "base": "main",
+        "branch": "pacer/review",
+        "brief": {
+          "acceptance": "bun test",
+          "goal": "Fix flaky retry test in the payments client",
+          "repo": "/tmp/fixture/api"
+        },
+        "cost": {
+          "executor": null,
+          "planner": null
+        },
+        "endedAt": 1799999400,
+        "executor": "codex#team@devbox",
+        "files": [
+          {
+            "added": 3,
+            "binary": false,
+            "path": "src/example.ts",
+            "removed": 1,
+            "status": "modified"
+          }
+        ],
+        "goal": "Fix flaky retry test in the payments client",
+        "host": null,
+        "id": "t-0412",
+        "kind": "feature",
+        "machine": "devbox",
+        "messages": {
+          "value": []
+        },
+        "model": "gpt-5.1-codex",
+        "queue": null,
+        "repo": {
+          "key": "github.com/acme/api",
+          "label": "acme/api",
+          "path": "/tmp/fixture/api"
+        },
+        "retryOptions": [
+          {
+            "id": "codex",
+            "reason": "available",
+            "state": "ready"
+          },
+          {
+            "id": "other",
+            "reason": "not signed in",
+            "state": "down"
+          }
+        ],
+        "rev": 3,
+        "reviewRequest": {
+          "at": 1799998200,
+          "note": "Please review these changes before integrating."
+        },
+        "routing": {
+          "chosen": "codex#team@devbox",
+          "kind": "feature",
+          "kindSource": "classifier",
+          "rule": "default",
+          "skipped": [
+            {
+              "executor": "other",
+              "reason": "over budget"
+            }
+          ],
+          "why": "Best available capacity"
+        },
+        "startedAt": 1799996400,
+        "state": "done",
+        "summary": "Implemented and verified the change.",
+        "timeline": [],
+        "updatedAt": 1799998200,
+        "worktree": "/tmp/fixture/api/.worktrees/t-0412"
+      }
+    }
+  },
+  "reducer": [
+    {
+      "ctx": {
+        "hasDetail": false,
+        "items": [
+          {
+            "actions": [
+              {
+                "effect": {
+                  "action": {
+                    "label": "second",
+                    "op": "op.second",
+                    "params": {}
+                  },
+                  "type": "action"
+                },
+                "label": "second"
+              }
+            ],
+            "id": "a",
+            "keys": {
+              "x": {
+                "effect": {
+                  "action": {
+                    "label": "dismiss",
+                    "op": "op.dismiss",
+                    "params": {}
+                  },
+                  "type": "action"
+                },
+                "label": "dismiss"
+              }
+            },
+            "primary": {
+              "effect": {
+                "action": {
+                  "label": "first",
+                  "op": "op.first",
+                  "params": {}
+                },
+                "type": "action"
+              },
+              "label": "first"
+            }
+          },
+          {
+            "actions": [],
+            "id": "b",
+            "keys": {}
+          },
+          {
+            "actions": [],
+            "id": "c",
+            "keys": {},
+            "primary": {
+              "effect": {
+                "action": {
+                  "label": "stop",
+                  "op": "task.stop",
+                  "params": {
+                    "id": "t-1"
+                  }
+                },
+                "type": "action"
+              },
+              "label": "stop",
+              "subject": "Fix flaky retry test"
+            }
+          }
+        ],
+        "ops": [],
+        "page": 10,
+        "repos": [
+          "r1",
+          "r2"
+        ],
+        "tabs": [
+          "home",
+          "review",
+          "sessions",
+          "settings",
+          "setup"
+        ],
+        "wide": true
+      },
+      "keys": [
+        "2",
+        "3",
+        "4",
+        "5",
+        "tab",
+        "tab",
+        "backtab",
+        "1",
+        ","
+      ],
+      "name": "navigation",
+      "state": {
+        "focus": "list",
+        "overlay": null,
+        "scope": null,
+        "screen": "home",
+        "scroll": 0,
+        "section": "planner",
+        "selected": {}
+      },
+      "steps": [
+        {
+          "effect": null,
+          "key": "2",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": null,
+            "scope": null,
+            "screen": "review",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {}
+          }
+        },
+        {
+          "effect": null,
+          "key": "3",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": null,
+            "scope": null,
+            "screen": "sessions",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {}
+          }
+        },
+        {
+          "effect": null,
+          "key": "4",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": null,
+            "scope": null,
+            "screen": "settings",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {}
+          }
+        },
+        {
+          "effect": null,
+          "key": "5",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": null,
+            "scope": null,
+            "screen": "setup",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {}
+          }
+        },
+        {
+          "effect": null,
+          "key": "tab",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": null,
+            "scope": null,
+            "screen": "home",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {}
+          }
+        },
+        {
+          "effect": null,
+          "key": "tab",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": null,
+            "scope": null,
+            "screen": "review",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {}
+          }
+        },
+        {
+          "effect": null,
+          "key": "backtab",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": null,
+            "scope": null,
+            "screen": "home",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {}
+          }
+        },
+        {
+          "effect": null,
+          "key": "1",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": null,
+            "scope": null,
+            "screen": "home",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {}
+          }
+        },
+        {
+          "effect": null,
+          "key": ",",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": null,
+            "scope": null,
+            "screen": "settings",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {}
+          }
+        }
+      ]
+    },
+    {
+      "ctx": {
+        "hasDetail": false,
+        "items": [
+          {
+            "actions": [
+              {
+                "effect": {
+                  "action": {
+                    "label": "second",
+                    "op": "op.second",
+                    "params": {}
+                  },
+                  "type": "action"
+                },
+                "label": "second"
+              }
+            ],
+            "id": "a",
+            "keys": {
+              "x": {
+                "effect": {
+                  "action": {
+                    "label": "dismiss",
+                    "op": "op.dismiss",
+                    "params": {}
+                  },
+                  "type": "action"
+                },
+                "label": "dismiss"
+              }
+            },
+            "primary": {
+              "effect": {
+                "action": {
+                  "label": "first",
+                  "op": "op.first",
+                  "params": {}
+                },
+                "type": "action"
+              },
+              "label": "first"
+            }
+          },
+          {
+            "actions": [],
+            "id": "b",
+            "keys": {}
+          },
+          {
+            "actions": [],
+            "id": "c",
+            "keys": {},
+            "primary": {
+              "effect": {
+                "action": {
+                  "label": "stop",
+                  "op": "task.stop",
+                  "params": {
+                    "id": "t-1"
+                  }
+                },
+                "type": "action"
+              },
+              "label": "stop",
+              "subject": "Fix flaky retry test"
+            }
+          }
+        ],
+        "ops": [],
+        "page": 10,
+        "repos": [
+          "r1",
+          "r2"
+        ],
+        "tabs": [
+          "home",
+          "review",
+          "sessions",
+          "settings",
+          "setup"
+        ],
+        "wide": true
+      },
+      "keys": [
+        "j",
+        "j",
+        "j",
+        "down",
+        "k",
+        "up",
+        "up",
+        "pagedown",
+        "end",
+        "home"
+      ],
+      "name": "selection",
+      "state": {
+        "focus": "list",
+        "overlay": null,
+        "scope": null,
+        "screen": "home",
+        "scroll": 0,
+        "section": "planner",
+        "selected": {}
+      },
+      "steps": [
+        {
+          "effect": null,
+          "key": "j",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": null,
+            "scope": null,
+            "screen": "home",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {
+              "home": "b"
+            }
+          }
+        },
+        {
+          "effect": null,
+          "key": "j",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": null,
+            "scope": null,
+            "screen": "home",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {
+              "home": "c"
+            }
+          }
+        },
+        {
+          "effect": null,
+          "key": "j",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": null,
+            "scope": null,
+            "screen": "home",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {
+              "home": "c"
+            }
+          }
+        },
+        {
+          "effect": null,
+          "key": "down",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": null,
+            "scope": null,
+            "screen": "home",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {
+              "home": "c"
+            }
+          }
+        },
+        {
+          "effect": null,
+          "key": "k",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": null,
+            "scope": null,
+            "screen": "home",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {
+              "home": "b"
+            }
+          }
+        },
+        {
+          "effect": null,
+          "key": "up",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": null,
+            "scope": null,
+            "screen": "home",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {
+              "home": "a"
+            }
+          }
+        },
+        {
+          "effect": null,
+          "key": "up",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": null,
+            "scope": null,
+            "screen": "home",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {
+              "home": "a"
+            }
+          }
+        },
+        {
+          "effect": null,
+          "key": "pagedown",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": null,
+            "scope": null,
+            "screen": "home",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {
+              "home": "c"
+            }
+          }
+        },
+        {
+          "effect": null,
+          "key": "end",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": null,
+            "scope": null,
+            "screen": "home",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {
+              "home": "c"
+            }
+          }
+        },
+        {
+          "effect": null,
+          "key": "home",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": null,
+            "scope": null,
+            "screen": "home",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {
+              "home": "a"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "ctx": {
+        "hasDetail": false,
+        "items": [
+          {
+            "actions": [
+              {
+                "effect": {
+                  "action": {
+                    "label": "second",
+                    "op": "op.second",
+                    "params": {}
+                  },
+                  "type": "action"
+                },
+                "label": "second"
+              }
+            ],
+            "id": "a",
+            "keys": {
+              "x": {
+                "effect": {
+                  "action": {
+                    "label": "dismiss",
+                    "op": "op.dismiss",
+                    "params": {}
+                  },
+                  "type": "action"
+                },
+                "label": "dismiss"
+              }
+            },
+            "primary": {
+              "effect": {
+                "action": {
+                  "label": "first",
+                  "op": "op.first",
+                  "params": {}
+                },
+                "type": "action"
+              },
+              "label": "first"
+            }
+          },
+          {
+            "actions": [],
+            "id": "b",
+            "keys": {}
+          },
+          {
+            "actions": [],
+            "id": "c",
+            "keys": {},
+            "primary": {
+              "effect": {
+                "action": {
+                  "label": "stop",
+                  "op": "task.stop",
+                  "params": {
+                    "id": "t-1"
+                  }
+                },
+                "type": "action"
+              },
+              "label": "stop",
+              "subject": "Fix flaky retry test"
+            }
+          }
+        ],
+        "ops": [],
+        "page": 10,
+        "repos": [
+          "r1",
+          "r2"
+        ],
+        "tabs": [
+          "home",
+          "review",
+          "sessions",
+          "settings",
+          "setup"
+        ],
+        "wide": true
+      },
+      "keys": [
+        "j",
+        "j",
+        "enter",
+        "y"
+      ],
+      "name": "review-confirm-accept",
+      "state": {
+        "focus": "list",
+        "overlay": null,
+        "scope": null,
+        "screen": "review",
+        "scroll": 0,
+        "section": "planner",
+        "selected": {}
+      },
+      "steps": [
+        {
+          "effect": null,
+          "key": "j",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": null,
+            "scope": null,
+            "screen": "review",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {
+              "review": "b"
+            }
+          }
+        },
+        {
+          "effect": null,
+          "key": "j",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": null,
+            "scope": null,
+            "screen": "review",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {
+              "review": "c"
+            }
+          }
+        },
+        {
+          "effect": null,
+          "key": "enter",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": {
+              "act": {
+                "confirm": {
+                  "body": [
+                    "Fix flaky retry test"
+                  ],
+                  "title": "stop?",
+                  "yes": "stop"
+                },
+                "effect": {
+                  "action": {
+                    "label": "stop",
+                    "op": "task.stop",
+                    "params": {
+                      "id": "t-1"
+                    }
+                  },
+                  "type": "action"
+                },
+                "label": "stop",
+                "subject": "Fix flaky retry test"
+              },
+              "body": [
+                "Fix flaky retry test"
+              ],
+              "kind": "confirm",
+              "title": "stop?",
+              "yes": "stop"
+            },
+            "scope": null,
+            "screen": "review",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {
+              "review": "c"
+            }
+          }
+        },
+        {
+          "effect": {
+            "action": {
+              "label": "stop",
+              "op": "task.stop",
+              "params": {
+                "id": "t-1"
+              }
+            },
+            "type": "action"
+          },
+          "key": "y",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": null,
+            "scope": null,
+            "screen": "review",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {
+              "review": "c"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "ctx": {
+        "hasDetail": false,
+        "items": [
+          {
+            "actions": [
+              {
+                "effect": {
+                  "action": {
+                    "label": "second",
+                    "op": "op.second",
+                    "params": {}
+                  },
+                  "type": "action"
+                },
+                "label": "second"
+              }
+            ],
+            "id": "a",
+            "keys": {
+              "x": {
+                "effect": {
+                  "action": {
+                    "label": "dismiss",
+                    "op": "op.dismiss",
+                    "params": {}
+                  },
+                  "type": "action"
+                },
+                "label": "dismiss"
+              }
+            },
+            "primary": {
+              "effect": {
+                "action": {
+                  "label": "first",
+                  "op": "op.first",
+                  "params": {}
+                },
+                "type": "action"
+              },
+              "label": "first"
+            }
+          },
+          {
+            "actions": [],
+            "id": "b",
+            "keys": {}
+          },
+          {
+            "actions": [],
+            "id": "c",
+            "keys": {},
+            "primary": {
+              "effect": {
+                "action": {
+                  "label": "stop",
+                  "op": "task.stop",
+                  "params": {
+                    "id": "t-1"
+                  }
+                },
+                "type": "action"
+              },
+              "label": "stop",
+              "subject": "Fix flaky retry test"
+            }
+          }
+        ],
+        "ops": [],
+        "page": 10,
+        "repos": [
+          "r1",
+          "r2"
+        ],
+        "tabs": [
+          "home",
+          "review",
+          "sessions",
+          "settings",
+          "setup"
+        ],
+        "wide": true
+      },
+      "keys": [
+        "j",
+        "j",
+        "enter",
+        "n"
+      ],
+      "name": "review-confirm-reject-cancel",
+      "state": {
+        "focus": "list",
+        "overlay": null,
+        "scope": null,
+        "screen": "review",
+        "scroll": 0,
+        "section": "planner",
+        "selected": {}
+      },
+      "steps": [
+        {
+          "effect": null,
+          "key": "j",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": null,
+            "scope": null,
+            "screen": "review",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {
+              "review": "b"
+            }
+          }
+        },
+        {
+          "effect": null,
+          "key": "j",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": null,
+            "scope": null,
+            "screen": "review",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {
+              "review": "c"
+            }
+          }
+        },
+        {
+          "effect": null,
+          "key": "enter",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": {
+              "act": {
+                "confirm": {
+                  "body": [
+                    "Fix flaky retry test"
+                  ],
+                  "title": "stop?",
+                  "yes": "stop"
+                },
+                "effect": {
+                  "action": {
+                    "label": "stop",
+                    "op": "task.stop",
+                    "params": {
+                      "id": "t-1"
+                    }
+                  },
+                  "type": "action"
+                },
+                "label": "stop",
+                "subject": "Fix flaky retry test"
+              },
+              "body": [
+                "Fix flaky retry test"
+              ],
+              "kind": "confirm",
+              "title": "stop?",
+              "yes": "stop"
+            },
+            "scope": null,
+            "screen": "review",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {
+              "review": "c"
+            }
+          }
+        },
+        {
+          "effect": null,
+          "key": "n",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": null,
+            "scope": null,
+            "screen": "review",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {
+              "review": "c"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "ctx": {
+        "hasDetail": false,
+        "items": [
+          {
+            "actions": [
+              {
+                "effect": {
+                  "action": {
+                    "label": "second",
+                    "op": "op.second",
+                    "params": {}
+                  },
+                  "type": "action"
+                },
+                "label": "second"
+              }
+            ],
+            "id": "a",
+            "keys": {
+              "x": {
+                "effect": {
+                  "action": {
+                    "label": "dismiss",
+                    "op": "op.dismiss",
+                    "params": {}
+                  },
+                  "type": "action"
+                },
+                "label": "dismiss"
+              }
+            },
+            "primary": {
+              "effect": {
+                "action": {
+                  "label": "first",
+                  "op": "op.first",
+                  "params": {}
+                },
+                "type": "action"
+              },
+              "label": "first"
+            }
+          },
+          {
+            "actions": [],
+            "id": "b",
+            "keys": {}
+          },
+          {
+            "actions": [],
+            "id": "c",
+            "keys": {},
+            "primary": {
+              "effect": {
+                "action": {
+                  "label": "stop",
+                  "op": "task.stop",
+                  "params": {
+                    "id": "t-1"
+                  }
+                },
+                "type": "action"
+              },
+              "label": "stop",
+              "subject": "Fix flaky retry test"
+            }
+          }
+        ],
+        "ops": [],
+        "page": 10,
+        "repos": [
+          "r1",
+          "r2"
+        ],
+        "tabs": [
+          "home",
+          "review",
+          "sessions",
+          "settings",
+          "setup"
+        ],
+        "wide": true
+      },
+      "keys": [
+        ".",
+        "2",
+        ".",
+        "j",
+        "enter",
+        ".",
+        "escape"
+      ],
+      "name": "choose-overlay",
+      "state": {
+        "focus": "list",
+        "overlay": null,
+        "scope": null,
+        "screen": "home",
+        "scroll": 0,
+        "section": "planner",
+        "selected": {}
+      },
+      "steps": [
+        {
+          "effect": null,
+          "key": ".",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": {
+              "actions": [
+                {
+                  "effect": {
+                    "action": {
+                      "label": "first",
+                      "op": "op.first",
+                      "params": {}
+                    },
+                    "type": "action"
+                  },
+                  "label": "first"
+                },
+                {
+                  "effect": {
+                    "action": {
+                      "label": "second",
+                      "op": "op.second",
+                      "params": {}
+                    },
+                    "type": "action"
+                  },
+                  "label": "second"
+                }
+              ],
+              "index": 0,
+              "kind": "menu",
+              "title": "Actions"
+            },
+            "scope": null,
+            "screen": "home",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {}
+          }
+        },
+        {
+          "effect": {
+            "action": {
+              "label": "second",
+              "op": "op.second",
+              "params": {}
+            },
+            "type": "action"
+          },
+          "key": "2",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": null,
+            "scope": null,
+            "screen": "home",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {}
+          }
+        },
+        {
+          "effect": null,
+          "key": ".",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": {
+              "actions": [
+                {
+                  "effect": {
+                    "action": {
+                      "label": "first",
+                      "op": "op.first",
+                      "params": {}
+                    },
+                    "type": "action"
+                  },
+                  "label": "first"
+                },
+                {
+                  "effect": {
+                    "action": {
+                      "label": "second",
+                      "op": "op.second",
+                      "params": {}
+                    },
+                    "type": "action"
+                  },
+                  "label": "second"
+                }
+              ],
+              "index": 0,
+              "kind": "menu",
+              "title": "Actions"
+            },
+            "scope": null,
+            "screen": "home",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {}
+          }
+        },
+        {
+          "effect": null,
+          "key": "j",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": {
+              "actions": [
+                {
+                  "effect": {
+                    "action": {
+                      "label": "first",
+                      "op": "op.first",
+                      "params": {}
+                    },
+                    "type": "action"
+                  },
+                  "label": "first"
+                },
+                {
+                  "effect": {
+                    "action": {
+                      "label": "second",
+                      "op": "op.second",
+                      "params": {}
+                    },
+                    "type": "action"
+                  },
+                  "label": "second"
+                }
+              ],
+              "index": 1,
+              "kind": "menu",
+              "title": "Actions"
+            },
+            "scope": null,
+            "screen": "home",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {}
+          }
+        },
+        {
+          "effect": {
+            "action": {
+              "label": "second",
+              "op": "op.second",
+              "params": {}
+            },
+            "type": "action"
+          },
+          "key": "enter",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": null,
+            "scope": null,
+            "screen": "home",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {}
+          }
+        },
+        {
+          "effect": null,
+          "key": ".",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": {
+              "actions": [
+                {
+                  "effect": {
+                    "action": {
+                      "label": "first",
+                      "op": "op.first",
+                      "params": {}
+                    },
+                    "type": "action"
+                  },
+                  "label": "first"
+                },
+                {
+                  "effect": {
+                    "action": {
+                      "label": "second",
+                      "op": "op.second",
+                      "params": {}
+                    },
+                    "type": "action"
+                  },
+                  "label": "second"
+                }
+              ],
+              "index": 0,
+              "kind": "menu",
+              "title": "Actions"
+            },
+            "scope": null,
+            "screen": "home",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {}
+          }
+        },
+        {
+          "effect": null,
+          "key": "escape",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": null,
+            "scope": null,
+            "screen": "home",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {}
+          }
+        }
+      ]
+    },
+    {
+      "ctx": {
+        "hasDetail": false,
+        "items": [
+          {
+            "actions": [],
+            "id": "a",
+            "keys": {},
+            "primary": {
+              "effect": {
+                "prompt": {
+                  "label": "Note",
+                  "required": "Add a note first.",
+                  "title": "Add a note"
+                },
+                "type": "prompt"
+              },
+              "label": "ask"
+            }
+          }
+        ],
+        "ops": [],
+        "page": 10,
+        "repos": [
+          "r1",
+          "r2"
+        ],
+        "tabs": [
+          "home",
+          "review",
+          "sessions",
+          "settings",
+          "setup"
+        ],
+        "wide": true
+      },
+      "keys": [
+        "enter",
+        "enter",
+        "h",
+        "i",
+        "x",
+        "backspace",
+        "escape",
+        "enter",
+        "h",
+        "i",
+        "enter"
+      ],
+      "name": "prompt-overlay",
+      "state": {
+        "focus": "list",
+        "overlay": null,
+        "scope": null,
+        "screen": "home",
+        "scroll": 0,
+        "section": "planner",
+        "selected": {}
+      },
+      "steps": [
+        {
+          "effect": null,
+          "key": "enter",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": {
+              "kind": "prompt",
+              "spec": {
+                "label": "Note",
+                "required": "Add a note first.",
+                "title": "Add a note"
+              },
+              "value": ""
+            },
+            "scope": null,
+            "screen": "home",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {}
+          }
+        },
+        {
+          "effect": null,
+          "key": "enter",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": {
+              "error": "Add a note first.",
+              "kind": "prompt",
+              "spec": {
+                "label": "Note",
+                "required": "Add a note first.",
+                "title": "Add a note"
+              },
+              "value": ""
+            },
+            "scope": null,
+            "screen": "home",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {}
+          }
+        },
+        {
+          "effect": null,
+          "key": "h",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": {
+              "kind": "prompt",
+              "spec": {
+                "label": "Note",
+                "required": "Add a note first.",
+                "title": "Add a note"
+              },
+              "value": "h"
+            },
+            "scope": null,
+            "screen": "home",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {}
+          }
+        },
+        {
+          "effect": null,
+          "key": "i",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": {
+              "kind": "prompt",
+              "spec": {
+                "label": "Note",
+                "required": "Add a note first.",
+                "title": "Add a note"
+              },
+              "value": "hi"
+            },
+            "scope": null,
+            "screen": "home",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {}
+          }
+        },
+        {
+          "effect": null,
+          "key": "x",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": {
+              "kind": "prompt",
+              "spec": {
+                "label": "Note",
+                "required": "Add a note first.",
+                "title": "Add a note"
+              },
+              "value": "hix"
+            },
+            "scope": null,
+            "screen": "home",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {}
+          }
+        },
+        {
+          "effect": null,
+          "key": "backspace",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": {
+              "kind": "prompt",
+              "spec": {
+                "label": "Note",
+                "required": "Add a note first.",
+                "title": "Add a note"
+              },
+              "value": "hi"
+            },
+            "scope": null,
+            "screen": "home",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {}
+          }
+        },
+        {
+          "effect": null,
+          "key": "escape",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": null,
+            "scope": null,
+            "screen": "home",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {}
+          }
+        },
+        {
+          "effect": null,
+          "key": "enter",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": {
+              "kind": "prompt",
+              "spec": {
+                "label": "Note",
+                "required": "Add a note first.",
+                "title": "Add a note"
+              },
+              "value": ""
+            },
+            "scope": null,
+            "screen": "home",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {}
+          }
+        },
+        {
+          "effect": null,
+          "key": "h",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": {
+              "kind": "prompt",
+              "spec": {
+                "label": "Note",
+                "required": "Add a note first.",
+                "title": "Add a note"
+              },
+              "value": "h"
+            },
+            "scope": null,
+            "screen": "home",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {}
+          }
+        },
+        {
+          "effect": null,
+          "key": "i",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": {
+              "kind": "prompt",
+              "spec": {
+                "label": "Note",
+                "required": "Add a note first.",
+                "title": "Add a note"
+              },
+              "value": "hi"
+            },
+            "scope": null,
+            "screen": "home",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {}
+          }
+        },
+        {
+          "effect": null,
+          "key": "enter",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": null,
+            "scope": null,
+            "screen": "home",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {}
+          }
+        }
+      ]
+    },
+    {
+      "ctx": {
+        "hasDetail": false,
+        "items": [
+          {
+            "actions": [],
+            "id": "row",
+            "keys": {
+              "left": {
+                "effect": {
+                  "action": {
+                    "label": "adjust",
+                    "op": "config.set",
+                    "params": {}
+                  },
+                  "type": "action"
+                },
+                "label": "adjust"
+              },
+              "right": {
+                "effect": {
+                  "action": {
+                    "label": "adjust",
+                    "op": "config.set",
+                    "params": {}
+                  },
+                  "type": "action"
+                },
+                "label": "adjust"
+              }
+            }
+          }
+        ],
+        "ops": [],
+        "page": 10,
+        "repos": [
+          "r1",
+          "r2"
+        ],
+        "sections": [
+          "planner",
+          "machine",
+          "notifications"
+        ],
+        "tabs": [
+          "home",
+          "review",
+          "sessions",
+          "settings",
+          "setup"
+        ],
+        "wide": true
+      },
+      "keys": [
+        "j",
+        "j",
+        "enter",
+        "right",
+        "left",
+        "escape",
+        "escape"
+      ],
+      "name": "settings-machine-step",
+      "state": {
+        "focus": "list",
+        "overlay": null,
+        "scope": null,
+        "screen": "settings",
+        "scroll": 0,
+        "section": "planner",
+        "selected": {}
+      },
+      "steps": [
+        {
+          "effect": null,
+          "key": "j",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": null,
+            "scope": null,
+            "screen": "settings",
+            "scroll": 0,
+            "section": "machine",
+            "selected": {}
+          }
+        },
+        {
+          "effect": null,
+          "key": "j",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": null,
+            "scope": null,
+            "screen": "settings",
+            "scroll": 0,
+            "section": "notifications",
+            "selected": {}
+          }
+        },
+        {
+          "effect": null,
+          "key": "enter",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "detail",
+            "overlay": null,
+            "scope": null,
+            "screen": "settings",
+            "scroll": 0,
+            "section": "notifications",
+            "selected": {}
+          }
+        },
+        {
+          "effect": {
+            "action": {
+              "label": "adjust",
+              "op": "config.set",
+              "params": {}
+            },
+            "type": "action"
+          },
+          "key": "right",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "detail",
+            "overlay": null,
+            "scope": null,
+            "screen": "settings",
+            "scroll": 0,
+            "section": "notifications",
+            "selected": {}
+          }
+        },
+        {
+          "effect": {
+            "action": {
+              "label": "adjust",
+              "op": "config.set",
+              "params": {}
+            },
+            "type": "action"
+          },
+          "key": "left",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "detail",
+            "overlay": null,
+            "scope": null,
+            "screen": "settings",
+            "scroll": 0,
+            "section": "notifications",
+            "selected": {}
+          }
+        },
+        {
+          "effect": null,
+          "key": "escape",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": null,
+            "scope": null,
+            "screen": "settings",
+            "scroll": 0,
+            "section": "notifications",
+            "selected": {}
+          }
+        },
+        {
+          "effect": null,
+          "key": "escape",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": null,
+            "scope": null,
+            "screen": "home",
+            "scroll": 0,
+            "section": "notifications",
+            "selected": {}
+          }
+        }
+      ]
+    },
+    {
+      "ctx": {
+        "hasDetail": false,
+        "items": [
+          {
+            "actions": [],
+            "id": "h",
+            "keys": {
+              "H": {
+                "effect": {
+                  "type": "history-more"
+                },
+                "label": "more"
+              },
+              "a": {
+                "effect": {
+                  "id": "t-1",
+                  "target": "tmux",
+                  "type": "attach"
+                },
+                "label": "attach"
+              },
+              "l": {
+                "effect": {
+                  "type": "local"
+                },
+                "label": "local"
+              },
+              "o": {
+                "effect": {
+                  "argv": [
+                    "pacer",
+                    "account",
+                    "add"
+                  ],
+                  "label": "Add account",
+                  "type": "handoff"
+                },
+                "label": "handoff"
+              },
+              "v": {
+                "effect": {
+                  "name": "machine-step",
+                  "params": {
+                    "key": "execution.local_max_tasks"
+                  },
+                  "type": "flow"
+                },
+                "label": "flow"
+              }
+            }
+          }
+        ],
+        "ops": [],
+        "page": 10,
+        "repos": [
+          "r1",
+          "r2"
+        ],
+        "tabs": [
+          "home",
+          "review",
+          "sessions",
+          "settings",
+          "setup"
+        ],
+        "wide": true
+      },
+      "keys": [
+        "H",
+        "a",
+        "o",
+        "v",
+        "l"
+      ],
+      "name": "history-more-and-effects",
+      "state": {
+        "focus": "list",
+        "overlay": null,
+        "scope": null,
+        "screen": "home",
+        "scroll": 0,
+        "section": "planner",
+        "selected": {}
+      },
+      "steps": [
+        {
+          "effect": {
+            "type": "history-more"
+          },
+          "key": "H",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": null,
+            "scope": null,
+            "screen": "home",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {}
+          }
+        },
+        {
+          "effect": {
+            "id": "t-1",
+            "target": "tmux",
+            "type": "attach"
+          },
+          "key": "a",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": null,
+            "scope": null,
+            "screen": "home",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {}
+          }
+        },
+        {
+          "effect": {
+            "argv": [
+              "pacer",
+              "account",
+              "add"
+            ],
+            "label": "Add account",
+            "type": "handoff"
+          },
+          "key": "o",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": null,
+            "scope": null,
+            "screen": "home",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {}
+          }
+        },
+        {
+          "effect": {
+            "name": "machine-step",
+            "params": {
+              "key": "execution.local_max_tasks"
+            },
+            "type": "flow"
+          },
+          "key": "v",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": null,
+            "scope": null,
+            "screen": "home",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {}
+          }
+        },
+        {
+          "effect": {
+            "type": "local"
+          },
+          "key": "l",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": null,
+            "scope": null,
+            "screen": "home",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {}
+          }
+        }
+      ]
+    },
+    {
+      "ctx": {
+        "hasDetail": false,
+        "items": [
+          {
+            "actions": [
+              {
+                "effect": {
+                  "action": {
+                    "label": "second",
+                    "op": "op.second",
+                    "params": {}
+                  },
+                  "type": "action"
+                },
+                "label": "second"
+              }
+            ],
+            "id": "a",
+            "keys": {
+              "x": {
+                "effect": {
+                  "action": {
+                    "label": "dismiss",
+                    "op": "op.dismiss",
+                    "params": {}
+                  },
+                  "type": "action"
+                },
+                "label": "dismiss"
+              }
+            },
+            "primary": {
+              "effect": {
+                "action": {
+                  "label": "first",
+                  "op": "op.first",
+                  "params": {}
+                },
+                "type": "action"
+              },
+              "label": "first"
+            }
+          },
+          {
+            "actions": [],
+            "id": "b",
+            "keys": {}
+          },
+          {
+            "actions": [],
+            "id": "c",
+            "keys": {},
+            "primary": {
+              "effect": {
+                "action": {
+                  "label": "stop",
+                  "op": "task.stop",
+                  "params": {
+                    "id": "t-1"
+                  }
+                },
+                "type": "action"
+              },
+              "label": "stop",
+              "subject": "Fix flaky retry test"
+            }
+          }
+        ],
+        "ops": [],
+        "page": 10,
+        "repos": [
+          "r1",
+          "r2"
+        ],
+        "tabs": [
+          "home",
+          "review",
+          "sessions",
+          "settings",
+          "setup"
+        ],
+        "wide": true
+      },
+      "keys": [
+        "?",
+        "q",
+        "q"
+      ],
+      "name": "quit-with-and-without-overlay",
+      "state": {
+        "focus": "list",
+        "overlay": null,
+        "scope": null,
+        "screen": "home",
+        "scroll": 0,
+        "section": "planner",
+        "selected": {}
+      },
+      "steps": [
+        {
+          "effect": null,
+          "key": "?",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": {
+              "kind": "help"
+            },
+            "scope": null,
+            "screen": "home",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {}
+          }
+        },
+        {
+          "effect": null,
+          "key": "q",
+          "quit": false,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": null,
+            "scope": null,
+            "screen": "home",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {}
+          }
+        },
+        {
+          "effect": null,
+          "key": "q",
+          "quit": true,
+          "refresh": false,
+          "state": {
+            "focus": "list",
+            "overlay": null,
+            "scope": null,
+            "screen": "home",
+            "scroll": 0,
+            "section": "planner",
+            "selected": {}
+          }
+        }
+      ]
+    }
+  ],
+  "schema": 1,
+  "settings": {
+    "accounts": {
+      "value": [
+        {
+          "executors": [
+            "codex#team@devbox"
+          ],
+          "kind": "codex",
+          "locked": "In use by 1 executor(s)",
+          "name": "team",
+          "signedIn": true,
+          "source": "folder"
+        },
+        {
+          "executors": [],
+          "kind": "claude",
+          "name": "spare",
+          "signedIn": false,
+          "source": "folder"
+        }
+      ]
+    },
+    "config": {
+      "value": {
+        "keys": {
+          "execution.local_max_tasks": {
+            "source": "default",
+            "value": 2
+          },
+          "pacing.accounts": {
+            "source": "strategy.yaml",
+            "value": "fill"
+          },
+          "pacing.fill_threshold": {
+            "source": "strategy.yaml",
+            "value": 80
+          },
+          "pacing.planner_reserve": {
+            "source": "default",
+            "value": 10
+          },
+          "pacing.policy": {
+            "source": "default",
+            "value": "priority"
+          },
+          "planner": {
+            "source": "default",
+            "value": "claude-code"
+          },
+          "update_check": {
+            "source": "default",
+            "value": true
+          }
+        },
+        "planners": [
+          "claude-code",
+          "codex#team"
+        ]
+      }
+    },
+    "notifications": {
+      "value": {
+        "level": "important"
+      }
+    },
+    "projects": {
+      "value": [
+        {
+          "available": [
+            {
+              "id": "codex#team@devbox",
+              "label": "Codex · team · devbox",
+              "reference": "codex#team@devbox"
+            }
+          ],
+          "executors": [
+            "codex#team@devbox"
+          ],
+          "repo": {
+            "key": "github.com/acme/api",
+            "label": "acme/api"
+          },
+          "rev": 2
+        }
+      ]
+    },
+    "routing": {
+      "value": {
+        "available": [
+          "codex#team@devbox",
+          "cursor",
+          "agy",
+          "local"
+        ],
+        "rules": [
+          {
+            "executors": [
+              "codex#team@devbox",
+              "cursor"
+            ],
+            "kinds": [
+              "tests",
+              "docs"
+            ]
+          },
+          {
+            "executors": [
+              "codex#team@devbox",
+              "cursor",
+              "agy"
+            ]
+          }
+        ]
+      }
+    },
+    "strategies": {
+      "value": [
+        {
+          "active": true,
+          "name": "default",
+          "summary": "Codex first, Cursor next"
+        },
+        {
+          "active": false,
+          "name": "frugal",
+          "summary": "Local model first"
+        }
+      ]
+    },
+    "update": {
+      "value": {
+        "available": true,
+        "current": "0.3.1",
+        "latest": "0.3.2"
+      }
+    }
+  },
+  "snapshot": {
+    "accounts": [
+      {
+        "agent": "codex",
+        "capUsdWeek": null,
+        "executors": [
+          "codex#team@devbox"
+        ],
+        "name": "team",
+        "pacePct": 14,
+        "resetsAt": 1800432000,
+        "signedIn": true,
+        "source": "folder",
+        "spendUsdWeek": null,
+        "usageState": {
+          "blockedRunners": [],
+          "eligibility": {
+            "availability": "ready",
+            "budget": "permitted",
+            "evaluatedAt": 1800000000,
+            "evidenceAgeS": 0,
+            "reasons": [],
+            "spendingRisk": "unknown",
+            "state": "eligible",
+            "validUntil": null
+          },
+          "error": null,
+          "figure": {
+            "lengthS": 604800,
+            "resetsAt": 1800432000,
+            "usedPct": 3,
+            "window": "weekly"
+          },
+          "freshness": "historical",
+          "limit": null,
+          "observedAt": 1799906400,
+          "scope": {
+            "account": "fixture"
+          },
+          "source": "folder",
+          "spend": null,
+          "verdict": "BEHIND",
+          "windows": [
+            {
+              "lengthS": 604800,
+              "name": "weekly",
+              "paced": false,
+              "resetsAt": 1800432000,
+              "stale": true,
+              "usedPct": 3,
+              "verdict": "BEHIND"
+            }
+          ]
+        },
+        "usedPct": 3,
+        "verdict": "BEHIND",
+        "window": "weekly"
+      }
+    ],
+    "alerts": [],
+    "at": 1800000000,
+    "attention": [
+      {
+        "actions": [
+          {
+            "label": "Run checks",
+            "op": "host.check",
+            "params": {
+              "alias": "buildbox"
+            },
+            "style": "primary"
+          },
+          {
+            "label": "Pause host",
+            "op": "host.set",
+            "params": {
+              "alias": "buildbox",
+              "paused": true
+            }
+          }
+        ],
+        "detail": "ssh failed twice · last answered 40m ago",
+        "host": "buildbox",
+        "id": "host_down:buildbox",
+        "kind": "host_down",
+        "notify": "important",
+        "raisedAt": 1799998800,
+        "repo": null,
+        "severity": "problem",
+        "since": 1799998800,
+        "title": "buildbox is not answering"
+      },
+      {
+        "actions": [
+          {
+            "label": "Retry on Codex",
+            "op": "task.retry",
+            "params": {
+              "executor": "codex#team@devbox",
+              "id": "t-0409"
+            },
+            "style": "primary"
+          },
+          {
+            "label": "See error",
+            "op": "ui.open",
+            "params": {
+              "id": "t-0409",
+              "view": "task"
+            }
+          }
+        ],
+        "detail": "Failed twice on Antigravity · test timed out after 120 s",
+        "executor": "agy",
+        "id": "failed:t-0409",
+        "kind": "failed",
+        "notify": "important",
+        "raisedAt": 1799999400,
+        "repo": {
+          "key": "github.com/acme/api",
+          "label": "acme/api",
+          "path": "/tmp/fixture/api"
+        },
+        "severity": "problem",
+        "since": 1799999400,
+        "taskId": "t-0409",
+        "title": "Retry budget refresh on 429"
+      },
+      {
+        "actions": [
+          {
+            "label": "Review",
+            "op": "ui.open",
+            "params": {
+              "id": "t-0412",
+              "view": "review"
+            },
+            "style": "primary"
+          },
+          {
+            "label": "Accept",
+            "op": "task.review",
+            "params": {
+              "id": "t-0412",
+              "verdict": "accept"
+            }
+          }
+        ],
+        "detail": "Tests passed · 11:58",
+        "executor": "codex#team@devbox",
+        "id": "review:t-0412",
+        "kind": "review",
+        "notify": "important",
+        "raisedAt": 1799998200,
+        "repo": {
+          "key": "github.com/acme/api",
+          "label": "acme/api",
+          "path": "/tmp/fixture/api"
+        },
+        "severity": "decide",
+        "since": 1799998200,
+        "taskId": "t-0412",
+        "title": "Fix flaky retry test in the payments client"
+      },
+      {
+        "actions": [
+          {
+            "label": "Review",
+            "op": "ui.open",
+            "params": {
+              "id": "t-0415",
+              "view": "review"
+            },
+            "style": "primary"
+          },
+          {
+            "label": "Accept",
+            "op": "task.review",
+            "params": {
+              "id": "t-0415",
+              "verdict": "accept"
+            }
+          }
+        ],
+        "detail": "Tests passed · 12:13",
+        "executor": "cursor",
+        "id": "review:t-0415",
+        "kind": "review",
+        "notify": "important",
+        "raisedAt": 1799999100,
+        "repo": {
+          "key": "github.com/acme/web",
+          "label": "acme/web",
+          "path": "/tmp/fixture/web"
+        },
+        "severity": "decide",
+        "since": 1799999100,
+        "taskId": "t-0415",
+        "title": "Add dark mode to the web header"
+      }
+    ],
+    "budget": null,
+    "console": null,
+    "counts": {
+      "attention": 4,
+      "byRepo": {
+        "github.com/acme/api": {
+          "attention": 2,
+          "review": 1,
+          "running": 1
+        },
+        "github.com/acme/web": {
+          "attention": 1,
+          "review": 1,
+          "running": 1
+        },
+        "github.com/lamtuanvu/pacer": {
+          "attention": 0,
+          "review": 0,
+          "running": 0
+        }
+      },
+      "executors": 4,
+      "hostsWithProblems": 1,
+      "problems": 2,
+      "queued": 1,
+      "ready": 2,
+      "review": 2,
+      "running": 2,
+      "setupOpen": 0
+    },
+    "executors": [
+      {
+        "account": "claude-code",
+        "agent": "claude-code",
+        "enabled": true,
+        "host": null,
+        "id": "claude-code",
+        "lastCheck": {
+          "at": 1799996400,
+          "passed": true
+        },
+        "model": null,
+        "next": false,
+        "pacePct": 77,
+        "rank": "planner",
+        "recentFailures": 0,
+        "slots": {
+          "max": 1,
+          "used": 1
+        },
+        "state": "busy",
+        "sub": "planner · on pace",
+        "tone": "good",
+        "usageState": {
+          "blockedRunners": [],
+          "eligibility": {
+            "availability": "ready",
+            "budget": "permitted",
+            "evaluatedAt": 1800000000,
+            "evidenceAgeS": 0,
+            "reasons": [],
+            "spendingRisk": "unknown",
+            "state": "eligible",
+            "validUntil": null
+          },
+          "error": null,
+          "figure": {
+            "lengthS": 604800,
+            "resetsAt": null,
+            "usedPct": 63,
+            "window": "weekly"
+          },
+          "freshness": "fresh",
+          "limit": null,
+          "observedAt": 1799999940,
+          "scope": {
+            "account": "fixture"
+          },
+          "source": "provider-cli",
+          "spend": null,
+          "verdict": "BEHIND",
+          "windows": [
+            {
+              "lengthS": 604800,
+              "name": "weekly",
+              "paced": false,
+              "resetsAt": null,
+              "stale": false,
+              "usedPct": 63,
+              "verdict": "BEHIND"
+            }
+          ]
+        },
+        "usedPct": 63
+      },
+      {
+        "account": "team",
+        "agent": "codex",
+        "enabled": true,
+        "host": "devbox",
+        "id": "codex#team@devbox",
+        "lastCheck": {
+          "at": 1799996400,
+          "passed": true
+        },
+        "model": null,
+        "next": true,
+        "pacePct": 14,
+        "rank": 1,
+        "recentFailures": 0,
+        "slots": {
+          "max": 3,
+          "used": 1
+        },
+        "state": "ready",
+        "sub": "on pace · this Mac + devbox",
+        "tone": "good",
+        "usageState": {
+          "blockedRunners": [],
+          "eligibility": {
+            "availability": "ready",
+            "budget": "permitted",
+            "evaluatedAt": 1800000000,
+            "evidenceAgeS": 0,
+            "reasons": [],
+            "spendingRisk": "unknown",
+            "state": "eligible",
+            "validUntil": null
+          },
+          "error": null,
+          "figure": {
+            "lengthS": 604800,
+            "resetsAt": null,
+            "usedPct": 3,
+            "window": "weekly"
+          },
+          "freshness": "fresh",
+          "limit": null,
+          "observedAt": 1799999940,
+          "scope": {
+            "account": "fixture"
+          },
+          "source": "provider-cli",
+          "spend": null,
+          "verdict": "BEHIND",
+          "windows": [
+            {
+              "lengthS": 604800,
+              "name": "weekly",
+              "paced": false,
+              "resetsAt": null,
+              "stale": false,
+              "usedPct": 3,
+              "verdict": "BEHIND"
+            }
+          ]
+        },
+        "usedPct": 3
+      },
+      {
+        "account": "cursor",
+        "agent": "cursor",
+        "enabled": true,
+        "host": null,
+        "id": "cursor",
+        "lastCheck": {
+          "at": 1799996400,
+          "passed": true
+        },
+        "limitedBy": "machine",
+        "model": null,
+        "next": false,
+        "pacePct": null,
+        "paceReason": "no limit reported",
+        "rank": 2,
+        "recentFailures": 0,
+        "slots": {
+          "max": 3,
+          "used": 0
+        },
+        "state": "ready",
+        "sub": "no limit reported",
+        "tone": "good",
+        "usageState": {
+          "blockedRunners": [],
+          "eligibility": {
+            "availability": "ready",
+            "budget": "permitted",
+            "evaluatedAt": 1800000000,
+            "evidenceAgeS": 0,
+            "reasons": [],
+            "spendingRisk": "unknown",
+            "state": "eligible",
+            "validUntil": null
+          },
+          "error": null,
+          "figure": null,
+          "freshness": "unknown",
+          "limit": null,
+          "observedAt": null,
+          "scope": {
+            "account": "fixture"
+          },
+          "source": "provider-cli",
+          "spend": null,
+          "verdict": "BEHIND",
+          "windows": []
+        },
+        "usedPct": null
+      },
+      {
+        "account": "agy",
+        "agent": "agy",
+        "enabled": true,
+        "host": null,
+        "id": "agy",
+        "lastCheck": {
+          "at": 1799996400,
+          "passed": true
+        },
+        "model": null,
+        "next": false,
+        "pacePct": null,
+        "paceReason": "no limit reported",
+        "rank": 3,
+        "reason": "2 recent failures",
+        "recentFailures": 2,
+        "slots": {
+          "max": 1,
+          "used": 0
+        },
+        "state": "failing",
+        "sub": "2 recent failures",
+        "tone": "warn",
+        "usageState": {
+          "blockedRunners": [],
+          "eligibility": {
+            "availability": "ready",
+            "budget": "permitted",
+            "evaluatedAt": 1800000000,
+            "evidenceAgeS": 0,
+            "reasons": [],
+            "spendingRisk": "unknown",
+            "state": "eligible",
+            "validUntil": null
+          },
+          "error": null,
+          "figure": {
+            "lengthS": 604800,
+            "resetsAt": null,
+            "usedPct": 0,
+            "window": "weekly"
+          },
+          "freshness": "fresh",
+          "limit": null,
+          "observedAt": 1799999940,
+          "scope": {
+            "account": "fixture"
+          },
+          "source": "provider-cli",
+          "spend": null,
+          "verdict": "BEHIND",
+          "windows": [
+            {
+              "lengthS": 604800,
+              "name": "weekly",
+              "paced": false,
+              "resetsAt": null,
+              "stale": false,
+              "usedPct": 0,
+              "verdict": "BEHIND"
+            }
+          ]
+        },
+        "usedPct": 0
+      },
+      {
+        "account": "local",
+        "agent": "local",
+        "enabled": true,
+        "host": null,
+        "id": "local",
+        "lastCheck": {
+          "at": 1799996400,
+          "passed": false
+        },
+        "model": null,
+        "next": false,
+        "pacePct": null,
+        "paceReason": "unmetered",
+        "rank": 4,
+        "reason": "LM Studio is not running",
+        "recentFailures": 0,
+        "slots": {
+          "max": 1,
+          "used": 0
+        },
+        "state": "down",
+        "sub": "LM Studio is not running",
+        "tone": "bad",
+        "usageState": {
+          "blockedRunners": [],
+          "eligibility": {
+            "availability": "ready",
+            "budget": "permitted",
+            "evaluatedAt": 1800000000,
+            "evidenceAgeS": 0,
+            "reasons": [],
+            "spendingRisk": "unknown",
+            "state": "eligible",
+            "validUntil": null
+          },
+          "error": null,
+          "figure": null,
+          "freshness": "unknown",
+          "limit": null,
+          "observedAt": null,
+          "scope": {
+            "account": "fixture"
+          },
+          "source": "provider-cli",
+          "spend": null,
+          "verdict": "BEHIND",
+          "windows": []
+        },
+        "usedPct": null
+      }
+    ],
+    "hosts": [
+      {
+        "alias": "devbox",
+        "executors": [
+          "codex#team@devbox"
+        ],
+        "maxTasks": 3,
+        "repos": 1,
+        "running": 1,
+        "ssh": "devbox",
+        "state": "ready"
+      },
+      {
+        "alias": "buildbox",
+        "executors": [],
+        "maxTasks": 2,
+        "repos": 0,
+        "running": 0,
+        "ssh": "buildbox",
+        "state": "down"
+      }
+    ],
+    "machine": {
+      "max": 2,
+      "used": 1
+    },
+    "mode": {
+      "at": 1799992800,
+      "mode": "normal",
+      "previous": null,
+      "strategy": "default"
+    },
+    "pause": null,
+    "planner": {
+      "activeHoursLeft": 10,
+      "advice": "14 pts under pace — spend it.",
+      "agent": "claude-code",
+      "deltaPts": -14,
+      "mode": "normal",
+      "pacePct": 77,
+      "resetsAt": 1800259200,
+      "runner": "claude-code",
+      "stale": false,
+      "usageState": {
+        "blockedRunners": [],
+        "eligibility": {
+          "availability": "ready",
+          "budget": "permitted",
+          "evaluatedAt": 1800000000,
+          "evidenceAgeS": 0,
+          "reasons": [],
+          "spendingRisk": "unknown",
+          "state": "eligible",
+          "validUntil": null
+        },
+        "error": null,
+        "figure": {
+          "lengthS": 604800,
+          "resetsAt": 1800259200,
+          "usedPct": 63,
+          "window": "weekly"
+        },
+        "freshness": "fresh",
+        "limit": null,
+        "observedAt": 1799999940,
+        "scope": {
+          "account": "fixture"
+        },
+        "source": "provider-cli",
+        "spend": null,
+        "verdict": "BEHIND",
+        "windows": [
+          {
+            "lengthS": 604800,
+            "name": "weekly",
+            "paced": false,
+            "resetsAt": 1800259200,
+            "stale": false,
+            "usedPct": 63,
+            "verdict": "BEHIND"
+          }
+        ]
+      },
+      "usedPct": 63,
+      "verdict": "behind",
+      "window": "weekly"
+    },
+    "repos": [
+      {
+        "key": "github.com/acme/api",
+        "label": "acme/api",
+        "path": "/tmp/fixture/api"
+      },
+      {
+        "key": "github.com/acme/web",
+        "label": "acme/web",
+        "path": "/tmp/fixture/web"
+      },
+      {
+        "key": "github.com/lamtuanvu/pacer",
+        "label": "pacer",
+        "path": "/tmp/fixture/pacer"
+      }
+    ],
+    "seq": 120,
+    "service": {
+      "notifier": null,
+      "pid": 4242,
+      "protocol": "2.1.0",
+      "startedAt": 1799913600,
+      "version": "0.3.0"
+    },
+    "setup": {
+      "complete": true,
+      "items": [],
+      "open": 0
+    },
+    "tasks": [
+      {
+        "attemptStartedAt": 1799999160,
+        "backend": "headless",
+        "executor": "codex#team@devbox",
+        "goal": "Add SSH keepalive to remote runs",
+        "host": "devbox",
+        "id": "t-0420",
+        "kind": "feature",
+        "kindSource": "classifier",
+        "progress": {
+          "commits": 2,
+          "files": 6,
+          "lastOutputAt": 1799999992,
+          "logBytes": 40960,
+          "phase": "working"
+        },
+        "repo": {
+          "key": "github.com/acme/api",
+          "label": "acme/api",
+          "path": "/tmp/fixture/api"
+        },
+        "rev": 3,
+        "runnerAlive": true,
+        "state": "running",
+        "updatedAt": 1799999992,
+        "worktree": "/tmp/fixture/api/.worktrees/t-0420"
+      },
+      {
+        "attemptStartedAt": 1799997600,
+        "backend": "headless",
+        "executor": "claude-code",
+        "goal": "Split the settings page into sections",
+        "host": null,
+        "id": "t-0421",
+        "idleS": 360,
+        "kind": "feature",
+        "kindSource": "classifier",
+        "progress": {
+          "commits": 0,
+          "files": 3,
+          "lastOutputAt": 1799999640,
+          "logBytes": 8192,
+          "phase": "idle"
+        },
+        "repo": {
+          "key": "github.com/acme/web",
+          "label": "acme/web",
+          "path": "/tmp/fixture/web"
+        },
+        "rev": 3,
+        "runnerAlive": true,
+        "state": "running",
+        "updatedAt": 1799999640,
+        "worktree": "/tmp/fixture/web/.worktrees/t-0421"
+      },
+      {
+        "backend": "headless",
+        "executor": "agy",
+        "goal": "Document the token sync",
+        "host": null,
+        "id": "t-0422",
+        "kind": "feature",
+        "kindSource": "classifier",
+        "queue": {
+          "capacity": {
+            "max": 1,
+            "used": 1
+          },
+          "limit": "executor",
+          "position": 1,
+          "reason": "no_slot",
+          "since": 1799999970
+        },
+        "repo": {
+          "key": "github.com/lamtuanvu/pacer",
+          "label": "pacer",
+          "path": "/tmp/fixture/pacer"
+        },
+        "rev": 3,
+        "state": "queued",
+        "updatedAt": 1799999940,
+        "worktree": "/tmp/fixture/pacer/.worktrees/t-0422"
+      },
+      {
+        "acceptance": {
+          "cmd": "bun test test/retry.test.ts",
+          "durationS": 41,
+          "machine": "devbox",
+          "state": "passed",
+          "summary": "38 passed"
+        },
+        "backend": "headless",
+        "diffstat": {
+          "added": 120,
+          "files": 4,
+          "removed": 31
+        },
+        "executor": "codex#team@devbox",
+        "goal": "Fix flaky retry test in the payments client",
+        "host": null,
+        "id": "t-0412",
+        "kind": "feature",
+        "kindSource": "classifier",
+        "repo": {
+          "key": "github.com/acme/api",
+          "label": "acme/api",
+          "path": "/tmp/fixture/api"
+        },
+        "rev": 3,
+        "reviewRequest": {
+          "at": 1799998200,
+          "note": "Please review these changes before integrating."
+        },
+        "state": "done",
+        "updatedAt": 1799998200,
+        "worktree": "/tmp/fixture/api/.worktrees/t-0412"
+      },
+      {
+        "acceptance": {
+          "cmd": "bun test",
+          "durationS": 12,
+          "machine": null,
+          "state": "passed",
+          "summary": "112 passed"
+        },
+        "backend": "headless",
+        "diffstat": {
+          "added": 40,
+          "files": 2,
+          "removed": 8
+        },
+        "executor": "cursor",
+        "goal": "Add dark mode to the web header",
+        "host": null,
+        "id": "t-0415",
+        "kind": "feature",
+        "kindSource": "classifier",
+        "repo": {
+          "key": "github.com/acme/web",
+          "label": "acme/web",
+          "path": "/tmp/fixture/web"
+        },
+        "rev": 3,
+        "reviewRequest": {
+          "at": 1799999100,
+          "note": "Please review these changes before integrating."
+        },
+        "state": "done",
+        "updatedAt": 1799999100,
+        "worktree": "/tmp/fixture/web/.worktrees/t-0415"
+      },
+      {
+        "backend": "headless",
+        "executor": "agy",
+        "goal": "Retry budget refresh on 429",
+        "host": null,
+        "id": "t-0409",
+        "kind": "feature",
+        "kindSource": "classifier",
+        "repo": {
+          "key": "github.com/acme/api",
+          "label": "acme/api",
+          "path": "/tmp/fixture/api"
+        },
+        "retryOf": "t-0408",
+        "rev": 3,
+        "state": "failed",
+        "updatedAt": 1799999400,
+        "worktree": "/tmp/fixture/api/.worktrees/t-0409"
+      },
+      {
+        "backend": "headless",
+        "executor": "codex#team@devbox",
+        "goal": "Rename runner ids in docs",
+        "host": null,
+        "id": "t-0405",
+        "kind": "feature",
+        "kindSource": "classifier",
+        "repo": {
+          "key": "github.com/lamtuanvu/pacer",
+          "label": "pacer",
+          "path": "/tmp/fixture/pacer"
+        },
+        "rev": 3,
+        "review": {
+          "accepted": true,
+          "at": 1799985600,
+          "kind": "docs",
+          "note": null
+        },
+        "state": "done",
+        "updatedAt": 1799982000,
+        "worktree": "/tmp/fixture/pacer/.worktrees/t-0405"
+      },
+      {
+        "backend": "headless",
+        "executor": "local",
+        "goal": "Bump yaml to 2.8.2",
+        "host": null,
+        "id": "t-0403",
+        "kind": "feature",
+        "kindSource": "classifier",
+        "repo": {
+          "key": "github.com/lamtuanvu/pacer",
+          "label": "pacer",
+          "path": "/tmp/fixture/pacer"
+        },
+        "rev": 3,
+        "review": {
+          "accepted": false,
+          "at": 1799982000,
+          "kind": "boilerplate",
+          "note": "wrong lockfile"
+        },
+        "state": "done",
+        "updatedAt": 1799978400,
+        "worktree": "/tmp/fixture/pacer/.worktrees/t-0403"
+      }
+    ],
+    "today": {
+      "accepted": 6,
+      "byRepo": {
+        "github.com/acme/api": 3,
+        "github.com/acme/web": 2,
+        "github.com/lamtuanvu/pacer": 2
+      },
+      "done": 7,
+      "failed": 1,
+      "rejected": 1,
+      "since": 1799971200
+    },
+    "v": 1
+  }
+}
