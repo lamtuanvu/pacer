@@ -1,4 +1,5 @@
-//! Inactive, read-only dashboard frame renderer. Nothing registers native operations.
+//! Dashboard frame renderer and the state, input, theme and controller library
+//! ports of `src/dashboard/`. Nothing registers native operations (B11-2 links it).
 mod home;
 mod layout;
 mod model;
@@ -14,6 +15,12 @@ mod work;
 /// The dashboard's status vocabulary, exposed so its tables can be pinned
 /// against `pacer_engine::words` (the tests keep them byte-identical).
 pub mod words;
+
+/// Terminal key decoder (`src/dashboard/input.ts`).
+pub mod input;
+
+/// Terminal theme detection and styling (`src/dashboard/theme.ts`).
+pub mod theme;
 
 /// Render an explicit wire snapshot and UI state through a ratatui TestBackend.
 /// The returned rows preserve the TS renderer's deliberate trailing spaces.
