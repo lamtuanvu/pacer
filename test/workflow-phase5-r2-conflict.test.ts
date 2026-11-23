@@ -109,7 +109,7 @@ test("R2-F1: unrelated resolution branch does not clear the marker; correct bran
   const fixWt = await createTaskWorktree(ctx, info, res2, run.branch!);
   if ("error" in fixWt) throw new Error(fixWt.error);
   // Bring conflicting task commits onto the resolution branch, then resolve.
-  expect((await ctx.run(["git", "-C", fixWt.path, "merge", "--no-edit", `pacer/${task.id}`], 30_000)).code).not.toBe(0);
+  expect((await ctx.run(["git", "-C", fixWt.path, "-c", "user.email=t@t", "-c", "user.name=t", "merge", "--no-edit", `pacer/${task.id}`], 30_000)).code).not.toBe(0);
   await Bun.write(join(fixWt.path, "clash.txt"), "resolved\n");
   await ctx.run(["git", "-C", fixWt.path, "add", "."], 10_000);
   await ctx.run(["git", "-C", fixWt.path, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "resolve"], 10_000);
@@ -164,7 +164,7 @@ test("R2-F3: a second conflict keeps both entries; clearing one leaves the other
   const resB = cb.resolution_task!;
   const wt = await createTaskWorktree(ctx, info, resB, run.branch!);
   if ("error" in wt) throw new Error(wt.error);
-  expect((await ctx.run(["git", "-C", wt.path, "merge", "--no-edit", `pacer/${b.task.id}`], 30_000)).code).not.toBe(0);
+  expect((await ctx.run(["git", "-C", wt.path, "-c", "user.email=t@t", "-c", "user.name=t", "merge", "--no-edit", `pacer/${b.task.id}`], 30_000)).code).not.toBe(0);
   await Bun.write(join(wt.path, "b.txt"), "b-ok\n");
   await ctx.run(["git", "-C", wt.path, "add", "."], 10_000);
   await ctx.run(["git", "-C", wt.path, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "fix b"], 10_000);

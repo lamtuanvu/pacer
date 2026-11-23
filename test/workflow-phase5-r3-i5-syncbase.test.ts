@@ -37,7 +37,7 @@ test("R3-I5: leftover MERGE_HEAD is aborted before syncBase merges", async () =>
   await ctx.run(["git", "-C", wt, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "other"], 10_000);
   const otherTip = (await ctx.run(["git", "-C", wt, "rev-parse", "HEAD"], 10_000)).stdout.trim();
   await ctx.run(["git", "-C", wt, "reset", "--hard", runTip], 10_000);
-  const merge = await ctx.run(["git", "-C", wt, "merge", "--no-commit", "--no-ff", otherTip], 30_000);
+  const merge = await ctx.run(["git", "-C", wt, "-c", "user.email=t@t", "-c", "user.name=t", "merge", "--no-commit", "--no-ff", otherTip], 30_000);
   // Conflict or clean-with-MERGE_HEAD both leave MERGE_HEAD until aborted/committed.
   expect(merge.code === 0 || merge.code === 1).toBe(true);
   expect((await ctx.run(["git", "-C", wt, "rev-parse", "--verify", "MERGE_HEAD"], 5_000)).code).toBe(0);
@@ -101,7 +101,7 @@ test("R3-I5: sync conflict stores the base SHA not the moving ref name", async (
   await ctx.run(["git", "-C", wt, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "run"], 10_000);
 
   const clone = tmpDir();
-  await ctx.run(["git", "clone", bare, clone], 30_000);
+  await ctx.run(["git", "clone", "-b", "main", bare, clone], 30_000);
   await Bun.write(join(clone, "clash.txt"), "origin\n");
   await ctx.run(["git", "-C", clone, "add", "."], 10_000);
   await ctx.run(["git", "-C", clone, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "origin"], 10_000);

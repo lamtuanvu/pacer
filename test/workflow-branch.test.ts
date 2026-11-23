@@ -187,7 +187,7 @@ test("serialized merges under the merge lock under contention", async () => {
   }
   const merges: string[] = [];
   await Promise.all(["pacer/t-a", "pacer/t-b"].map(branch => withMergeLock(ctx, run.id, async () => {
-    const r = await ctx.run(["git", "-C", wt, "merge", "--no-ff", "--no-edit", "-m", `merge ${branch}`, branch], 60_000);
+    const r = await ctx.run(["git", "-C", wt, "-c", "user.email=t@t", "-c", "user.name=t", "merge", "--no-ff", "--no-edit", "-m", `merge ${branch}`, branch], 60_000);
     expect(r.code).toBe(0);
     merges.push(branch);
   })));

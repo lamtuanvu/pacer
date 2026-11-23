@@ -93,7 +93,7 @@ test("accepting the resolution task merges its branch and clears the marker", as
   // Resolution must bring the conflicting branch in (ancestor check) then fix the file.
   const resWt = await createTaskWorktree(ctx, info, resId, run.branch!);
   if ("error" in resWt) throw new Error(resWt.error);
-  expect((await ctx.run(["git", "-C", resWt.path, "merge", "--no-edit", `pacer/${task.id}`], 30_000)).code).not.toBe(0);
+  expect((await ctx.run(["git", "-C", resWt.path, "-c", "user.email=t@t", "-c", "user.name=t", "merge", "--no-edit", `pacer/${task.id}`], 30_000)).code).not.toBe(0);
   await Bun.write(join(resWt.path, "clash.txt"), "resolved\n");
   await ctx.run(["git", "-C", resWt.path, "add", "."], 10_000);
   await ctx.run(["git", "-C", resWt.path, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "resolve"], 10_000);
