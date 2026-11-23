@@ -2,7 +2,7 @@
 
 The Rust plugin SDK for pacer, implementing the `@pacer/plugin` wire contract.
 
-Version 0.4 supports plugin protocol 1.x. SDK and protocol crate versions are independent of the pacer application version.
+Version 0.5 supports plugin protocol 1.x. SDK and protocol crate versions are independent of the pacer application version.
 
 ## Install
 
@@ -116,6 +116,37 @@ cancelled, which lets a plugin tear down resources after cancellation.
 
 `ctx.host.secrets_present(reference)` checks whether a secret reference
 (`secrets:...`) is present (`capability.secrets.check`).
+
+## HTTP capability
+
+`ctx.host.http(request)` makes a `capability.net.http` call and returns an
+`HttpResponse { status, headers, body }`. The request passes through as JSON
+(`url`, `method`, `headers?`, `body?`, `timeoutMs`, `authorization?`), so
+numbers keep their JSON form:
+
+```rust
+let resp = ctx.host.http(json!({
+    "url": "https://example.com/status",
+    "method": "GET",
+    "timeoutMs": 5000,
+})).await?;
+let status = resp.status;
+```
+
+Like the TypeScript SDK, `Host::http` transparently stages and reads bodies
+larger than a single JSON-RPC frame through `httpBodyChunks`:
+- when the request or response exceeds one frame and `httpBodyChunks` was not
+  negotiated, the call fails with `internal` "HTTP oversized request requires
+  httpBodyChunks" / "invalid HTTP response body descriptor";
+- a request `body` is limited to 4 MiB (UTF-8), and the decoded response
+  body is also limited to 4 MiB;
+- protocol handles are limited to 256 characters and chunk acknowledge/reply
+  mismatches fail with the corresponding `internal` error.
+
+`Host::http` serialises transactions so only one complete HTTP call runs at a
+time per caller, matching the TypeScript `createHttp` latch. Cleanup (release
+of any staged upload/download handle) is always performed, even after errors or
+cancellation, and a cleanup failure cannot turn the call into a success.
 
 ## Error reasons
 

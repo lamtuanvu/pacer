@@ -1,6 +1,6 @@
 [package]
 name = "pacer-plugin"
-version = "0.4.0"
+version = "0.5.0"
 publish = true
 description = "The Rust plugin SDK for pacer, implementing the @pacer/plugin wire contract."
 readme = "README.md"
@@ -19,7 +19,7 @@ pacer-plugin-agent-session-protocol = { path = "../plugin-agent-session-protocol
 pacer-plugin-decision-protocol = { path = "../plugin-decision-protocol", version = "0.3.0" }
 pacer-plugin-install-protocol = { path = "../plugin-install-protocol", version = "0.3.0" }
 pacer-plugin-hosts-protocol = { path = "../plugin-hosts-protocol", version = "0.3.0" }
-pacer-plugin-assistant-protocol = { path = "../plugin-assistant-protocol", version = "0.4.0" }
+pacer-plugin-assistant-protocol = { path = "../plugin-assistant-protocol", version = "0.3.0" }
 pacer-plugin-exec-protocol = { path = "../plugin-exec-protocol", version = "0.3.0" }
 pacer-plugin-protocol = { path = "../plugin-protocol", version = "0.3.0" }
 serde.workspace = true
@@ -33,6 +33,10 @@ workspace = true
 
 [[test]]
 name = "harness"
+required-features = ["testing"]
+
+[[test]]
+name = "http"
 required-features = ["testing"]
 
 [[test]]

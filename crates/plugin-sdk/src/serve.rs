@@ -206,7 +206,7 @@ impl Plugin {
             }
             Ok::<_, std::io::Error>(())
         });
-        let host = Host::new(out.clone());
+        let host = Host::new(out.clone(), self.state.clone());
         let inflight = Arc::new(Mutex::new(HashMap::<String, CancellationToken>::new()));
         let mut tasks = JoinSet::new();
         let mut started = None;

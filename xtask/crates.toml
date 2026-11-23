@@ -119,10 +119,23 @@ layer = "sdk"
 layer = "plugin"
 heavy = ["reqwest"]
 
+[crates.pacer-bundled-agent-session]
+layer = "plugin"
+
+[crates.pacer-bundled-classify]
+layer = "plugin"
+
 [crates.pacer-bundled-notify]
 layer = "plugin"
 
 [crates.pacer-bundled-remote-caller]
+layer = "plugin"
+
+[crates.pacer-bundled-assistant]
+layer = "plugin"
+heavy = ["reqwest"]
+
+[crates.pacer-bundled-exec-orca]
 layer = "plugin"
 
 [crates.xtask]
