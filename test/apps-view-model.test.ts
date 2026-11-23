@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { AppStatus } from "../src/apps/types";
-import { appsCardView, appsPageView } from "../src/view-model/apps";
+import { appsCardFocusKey, appsCardShouldMoveFocus, appsCardView, appsPageView } from "../src/view-model/apps";
 
 const base: AppStatus = {
   id: "orca",
@@ -63,4 +63,15 @@ test("stale approval re-shows grants with the board expired status line", () => 
   expect(card.grants).toEqual(grants);
   expect(card.fingerprint).toBe("ap-new");
   expect(appsCardView(base, { approval: { fingerprint: "ap1", grants } }).expired).toBeFalsy();
+});
+
+test("focus moves into a card only after its state changed and only from inside it or the body", () => {
+  const ready = appsCardFocusKey({ phase: "ready", expired: false });
+  const approving = appsCardFocusKey({ phase: "approving", expired: false });
+  const expired = appsCardFocusKey({ phase: "approving", expired: true });
+  expect(appsCardShouldMoveFocus(ready, approving, "body")).toBe(true);
+  expect(appsCardShouldMoveFocus(ready, approving, "inside")).toBe(true);
+  expect(appsCardShouldMoveFocus(ready, approving, "elsewhere")).toBe(false);
+  expect(appsCardShouldMoveFocus(approving, approving, "body")).toBe(false);
+  expect(appsCardShouldMoveFocus(approving, expired, "inside")).toBe(true);
 });

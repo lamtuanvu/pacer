@@ -1,6 +1,6 @@
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import type { AppAddResult, AppStatus } from "../../../../src/apps/types";
-import { appsPageView, type AppsCardLocalState, type AppsCardView } from "../../../../src/view-model/apps";
+import { appsCardFocusKey, appsCardShouldMoveFocus, appsPageView, type AppsCardLocalState, type AppsCardView } from "../../../../src/view-model/apps";
 import { Page, Skeleton } from "../../ds/Patterns";
 import { DensityContext } from "../../ds/Density";
 import { Pill } from "../../ds/Pill";
@@ -54,8 +54,24 @@ function AppsCard({
   onUpdate: () => void;
   onRemove: () => void;
 }) {
+  // A state change replaces the pressed button, so a keyboard or screen-reader user would land on
+  // the page body. Move focus to what the new state says (or its first action), but only when focus
+  // was in this card or already lost to the body, never pulling it from elsewhere on the page.
+  const ref = useRef<HTMLElement>(null);
+  const shown = useRef(appsCardFocusKey(card));
+  useEffect(() => {
+    const key = appsCardFocusKey(card), previous = shown.current;
+    shown.current = key;
+    const root = ref.current, active = document.activeElement;
+    if (!root) return;
+    const focus = !active || active === document.body ? "body" : root.contains(active) ? "inside" : "elsewhere";
+    if (!appsCardShouldMoveFocus(previous, key, focus)) return;
+    const target = root.querySelector<HTMLElement>("[data-apps-focus]") ?? root.querySelector<HTMLElement>(".pc-apps-card__actions button:not([disabled]), .pc-apps-card__actions a");
+    target?.focus();
+  }, [card.phase, card.expired]);
   return (
     <article
+      ref={ref}
       className={`pc-apps-card${card.cardTone === "warn" ? " pc-apps-card--warn" : ""}${card.cardTone === "bad" ? " pc-apps-card--bad" : ""}`}
       aria-label={card.name}
     >
@@ -83,15 +99,15 @@ function AppsCard({
           <span className="pc-settings-board__caption">{card.error}</span>
         )}
         {(card.phase === "added" || card.phase === "update") && card.whereToFind && (
-          <span className="pc-settings-board__caption">{card.whereToFind}</span>
+          <span className="pc-settings-board__caption" tabIndex={-1} data-apps-focus>{card.whereToFind}</span>
         )}
 
         {card.phase === "approving" && card.grants && card.grants.length > 0 && (
           <div role="group" aria-labelledby={`apps-grants-${card.id}`} className="pc-apps-grants">
             {card.expired && (
-              <p role="status" className="pc-apps-expired">That approval expired. Check what Orca will allow, then confirm again.</p>
+              <p role="status" className="pc-apps-expired" tabIndex={-1} data-apps-focus>That approval expired. Check what Orca will allow, then confirm again.</p>
             )}
-            <b id={`apps-grants-${card.id}`}>Orca will let pacer:</b>
+            <b id={`apps-grants-${card.id}`} tabIndex={-1} {...(card.expired ? {} : { "data-apps-focus": true })}>Orca will let pacer:</b>
             <ul className="pc-apps-grants__list">
               {card.grants.map((g) => (
                 <li key={g.kind}>
@@ -113,7 +129,7 @@ function AppsCard({
 
         {card.phase === "failed" && (
           <>
-            <p role="status" className="pc-apps-error">Orca didn't add pacer: {card.error}</p>
+            <p role="status" className="pc-apps-error" tabIndex={-1} data-apps-focus>Orca didn't add pacer: {card.error}</p>
             {card.terminalCommands && (
               <Disclosure className="pc-apps-terminal" summary="Add it from a terminal instead">
                 <ol className="pc-apps-terminal__steps">

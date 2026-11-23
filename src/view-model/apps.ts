@@ -157,3 +157,15 @@ export function appsPageView(apps: AppStatus[], localById: Record<string, AppsCa
     trustCaption: TRUST,
   };
 }
+
+/** A card's visible state, as far as focus is concerned: a change means the pressed control was replaced. */
+export function appsCardFocusKey(card: Pick<AppsCardView, "phase" | "expired">): string {
+  return `${card.phase}:${card.expired ? 1 : 0}`;
+}
+
+/** Move focus into a card after its state changed only when focus was in that card or lost to the page
+ *  body: a keyboard or screen-reader user then lands on what the new state says, and focus is never
+ *  pulled away from something elsewhere on the page. */
+export function appsCardShouldMoveFocus(previousKey: string, nextKey: string, focus: "inside" | "body" | "elsewhere"): boolean {
+  return previousKey !== nextKey && focus !== "elsewhere";
+}
