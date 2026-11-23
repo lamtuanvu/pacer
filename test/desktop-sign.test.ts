@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpDir } from "./helpers";
-import { signStagedDesktop, signingConfig } from "../scripts/release/desktop-sign";
+import { SIGNED_SMOKE_TIMEOUT_MS, signStagedDesktop, signingConfig } from "../scripts/release/desktop-sign";
 
 function fixture(version = "1.2.3") {
   const stage = tmpDir(), app = join(stage, "pacer.app"), resources = join(app, "Contents/Resources"), calls: string[][] = [];
@@ -123,7 +123,9 @@ test("paired signing verifies core trust and signs the Bun core before the Rust 
     const bytes = Buffer.alloc(32); bytes.writeUInt32LE(0xfeedfacf, 0); bytes.writeUInt32LE(0x0100000c, 4); bytes.writeUInt32LE(2, 12);
     writeFileSync(core, bytes, { mode: 0o755 });
     writeFileSync(join(resources, "pacer"), bytes, { mode: 0o755 });
-    const run = async (argv: string[]) => {
+    const timeouts = new Map<string, number | undefined>();
+    const run = async (argv: string[], timeout?: number) => {
+      timeouts.set(argv.slice(0, 2).join(" "), timeout);
       if (argv[1] === "--pacer-component-descriptor") return JSON.stringify({ schemaVersion: 1, releaseVersion: "1.2.3", buildId: "fixture", role: argv[0] === core ? "core" : "front-door", targetOs: "darwin", targetArch: "arm64" });
       const result = await f.run(argv);
       if (argv[0] !== core || argv[1] !== "--pacer-identity") return result;
@@ -141,6 +143,7 @@ test("paired signing verifies core trust and signs the Bun core before the Rust 
       expect(signs[1]).toContain("--entitlements");
       expect(signs[2]).not.toContain("--entitlements");
       expect(f.calls.some(a => a[0] === core && a[1] === "--version")).toBe(true);
+      expect(timeouts.get(`${core} --version`)).toBe(SIGNED_SMOKE_TIMEOUT_MS);
     }
   }
 });
