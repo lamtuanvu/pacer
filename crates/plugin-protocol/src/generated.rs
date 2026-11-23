@@ -8425,6 +8425,156 @@ impl<'de> ::serde::Deserialize<'de> for ExecutorAvailableResultReason {
         deserialize_validated_string(deserializer)
     }
 }
+///`ExecutorSessionStateParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "taskId"
+///  ],
+///  "properties": {
+///    "taskId": {
+///      "type": "string",
+///      "maxLength": 128,
+///      "minLength": 1
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct ExecutorSessionStateParams {
+    #[serde(rename = "taskId")]
+    pub task_id: ExecutorSessionStateParamsTaskId,
+}
+///`ExecutorSessionStateParamsTaskId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 128,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct ExecutorSessionStateParamsTaskId(::std::string::String);
+impl ::std::ops::Deref for ExecutorSessionStateParamsTaskId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<ExecutorSessionStateParamsTaskId> for ::std::string::String {
+    fn from(value: ExecutorSessionStateParamsTaskId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for ExecutorSessionStateParamsTaskId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_1(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for ExecutorSessionStateParamsTaskId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for ExecutorSessionStateParamsTaskId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`ExecutorSessionStateResult`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "live"
+///  ],
+///  "properties": {
+///    "handle": {
+///      "type": "string",
+///      "maxLength": 256,
+///      "minLength": 1
+///    },
+///    "live": {
+///      "type": "boolean"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct ExecutorSessionStateResult {
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub handle: ::std::option::Option<ExecutorSessionStateResultHandle>,
+    pub live: bool,
+}
+///`ExecutorSessionStateResultHandle`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 256,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct ExecutorSessionStateResultHandle(::std::string::String);
+impl ::std::ops::Deref for ExecutorSessionStateResultHandle {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<ExecutorSessionStateResultHandle> for ::std::string::String {
+    fn from(value: ExecutorSessionStateResultHandle) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for ExecutorSessionStateResultHandle {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_3(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for ExecutorSessionStateResultHandle {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for ExecutorSessionStateResultHandle {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
 ///`HelloParams`
 ///
 /// <details><summary>JSON schema</summary>
@@ -8591,7 +8741,10 @@ impl<'de> ::serde::Deserialize<'de> for ExecutorAvailableResultReason {
 ///                  "prefixItems": [
 ///                    {
 ///                      "type": "string",
-///                      "const": "direct"
+///                      "enum": [
+///                        "direct",
+///                        "orca"
+///                      ]
 ///                    }
 ///                  ]
 ///                }
@@ -9008,7 +9161,10 @@ impl ::std::convert::TryFrom<&str> for HelloParamsGrantsItem {
 ///              "prefixItems": [
 ///                {
 ///                  "type": "string",
-///                  "const": "direct"
+///                  "enum": [
+///                    "direct",
+///                    "orca"
+///                  ]
 ///                }
 ///              ]
 ///            }
@@ -9415,7 +9571,10 @@ impl<'de> ::serde::Deserialize<'de> for HelloParamsManifestCapabilitiesItemScope
 ///          "prefixItems": [
 ///            {
 ///              "type": "string",
-///              "const": "direct"
+///              "enum": [
+///                "direct",
+///                "orca"
+///              ]
 ///            }
 ///          ]
 ///        }
@@ -9609,7 +9768,10 @@ impl ::std::default::Default for HelloParamsManifestContributes {
 ///      "prefixItems": [
 ///        {
 ///          "type": "string",
-///          "const": "direct"
+///          "enum": [
+///            "direct",
+///            "orca"
+///          ]
 ///        }
 ///      ]
 ///    }
@@ -10325,7 +10487,10 @@ impl<'de> ::serde::Deserialize<'de> for HelloResultFeaturesItem {
 ///              "prefixItems": [
 ///                {
 ///                  "type": "string",
-///                  "const": "direct"
+///                  "enum": [
+///                    "direct",
+///                    "orca"
+///                  ]
 ///                }
 ///              ]
 ///            }
@@ -10732,7 +10897,10 @@ impl<'de> ::serde::Deserialize<'de> for ManifestCapabilitiesItemScopesItem {
 ///          "prefixItems": [
 ///            {
 ///              "type": "string",
-///              "const": "direct"
+///              "enum": [
+///                "direct",
+///                "orca"
+///              ]
 ///            }
 ///          ]
 ///        }
@@ -10926,7 +11094,10 @@ impl ::std::default::Default for ManifestContributes {
 ///      "prefixItems": [
 ///        {
 ///          "type": "string",
-///          "const": "direct"
+///          "enum": [
+///            "direct",
+///            "orca"
+///          ]
 ///        }
 ///      ]
 ///    }

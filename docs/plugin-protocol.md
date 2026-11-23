@@ -12,7 +12,7 @@ Protocol 1.1 adds optional top-level `_meta: { capabilityCall }` correlation on 
 
 Protocol 1.5 adds policy/task/event contracts and mutually negotiated `policyObservations` for the host and TypeScript SDK. Task reads require declared and granted `tasks.read` plus a current owning call or process-generation read owner. The exclusive `_meta: { readOwner }` arm permits only task reads and subscription management; mixed, foreign or retired owners never fall back to unowned/effect capability handling. Existing peers/capabilityCall correlation remain supported; peers without this feature cannot use the observation methods. Rust SDK observation helpers are not implemented: the standalone policy protocol crate supplies contracts, not SDK runtime support.
 
-The staged `executor` point currently defines only `contributes.executor.backends: ["direct"]` and `executor.available`. Availability receives a credential-free strategy name and has a 10 s host deadline. This contract has fake conformance coverage but no production caller; run, stop, resume, session state, task patching and executor effects require a separately reviewed owner-bound contract.
+The staged `executor` point accepts one declared backend, `direct` or `orca`. `executor.available` receives a credential-free strategy name; `executor.sessionState` receives only an owned task id and returns bounded live-terminal state. Both have a 10 s host deadline. These contracts have fake conformance coverage but no production Orca caller; run, stop, resume, task patching and executor effects require separately reviewed owner-bound contracts.
 
 The `hostRunner` point names only fixed SSH script IDs and uses bounded arguments, results and finite deadlines. The `hosts` capability defines `open`, `run`, `fetch` and `close` with host-owned broker sessions. Callers supply only a configured alias and fixed script input; the host derives the SSH target and selects the provider. Host setup identity and committed-task transfer use the bundled `remoteCaller` with one-use host-issued grants. Other production SSH paths still require caller cutover.
 
@@ -177,7 +177,10 @@ SDKs: `@pacer/plugin` (TypeScript) and `pacer-plugin` (Rust).
               "prefixItems": [
                 {
                   "type": "string",
-                  "const": "direct"
+                  "enum": [
+                    "direct",
+                    "orca"
+                  ]
                 }
               ],
               "items": false,
@@ -484,7 +487,10 @@ Params:
                   "prefixItems": [
                     {
                       "type": "string",
-                      "const": "direct"
+                      "enum": [
+                        "direct",
+                        "orca"
+                      ]
                     }
                   ],
                   "items": false,
@@ -4636,6 +4642,55 @@ Result:
   },
   "required": [
     "available"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `executor.sessionState`
+
+Report an owned Orca task's live terminal state without exposing command or credential authority; staged only, with no production caller.
+
+Deadline: 10000 ms.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "taskId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "taskId"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "live": {
+      "type": "boolean"
+    },
+    "handle": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    }
+  },
+  "required": [
+    "live"
   ],
   "additionalProperties": false
 }
