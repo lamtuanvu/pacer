@@ -301,6 +301,46 @@ async fn forward_input<
             }
             continue;
         }
+        // Grant callers: refuse anything outside the allow-list before plugins,
+        // native handlers, or Core forward — including unknown methods and
+        // `_internal.*`. Front-door bridges write to Core directly and bypass this.
+        if protocol == 3
+            && valid
+            && native_id
+            && let Some(name) = method
+            && (ctx.env.contains_key("PACER_WORK_GRANT")
+                || ctx.env.contains_key("PACER_ENFORCEMENT_TOKEN"))
+        {
+            let allowed = pacer_work::WORK_GRANT_OPS.contains(&name)
+                || (name == "dispatch.enforcement.denied"
+                    && ctx.env.contains_key("PACER_ENFORCEMENT_TOKEN"));
+            if !allowed {
+                let request_ctx = ctx.at_now();
+                let params = request
+                    .as_ref()
+                    .and_then(|r| r.get("params").cloned())
+                    .unwrap_or_else(|| json!({}));
+                let is_executor =
+                    request_ctx.env.get("PACER_ROLE").map(String::as_str) == Some("executor");
+                let error = match pacer_work::authorize_work_operation(
+                    &request_ctx,
+                    name,
+                    &params,
+                    is_executor,
+                ) {
+                    Err(error) => error,
+                    Ok(()) => CoreError::new(
+                        Code::NotAllowed,
+                        "Operation is not allowed by this work grant",
+                    ),
+                };
+                if let Some(id) = request.as_ref().and_then(|r| r.get("id")) {
+                    crate::native::msg_write_sync::trace(name, Some(id));
+                    write_line(out, &rpc_line(id, Err(error))?).await?;
+                }
+                continue;
+            }
+        }
         // Plugin ops decode with the JavaScript-compatible codec, which also
         // reads lines serde refuses (lone surrogates, nesting past 128).
         if protocol == 3
