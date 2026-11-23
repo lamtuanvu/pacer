@@ -135,6 +135,12 @@ export function workflowDatabase(ctx: Ctx): Database {
     // Phase 6 batch F: startRun holds entry ownership until this deadline so the tick
     // cannot race a fresh entry (or seedFinished) start; expired leases are recovered.
     if (!runColumns.includes("entry_lease_until")) db.exec("ALTER TABLE workflow_runs ADD COLUMN entry_lease_until REAL");
+    // Phase 6 batch G: atomic claim owner token; clear/renew only when owner matches.
+    if (!runColumns.includes("entry_owner")) db.exec("ALTER TABLE workflow_runs ADD COLUMN entry_owner TEXT");
+    // Phase 6 batch G: durable seedFinished payload written in the same txn as insertRun.
+    if (!runColumns.includes("entry_seed")) db.exec("ALTER TABLE workflow_runs ADD COLUMN entry_seed TEXT");
+    // Phase 6 batch G: durable transient entry-start attempt count (survives restarts).
+    if (!runColumns.includes("entry_start_attempts")) db.exec("ALTER TABLE workflow_runs ADD COLUMN entry_start_attempts INTEGER NOT NULL DEFAULT 0");
     // Backfill letters for live letterless rows inside this write transaction only (never on read).
     // Used set includes ALL existing letters (terminal rows too) so the unique index cannot throw.
     {
@@ -310,14 +316,31 @@ export interface RunRow {
   /** Phase 6: stable client letter (A–Z, AA…). */
   letter?: string;
   /**
-   * Phase 6 batch F: unix seconds until which startRun exclusively owns entry start.
-   * The tick skips starting entry while this is in the future; after expiry it recovers.
+   * Phase 6 batch F/G: unix seconds until which the entry_owner exclusively owns
+   * entry start. Claimed atomically; the tick skips while this is in the future.
    */
   entryLeaseUntil?: number;
+  /** Phase 6 batch G: opaque owner token for the entry lease (claim/renew/clear). */
+  entryOwner?: string;
+  /**
+   * Phase 6 batch G: durable seedFinished payload (JSON) written with insertRun.
+   * Recovery resumes from this seed instead of a fresh def.entry; cleared once applied.
+   */
+  entrySeed?: { finishedIds: string[]; results: Record<string, unknown> };
+  /** Phase 6 batch G: durable count of transient entry-start failures. */
+  entryStartAttempts?: number;
 }
 
-/** How long startRun holds exclusive entry-start ownership after insert (seconds). */
+/** How long an entry-start owner holds exclusive ownership after claim/renew (seconds). */
 export const ENTRY_LEASE_S = 30;
+
+/** After this many durable transient entry-start failures, fail the run (I1). */
+export const ENTRY_START_TRANSIENT_MAX = 8;
+
+/** Opaque entry-lease owner token (hex). */
+export function newEntryOwner(): string {
+  return randomBytes(16).toString("hex");
+}
 
 /** One durable run-level merge conflict entry (not derived from resolution-task state). */
 export type RunConflict = {
@@ -416,6 +439,10 @@ export type NewRun = {
   pausedReason?: PausedReason;
   /** Exclusive entry-start lease deadline (unix seconds). */
   entryLeaseUntil?: number;
+  /** Owner token paired with entryLeaseUntil. */
+  entryOwner?: string;
+  /** Durable seedFinished written atomically with the run row. */
+  entrySeed?: { finishedIds: string[]; results: Record<string, unknown> };
 };
 
 export type StepKey = { runId: string; stepId: string; attempt: number; branch?: string };
@@ -464,6 +491,9 @@ interface RunDbRow {
   meaningful_at?: number | null;
   letter?: string | null;
   entry_lease_until?: number | null;
+  entry_owner?: string | null;
+  entry_seed?: string | null;
+  entry_start_attempts?: number | null;
 }
 interface StepDbRow {
   run_id: string; step_id: string; attempt: number; branch: string | null; task_id: string | null;
@@ -528,6 +558,21 @@ function runFromRow(row: RunDbRow): RunRow {
   else out.meaningfulAt = row.updated_at;
   if (row.letter) out.letter = row.letter;
   if (row.entry_lease_until != null) out.entryLeaseUntil = row.entry_lease_until;
+  if (row.entry_owner) out.entryOwner = row.entry_owner;
+  if (row.entry_seed) {
+    try {
+      const parsed = JSON.parse(row.entry_seed) as { finishedIds?: unknown; results?: unknown };
+      if (Array.isArray(parsed.finishedIds) && parsed.results && typeof parsed.results === "object") {
+        out.entrySeed = {
+          finishedIds: parsed.finishedIds.filter((id): id is string => typeof id === "string"),
+          results: parsed.results as Record<string, unknown>,
+        };
+      }
+    } catch { /* ignore bad seed JSON */ }
+  }
+  if (row.entry_start_attempts != null && row.entry_start_attempts > 0) {
+    out.entryStartAttempts = row.entry_start_attempts;
+  }
   return out;
 }
 
@@ -607,75 +652,174 @@ export function listDefinitions(ctx: Ctx): { id: string; version: number; title?
 
 export function insertRun(ctx: Ctx, r: NewRun): RunRow {
   const db = workflowDatabase(ctx);
-  const row: RunRow = {
-    id: newRunId(),
-    workflow: r.workflow,
-    version: r.version,
-    repo: r.repo,
-    brief: r.brief,
-    title: r.title ?? r.workflow,
-    status: "running",
-    rev: 1,
-    createdAt: ctx.now,
-    updatedAt: ctx.now,
-    loops: {},
-  };
-  if (r.parentRunId) row.parentRunId = r.parentRunId;
-  if (r.parentStep) row.parentStep = r.parentStep;
-  if (r.planner) row.planner = r.planner;
-  if (r.orchestratorTaskId) row.orchestratorTaskId = r.orchestratorTaskId;
-  if (r.sessionId) row.sessionId = r.sessionId;
-  if (r.budget) row.budget = r.budget;
-  if (r.spent) row.spent = r.spent;
-  row.stepMode = r.stepMode ?? "work_node";
-  if (r.rootTaskId) row.rootTaskId = r.rootTaskId;
-  row.priority = r.priority ?? "normal";
-  if (r.pausedReason) row.pausedReason = r.pausedReason;
-  if (r.entryLeaseUntil != null) row.entryLeaseUntil = r.entryLeaseUntil;
-  row.meaningfulAt = ctx.now;
-  const used = db.query<{ letter: string | null }, []>("SELECT letter FROM workflow_runs WHERE letter IS NOT NULL AND letter != ''")
-    .all()
-    .map(r => r.letter!)
-    .filter(Boolean);
-  // Retry letter assignment on unique-index races across processes.
-  for (let attempt = 0; ; attempt++) {
-    const letter = nextLetter(used);
-    row.letter = letter;
-    try {
-      db.query(
-        "INSERT INTO workflow_runs(id, workflow, version, repo, brief, title, status, reason, loops, rev, created_at, updated_at, parent_run_id, parent_step, planner, orchestrator_task_id, session_id, budget, spent, step_mode, root_task_id, priority, paused_reason, letter, meaningful_at, entry_lease_until) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      ).run(
-        row.id, row.workflow, row.version, row.repo, row.brief, row.title, row.status, null,
-        JSON.stringify(row.loops), row.rev, row.createdAt, row.updatedAt,
-        row.parentRunId ?? null, row.parentStep ?? null,
-        row.planner ?? null, row.orchestratorTaskId ?? null, row.sessionId ?? null,
-        row.budget ?? null, row.spent ?? null,
-        row.stepMode, row.rootTaskId ?? null,
-        row.priority, row.pausedReason ?? null, row.letter, row.meaningfulAt,
-        row.entryLeaseUntil ?? null,
-      );
-      return row;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (!/UNIQUE|unique|constraint/i.test(msg) || attempt >= 8) throw err;
-      used.push(letter);
+  // Immediate txn: re-check parent person pause + write seed/lease with the row (M3/B2).
+  return db.transaction(() => {
+    const row: RunRow = {
+      id: newRunId(),
+      workflow: r.workflow,
+      version: r.version,
+      repo: r.repo,
+      brief: r.brief,
+      title: r.title ?? r.workflow,
+      status: "running",
+      rev: 1,
+      createdAt: ctx.now,
+      updatedAt: ctx.now,
+      loops: {},
+    };
+    if (r.parentRunId) row.parentRunId = r.parentRunId;
+    if (r.parentStep) row.parentStep = r.parentStep;
+    if (r.planner) row.planner = r.planner;
+    if (r.orchestratorTaskId) row.orchestratorTaskId = r.orchestratorTaskId;
+    if (r.sessionId) row.sessionId = r.sessionId;
+    if (r.budget) row.budget = r.budget;
+    if (r.spent) row.spent = r.spent;
+    row.stepMode = r.stepMode ?? "work_node";
+    if (r.rootTaskId) row.rootTaskId = r.rootTaskId;
+    row.priority = r.priority ?? "normal";
+    // M3: re-read parent inside this txn so a pause between caller read and insert is seen.
+    let pausedReason = r.pausedReason;
+    if (r.parentRunId) {
+      const parent = getRun(ctx, r.parentRunId);
+      if (parent?.pausedReason === "person") pausedReason = "person";
     }
+    if (pausedReason) row.pausedReason = pausedReason;
+    if (r.entryLeaseUntil != null) row.entryLeaseUntil = r.entryLeaseUntil;
+    if (r.entryOwner) row.entryOwner = r.entryOwner;
+    if (r.entrySeed && r.entrySeed.finishedIds.length > 0) row.entrySeed = r.entrySeed;
+    row.meaningfulAt = ctx.now;
+    const seedJson = row.entrySeed ? JSON.stringify(row.entrySeed) : null;
+    const used = db.query<{ letter: string | null }, []>("SELECT letter FROM workflow_runs WHERE letter IS NOT NULL AND letter != ''")
+      .all()
+      .map(x => x.letter!)
+      .filter(Boolean);
+    // Retry letter assignment on unique-index races across processes.
+    for (let attempt = 0; ; attempt++) {
+      const letter = nextLetter(used);
+      row.letter = letter;
+      try {
+        db.query(
+          "INSERT INTO workflow_runs(id, workflow, version, repo, brief, title, status, reason, loops, rev, created_at, updated_at, parent_run_id, parent_step, planner, orchestrator_task_id, session_id, budget, spent, step_mode, root_task_id, priority, paused_reason, letter, meaningful_at, entry_lease_until, entry_owner, entry_seed, entry_start_attempts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        ).run(
+          row.id, row.workflow, row.version, row.repo, row.brief, row.title, row.status, null,
+          JSON.stringify(row.loops), row.rev, row.createdAt, row.updatedAt,
+          row.parentRunId ?? null, row.parentStep ?? null,
+          row.planner ?? null, row.orchestratorTaskId ?? null, row.sessionId ?? null,
+          row.budget ?? null, row.spent ?? null,
+          row.stepMode, row.rootTaskId ?? null,
+          row.priority, row.pausedReason ?? null, row.letter, row.meaningfulAt,
+          row.entryLeaseUntil ?? null, row.entryOwner ?? null, seedJson, 0,
+        );
+        return row;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (!/UNIQUE|unique|constraint/i.test(msg) || attempt >= 8) throw err;
+        used.push(letter);
+      }
+    }
+  }).immediate();
+}
+
+/**
+ * Atomically claim or renew exclusive entry-start ownership in ONE UPDATE.
+ * Succeeds only when the run is live and (lease free/expired OR same owner).
+ * Returns true iff changes === 1.
+ */
+export function claimEntryLease(
+  ctx: Ctx,
+  runId: string,
+  owner: string,
+  until: number,
+  now: number,
+): boolean {
+  if (!runId || !owner) return false;
+  const db = workflowDatabase(ctx);
+  const result = db.transaction(() => db.query(
+    `UPDATE workflow_runs
+     SET entry_lease_until = ?, entry_owner = ?
+     WHERE id = ?
+       AND status IN ('running', 'waiting')
+       AND (
+         entry_owner = ?
+         OR entry_lease_until IS NULL
+         OR entry_lease_until <= ?
+       )`,
+  ).run(until, owner, runId, owner, now)).immediate();
+  return result.changes === 1;
+}
+
+/**
+ * Clear the entry-ownership lease without bumping `rev` and without publishing
+ * (I3: intentional — other writers' cached expect_rev stays valid). Only clears
+ * when `owner` matches (or when owner is omitted for legacy/test cleanup).
+ * Retries a bounded number of times on SQLITE_BUSY and logs a diagnostic (I2).
+ */
+export function clearEntryLease(ctx: Ctx, runId: string, owner?: string): void {
+  const maxTries = 4;
+  let lastErr: unknown;
+  for (let i = 0; i < maxTries; i++) {
+    try {
+      const db = workflowDatabase(ctx);
+      if (owner) {
+        db.query(
+          "UPDATE workflow_runs SET entry_lease_until = NULL, entry_owner = NULL WHERE id = ? AND entry_owner = ?",
+        ).run(runId, owner);
+      } else {
+        db.query(
+          "UPDATE workflow_runs SET entry_lease_until = NULL, entry_owner = NULL WHERE id = ?",
+        ).run(runId);
+      }
+      return;
+    } catch (err) {
+      lastErr = err;
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!/locked|BUSY|busy/i.test(msg) || i === maxTries - 1) break;
+    }
+  }
+  if (lastErr) {
+    console.warn(
+      `pacer: clearEntryLease failed for ${runId} after ${maxTries} tries: ${
+        lastErr instanceof Error ? lastErr.message : String(lastErr)
+      }`,
+    );
   }
 }
 
-/** Clear startRun's entry-ownership lease without bumping rev. */
-export function clearEntryLease(ctx: Ctx, runId: string): void {
+/** Clear durable entry seed after it has been applied (no rev bump). */
+export function clearEntrySeed(ctx: Ctx, runId: string): void {
   try {
     workflowDatabase(ctx).query(
-      "UPDATE workflow_runs SET entry_lease_until = NULL WHERE id = ?",
+      "UPDATE workflow_runs SET entry_seed = NULL WHERE id = ?",
     ).run(runId);
   } catch { /* missing table / concurrent */ }
 }
 
+/** Bump durable transient entry-start attempts; returns the new count. */
+export function bumpEntryStartAttempts(ctx: Ctx, runId: string): number {
+  const db = workflowDatabase(ctx);
+  db.query(
+    "UPDATE workflow_runs SET entry_start_attempts = COALESCE(entry_start_attempts, 0) + 1 WHERE id = ?",
+  ).run(runId);
+  const row = db.query<{ entry_start_attempts: number }, [string]>(
+    "SELECT entry_start_attempts FROM workflow_runs WHERE id = ?",
+  ).get(runId);
+  return row?.entry_start_attempts ?? 0;
+}
+
+/** Reset transient entry-start attempts after a successful start. */
+export function resetEntryStartAttempts(ctx: Ctx, runId: string): void {
+  try {
+    workflowDatabase(ctx).query(
+      "UPDATE workflow_runs SET entry_start_attempts = 0 WHERE id = ?",
+    ).run(runId);
+  } catch { /* */ }
+}
+
 /**
- * Live runs that still need def.entry started: unpaused (or budget-only), no step
- * rows, and no active startRun entry lease. Optional `rootRunId` limits to that
- * run and its live descendants (run.resume). One SQL filter — no per-run step scans.
+ * Live runs that still need entry started or a durable seed applied: unpaused
+ * (or budget-only), no step rows (or pending entry_seed), and no active entry
+ * lease. Optional `rootRunId` limits to that run and its live descendants
+ * (run.resume). One SQL filter — no per-run step scans.
  */
 export function liveRunsNeedingEntry(
   ctx: Ctx,
@@ -683,6 +827,11 @@ export function liveRunsNeedingEntry(
 ): RunRow[] {
   const db = workflowDatabase(ctx);
   const now = opts.now ?? ctx.now;
+  // Needs work when there are no steps yet, or a durable seed still awaits apply.
+  const needClause = `(
+         NOT EXISTS (SELECT 1 FROM workflow_steps s WHERE s.run_id = r.id)
+         OR (r.entry_seed IS NOT NULL AND r.entry_seed != '')
+       )`;
   if (opts.rootRunId) {
     return db.query<RunDbRow, [string, number]>(
       `WITH RECURSIVE tree(id) AS (
@@ -697,7 +846,7 @@ export function liveRunsNeedingEntry(
        WHERE r.status IN ('running', 'waiting')
          AND (r.paused_reason IS NULL OR r.paused_reason = '' OR r.paused_reason = 'budget')
          AND (r.entry_lease_until IS NULL OR r.entry_lease_until <= ?)
-         AND NOT EXISTS (SELECT 1 FROM workflow_steps s WHERE s.run_id = r.id)
+         AND ${needClause}
        ORDER BY r.created_at, r.id`,
     ).all(opts.rootRunId, now).map(runFromRow);
   }
@@ -706,7 +855,7 @@ export function liveRunsNeedingEntry(
      WHERE r.status IN ('running', 'waiting')
        AND (r.paused_reason IS NULL OR r.paused_reason = '' OR r.paused_reason = 'budget')
        AND (r.entry_lease_until IS NULL OR r.entry_lease_until <= ?)
-       AND NOT EXISTS (SELECT 1 FROM workflow_steps s WHERE s.run_id = r.id)
+       AND ${needClause}
      ORDER BY r.created_at, r.id`,
   ).all(now).map(runFromRow);
 }
