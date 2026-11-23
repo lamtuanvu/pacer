@@ -25,6 +25,10 @@ pub mod theme;
 /// Navigation, selection and overlay state (`src/dashboard/state.ts`).
 pub mod state;
 
+/// The controller assembling navigation, selection, effects and rendering
+/// (`src/dashboard/controller.ts`).
+pub mod controller;
+
 /// Render an explicit wire snapshot and UI state through a ratatui TestBackend.
 /// The returned rows preserve the TS renderer's deliberate trailing spaces.
 pub fn render_frame(
@@ -88,6 +92,12 @@ pub fn render_frame(
         })
         .collect::<Vec<_>>()
         .join("\n"))
+}
+
+/// Render a live dashboard into a string frame for tests and embedding.
+/// Thin wrapper over [`controller::Dashboard::render`].
+pub fn frame<C: controller::DashClient>(dashboard: &controller::Dashboard<C>) -> String {
+    dashboard.render()
 }
 
 use unicode_general_category::{GeneralCategory, get_general_category};
