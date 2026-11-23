@@ -2472,9 +2472,13 @@ export class PluginRegistry {
       credentialBindings = classifierCredentialBindings(ctx, selected);
     }
     if (ctx.env.PACER_HOST_SOCKET) {
-      // Only an endpoint launch crosses with its empty list: a credential reference would need its secret to cross
-      // the socket, and keyless discovery and classifier calls lack the flag-off HTTP scope and generation checks here.
-      if (credentialBindings !== undefined && (credentialBindings.length || method !== "endpoint.launchEnv")) throw new CoreError("plugin_unavailable", `${method} needs credential bindings, which the native process owner bridge does not carry`);
+      // Only a call defined to cross with its empty binding list carries one over the socket: an endpoint launch
+      // (its env) and a keyless classifier with a real HTTP host (the flag-off scope it already seals). Keyless
+      // discovery has no such scope, and every non-empty list needs a secret to cross, so both keep the refusal.
+      const empty = credentialBindings !== undefined && credentialBindings.length === 0;
+      const scopedCross = empty && (method === "endpoint.launchEnv"
+        || (classifier && method === "classifier.ask" && (resources?.http?.hosts?.length ?? 0) > 0));
+      if (credentialBindings !== undefined && !scopedCross) throw new CoreError("plugin_unavailable", `${method} needs credential bindings, which the native process owner bridge does not carry`);
       return this.callNativeOwner<T>(ctx, e, method, input, { ...options, resources }, ctx.env.PACER_HOST_SOCKET, deadlineAt, plannerFingerprint, credentialBindings !== undefined);
     }
     return (ownerBoundStream ? this.streamAdmission : this.admission).run(deadlineAt, async signal => {

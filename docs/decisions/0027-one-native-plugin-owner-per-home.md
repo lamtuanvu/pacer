@@ -214,7 +214,10 @@ to serve's Core.
   chosen endpoint account's key, the Keychain lookup stays in Core; signing keeps the machine key
   and the audit in Core). The resolved key crosses only that connection (0600 socket, same user)
   and the child's stdin, as the reply to the child's own request. The owner keeps nothing and
-  logs no frame. Endpoint and classifier calls that carry credential bindings stay refused.
+  logs no frame. Endpoint and classifier calls that carry a credential binding stay refused; a
+  keyless classifier (no binding) crosses the owner with the flag-off HTTP scope it already
+  projects (`classifierSnapshot`), answering flag-on as it does flag-off, while keyless endpoint
+  discovery keeps its refusal.
   Item 9 closes the residual risk of this decision (#918). Before it, a same-user process could
   reach the resolved key or a signature: it could put its own process in the assistant's or a
   signing plugin's lane (the bridge's unsealed spawn and stop, or a lane it started first), or
