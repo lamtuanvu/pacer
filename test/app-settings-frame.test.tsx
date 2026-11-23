@@ -87,7 +87,7 @@ test('settings panel groups pages and keeps a stable keyboard order', () => {
   const html = renderToString(<SettingsPanel route={{ name: 'settings', query }} counts={null} />);
   expect(navOrder(html)).toEqual([
     '#/', '#/settings', '#/settings/executors', '#/settings/dispatcher', '#/settings/models', '#/settings/planner', '#/settings/machine',
-    '#/settings/plugins', '#/settings/app', '#/settings/diagnostics',
+    '#/settings/plugins', '#/settings/apps', '#/settings/app', '#/settings/diagnostics',
   ]);
   expect(html).not.toMatch(/tabindex="[1-9]/);
   expect(html.indexOf('>Dispatch<')).toBeLessThan(html.indexOf('>Extend<'));

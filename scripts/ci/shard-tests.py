@@ -19,17 +19,28 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 KINDS = ("only", "mixed", "linux")
+ORCA_KIT = re.compile(r"""from\s+['"]orca/testing['"]""")
 DARWIN_CHECK = re.compile(r"""(?:process\.platform|\bplatform\(\))\s*[!=]==?\s*['"]darwin['"]""")
+
+
+def needs_orca_kit(path):
+    """Plugin tests that import Orca's `orca/testing` kit only run under `orca plugin test`."""
+    return bool(ORCA_KIT.search(Path(path).read_text(errors="replace")))
 
 
 def get_test_files():
     """Get all test files by scanning the filesystem (faster than bun test --list)."""
     test_files = []
-    for root in ("test", "scripts/spike", "conformance"):
+    for root in ("test", "scripts/spike", "conformance", "plugins"):
         root_path = Path(root)
         if root_path.exists():
             for pattern in ("*.test.ts", "*.test.tsx"):
-                test_files.extend(str(path) for path in root_path.rglob(pattern))
+                for path in root_path.rglob(pattern):
+                    if "node_modules" in path.parts or ".orca" in path.parts:
+                        continue
+                    if root == "plugins" and needs_orca_kit(path):
+                        continue
+                    test_files.append(str(path))
     return sorted(set(test_files))
 
 
