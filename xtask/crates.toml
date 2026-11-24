@@ -150,6 +150,9 @@ layer = "plugin"
 [crates.pacer-bundled-exec-direct]
 layer = "plugin"
 
+[crates.pacer-bundled-ssh]
+layer = "plugin"
+
 [crates.xtask]
 layer = "tool"
 heavy = ["typify", "syn"]
