@@ -1,10 +1,8 @@
 #![allow(clippy::unwrap_used)]
 use crate::{
     Code, apply,
-    check::{
-        compare_versions, is_nightly_version, is_version, update_channel_nightly,
-        update_check_false,
-    },
+    channel::{compare_versions, is_version, update_channel_nightly, update_check_false},
+    check::is_nightly_version,
     feed::{Channel, latest, latest_for, normalize_base, parse_cli_nightly, parse_latest},
     service::{js_number, launchd_number, systemd_fields},
     update_check,

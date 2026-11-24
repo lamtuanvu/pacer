@@ -61,6 +61,7 @@ Layers from bottom (0) to top. Budgets are the planned size at the end of M3; CR
 | 2 | `pacer-discovery-ops` (`crates/discovery-ops`) | Native LAN discovery write operation handlers (`discovery.set`, `discovery.respond`) | ≤ 800 | none |
 | 3 | `pacer-machine-ops` (`crates/machine-ops`) | Machine identity store, key rotation and the native `machine.*` operation handlers | ≤ 1,500 | none |
 | 3 | `pacer-sessions` (`crates/sessions`) | PTY sessions, screen, recording, terminal opening | 2,000–2,500 | `portable-pty`, `vt100` |
+| 3 | `pacer-desktop-admission` (`crates/desktop-admission`) | Shared desktop admission coordinator: the crash-safe `admission.sqlite` physical lock, private-dir verification, BEGIN-IMMEDIATE short transactions and admission-state codec (TS `coordinator.ts`, `admission.ts` in `src/update/desktop`) | ≤ 900 | `rusqlite` |
 | 4 | `pacer-plugin-host` (`crates/plugin-host`) | Plugin registry, frame codec, call authority, credentials, host leases, manifests, policy, observations, pairing and native writes ([ADR 0026](../../docs/decisions/0026-native-plugin-capability-crate.md)) | ≤ 6,000 | none |
 | 4 | `pacer-repos` (`crates/repos`) | Repository registry: `repos.json` and linked-checkout aliases, the per-process path probe, branch reads, git identity and registration of absolute checkout paths | ≤ 1,500 | none |
 | 4 | `pacer-models` (`crates/models`) | Runner model listings (`src/models/available.ts`): the OpenCode listing cache, endpoint connection models, closest-model suggestions and the `runner.set` model check; OpenCode model discovery from M2 wave 4 | ≤ 1,500 | none |
@@ -75,6 +76,7 @@ Layers from bottom (0) to top. Budgets are the planned size at the end of M3; CR
 | 6 | `pacer-plugin-runtime` (`crates/plugin-runtime`) | Plugin child transport, native process owner, reverse bridge and capability sessions | ≤ 4,500 | none |
 | 6 | `pacer-account-ops` (`crates/account-ops`) | Native account operation handlers: `account.remove` and managed endpoint `account.add`, `account.edit` and `account.adopt` without key writes or test tasks, with their strategy, endpoint state and evidence writes; the `account.usage.check`, `account.models` and `account.test` refusals | ≤ 2,000 | none |
 | 6 | `pacer-update` (`crates/update`) | Update, release manifest, service install (native today: `update.check` over `ureq` and `service.status`) | 1,500 | none (`ureq`, as in `pacer-cli`) |
+| 6 | `pacer-desktop-update` (`crates/desktop-update`) | Desktop update state store: `UpdateRecord` codec, revision CAS write, legacy `.lock` and adoption-pending checks, crash-safe write with fsync + rename, byte-parity with TS `store.ts`/`types.ts` in `src/update/desktop` | ≤ 1,200 | none |
 | 7 | `pacer-read-model` (`crates/read-model`) | Snapshot and view model | 1,300–1,600 | none |
 | 7 | `pacer-config-ops` (`crates/config-ops`) | Native config and host operation handlers (strategy, strategy preview, routing, runners, notifications, host reads and edits, OpenCode executor setup and candidates, setup init, strategy build over the setup effects bridge, `limits.refresh` for accounts without a refresh source) | ≤ 4,000 | none |
 | 7 | `pacer-dispatch-ops` (`crates/dispatch-ops`) | Native dispatch work-graph and analytics operation handlers (`dispatch.config.get`, `dispatch.tree`, `dispatch.list`, `dispatch.events`, `dispatch.dependencies*`, `dispatch.analytics`, `dispatch.learning.reset`, `insights.summary`, `dispatch.models`, `dispatch.refresh`, `dispatch.enforcement.consent`) | ≤ 3,000 | none |
@@ -83,6 +85,7 @@ Layers from bottom (0) to top. Budgets are the planned size at the end of M3; CR
 | 8 | `pacer-task-ops` (`crates/task-ops`) | Native task, session, snapshot and shared job operation handlers (reads, list, detail, review, stop, dismiss, diff, wait, `job.*`) | ≤ 2,500 | none |
 | 8 | `pacer-tui` (`crates/tui`) | Dashboard (an API client: ARCH-1) | 1,000–1,200 | `ratatui`, `crossterm` |
 | 8 | `pacer-bundled` (`crates/bundled`) | Table of bundled plugins (manifest text and entry function), from M3 plan 1 | ≤ 300 | none (depends on `plugins-rs/*`) |
+| 8 | `pacer-desktop-native` (`crates/desktop-native`) | Native desktop bridge on macOS: paired-app startup, socket listener, trust and bundle verification, helper processes, and the native identity/record surface for desktop updates (moved from `pacer-server` `serve`) | ≤ 1,500 | `security-framework` |
 | 9 | `pacer-server` (`crates/server`) | Op registry assembly, HTTP, SSE, WebSocket, stdio, MCP, bridge, embedded app assets | 2,000–2,500 | `axum`, `hyper`, `rmcp` |
 | 10 | `pacer-cli` (`crates/cli`) | Commands, renderers, status line, core exec and self-repair (M1–M2) | 3,000–3,500 | `clap` |
 | 11 | `pacer` (`crates/pacer`) | Binary | ≤ 500 | none |
