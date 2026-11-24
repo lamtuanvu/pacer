@@ -1,5 +1,5 @@
 /** One structured-question form for queue, run view and Live board (Phase 9a). */
-import { useId, useState } from "preact/hooks";
+import { useEffect, useId, useRef, useState } from "preact/hooks";
 import type { ComponentChildren } from "preact";
 import { CONFLICT_QUESTION } from "../../../src/view-model/runs";
 import { Alert } from "./Alert";
@@ -34,6 +34,7 @@ export interface QuestionFormProps {
   canAnswer?: boolean;
   busy?: boolean;
   onSubmit: (input: { answer: string; note?: string; expect_rev: number }) => Promise<void> | void;
+  /** Reload after conflict: parent refetches; form resets when question.id/rev change. */
   onConflict?: () => void;
 }
 
@@ -75,6 +76,23 @@ export function QuestionForm({ question, canAnswer = true, busy = false, onSubmi
   const [error, setError] = useState<string | null>(null);
   const [conflict, setConflict] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const reloadRef = useRef<HTMLButtonElement>(null);
+
+  // Key/reset contract: when the parent passes a fresh id or rev, clear conflict and draft answers.
+  useEffect(() => {
+    setSingle(question.recommended ?? "");
+    setMulti(question.recommended ? [question.recommended] : []);
+    setText("");
+    setNote("");
+    setError(null);
+    setConflict(false);
+    setSubmitting(false);
+  }, [question.id, question.rev, question.recommended]);
+
+  useEffect(() => {
+    if (!conflict) return;
+    reloadRef.current?.focus({ preventScroll: true });
+  }, [conflict]);
 
   const needsNote = question.answerType === "approve_revise" && single.toLowerCase() === "revise";
   const choiceValue = question.answerType === "multi" ? multi.join(",") : single;
@@ -111,7 +129,6 @@ export function QuestionForm({ question, canAnswer = true, busy = false, onSubmi
       if (isConflictError(err)) {
         setConflict(true);
         setError(CONFLICT_QUESTION);
-        onConflict?.();
       } else {
         setError(err instanceof Error ? err.message : String(err));
       }
@@ -137,7 +154,14 @@ export function QuestionForm({ question, canAnswer = true, busy = false, onSubmi
       aria-labelledby={`${baseId}-title`}
       onSubmit={event => { event.preventDefault(); void submit(); }}
     >
-      <h2 className="pc-question-form__title" id={`${baseId}-title`}>{question.text}</h2>
+      <h2
+        className="pc-question-form__title"
+        id={`${baseId}-title`}
+        tabIndex={-1}
+        data-autofocus
+      >
+        {question.text}
+      </h2>
       {question.suggestedAnswer ? (
         <Alert tone="info" title="Suggested answer" compact>
           <p>{question.suggestedAnswer}</p>
@@ -219,7 +243,7 @@ export function QuestionForm({ question, canAnswer = true, busy = false, onSubmi
         <Alert tone={conflict ? "warning" : "error"} title={conflict ? "This question changed" : "Could not submit"}>
           <p>{error}</p>
           {conflict && onConflict ? (
-            <Button type="button" variant="secondary" size="sm" onClick={() => onConflict()}>Reload</Button>
+            <Button ref={reloadRef} type="button" variant="secondary" size="sm" onClick={() => onConflict()}>Reload</Button>
           ) : null}
         </Alert>
       )}
