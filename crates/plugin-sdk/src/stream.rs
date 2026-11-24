@@ -161,12 +161,10 @@ impl OwnedStream {
                     || st.waiter.is_some()
                 {
                     Next::Busy
-                } else if st.frame.is_none() {
-                    Next::Wait
-                } else {
-                    let seq = st.frame.as_ref().expect("frame present").seq;
-                    let bytes = st.frame.as_ref().expect("frame present").bytes.clone();
-                    st.frame.as_mut().expect("frame present").delivered = true;
+                } else if let Some(frame) = st.frame.as_mut() {
+                    let seq = frame.seq;
+                    let bytes = frame.bytes.clone();
+                    frame.delivered = true;
                     drop(st);
                     return Ok(InputFrame {
                         seq,
@@ -176,6 +174,8 @@ impl OwnedStream {
                         host: self.host.clone(),
                         streams: self.streams.clone(),
                     });
+                } else {
+                    Next::Wait
                 }
             };
             match next {

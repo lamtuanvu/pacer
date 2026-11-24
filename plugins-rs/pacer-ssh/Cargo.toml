@@ -1,0 +1,21 @@
+[package]
+name = "pacer-bundled-ssh"
+version = "0.0.0"
+publish = false
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+pacer-plugin = { path = "../../crates/plugin-sdk" }
+regex = "1"
+serde_json.workspace = true
+tokio = { workspace = true, features = ["macros", "sync", "time"] }
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+pacer-plugin = { path = "../../crates/plugin-sdk", features = ["testing"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time"] }
+
+[lints]
+workspace = true
