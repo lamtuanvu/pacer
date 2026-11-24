@@ -92,9 +92,10 @@ export function parsePlugins(raw: unknown, p: string[]): PluginsCfg {
       else installed[id] = {
         version: String(g.version),
         capabilities: g.capabilities.map(String),
-        ...(g.surfaces ? { surfaces: g.surfaces.map(String) } : {}),
+        // Omit empty surfaces/workflows (parity with setPluginGrant and Rust strategy_validation).
+        ...(Array.isArray(g.surfaces) && g.surfaces.length ? { surfaces: g.surfaces.map(String) } : {}),
         ...(typeof g.policy === "boolean" ? { policy: g.policy } : {}),
-        ...(g.workflows ? { workflows: g.workflows.map(String) } : {}),
+        ...(Array.isArray(g.workflows) && g.workflows.length ? { workflows: g.workflows.map(String) } : {}),
       };
     }
   }

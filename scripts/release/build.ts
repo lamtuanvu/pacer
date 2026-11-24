@@ -204,8 +204,13 @@ export async function buildRelease(o: BuildOptions): Promise<{ dir: string; mani
   mkdirSync(dir, { recursive: true });
   for (const t of targets) {
     log(`building ${assetFile(t)} (${t.bunTarget})`);
-    await compileCore({ root: o.root, target: t, version, outfile: join(dir, companionFile(t)), bunExe: o.bunExe, desktopTrust: o.desktopTrust });
-    await compileFrontDoor({ root: o.root, target: t, version, outfile: join(dir, assetFile(t)), desktopTrust: o.desktopTrust });
+    // bun compile and the Rust front door are independent; run them together so
+    // host release stays under the compiled-host test budget after phase-7 crate growth.
+    // Assistant shares CARGO_TARGET_DIR with the front door, so it waits.
+    await Promise.all([
+      compileCore({ root: o.root, target: t, version, outfile: join(dir, companionFile(t)), bunExe: o.bunExe, desktopTrust: o.desktopTrust }),
+      compileFrontDoor({ root: o.root, target: t, version, outfile: join(dir, assetFile(t)), desktopTrust: o.desktopTrust }),
+    ]);
     // Sibling of pacer-core when crates/assistant-pacer is present; signing matches compileCore (darwin).
     const host = hostPlatform();
     const smoke = host !== null && host.os === t.os && host.arch === t.arch;
