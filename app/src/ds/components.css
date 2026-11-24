@@ -1382,5 +1382,6 @@ a.pc-btn--primary:hover{color:var(--ink-on-ink)}
 .pc-question-form__artifact{margin:0}
 .pc-question-form__multi{border:0;margin:0;padding:0;display:flex;flex-direction:column;gap:var(--space-2)}
 .pc-question-form__actions{display:flex;flex-wrap:wrap;gap:var(--space-2);align-items:center}
+.pc-question-form__submit-hint{color:var(--ink-muted);font-family:var(--font-sans);font-size:var(--type-caption-size);line-height:var(--type-caption-line)}
 
 .sr-only{position:absolute;width:var(--size-1);height:var(--size-1);padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}

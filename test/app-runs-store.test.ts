@@ -74,6 +74,43 @@ test("questionFromEntity maps question.get payloads including suggested", () => 
   });
 });
 
+test("questionFromEntity preserves artifact, stepId, attempt and branch", () => {
+  const asString = questionFromEntity({
+    id: "q_art",
+    rev: 2,
+    answerType: "text",
+    text: "See artifact",
+    blocks: "step",
+    artifact: "art_1",
+    stepId: "human_gate",
+    attempt: 3,
+    branch: "left",
+  }, "run_2");
+  expect(asString).toMatchObject({
+    id: "q_art",
+    artifact: { id: "art_1" },
+    stepId: "human_gate",
+    attempt: 3,
+    branch: "left",
+  });
+
+  const asObject = questionFromEntity({
+    id: "q_art2",
+    rev: 1,
+    answerType: "yes_no",
+    text: "?",
+    blocks: "run",
+    artifact: { id: "art_9", label: "Diff" },
+    stepId: "review",
+    attempt: 1,
+  }, "run_3");
+  expect(asObject).toMatchObject({
+    artifact: { id: "art_9", label: "Diff" },
+    stepId: "review",
+    attempt: 1,
+  });
+});
+
 test("reduceStore bumps invalidations.runs on workflow entity SSE events", () => {
   let state = reduceStore(initialState(), {
     type: "snapshot",
