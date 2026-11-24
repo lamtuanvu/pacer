@@ -515,12 +515,11 @@ async function superviseTaskRecord(ctx: Ctx, t: TaskRecord, spawn: SpawnRunner, 
   const id = t.id;
   // Attempt already recorded (runner finished before stop reconcile): settle without
   // inspectOwnedExecutorRun, which denies when attempts.length + 1 !== attempt or run is null.
-  if (t.executorProvider && isRecordedStopPending(t) && !alive(t.runnerPid) && !alive(t.childPid)) {
+  if (t.executorProvider && isRecordedStopPending(t, alive)) {
     return withTaskLock(ctx, id, () => {
       const latest = readTask(ctx, id);
       if (!latest || latest.rev !== t.rev) return latest ?? t;
-      if (!latest.executorProvider || !isRecordedStopPending(latest) ||
-        alive(latest.runnerPid) || alive(latest.childPid)) return latest;
+      if (!latest.executorProvider || !isRecordedStopPending(latest, alive)) return latest;
       return updateTask(ctx, id, current => {
         const deadline = current.stopPending?.reason === "deadline";
         const last = current.attempts[current.attempts.length - 1];

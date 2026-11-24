@@ -32,10 +32,12 @@ export async function runningWork(ctx: Ctx, current = currentVersion()): Promise
     // workflow-root is synthetic; orchestrate stays visible (real capacity/work).
     if (t.kind === "workflow-root") continue;
     if (t.state === "needs_input" && !liveWorkerOwned(t, ctx.now, id => readTask(ctx, id))) continue;
-    // Only the recorded-stop stuck shape is omitted; preparing / live runs stay visible.
-    if (isRecordedStopPending(t)) continue;
-    const runnerPacer = t.runnerPacer ?? t.handover?.pacer ?? null;
-    tasks.push({ taskId: t.id, runnerPacer, older: older(runnerPacer, current) });
+    // Omit only the settled recorded-stop stuck shape from tasks; still scan its run
+    // dir so a live session host stays in sessions. Preparing / live runners stay in tasks.
+    if (!isRecordedStopPending(t)) {
+      const runnerPacer = t.runnerPacer ?? t.handover?.pacer ?? null;
+      tasks.push({ taskId: t.id, runnerPacer, older: older(runnerPacer, current) });
+    }
     const dir = t.run && !t.run.host ? t.run.dir : undefined;
     if (dir && existsSync(join(dir, "session.json")) && readRun(dir).alive) {
       const host = hostVersionView(dir, current);

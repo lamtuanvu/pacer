@@ -1,9 +1,10 @@
 import { expect, spyOn, test } from "bun:test";
-import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { superviseTask } from "../src/tasks/api";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
 import { runningWork, workCounts } from "../src/service/running-work";
+import { readRun } from "../src/supervisor/run";
 import { storedBlockers } from "../src/update/desktop/blockers";
 import { fakeCtx, tmpDir } from "./helpers";
 
@@ -13,6 +14,10 @@ function seedRecordedStopPending(opts: {
   exitCode?: number;
   keepRun?: boolean;
   runnerPacer?: string;
+  runnerPid?: number;
+  childPid?: number;
+  /** Omit the exit receipt so a live wrapper can make readRun(dir).alive. */
+  liveHost?: boolean;
 }) {
   const ctx = fakeCtx();
   const repo = tmpDir();
@@ -27,8 +32,10 @@ function seedRecordedStopPending(opts: {
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   chmodSync(dir, 0o700);
   writeFileSync(join(dir, "pid"), "999999999\n", { mode: 0o600 });
-  writeFileSync(join(dir, "exit"), `${opts.exitCode ?? 143}\n`, { mode: 0o600 });
-  writeFileSync(join(dir, "session.ended"), `${ctx.now}\n`, { mode: 0o600 });
+  if (!opts.liveHost) {
+    writeFileSync(join(dir, "exit"), `${opts.exitCode ?? 143}\n`, { mode: 0o600 });
+    writeFileSync(join(dir, "session.ended"), `${ctx.now}\n`, { mode: 0o600 });
+  }
   writeFileSync(join(dir, "session.host"), "builtin\n", { mode: 0o600 });
   const startedAt = ctx.now - 30;
   const endedAt = ctx.now - 5;
@@ -56,7 +63,7 @@ function seedRecordedStopPending(opts: {
       graceMs: 5000,
       reason: opts.reason ?? "user",
     };
-    if (opts.keepRun) {
+    if (opts.keepRun || opts.liveHost) {
       current.run = {
         dir,
         attempt,
@@ -69,8 +76,10 @@ function seedRecordedStopPending(opts: {
     } else {
       delete current.run;
     }
-    delete current.runnerPid;
-    delete current.childPid;
+    if (opts.runnerPid !== undefined) current.runnerPid = opts.runnerPid;
+    else delete current.runnerPid;
+    if (opts.childPid !== undefined) current.childPid = opts.childPid;
+    else delete current.childPid;
     delete current.pendingAttempt;
   });
   return { ctx, task, dir, attempt };
@@ -137,6 +146,62 @@ test("running-work and idle blockers exclude a stuck stopPending record without 
   expect(work.tasks.some(t => t.taskId === task.id)).toBe(false);
   expect(workCounts(work).olderRunners).toBe(0);
   expect(storedBlockers(ctx).some(b => b.kind === "task" && b.id === task.id)).toBe(false);
+});
+
+test("alive runnerPid keeps recorded stopPending running and visible to work/blockers", async () => {
+  const { ctx, task } = seedRecordedStopPending({ runnerPid: process.pid, runnerPacer: "0.1.0" });
+  const settled = await superviseTask(ctx, task.id, () => {
+    throw new Error("must not relaunch");
+  });
+  expect(settled?.state).toBe("running");
+  expect(settled?.stopPending).toBeDefined();
+  expect(settled?.runnerPid).toBe(process.pid);
+  const work = await runningWork(ctx, "0.17.5");
+  expect(work.tasks.some(t => t.taskId === task.id)).toBe(true);
+  expect(storedBlockers(ctx).some(b => b.kind === "task" && b.id === task.id)).toBe(true);
+});
+
+test("alive childPid keeps recorded stopPending running and visible to work/blockers", async () => {
+  // keepRun so supervise takes the owned-run reconcile path (and returns) instead of
+  // the dead-runner failure arm; liveness alone must block the recorded-stop settle.
+  const { ctx, task } = seedRecordedStopPending({
+    childPid: process.pid, keepRun: true, runnerPacer: "0.1.0",
+  });
+  const settled = await superviseTask(ctx, task.id, () => {
+    throw new Error("must not relaunch");
+  });
+  expect(settled?.state).toBe("running");
+  expect(settled?.stopPending).toBeDefined();
+  expect(settled?.childPid).toBe(process.pid);
+  const work = await runningWork(ctx, "0.17.5");
+  expect(work.tasks.some(t => t.taskId === task.id)).toBe(true);
+  expect(storedBlockers(ctx).some(b => b.kind === "task" && b.id === task.id)).toBe(true);
+});
+
+test("stuck stopPending still lists a live session host in running-work sessions", async () => {
+  const { ctx, task, dir } = seedRecordedStopPending({ liveHost: true, runnerPacer: "0.1.0" });
+  const script = join(dir, "run.sh");
+  writeFileSync(script, "#!/bin/sh\nwhile :; do sleep 0.1; done\n", { mode: 0o700 });
+  const proc = Bun.spawn(["/bin/sh", script, dir], {
+    detached: true, stdin: "ignore", stdout: "ignore", stderr: "ignore",
+  });
+  writeFileSync(join(dir, "pid"), `${proc.pid}\n`, { mode: 0o600 });
+  writeFileSync(join(dir, "session.json"), "{}\n", { mode: 0o600 });
+  try {
+    const end = Date.now() + 5000;
+    while (!readRun(dir).alive) {
+      if (Date.now() > end) throw new Error("wrapper did not become alive");
+      await Bun.sleep(25);
+    }
+    const work = await runningWork(ctx, "0.17.5");
+    expect(work.tasks.some(t => t.taskId === task.id)).toBe(false);
+    expect(work.sessions.some(s => s.kind === "task" && s.id === task.id)).toBe(true);
+  } finally {
+    try { process.kill(-proc.pid, "SIGKILL"); } catch { /* already gone */ }
+    try { process.kill(proc.pid, "SIGKILL"); } catch { /* already gone */ }
+    await proc.exited.catch(() => {});
+    rmSync(join(dir, "pid"), { force: true });
+  }
 });
 
 test("preparing task without stopPending still appears in running-work and storedBlockers", async () => {

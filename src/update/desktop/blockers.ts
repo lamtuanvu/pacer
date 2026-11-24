@@ -23,8 +23,10 @@ const storedTask = z.object({
   id: z.string(), state: z.enum(["queued", "running", "done", "partial", "failed", "limit", "stopped", "needs_input"]),
   brief: z.object({ goal: z.string(), repo: z.string() }), attempts: z.array(z.unknown()),
   title: z.string().optional(), queue: z.object({ reason: z.enum(QUEUE_REASONS), since: z.number().finite(), position: z.number().int().positive() }).optional(),
-  run: z.object({ dir: z.string().min(1), attempt: z.number().int().positive() }).optional(),
-  stopPending: z.object({ attempt: z.number().int().positive() }).optional(),
+  run: z.object({ dir: z.string().min(1), attempt: z.number().int().positive() }).nullish(),
+  stopPending: z.object({ attempt: z.number().int().positive() }).nullish(),
+  runnerPid: z.number().int().optional(),
+  childPid: z.number().int().optional(),
 });
 const storedJob = z.object({
   id: z.string(), kind: z.enum(["host.check", "runner.check", "host.repo.setup", "host.clean", "update.apply"]),
