@@ -148,6 +148,39 @@ time per caller, matching the TypeScript `createHttp` latch. Cleanup (release
 of any staged upload/download handle) is always performed, even after errors or
 cancellation, and a cleanup failure cannot turn the call into a success.
 
+## Owned duplex streams
+
+For `hostRunner.stream` handlers whose request carries a numeric id, a string
+`params.streamId` and a string `_meta.capabilityCall`, the context exposes an
+owned duplex stream: `Ctx::owned_stream()` returns `Some(OwnedStream)` for
+exactly that call and `None` for every ordinary call. The owner pushes output
+frames with `progress` and pulls owned input frames with `next_input`,
+matching the TypeScript `index.ts` stream owner (`packages/plugin-sdk`):
+
+```rust
+let Some(stream) = ctx.owned_stream() else {
+    return Err(PluginError::new("capability_denied", "no owned stream"));
+};
+
+// Pull one owned input frame, process it, then acknowledge it.
+let frame = stream.next_input().await?;
+let bytes = frame.bytes();
+// ... work ...
+frame.ack().await?;
+
+// Push one output frame ($/progress + $/streamAck round trip).
+stream.progress(&stream_id, seq, bytes).await?;
+```
+
+`progress` sends `$/progress` then completes the `$/streamAck` round trip,
+and refuses malformed frames (a bad stream id, a negative sequence, zero or
+more than 65536 bytes) with `capability_denied` "invalid owned stream
+progress frame". `next_input` delivers exactly the frames the host routes
+to this owner, one at a time; a second concurrent waiter on the same owner
+is denied, and five malformed input frames abort the owner with
+`plugin_refused` "invalid stream input frame". `InputFrame::ack` confirms
+delivery so the host can advance the stream's sequence number.
+
 ## Error reasons
 
 `PluginError` carries an optional `reason` (`with_reason`). The `reason` is
