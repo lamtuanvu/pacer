@@ -3,8 +3,8 @@ import { chmodSync, copyFileSync, mkdirSync, readFileSync, writeFileSync } from 
 import { userInfo } from "node:os";
 import { join } from "node:path";
 
-export const RUST_FIXTURES = ["rust-good", "rust-slow", "rust-crasher"] as const;
-export const FIXTURES = [...RUST_FIXTURES, "good", "slow", "crasher", "undeclared", "over-privileged", "old-protocol", "observations", "host-runner", "executor", "serial", "reentrant", "claims", "ui", "identity-sign", "pairing", "bad-manifest", "mismatch", "shadow"] as const;
+export const RUST_FIXTURES = ["rust-good", "rust-slow", "rust-crasher", "rust-workflow"] as const;
+export const FIXTURES = [...RUST_FIXTURES, "good", "slow", "crasher", "undeclared", "over-privileged", "old-protocol", "observations", "host-runner", "executor", "serial", "reentrant", "claims", "ui", "identity-sign", "pairing", "bad-manifest", "mismatch", "shadow", "workflow"] as const;
 export type FixtureName = (typeof FIXTURES)[number];
 const FOLDER_IDS: Partial<Record<FixtureName, string>> = { "bad-manifest": "fx-bad", mismatch: "fx-mismatch" };
 let rustBuilt = false;
@@ -14,7 +14,7 @@ const root = join(import.meta.dir, "fixtures");
 /** Copy a fixture into <pluginsDir>/<id>/ as an installed plugin. Returns the folder. */
 export function installFixture(name: FixtureName, pluginsDir: string, overrides: { manifest?: Record<string, unknown>; fixture?: Record<string, unknown> } = {}): string {
   const rust = name.startsWith("rust-");
-  const src = join(root, rust ? "rust-good" : name);
+  const src = join(root, name === "rust-workflow" ? "workflow" : rust ? "rust-good" : name);
   if (rust && !rustBuilt) {
     // bun:test isolates HOME; Rust's installed toolchain and crate cache stay in
     // the user's tool directories, independently of the fixture's sandbox home.
@@ -39,7 +39,8 @@ export function installFixture(name: FixtureName, pluginsDir: string, overrides:
   const fixture = { ...JSON.parse(readFileSync(join(src, "fixture.json"), "utf8")), ...(name === "rust-slow" ? { pingDelayMs: 8000, slowPings: 1 } : name === "rust-crasher" ? { crashAfterPings: 1 } : {}), ...overrides.fixture };
   writeFileSync(join(dir, "fixture.json"), JSON.stringify(fixture));
   if (rust) {
-    copyFileSync(join(repo, "target", "debug", "pacer-fixture"), join(dir, "fixture"));
+    const targetRoot = process.env.CARGO_TARGET_DIR ?? join(repo, "target");
+    copyFileSync(join(targetRoot, "debug", "pacer-fixture"), join(dir, "fixture"));
     chmodSync(join(dir, "fixture"), 0o755);
     return dir;
   }

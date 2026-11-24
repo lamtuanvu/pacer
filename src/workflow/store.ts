@@ -247,6 +247,21 @@ export function workflowDatabase(ctx: Ctx): Database {
       );
     `);
     db.exec("CREATE INDEX IF NOT EXISTS workflow_artifacts_run ON workflow_artifacts(run_id, created_at, id)");
+    // Phase 7: plugin-originated definitions, disable flag, and stored prompt files.
+    const defColumns = db.query<{ name: string }, []>("PRAGMA table_info(workflow_defs)").all().map(c => c.name);
+    if (!defColumns.includes("origin")) db.exec("ALTER TABLE workflow_defs ADD COLUMN origin TEXT NOT NULL DEFAULT 'manual'");
+    if (!defColumns.includes("disabled")) db.exec("ALTER TABLE workflow_defs ADD COLUMN disabled INTEGER NOT NULL DEFAULT 0");
+    // Distinct from plugin-live `disabled`: survives sync/reconcile clearing disabled.
+    if (!defColumns.includes("invalid")) db.exec("ALTER TABLE workflow_defs ADD COLUMN invalid INTEGER NOT NULL DEFAULT 0");
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS workflow_prompts(
+        def_id TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        path TEXT NOT NULL,
+        text TEXT NOT NULL,
+        PRIMARY KEY(def_id, version, path)
+      );
+    `);
   }).immediate();
   ready.add(db);
   return db;
@@ -512,7 +527,10 @@ export function newRunId(): string {
   return id;
 }
 
-interface DefRow { id: string; version: number; source: string; def: string; added_at: number }
+interface DefRow {
+  id: string; version: number; source: string; def: string; added_at: number;
+  origin?: string | null; disabled?: number | null; invalid?: number | null;
+}
 interface RunDbRow {
   id: string; workflow: string; version: number; repo: string; brief: string; title: string;
   status: string; reason: string | null; loops: string | null; rev: number;
@@ -675,41 +693,170 @@ function stepWhere(key: StepKey): { sql: string; bindings: SQLQueryBindings[] } 
   return { sql: "run_id = ? AND step_id = ? AND attempt = ? AND branch = ?", bindings: [key.runId, key.stepId, key.attempt, branch] };
 }
 
-/** Stores a definition version. The same id@version with the same source is a no-op;
- * with a different source it is a conflict. */
-export function addDefinition(ctx: Ctx, def: WorkflowDef, source: string): { id: string; version: number; created: boolean } {
+/** Stored prompts for a definition version, keyed by path. */
+export function listDefinitionPrompts(ctx: Ctx, defId: string, version: number): Record<string, string> {
+  const rows = workflowDatabase(ctx).query<{ path: string; text: string }, [string, number]>(
+    "SELECT path, text FROM workflow_prompts WHERE def_id = ? AND version = ?",
+  ).all(defId, version);
+  const out: Record<string, string> = {};
+  for (const row of rows) out[row.path] = row.text;
+  return out;
+}
+
+function promptsEqual(a: Record<string, string> | undefined, b: Record<string, string>): boolean {
+  const left = a ?? {};
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(b);
+  if (leftKeys.length !== rightKeys.length) return false;
+  for (const key of leftKeys) {
+    if (!Object.hasOwn(b, key) || left[key] !== b[key]) return false;
+  }
+  return true;
+}
+
+/** Stores a definition version. The same id@version with the same source and prompts is a no-op;
+ * with a different source or prompts it is a conflict (or skipped when allowSourceMismatch).
+ * Hand-added definitions get `origin = manual`. When `supersede` is set, an existing row is
+ * replaced in place (plugin upgrade delivering a fixed source for the same id@version),
+ * unless a non-terminal run is pinned to that version (refused as `pinned_runs`). */
+export function addDefinition(
+  ctx: Ctx, def: WorkflowDef, source: string,
+  opts: {
+    origin?: string;
+    prompts?: Record<string, string>;
+    allowSourceMismatch?: boolean;
+    supersede?: boolean;
+  } = {},
+): { id: string; version: number; created: boolean; skipped?: "source_mismatch" | "pinned_runs"; superseded?: boolean } {
   const db = workflowDatabase(ctx);
+  const origin = opts.origin ?? "manual";
   const existing = db.query<DefRow, [string, number]>("SELECT * FROM workflow_defs WHERE id = ? AND version = ?").get(def.id, def.version);
   if (existing) {
-    if (existing.source !== source) throw new CoreError("conflict", `conflict: definition ${def.id}@${def.version} already exists with a different source`);
+    const existingPrompts = listDefinitionPrompts(ctx, def.id, def.version);
+    // When prompts are supplied (plugin sync), both source and prompts must match.
+    // Manual adds omit prompts and keep the prior source-only comparison.
+    const same = existing.source === source
+      && (opts.prompts === undefined || promptsEqual(opts.prompts, existingPrompts));
+    if (!same) {
+      if (opts.supersede) {
+        const pinned = db.query<{ n: number }, [string, number]>(
+          "SELECT COUNT(*) AS n FROM workflow_runs WHERE workflow = ? AND version = ? AND status IN ('running', 'waiting')",
+        ).get(def.id, def.version);
+        if (pinned && pinned.n > 0) {
+          return { id: def.id, version: def.version, created: false, skipped: "pinned_runs" };
+        }
+        db.transaction(() => {
+          db.query(
+            "UPDATE workflow_defs SET source = ?, def = ?, origin = ?, disabled = 0, invalid = 0, added_at = ? WHERE id = ? AND version = ?",
+          ).run(source, JSON.stringify(def), origin, ctx.now, def.id, def.version);
+          if (opts.prompts) replaceDefinitionPrompts(db, def.id, def.version, opts.prompts);
+          else db.query("DELETE FROM workflow_prompts WHERE def_id = ? AND version = ?").run(def.id, def.version);
+        })();
+        return { id: def.id, version: def.version, created: false, superseded: true };
+      }
+      if (opts.allowSourceMismatch) return { id: def.id, version: def.version, created: false, skipped: "source_mismatch" };
+      throw new CoreError("conflict", `conflict: definition ${def.id}@${def.version} already exists with a different source`);
+    }
     return { id: def.id, version: def.version, created: false };
   }
-  db.query("INSERT INTO workflow_defs(id, version, source, def, added_at) VALUES (?, ?, ?, ?, ?)")
-    .run(def.id, def.version, source, JSON.stringify(def), ctx.now);
+  db.transaction(() => {
+    db.query("INSERT INTO workflow_defs(id, version, source, def, added_at, origin, disabled, invalid) VALUES (?, ?, ?, ?, ?, ?, 0, 0)")
+      .run(def.id, def.version, source, JSON.stringify(def), ctx.now, origin);
+    if (opts.prompts) replaceDefinitionPrompts(db, def.id, def.version, opts.prompts);
+  })();
   return { id: def.id, version: def.version, created: true };
 }
 
-/** Looks up `id@N`, or the latest version of `id`. */
+function replaceDefinitionPrompts(db: Database, defId: string, version: number, prompts: Record<string, string>): void {
+  db.query("DELETE FROM workflow_prompts WHERE def_id = ? AND version = ?").run(defId, version);
+  const insert = db.query("INSERT INTO workflow_prompts(def_id, version, path, text) VALUES (?, ?, ?, ?)");
+  for (const [path, text] of Object.entries(prompts)) insert.run(defId, version, path, text);
+}
+
+/** Looks up a stored prompt file for a definition version; null when absent or inline. */
+export function getDefinitionPrompt(ctx: Ctx, defId: string, version: number, path: string): string | null {
+  const row = workflowDatabase(ctx).query<{ text: string }, [string, number, string]>(
+    "SELECT text FROM workflow_prompts WHERE def_id = ? AND version = ? AND path = ?",
+  ).get(defId, version, path);
+  return row?.text ?? null;
+}
+
+/** Resolve a step prompt: stored `prompt:` path text when present, otherwise the inline value. */
+export function resolveWorkflowPrompt(ctx: Ctx, defId: string, version: number, prompt: string): string {
+  return getDefinitionPrompt(ctx, defId, version, prompt) ?? prompt;
+}
+
+export type DefinitionMeta = {
+  id: string; version: number; title?: string; addedAt: number;
+  origin: string; disabled: boolean; invalid: boolean;
+};
+
+function defRowMeta(row: DefRow): DefinitionMeta {
+  const def = JSON.parse(row.def) as WorkflowDef;
+  const entry: DefinitionMeta = {
+    id: row.id, version: row.version, addedAt: row.added_at,
+    origin: row.origin ?? "manual", disabled: (row.disabled ?? 0) !== 0,
+    invalid: (row.invalid ?? 0) !== 0,
+  };
+  return def.title === undefined ? entry : { ...entry, title: def.title };
+}
+
+/** Looks up `id@N`, or the latest version of `id`. Disabled definitions still resolve (pinned runs). */
 export function getDefinition(ctx: Ctx, ref: string): WorkflowDef | null {
-  const db = workflowDatabase(ctx);
-  const at = ref.lastIndexOf("@");
-  let row: DefRow | null = null;
-  if (at > 0) {
-    const version = Number(ref.slice(at + 1));
-    if (Number.isInteger(version)) row = db.query<DefRow, [string, number]>("SELECT * FROM workflow_defs WHERE id = ? AND version = ?").get(ref.slice(0, at), version) ?? null;
-    if (row) return JSON.parse(row.def) as WorkflowDef;
-  }
-  row = db.query<DefRow, [string]>("SELECT * FROM workflow_defs WHERE id = ? ORDER BY version DESC LIMIT 1").get(ref) ?? null;
+  const row = getDefinitionRow(ctx, ref);
   return row ? (JSON.parse(row.def) as WorkflowDef) : null;
 }
 
-export function listDefinitions(ctx: Ctx): { id: string; version: number; title?: string; addedAt: number }[] {
+export function getDefinitionRow(ctx: Ctx, ref: string): DefRow | null {
   const db = workflowDatabase(ctx);
-  return db.query<DefRow, []>("SELECT * FROM workflow_defs ORDER BY id, version").all().map(row => {
-    const def = JSON.parse(row.def) as WorkflowDef;
-    const entry = { id: row.id, version: row.version, addedAt: row.added_at };
-    return def.title === undefined ? entry : { ...entry, title: def.title };
-  });
+  const at = ref.lastIndexOf("@");
+  if (at > 0) {
+    const version = Number(ref.slice(at + 1));
+    if (Number.isInteger(version)) {
+      return db.query<DefRow, [string, number]>("SELECT * FROM workflow_defs WHERE id = ? AND version = ?").get(ref.slice(0, at), version) ?? null;
+    }
+  }
+  return db.query<DefRow, [string]>("SELECT * FROM workflow_defs WHERE id = ? ORDER BY version DESC LIMIT 1").get(ref) ?? null;
+}
+
+export function isDefinitionDisabled(ctx: Ctx, ref: string): boolean {
+  const row = getDefinitionRow(ctx, ref);
+  return row ? (row.disabled ?? 0) !== 0 : false;
+}
+
+export function isDefinitionInvalid(ctx: Ctx, ref: string): boolean {
+  const row = getDefinitionRow(ctx, ref);
+  return row ? (row.invalid ?? 0) !== 0 : false;
+}
+
+/** Mark one definition version as schema-invalid (distinct from plugin-live disabled). */
+export function setDefinitionInvalid(ctx: Ctx, id: string, version: number, invalid: boolean): void {
+  workflowDatabase(ctx).query(
+    "UPDATE workflow_defs SET invalid = ? WHERE id = ? AND version = ?",
+  ).run(invalid ? 1 : 0, id, version);
+}
+
+/**
+ * Mark every definition whose origin is `plugin:<id>@…` as disabled (or clear the flag).
+ * Writes only when at least one row would change; returns whether a write ran.
+ * Never clears the `invalid` marker — that is independent of plugin liveness.
+ */
+export function setPluginDefinitionsDisabled(ctx: Ctx, pluginId: string, disabled: boolean): boolean {
+  const db = workflowDatabase(ctx);
+  const prefix = `plugin:${pluginId}@`;
+  const want = disabled ? 1 : 0;
+  const pending = db.query<{ n: number }, [string, number]>(
+    "SELECT COUNT(*) AS n FROM workflow_defs WHERE origin LIKE ? AND disabled != ?",
+  ).get(`${prefix}%`, want);
+  if (!pending || pending.n === 0) return false;
+  db.query("UPDATE workflow_defs SET disabled = ? WHERE origin LIKE ? AND disabled != ?")
+    .run(want, `${prefix}%`, want);
+  return true;
+}
+
+export function listDefinitions(ctx: Ctx): DefinitionMeta[] {
+  const db = workflowDatabase(ctx);
+  return db.query<DefRow, []>("SELECT * FROM workflow_defs ORDER BY id, version").all().map(defRowMeta);
 }
 
 export function insertRun(ctx: Ctx, r: NewRun): RunRow {

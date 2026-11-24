@@ -53,6 +53,7 @@ pacer paces AI coding work across subscription budgets. A planner plans and revi
 | `crates/fixtures` | `pacer-fixtures`: Rust conformance fixture plugins |
 | `crates/plugin-policy-protocol` | `pacer-plugin-policy-protocol`: generated policy/task-read/event contracts, CRATE-3 area split; standalone and unpublished until SDK adoption |
 | `crates/plugin-assistant-protocol` | `pacer-plugin-assistant-protocol`: generated `assistant.reply` and `capability.assistant.tool` plugin types, CRATE-3 area split ([ADR 0028](../docs/decisions/0028-assistant-backends.md)) |
+| `crates/plugin-workflow-protocol` | `pacer-plugin-workflow-protocol`: generated `workflow.definitions` plugin types, CRATE-3 area split |
 | `crates/plugin-hosts-protocol` | `pacer-plugin-hosts-protocol`: generated `hostRunner.*` and `capability.hosts.*` plugin types, CRATE-3 area split ([ADR 0016](../docs/decisions/0016-plugin-hosts-protocol-area.md)) |
 | `crates/plugin-exec-protocol` | `pacer-plugin-exec-protocol`: generated `executor.*` and `capability.process.*` plugin types, CRATE-3 area split ([ADR 0017](../docs/decisions/0017-plugin-exec-protocol-area.md)) |
 

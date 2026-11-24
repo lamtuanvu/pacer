@@ -21,7 +21,12 @@ test("Rust fixtures install executable entries, variant defaults and caller over
       expect(manifest.id).toBe(`fx-${name}`);
       expect(manifest.entry).toBe("fixture");
       expect(statSync(join(installed, "fixture")).mode & 0o111).not.toBe(0);
-      expect(fixture.callCapability).toBe("config.get");
+      if (name === "rust-workflow") {
+        expect(fixture.workflowPages?.length).toBe(2);
+        expect(manifest.contributes).toEqual({ workflow: { demo: { title: "Demo" } } });
+      } else {
+        expect(fixture.callCapability).toBe("config.get");
+      }
       if (name === "rust-slow") expect(fixture).toMatchObject({ pingDelayMs: 8000, slowPings: 1 });
       if (name === "rust-crasher") expect(fixture.crashAfterPings).toBe(1);
     }

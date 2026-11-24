@@ -159,7 +159,7 @@ The `discovery.found` event carries `{ discoveryId, name, version }` once for ea
 
 The `message` entity event (`id` is the message id) carries the stored message `{ id, taskId, rootId, from, to, kind, body, replyTo, requestId, status, createdAt, deliveredAt, readAt, turnId }` when it is sent, claimed by a turn, read, confirmed or closed. A message to or from the human also republishes its task, whose `messages` summary raises the message attention item. Policy plugins can observe it. Messaging is v3-only: message events, like the `msg.*` operations, are not sent to v2 clients.
 
-The `run` entity event (`id` is the run id, `run_<10 base32 characters>`) carries the workflow run row `{ id, workflow, version, repo, brief, title, status, reason?, rev, createdAt, updatedAt, loops, priority?, pausedReason?, letter?, summary?, summaryAt?, lastSeenAt?, meaningfulAt?, orchestrator }` after the engine creates the run and after every status or step change it makes (step settlements, fan-out joins, failures, done, answers and stops). `status` is `running`, `waiting`, `done`, `failed` or `stopped`; `reason` explains a failure and is absent otherwise; `rev` is the run's optimistic-concurrency revision (run.answer and run.stop require the current one as `expect_rev`); `createdAt` and `updatedAt` are Unix seconds; `loops` maps `from->to` edge keys to their back-edge counts; `priority` is `urgent`|`normal`|`background`; `pausedReason` is set while person/pacing-paused; `letter` is the stable client letter (A–Z, AA…); `summary`/`summaryAt` hold the since-you-last-looked text; `orchestrator` is `{ state, planner?, reason?, next_wake_at? }`. The v3 snapshot also includes a live `runs` array with `{ id, letter, title, workflow, status, priority, paused_reason?, waits_on, steps, orchestrator }` (stripped from v2). Step instances are read with `run.get { id }`, not carried in the event. Workflow runs are v3-only: run events, like the `run.*` and `step.result` operations, are not sent to v2 clients.
+The `run` entity event (`id` is the run id, `run_<10 base32 characters>`) carries the workflow run row `{ id, workflow, version, repo, brief, title, status, reason?, rev, createdAt, updatedAt, loops }` after the engine creates the run and after every status or step change it makes (step settlements, fan-out joins, failures, done, answers and stops). `status` is `running`, `waiting`, `done`, `failed` or `stopped`; `reason` explains a failure and is absent otherwise; `rev` is the run's optimistic-concurrency revision (run.answer and run.stop require the current one as `expect_rev`); `createdAt` and `updatedAt` are Unix seconds; `loops` maps `from->to` edge keys to their back-edge counts. Step instances are read with `run.get { id }`, not carried in the event. Workflow runs are v3-only: run events, like the `run.*` and `step.result` operations, are not sent to v2 clients.
 
 The `machine` entity event (`id: "self"`) is published when the machine key is rotated (the machine peers design calls it `machine.rotated`). Its value is `{ event: "rotated", oldId, newId, signature }`. `signature` is the base64 ed25519 signature of the old key, whose public key is `oldId`, over `"pacer-machine-sig/v1" 0x00 "pacer" 0x00 "rotate" 0x00 oldId 0x00 newId`, with both ids as ASCII base32. The event is published at most once, after the rotation is committed, including a rotation that pacer completes after an interruption; a stop right after the commit loses it. The statement is always in `machine.get`, as `rotatedFrom` and `rotationSignature`, so a client that missed the event can still read it. Plugins do not receive this event yet. Machine events are not sent to v2 clients.
 
@@ -5686,7 +5686,7 @@ Params JSON Schema:
 
 ### `plugin.enable`
 
-Enable a plugin. An installed plugin without a matching grant returns needs_grant with its capability set until called with grant: true.
+Enable a plugin. An installed plugin without a matching grant returns needs_grant with its capability set (and any UI surfaces or contributed workflow names) until called with grant: true.
 
 Params JSON Schema:
 
@@ -7443,7 +7443,7 @@ Params JSON Schema:
 
 ### `run.start`
 
-Start a run of an installed workflow for one brief and repository; the entry step becomes an ordinary task.
+Start a run of an installed workflow for one brief and repository; the entry step becomes an ordinary task. Pass workflow `auto` to start the configured router (strategy workflows.router, default pacer-dev/router).
 
 Params JSON Schema:
 
@@ -10477,7 +10477,7 @@ Params JSON Schema:
 
 ### `workflow.list`
 
-Installed workflow definitions, oldest first.
+Installed workflow definitions, oldest first. Each entry includes origin (manual or plugin:<id>@<version>) and whether it is disabled.
 
 Params JSON Schema:
 

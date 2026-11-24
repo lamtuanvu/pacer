@@ -139,6 +139,8 @@ Observation/decision extension types likewise move to independent publishable `p
 
 Assistant turn and assistant tool types (`assistant.reply`, `capability.assistant.tool`, protocol 1.11.0) live in independent publishable `pacer-plugin-assistant-protocol` 0.3, with the same `pacer_plugin::types` facade names. 0.3 adds the optional `endpoint.baseUrl` field on `assistant.reply` params.
 
+Workflow definition pages (`workflow.definitions`, protocol 1.12.0) live in independent publishable `pacer-plugin-workflow-protocol` 0.3. Register them with `Plugin::workflow_definitions`; the `pacer_plugin::types` facade preserves the generated names.
+
 Host-runner and host capability types live in independent publishable `pacer-plugin-hosts-protocol` 0.2, with the same `pacer_plugin::types` facade names. See [ADR 0009](../../docs/decisions/0009-plugin-hosts-protocol-area.md).
 
 Executor and process capability types live in independent publishable `pacer-plugin-exec-protocol` 0.2. The `pacer_plugin::types` facade preserves their names; direct `pacer_plugin_protocol` imports of those types use the new area crate. See [ADR 0010](../../docs/decisions/0010-plugin-exec-protocol-area.md).

@@ -135,3 +135,57 @@ async fn ui_list_does_not_read_or_quarantine_settings_for_plugins_without_ui() {
     assert_eq!(result, json!({"surfaces":[]}));
     assert_eq!(fs::read_to_string(path).unwrap(), "{broken");
 }
+
+#[tokio::test]
+async fn plugin_list_includes_workflow_contribution_key() {
+    let (_dir, ctx, mut host, ops) = fixture();
+    fs::create_dir_all(ctx.pacer_home.join("plugins/fx-workflow")).unwrap();
+    host.entries[0].id = "fx-workflow".into();
+    host.entries[0].manifest = Some(json!({
+        "id": "fx-workflow",
+        "version": "1.0.0",
+        "publisher": "fixture",
+        "host": ">=1.12.0",
+        "capabilities": [],
+        "contributes": { "workflow": { "demo": { "title": "Demo" } } }
+    }));
+    host.entries[0].state = "idle".into();
+    host.entries[0].grant = json!({
+        "version": "1.0.0",
+        "capabilities": [],
+        "policy": false,
+        "workflows": ["demo"]
+    });
+    let result = ops
+        .call(&ctx, &mut host, "plugin.list", json!({}))
+        .await
+        .unwrap();
+    let entry = &result["plugins"][0];
+    assert_eq!(entry["id"], "fx-workflow");
+    assert_eq!(entry["contributes"], json!(["workflow"]));
+    // Field set matches the TypeScript PluginInfo listing for the same plugin.
+    assert_eq!(
+        entry,
+        &json!({
+            "ui": { "activity": 0, "panelTabs": 0, "settings": 0, "status": 0 },
+            "surfaces": [],
+            "id": "fx-workflow",
+            "version": "1.0.0",
+            "publisher": "fixture",
+            "tier": "free",
+            "bundled": false,
+            "enabled": true,
+            "state": "idle",
+            "contributes": ["workflow"],
+            "capabilities": [],
+            "grant": {
+                "version": "1.0.0",
+                "capabilities": [],
+                "policy": false,
+                "workflows": ["demo"]
+            },
+            "error": null,
+            "pid": null
+        })
+    );
+}

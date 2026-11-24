@@ -776,7 +776,11 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
       // Orchestrator turns: issue the prg_ into the AGENT execution env only (not the
       // `_run` child). Mirrors work-grant issuance above (round-2 B1).
       if (task.kind === "orchestrate") {
-        const turn = liveTurnForTask(ctx, id);
+        // Shared orch task can bind turns on child runs; prefer the root run from requestId.
+        const rootFromReq = typeof task.requestId === "string"
+          ? /^orch:(.+)$/.exec(task.requestId)?.[1]
+          : undefined;
+        const turn = liveTurnForTask(ctx, id, rootFromReq);
         if (turn) {
           // Use the runner ctx clock: turn.deadline is on that clock (tests freeze now).
           const token = issueRunGrant(ctx, {

@@ -84,11 +84,27 @@ test("workflow.add installs a version once and conflicts on a different source",
   expect((invalid?.data as { errors: WorkflowError[] }).errors.length).toBeGreaterThan(0);
 });
 
+test("workflow.add refuses an unknown task kind at definition time", async () => {
+  const ctx = fakeCtx();
+  const unknownKind = `id: t/bad-kind
+version: 1
+steps:
+  a: { type: agent, kind: review, prompt: "x" }
+  done: { type: end }
+edges: [[a, done]]
+`;
+  const refused = await fail(callOp(ctx, "workflow.add", { source: unknownKind }));
+  expect(refused?.code).toBe("invalid_input");
+  expect(String(refused?.message ?? "")).toMatch(/unknown kind 'review'/);
+});
+
 test("workflow.list returns installed definitions", async () => {
   const ctx = fakeCtx();
   expect(await callOp(ctx, "workflow.list", {})).toEqual([]);
   await callOp(ctx, "workflow.add", { source: GOOD });
-  expect(await callOp(ctx, "workflow.list", {})).toEqual([{ id: "t/demo", version: 1, title: "Demo", addedAt: ctx.now }]);
+  expect(await callOp(ctx, "workflow.list", {})).toEqual([{
+    id: "t/demo", version: 1, title: "Demo", addedAt: ctx.now, origin: "manual", disabled: false, invalid: false,
+  }]);
 });
 
 test("run.start delegates the entry step, run.get and run.list read it back", async () => {

@@ -42,8 +42,25 @@ export interface ProviderCfg {
 }
 export interface RouteRule { kinds: string[] | null; executors: string[] }
 
-export interface PluginGrant { version: string; capabilities: string[]; /** UI surface kinds the user granted; absent in grants recorded before plugin protocol 1.2, which cover none. */ surfaces?: string[]; /** Recorded policy contribution; absent on legacy grants. */ policy?: boolean }
+export interface PluginGrant {
+  version: string;
+  capabilities: string[];
+  /** UI surface kinds the user granted; absent in grants recorded before plugin protocol 1.2, which cover none. */
+  surfaces?: string[];
+  /** Recorded policy contribution; absent on legacy grants. */
+  policy?: boolean;
+  /** Workflow names consented to (protocol 1.12.0); absent on legacy grants, which cover none. */
+  workflows?: string[];
+}
 export interface PluginsCfg { policy: { mode: "open" | "closed" }; disabled: string[]; installed: Record<string, PluginGrant>; config: Record<string, Record<string, unknown>> }
+
+/** `run.start` with workflow `auto` runs this router (spec / ADR 0029). */
+export const DEFAULT_WORKFLOW_ROUTER = "pacer-dev/router";
+
+export interface WorkflowsCfg {
+  /** Workflow id started by `run.start` when workflow is `auto`. */
+  router: string;
+}
 export const EMPTY_PLUGINS: PluginsCfg = { policy: { mode: "open" }, disabled: [], installed: {}, config: {} };
 
 const PLUGIN_ID = /^[a-z0-9][a-z0-9-]{1,63}$/;
@@ -71,7 +88,14 @@ export function parsePlugins(raw: unknown, p: string[]): PluginsCfg {
       if (typeof g.version !== "string" || !SEMVER.test(g.version)) p.push(`plugins.installed.${id}.version must be semver`);
       if (!Array.isArray(g.capabilities) || g.capabilities.some(c => typeof c !== "string")) p.push(`plugins.installed.${id}.capabilities must be a list of names`);
       else if (g.surfaces !== undefined && (!Array.isArray(g.surfaces) || g.surfaces.some(c => typeof c !== "string"))) p.push(`plugins.installed.${id}.surfaces must be a list of names`);
-      else installed[id] = { version: String(g.version), capabilities: g.capabilities.map(String), ...(g.surfaces ? { surfaces: g.surfaces.map(String) } : {}), ...(typeof g.policy === "boolean" ? { policy: g.policy } : {}) };
+      else if (g.workflows !== undefined && (!Array.isArray(g.workflows) || g.workflows.some(c => typeof c !== "string"))) p.push(`plugins.installed.${id}.workflows must be a list of names`);
+      else installed[id] = {
+        version: String(g.version),
+        capabilities: g.capabilities.map(String),
+        ...(g.surfaces ? { surfaces: g.surfaces.map(String) } : {}),
+        ...(typeof g.policy === "boolean" ? { policy: g.policy } : {}),
+        ...(g.workflows ? { workflows: g.workflows.map(String) } : {}),
+      };
     }
   }
   const config: Record<string, Record<string, unknown>> = {};
@@ -101,6 +125,7 @@ export interface Strategy {
   taskRetentionDays?: number;
   plugins?: PluginsCfg;
   messaging?: MessagingConfig;
+  workflows?: WorkflowsCfg;
 }
 
 export class StrategyError extends Error {
@@ -288,14 +313,40 @@ export function validateStrategy(raw: unknown, path: string, name = "default"): 
     try { messaging = parseMessagingConfig(raw.messaging); }
     catch (e) { p.push(`messaging: ${e instanceof Error ? e.message : String(e)}`); }
   }
+  let workflows: WorkflowsCfg | undefined;
+  if (raw.workflows !== undefined) {
+    if (!isObj(raw.workflows)) {
+      p.push("workflows must be a mapping");
+    } else {
+      const routerRaw = raw.workflows.router;
+      if (routerRaw !== undefined && (typeof routerRaw !== "string" || !routerRaw.trim())) {
+        p.push("workflows.router must be a non-empty string");
+      } else {
+        workflows = { router: typeof routerRaw === "string" && routerRaw.trim() ? routerRaw.trim() : DEFAULT_WORKFLOW_ROUTER };
+      }
+    }
+  }
   if (p.length) throw new StrategyError(path, p);
   return {
     name, planner, accounts, hosts, runners, legacy, runnerAliases, providers, pacing, routing, taskRetentionDays: taskRetentionDays as number,
     plugins, ...(dispatch ? {dispatch} : {}), ...(messaging ? {messaging} : {}),
+    ...(workflows ? { workflows } : {}),
     execution: isObj(raw.execution) ? raw.execution : {},
     classifier: isObj(raw.classifier) ? raw.classifier : {},
     ...(isObj(raw.terminal) && raw.terminal.open !== undefined ? {terminal:{open:validateTerminalOpen(String(raw.terminal.open))}} : {}),
   };
+}
+
+/** Router workflow id for `run.start` with `auto` (strategy `workflows.router`, else default).
+ *  Missing strategy.yaml falls back to DEFAULT_WORKFLOW_ROUTER so bundled homes work.
+ *  A broken strategy.yaml still throws StrategyError — never silent fallback. */
+export function workflowRouterId(ctx: Ctx): string {
+  try {
+    return loadStrategy(ctx).workflows?.router ?? DEFAULT_WORKFLOW_ROUTER;
+  } catch (err) {
+    if (err instanceof MissingStrategyError) return DEFAULT_WORKFLOW_ROUTER;
+    throw err;
+  }
 }
 
 function activeName(ctx: Ctx): string | null {

@@ -192,3 +192,44 @@ async fn pairing_start_is_served_with_the_generated_types() {
     drop(io);
     task.await.unwrap().unwrap();
 }
+
+#[tokio::test]
+async fn workflow_definitions_is_served_with_the_generated_types() {
+    use pacer_plugin::types::{WorkflowDefinitionsParams, WorkflowDefinitionsResult};
+    let p = Plugin::new(manifest()).workflow_definitions(
+        |params: WorkflowDefinitionsParams, _c| async move {
+            let after = params.after.as_ref().map(|a| a.as_str().to_owned());
+            if after.as_deref() == Some("demo@1") {
+                return Ok(WorkflowDefinitionsResult {
+                    workflows: vec![],
+                    next: None,
+                });
+            }
+            Ok(serde_json::from_value(json!({
+                "workflows": [{
+                    "name": "demo",
+                    "version": 1,
+                    "source": "id: fx/demo\nversion: 1\nsteps:\n  go: { type: end }\nedges: []\n",
+                    "prompts": {}
+                }],
+                "next": "demo@1",
+            }))
+            .unwrap())
+        },
+    );
+    let (mut io, task) = start(p);
+    io.send(hello()).await;
+    io.next().await;
+    io.send(json!({"jsonrpc":"2.0","id":2,"method":"workflow.definitions","params":{}}))
+        .await;
+    let first = io.next().await;
+    assert_eq!(first["result"]["workflows"][0]["name"], "demo");
+    assert_eq!(first["result"]["next"], "demo@1");
+    io.send(
+        json!({"jsonrpc":"2.0","id":3,"method":"workflow.definitions","params":{"after":"demo@1"}}),
+    )
+    .await;
+    assert_eq!(io.next().await["result"], json!({"workflows": []}));
+    drop(io);
+    task.await.unwrap().unwrap();
+}

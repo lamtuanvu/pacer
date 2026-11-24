@@ -759,7 +759,7 @@ model includes all 19 keys.
 
 ## Workflow frame operations (TS-forwarded, 2026-11-19)
 
-The workflow-frame operations (Phases 1–6: orchestrator, work nodes, questions, run branch/publish/artifacts, priority/pacing/since-you-last-looked) are TS-forwarded: run and step state
+The seventeen Phase 1–2 workflow-frame operations are TS-forwarded: run and step state
 lives in the workflow tables of the task store (`src/workflow/store.ts`),
 engine advancement runs in the TypeScript background worker, and run changes
 publish `run` entities through the TypeScript outbox (ADR 0029, ARCH-16). The
@@ -779,13 +779,9 @@ mirrored in `pacer-read-model::v2_compat::surface`).
 | `step.retry` | TS-forwarded | Grant op: start a new attempt of a failed step (`retryFailedStep`). |
 | `run.set_auto` | TS-forwarded | Person-only auto mode and strict_steps overrides (`src/workflow/auto.ts`). |
 | `run.set_budget` | TS-forwarded | Person-only per-run orchestrator/message budgets (`src/workflow/budget.ts`). |
-| `run.set_priority` | TS-forwarded | Person-only run priority (`urgent`/`normal`/`background`); re-prioritizes queued step tasks (`src/workflow/priority.ts`). |
-| `run.pause` | TS-forwarded | Person-only pause at the next step boundary (`paused_reason=person`). |
-| `run.resume` | TS-forwarded | Person-only resume; re-applies a pacing pause when the mode still requires it (`src/workflow/pacing.ts`). |
-| `run.seen` | TS-forwarded | Person/client-only: mark a run opened; may enqueue a `returned` wake-up for since-you-last-looked (`src/workflow/summary.ts`). Not a run-grant op. |
 | `run.set_planner` | TS-forwarded | Queues a planner switch for the next turn; recorded as a decision. Clears a non-budget orchestrator block. |
 | `run.retry_orchestrator` | TS-forwarded | Person-only: clear a blocked orchestrator after repeated failures so the next tick can start a turn. |
-| `run.decide` | TS-forwarded | Grant op: answer an `auto` human step when auto mode is on; never a `must` step. Also `kind: "summary"` for since-you-last-looked. |
+| `run.decide` | TS-forwarded | Grant op: answer an `auto` human step when auto mode is on; never a `must` step. |
 | `run.choose` | TS-forwarded | Grant op: start a child run for a `choose_workflow` step. |
 | `run.submit_graph` | TS-forwarded | Grant op: submit a generated graph for a waiting `generate` step (`submitGraph`); validation errors count toward retries. |
 | `step.artifact` | TS-forwarded | Attach a file from the step task's worktree or evidence directory (`storeArtifact`); executor own-step or live run grant. |
@@ -812,7 +808,7 @@ evidence belongs with the fixed `native-config` live fixture and targeted parity
 
 ## Unregistered public ops (Forwarded by default)
 
-Pinned against `stdio_hello.json` v3 (`278` ops). The Rust registry lists
+Pinned against `stdio_hello.json` v3 (`274` ops). The Rust registry lists
 native names in the detailed table above; every other public op remains TypeScript-owned
 until a cutover PR registers it and updates this ledger. Rows already named in
 the table above are omitted here. Owner streams follow
@@ -822,6 +818,8 @@ reconcile plans. Counts are op prefixes, not reviewable PR slices.
 No prefix aggregates remain: every v3 public op in `stdio_hello.json` is named
 in the detailed Native or Forwarded table above (including HTTP-native plugin
 ops and selective forwards such as `mode.hold` without `until`).
+
+| `apps.add`, `apps.list`, `apps.open`, `apps.remove`, `apps.update` | TS-forwarded | Orca Apps settings surface (`src/apps/`); person-only install/list/open/remove/update of approved apps. |
 
 Total unregistered (not in the detailed table): **0**.
 

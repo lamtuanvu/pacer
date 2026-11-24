@@ -1,7 +1,8 @@
 import { expect, spyOn, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import * as fs from "node:fs";
-import { join } from "node:path";
+import { chmodSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import {
   createTask, readTask, reconcileTaskJson, TASK_DB_BUSY_TIMEOUT_MS, taskDatabase, tasksDir, updateTask,
 } from "../src/tasks/store";
@@ -10,10 +11,13 @@ import { startServer } from "../src/serve/http";
 import { backfillTaskHistory, maintainTaskHistory, startTaskHistory } from "../src/tasks/history";
 import { fakeCtx, tmpDir } from "./helpers";
 import { backfillFirstSettled } from "../src/insights/summary";
-import { insertRun } from "../src/workflow/store";
+import { getDefinition, insertRun, workflowDatabase } from "../src/workflow/store";
 import { getTurn, insertTurn } from "../src/workflow/wakeups";
 import { issueRunGrant, verifyRunGrant } from "../src/workflow/run-grant";
 import { recoverOrphanTurns } from "../src/workflow/orchestrator";
+import { syncAllPluginWorkflows } from "../src/workflow/plugin-sync";
+import { callOp } from "../src/api/ops";
+import { shutdownPlugins } from "../src/plugins";
 
 function busyTimeoutMs(ctx: ReturnType<typeof fakeCtx>): number {
   const row = taskDatabase(ctx).query<{ timeout: number }, []>("PRAGMA busy_timeout").get();
@@ -332,3 +336,82 @@ test("the maintenance worker exits when its service ownership pipe closes", asyn
     if (pid && alive()) process.kill(pid, "SIGKILL");
   }
 }, 15000);
+
+test("held workflow writer defers syncAllPluginWorkflows without delaying startServer", async () => {
+  const dir = tmpDir();
+  const ctx = fakeCtx({
+    home: dir,
+    pacerHome: join(dir, ".pacer"),
+    env: { PATH: `${dirname(process.execPath)}:${process.env.PATH ?? ""}` },
+    now: Date.now() / 1000,
+  });
+  symlinkSync(join(import.meta.dir, "..", "node_modules"), join(dir, "node_modules"), "dir");
+  mkdirSync(join(ctx.pacerHome, "plugins"), { recursive: true });
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders:\n  claude-code: {}\n");
+  const id = "fx-wsync";
+  const pluginDir = join(ctx.pacerHome, "plugins", id);
+  mkdirSync(pluginDir, { recursive: true });
+  const source = `id: ${id}/feature\nversion: 1\nsteps:\n  go: { type: agent, kind: research, prompt: inline }\n  done: { type: end }\nedges: [[go, done]]\n`;
+  writeFileSync(join(pluginDir, "pacer-plugin.json"), JSON.stringify({
+    id, version: "1.0.0", publisher: "test", host: ">=1.12.0",
+    entry: "main.ts", contributes: { workflow: { feature: { title: "Feature" } } }, capabilities: [],
+  }));
+  writeFileSync(join(pluginDir, "pages.json"), JSON.stringify([
+    { name: "feature", version: 1, source, prompts: {} },
+  ]));
+  writeFileSync(join(pluginDir, "main.ts"), `#!/usr/bin/env bun
+import { readFileSync } from "node:fs";
+import { serve, stdinLines } from "@pacer/plugin";
+const manifest = JSON.parse(readFileSync("pacer-plugin.json", "utf8"));
+const pages = JSON.parse(readFileSync("pages.json", "utf8"));
+await serve({
+  manifest, input: stdinLines(),
+  handlers: {
+    "diagnostic.ping": async () => ({ ok: true, uptimeS: 0 }),
+    "workflow.definitions": async () => ({ workflows: [pages[0]] }),
+  },
+});
+`);
+  chmodSync(join(pluginDir, "main.ts"), 0o755);
+  createTask(ctx, input);
+  dispatchDatabase(ctx);
+  workflowDatabase(ctx);
+  await callOp(ctx, "plugin.enable", { id, grant: true });
+
+  let service: ReturnType<typeof startServer> | undefined;
+  const started = performance.now();
+  service = startServer(() => ctx, { port: 0, pumpMs: 0 });
+  expect(performance.now() - started).toBeLessThan(1000);
+
+  const writer = new Database(join(ctx.pacerHome, "state/tasks.db"));
+  writer.exec("BEGIN IMMEDIATE");
+  const deferred: Array<() => void> = [];
+  let released = false;
+  try {
+    await syncAllPluginWorkflows(ctx, {
+      defer: work => { deferred.push(work); },
+      retryDelaysMs: [1],
+    });
+    expect(deferred.length).toBeGreaterThan(0);
+    const response = await fetch(`http://127.0.0.1:${service.port}/v3/session/exchange`, {
+      method: "POST", headers: { authorization: `Bearer ${service.token}`, "x-pacer-client": "desktop/test" },
+      signal: AbortSignal.timeout(1500),
+    });
+    expect(response.status).toBe(204);
+    expect(getDefinition(ctx, `${id}/feature@1`)).toBeNull();
+    writer.exec("ROLLBACK");
+    released = true;
+    writer.close();
+    for (const work of deferred) work();
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline) {
+      if (getDefinition(ctx, `${id}/feature@1`)) break;
+      await Bun.sleep(20);
+    }
+    expect(getDefinition(ctx, `${id}/feature@1`)).not.toBeNull();
+  } finally {
+    if (!released) { writer.exec("ROLLBACK"); writer.close(); }
+    await service?.stop();
+    await shutdownPlugins(ctx);
+  }
+}, 20000);
