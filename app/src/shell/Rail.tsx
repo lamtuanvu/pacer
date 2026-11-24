@@ -3,13 +3,18 @@ import { PLUGIN_ICONS } from "../plugins/icons";
 import { AppLink } from "../navigation";
 import { useContext } from "preact/hooks";
 import { SetupContext } from "../screens/setup/context";
+import type { AttentionItem } from "../../../src/attention/types";
 import type { Counts } from "../../../src/api/read-model/types";
 import type { ClientSnapshot } from "../../../src/view-model/snapshot";
-import { runsBadgeCount } from "../data/runs";
 import { Tooltip } from "../ds/Tooltip";
 import { Icon, type IconName } from "../ds/icons";
 import { primaryFor, routes, type Route, type RouteTarget } from "../router";
 import { TaskContext } from "../screens/task-shared";
+
+/** Person-answerable run questions (keep light: do not import the Runs data module into the shell). */
+function runsBadgeCount(attention: AttentionItem[] | undefined): number {
+  return (attention ?? []).filter(a => a.run && a.kind === "question" && a.question).length;
+}
 
 type RailItem = {
   name: "insights" | "dispatch" | "review" | "sessions" | "terminal" | "runs";
