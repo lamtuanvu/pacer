@@ -22,7 +22,8 @@ pub mod session;
 
 pub use frames::{FrameKind, Hello, Request};
 pub use peer::Peer;
-pub use server::ControlServer;
+pub use pipes::NativePipeFactory;
+pub use server::{ControlServer, ControlState, SessionSnapshot};
 pub use session::{Identity, Session};
 
 use serde_json::Value;

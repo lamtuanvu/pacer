@@ -21,6 +21,7 @@ mod log_sse;
 mod log_sse_tests;
 #[cfg(target_os = "macos")]
 pub use pacer_desktop_native::native_context;
+pub mod desktop_update;
 pub mod native_host;
 #[cfg(target_os = "macos")]
 pub use pacer_desktop_native::NativeContext;
@@ -1024,6 +1025,14 @@ async fn subscribe_poll(state: Arc<Listener>, mut since: f64, tx: mpsc::Sender<V
 #[cfg(target_os = "macos")]
 struct NativeControlGuard;
 
+/// The running native control server plus the desktop update runtime start
+/// task, aborted together on shutdown so the composed OTA runtime stops
+/// cleanly before the process exits.
+struct ControlHandle {
+    task: tokio::task::JoinHandle<()>,
+    runtime: std::thread::JoinHandle<()>,
+}
+
 #[cfg(target_os = "macos")]
 impl Guard for NativeControlGuard {
     async fn verify_peer(&self, peer: &Peer, hello: &Hello) -> Result<Identity, String> {
@@ -1045,10 +1054,20 @@ impl Guard for NativeControlGuard {
         if details.uid != nix::unistd::getuid().as_raw() || uid != details.uid {
             return Err("peer uid mismatch".to_owned());
         }
+        // The desktop runs from `…/<App>.app/Contents/MacOS/pacer`; the app
+        // root the update authority inspects is three directories up.
+        let executable = details
+            .executable
+            .parent()
+            .and_then(|p| p.parent())
+            .and_then(|p| p.parent())
+            .map(|app| app.to_owned());
         Ok(Identity {
             role: hello.role.clone(),
             client_id: hello.client_id.clone(),
             audit: Some(*audit),
+            executable,
+            pid: Some(pid),
         })
     }
 }
@@ -1063,6 +1082,12 @@ async fn shutdown_signal() {
     };
     tokio::select! { _ = tokio::signal::ctrl_c() => {}, _ = term => {} }
 }
+/// Forward a desktop update status publication to the shared read-model
+/// outbox. Subscribers consume the outbox (snapshot `desktopUpdates` is
+/// sourced from the runtime), so no direct socket push is required for the
+/// op surface (see `broadcast_event`).
+fn publish_desktop_updates(_status: &Value) {}
+
 pub async fn run_serve(
     core: Vec<String>,
     mut env: HashMap<String, String>,
@@ -1159,42 +1184,55 @@ pub async fn run_serve(
         forward_events,
     });
     // The native desktop control socket serves directly on the published
-    // listener (a duplicate; the original goes to Core) only when the
-    // default-off flag is set. Default is a no-op and the P-byte handoff is
-    // preserved untouched.
+    // listener (a duplicate; the original goes to Core) for every paired
+    // build. DX1 removed the `PACER_NATIVE_DESKTOP_CONTROL` default-off
+    // flag: native control is always on, and the desktop update runtime is
+    // composed over its sessions.
     #[cfg(target_os = "macos")]
-    let native_control = if std::env::var("PACER_NATIVE_DESKTOP_CONTROL").as_deref() == Ok("1") {
-        match &native {
-            Some(native) => {
-                let listener = native.control_listener();
-                match listener {
-                    Ok(listener) => {
-                        let server = ControlServer::new(
-                            listener,
-                            "pacer".to_owned(),
-                            _version.to_owned(),
-                            port,
-                            NativeControlDispatch {
-                                state: state.clone(),
-                                token: state.token.clone(),
-                            },
-                            NativeControlGuard,
-                        );
-                        Some(server.serve())
+    let native_control = match &native {
+        Some(native) => {
+            let listener = native.control_listener();
+            match listener {
+                Ok(listener) => {
+                    let server = ControlServer::new(
+                        listener,
+                        "pacer".to_owned(),
+                        _version.to_owned(),
+                        port,
+                        NativeControlDispatch {
+                            state: state.clone(),
+                            token: state.token.clone(),
+                        },
+                        NativeControlGuard,
+                    );
+                    let control_state = server.state();
+                    let handle = desktop_update::install_runtime(
+                        &state.ctx.pacer_home,
+                        &state.ctx.home,
+                        port,
+                        control_state,
+                        Box::new(publish_desktop_updates),
+                    );
+                    if let Err(error) = handle {
+                        eprintln!("pacer: desktop update runtime install failed: {error}");
                     }
-                    Err(error) => {
-                        eprintln!("pacer: native control listener unavailable: {error}");
-                        None
-                    }
+                    let runtime_thread = desktop_update::start_background();
+                    let server = server.serve();
+                    Some(ControlHandle {
+                        task: server,
+                        runtime: runtime_thread,
+                    })
+                }
+                Err(error) => {
+                    eprintln!("pacer: native control listener unavailable: {error}");
+                    None
                 }
             }
-            None => None,
         }
-    } else {
-        None
+        None => None,
     };
     #[cfg(not(target_os = "macos"))]
-    let native_control: Option<tokio::task::JoinHandle<()>> = None;
+    let native_control: Option<ControlHandle> = None;
     let app = Router::new()
         .fallback(any(handle))
         .with_state(state.clone());
@@ -1220,10 +1258,13 @@ pub async fn run_serve(
     // Stop long-lived SSE/WebSocket connections as well as accepting new ones.
     server.abort();
     let _ = server.await;
-    // Stop the native desktop control server (when the flag was on).
+    // Stop the composed desktop update runtime, then the native control
+    // server, before the process exits.
     if let Some(handle) = native_control {
-        handle.abort();
-        let _ = handle.await;
+        desktop_update::stop();
+        let _ = handle.runtime.join();
+        handle.task.abort();
+        let _ = handle.task.await;
     }
     probe.abort();
     // Withdraw the advert with goodbye packets before the core stops.

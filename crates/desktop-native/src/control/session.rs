@@ -7,7 +7,7 @@
 //! frame), and liveness. A peer that fails any check is dead.
 
 use super::peer::Peer;
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
 /// An authenticated peer identity, reproduced when ops are dispatched to the
 /// serve router.
@@ -19,6 +19,13 @@ pub struct Identity {
     pub client_id: String,
     /// The kernel peer token for the socket, when available.
     pub audit: Option<[u8; 32]>,
+    /// The client process's canonical executable, when the peer was
+    /// verifiable. Carried so the native update authority can audit the
+    /// installation a connected desktop is running from.
+    pub executable: Option<PathBuf>,
+    /// The client process id, when the peer was verifiable. Carried so the
+    /// native update authority can derive the desktop's own process identity.
+    pub pid: Option<u32>,
 }
 
 /// A live native control session.

@@ -14,7 +14,9 @@ use super::{
     session::{Identity, Session},
 };
 use serde_json::{Value, json};
+use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use tokio::{
     net::UnixListener,
     sync::{Mutex, Notify, RwLock, mpsc},
@@ -34,6 +36,21 @@ pub struct ControlState {
 struct SessionState {
     session: Mutex<Session>,
     role: String,
+    alive: Arc<AtomicBool>,
+    closed: Arc<Notify>,
+}
+
+/// Live session data the native update authority needs to build its sessions.
+#[derive(Clone)]
+pub struct SessionSnapshot {
+    pub session_id: String,
+    pub role: String,
+    pub client_id: String,
+    pub app_path: Option<PathBuf>,
+    /// The connected desktop's process id, from the verified peer identity.
+    pub peer_pid: Option<u32>,
+    pub alive: Arc<AtomicBool>,
+    pub closed: Arc<Notify>,
 }
 
 impl ControlState {
@@ -54,6 +71,45 @@ impl ControlState {
             }
         }
         false
+    }
+    /// Snapshot of the currently-live sessions for the native update
+    /// authority. The identity's `executable` (the desktop's app root) is the
+    /// source for deriving a session's installation.
+    pub async fn live_sessions(&self) -> Vec<SessionSnapshot> {
+        let mut out = Vec::new();
+        for state in self.sessions.read().await.values() {
+            let session = state.session.lock().await;
+            out.push(SessionSnapshot {
+                session_id: session.session_id.clone(),
+                role: state.role.clone(),
+                client_id: session.identity.client_id.clone(),
+                app_path: session.identity.executable.clone(),
+                peer_pid: session.identity.pid,
+                alive: state.alive.clone(),
+                closed: state.closed.clone(),
+            });
+        }
+        out
+    }
+    /// Synchronous counterpart of [`ControlState::live_sessions`] for the
+    /// [`NativeAuthority::sessions`] surface, which is synchronous. Uses the
+    /// tokio blocking locks so it is safe both inside and outside the async
+    /// runtime.
+    pub fn live_sessions_sync(&self) -> Vec<SessionSnapshot> {
+        let mut out = Vec::new();
+        for state in self.sessions.blocking_read().values() {
+            let session = state.session.blocking_lock();
+            out.push(SessionSnapshot {
+                session_id: session.session_id.clone(),
+                role: state.role.clone(),
+                client_id: session.identity.client_id.clone(),
+                app_path: session.identity.executable.clone(),
+                peer_pid: session.identity.pid,
+                alive: state.alive.clone(),
+                closed: state.closed.clone(),
+            });
+        }
+        out
     }
 }
 
@@ -170,6 +226,8 @@ async fn serve_peer<D: Dispatch, G: Guard>(
     let session_state = Arc::new(SessionState {
         session: Mutex::new(session),
         role: hello.role.clone(),
+        alive: Arc::new(AtomicBool::new(true)),
+        closed: Arc::new(Notify::new()),
     });
     inner
         .state

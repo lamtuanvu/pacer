@@ -7,17 +7,15 @@ use std::{
 };
 use tokio::{sync::Notify, task::JoinHandle, time::Instant};
 
-pub(super) fn send(
-    channel: &UnixStream,
-    listener: &impl AsRawFd,
-    remote: &UnixStream,
-) -> io::Result<()> {
-    use nix::sys::socket::{ControlMessage, MsgFlags, UnixAddr, sendmsg};
-    let fds = [listener.as_raw_fd(), remote.as_raw_fd()];
+pub(super) fn send(channel: &UnixStream) -> io::Result<()> {
+    use nix::sys::socket::{MsgFlags, UnixAddr, sendmsg};
+    // DX1: the bootstrap receipt carries no descriptors — the native control
+    // listener and helper broker are served in-process by the front door. Core
+    // still authenticates the `B` marker before any secrets are written.
     let sent = sendmsg::<UnixAddr>(
         channel.as_raw_fd(),
         &[io::IoSlice::new(b"B")],
-        &[ControlMessage::ScmRights(&fds)],
+        &[],
         MsgFlags::MSG_DONTWAIT,
         None,
     )?;

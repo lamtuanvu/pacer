@@ -10,6 +10,8 @@ fn identity() -> Identity {
         role: "desktop".to_owned(),
         client_id: "cli".to_owned(),
         audit: None,
+        executable: None,
+        pid: None,
     }
 }
 

@@ -209,16 +209,19 @@ async fn malformed_eof_timeout_and_abort_drop_unstarted_broker_and_retained_remo
 }
 
 #[tokio::test]
-async fn delayed_two_right_receipt_survives_and_core_death_is_visible_after_ack() {
-    if isolated("delayed_two_right_receipt_survives_and_core_death_is_visible_after_ack") {
+async fn bare_marker_carries_no_rights_and_core_death_is_visible_after_ack() {
+    if isolated("bare_marker_carries_no_rights_and_core_death_is_visible_after_ack") {
         return;
     }
+    // DX1: the bootstrap receipt is a bare `B` with no descriptors — the native
+    // control listener and helper broker are served in-process, so Core receives
+    // nothing to hold open. Its own helpers socket stays live only until the
+    // acknowledged, then-ended channel.
     use nix::sys::socket::{ControlMessageOwned, MsgFlags, UnixAddr, recv, recvmsg};
     use tokio::io::AsyncReadExt;
     let (parent, mut child) = UnixStream::pair().unwrap();
-    let (listener, _listener_peer) = UnixStream::pair().unwrap();
     let (helpers, remote) = UnixStream::pair().unwrap();
-    send(&parent, &listener, &remote).unwrap();
+    send(&parent).unwrap();
     let ended = Arc::new(AtomicBool::new(false));
     let observed = ended.clone();
     let task = monitor(
@@ -248,28 +251,24 @@ async fn delayed_two_right_receipt_survives_and_core_death_is_visible_after_ack(
     )
     .unwrap();
     assert_eq!(message.bytes, 1);
-    let rights: Vec<_> = message
-        .cmsgs()
-        .unwrap()
-        .flat_map(|c| match c {
-            ControlMessageOwned::ScmRights(fds) => fds,
-            _ => vec![],
-        })
-        .collect();
+    let mut rights = Vec::new();
+    for c in message.cmsgs().unwrap() {
+        if let ControlMessageOwned::ScmRights(fds) = c {
+            rights.extend(fds);
+        }
+    }
     assert_eq!(marker, *b"B");
-    assert_eq!(rights.len(), 2);
+    assert!(rights.is_empty(), "bare marker carries no descriptors");
+    // Nothing follows `B` until Core has authenticated the channel and acknowledged.
     let mut byte = [0];
     assert_eq!(
-        recv(rights[1], &mut byte, MsgFlags::MSG_DONTWAIT).unwrap_err(),
+        recv(child.as_raw_fd(), &mut byte, MsgFlags::MSG_DONTWAIT).unwrap_err(),
         nix::errno::Errno::EAGAIN
     );
     child.write_all(b"A").unwrap();
     settle().await;
-    assert!(!ended.load(Ordering::SeqCst));
-    // Root must no longer keep a duplicate of Core's endpoint after receipt.
-    for fd in rights {
-        nix::unistd::close(fd).unwrap();
-    }
+    // No transferred duplicates keep Core's endpoint alive: EOF on `helpers`
+    // becomes visible as soon as the acknowledged channel is ended.
     until(&ended).await;
     drop(child);
     joined(task).await;
@@ -284,9 +283,8 @@ async fn secrets_frame_follows_only_the_ack_and_survives_one_byte_receipt() {
     let frame = secrets_frame();
     for ack in [b'A', b'X', 0] {
         let (parent, mut child) = UnixStream::pair().unwrap();
-        let (listener, _listener_peer) = UnixStream::pair().unwrap();
         let (_helpers, remote) = UnixStream::pair().unwrap();
-        send(&parent, &listener, &remote).unwrap();
+        send(&parent).unwrap();
         let task = monitor(
             parent,
             remote,

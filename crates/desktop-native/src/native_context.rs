@@ -139,7 +139,7 @@ impl NativeContext {
         let generation = self.trust.verify_child(&child, &self.bundle.core)?;
         let (helpers, remote) = UnixStream::pair()?;
         socket2::SockRef::from(&helpers).set_nosigpipe(true)?;
-        super::native_bootstrap::send(&parent, self.listener.listener(), &remote)?;
+        super::native_bootstrap::send(&parent)?;
         let broker = super::native_helper::Broker {
             trust: self.trust.clone(),
             home: self.home.clone(),

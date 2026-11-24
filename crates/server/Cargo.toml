@@ -39,6 +39,8 @@ pacer-discovery-ops = { path = "../discovery-ops" }
 pacer-account-ops = { path = "../account-ops" }
 pacer-mdns = { path = "../mdns" }
 pacer-desktop-native = { path = "../desktop-native" }
+pacer-desktop-update = { path = "../desktop-update" }
+pacer-desktop-admission = { path = "../desktop-admission" }
 chrono-tz = { version = "0.10.4", default-features = false, features = ["std"] }
 
 axum = { version = "0.8", features = ["ws"] }
