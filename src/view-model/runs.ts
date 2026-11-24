@@ -172,7 +172,9 @@ export function stepMarkerFor(input: {
   return "unknown";
 }
 
+/** Relative age for a run row. Unknown/zero createdAt renders an em dash (not epoch "Nd ago"). */
 export function runAge(createdAt: number, now: number): string {
+  if (!Number.isFinite(createdAt) || createdAt <= 0) return "—";
   return ago(createdAt, now);
 }
 
