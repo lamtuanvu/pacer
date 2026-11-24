@@ -10,6 +10,7 @@ import { hostVersionView, readSessionVersion } from "../session/protocol";
 import { processIdentity, sameProcess, signalSameProcess } from "../update/desktop/process-identity";
 import { pidAlive } from "../link/store";
 import { taskStop, settleLiveReleases } from "../tasks/api";
+import { isRecordedStopPending } from "../tasks/recorded-stop-pending";
 import { liveWorkerOwned } from "../exec/live";
 import { compareVersions, currentVersion, isVersion } from "../update/version";
 import type { Ctx } from "../types";
@@ -31,6 +32,8 @@ export async function runningWork(ctx: Ctx, current = currentVersion()): Promise
     // workflow-root is synthetic; orchestrate stays visible (real capacity/work).
     if (t.kind === "workflow-root") continue;
     if (t.state === "needs_input" && !liveWorkerOwned(t, ctx.now, id => readTask(ctx, id))) continue;
+    // Only the recorded-stop stuck shape is omitted; preparing / live runs stay visible.
+    if (isRecordedStopPending(t)) continue;
     const runnerPacer = t.runnerPacer ?? t.handover?.pacer ?? null;
     tasks.push({ taskId: t.id, runnerPacer, older: older(runnerPacer, current) });
     const dir = t.run && !t.run.host ? t.run.dir : undefined;
