@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { parentFor, resolveRoute, routes, setupCompleteFrom, type Route } from "./router";
+import { parentFor, resolveRoute, routes, setupCompleteFrom, type Route } from "../app/src/router";
 
 const q = { repo: null, scope: null };
 const route = (hash: string, setup: boolean | null = true) => resolveRoute(hash, setup) as Route;
