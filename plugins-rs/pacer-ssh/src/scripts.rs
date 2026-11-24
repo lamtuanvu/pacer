@@ -21,7 +21,7 @@ printf 'home=%s\n' "$HOME""#;
 
 /// Fixed host CHECK_REPO program. The provider admits only its read-only check arm.
 pub const CHECK_REPO_SCRIPT: &str = r#"path="$1"; shift
-case "$path" in '~/'*) path="$HOME/\${path#??}" ;; esac
+case "$path" in '~/'*) path="$HOME/${path#??}" ;; esac
 case "$1" in
   home) test -d "$path" ;;
   clone) [ ! -e "$path" ] && [ ! -L "$path" ] || exit 1; git clone -- "$2" "$path" ;;
@@ -52,7 +52,7 @@ printf 'ancestor=%s\n' "$ancestor"
 status=$(git -c core.quotePath=true status --porcelain --untracked-files=all) || exit 1
 if [ -n "$4" ] && [ -n "$5" ] && [ -f .pacer-question ]; then
   question_hash=$(git hash-object -- .pacer-question) || exit 1
-  case "\${#question_hash}" in 40) expected_hash="$4" ;; 64) expected_hash="$5" ;; *) expected_hash="" ;; esac
+  case "${#question_hash}" in 40) expected_hash="$4" ;; 64) expected_hash="$5" ;; *) expected_hash="" ;; esac
   if [ -n "$expected_hash" ] && [ "$question_hash" = "$expected_hash" ] &&
     [ "$(git hash-object -- .pacer-question)" = "$expected_hash" ]; then
     status=$(printf '%s\n' "$status" | sed '/^?? \\.pacer-question$/d')
@@ -67,14 +67,14 @@ printf 'head=%s\n' "$(git rev-parse "$branch^{commit}")""#;
 
 /// Fixed configured-checkout identity operation; the host pins the complete argv.
 pub const SET_IDENTITY_SCRIPT: &str = r#"path="$1"
-case "$path" in '~/'*) path="$HOME/\${path#??}" ;; esac
+case "$path" in '~/'*) path="$HOME/${path#??}" ;; esac
 git -C "$path" config --local user.name "$2" && git -C "$path" config --local user.email "$3""#;
 
 /// Fixed cleanup script; parity with SCRIPTS.CLEAN is checked in tests.
 pub const CLEAN_SCRIPT: &str = r#"worktree="$1"; D="$2"; checkout="$3"; task="$4"; delete_branch="$5"
-case "$worktree" in '~/'*) worktree="$HOME/\${worktree#??}" ;; esac
-case "$D" in '~/'*) D="$HOME/\${D#??}" ;; esac
-case "$checkout" in '~/'*) checkout="$HOME/\${checkout#??}" ;; esac
+case "$worktree" in '~/'*) worktree="$HOME/${worktree#??}" ;; esac
+case "$D" in '~/'*) D="$HOME/${D#??}" ;; esac
+case "$checkout" in '~/'*) checkout="$HOME/${checkout#??}" ;; esac
 # Resolve the task run directory before deleting anything; reject traversal and symlink escapes.
 remote_home=$(cd "$HOME" && pwd -P) || exit 1
 runs=$(cd "$HOME/.pacer-remote/runs" && pwd -P) || exit 1
@@ -83,7 +83,7 @@ case "$D" in "$remote_home/.pacer-remote/runs/"*) ;; *) exit 1 ;; esac
 [ "$(basename "$D")" = "$task" ] && [ "$D" = "$runs/$task" ] || exit 1
 cd "$checkout" || exit 1
 if [ -d "$worktree" ]; then
-  if [ "\${6:-}" = force ]; then
+  if [ "${6:-}" = force ]; then
     git worktree remove --force "$worktree" || exit 1
   else
     dirty=$(git -C "$worktree" status --porcelain) || exit 1
@@ -98,7 +98,7 @@ fi"#;
 
 /// Fixed remote stop script; parity with SCRIPTS.STOP is checked in tests.
 pub const STOP_SCRIPT: &str = r#"D="$1"; grace="$2"
-case "$D" in '~/'*) D="$HOME/\${D#??}" ;; esac
+case "$D" in '~/'*) D="$HOME/${D#??}" ;; esac
 if [ -f "$D/exit" ]; then printf 'code=%s\nkilled=0\n' "$(cat "$D/exit")"; exit 0; fi
 pid=$(cat "$D/pid" 2>/dev/null)
 case "$pid" in ''|*[!0-9]*) printf 'code=137\nkilled=0\n'; exit 0 ;; esac
@@ -118,8 +118,8 @@ if [ -f "$D/exit" ]; then printf 'code=%s\nkilled=0\n' "$(cat "$D/exit")"; else
 fi"#;
 
 /// Fixed remote preparation script; the host owns the exact tuple and stdin bytes.
-pub const PREPARE_SCRIPT: &str = r#"checkout="$1"; tag="$2"; task="$3"; base="$4"; branch="$5"; attempt="\${6:-1}"
-case "$checkout" in '~/'*) checkout="$HOME/\${checkout#??}" ;; esac
+pub const PREPARE_SCRIPT: &str = r#"checkout="$1"; tag="$2"; task="$3"; base="$4"; branch="$5"; attempt="${6:-1}"
+case "$checkout" in '~/'*) checkout="$HOME/${checkout#??}" ;; esac
 cd "$checkout" || exit 1
 git fetch -q origin "$branch" 2>/dev/null || true
 if ! git cat-file -e "$base^{commit}" 2>/dev/null; then
@@ -153,7 +153,7 @@ printf 'worktree=%s\nbranch=%s\n' "$worktree" "$remote_branch""#;
 /// Read-only reconciliation after an unreceipted PREPARE; never fetch or create.
 pub const PREPARE_RECOVER_SCRIPT: &str = r#"checkout="$1"; tag="$2"; task="$3"; base="$4"; attempt="$6"
 GIT_OPTIONAL_LOCKS=0; export GIT_OPTIONAL_LOCKS
-case "$checkout" in '~/'*) checkout="$HOME/\${checkout#??}" ;; esac
+case "$checkout" in '~/'*) checkout="$HOME/${checkout#??}" ;; esac
 cd "$checkout" || exit 1
 worktree="$HOME/.pacer-remote/worktrees/$tag/$task-$attempt"
 [ -d "$worktree" ] && [ ! -L "$worktree" ] || exit 1
@@ -170,11 +170,11 @@ ref=$(git -C "$worktree" symbolic-ref HEAD) || exit 1
 case "$ref" in "refs/heads/pacer/$task"|"refs/heads/pacer/$task-$attempt") ;; *) exit 1 ;; esac
 status=$(git -C "$worktree" status --porcelain --untracked-files=all) || exit 1
 [ -z "$status" ] || exit 1
-printf 'worktree=%s\nbranch=%s\n' "$worktree" "\${ref#refs/heads/}""#;
+printf 'worktree=%s\nbranch=%s\n' "$worktree" "${ref#refs/heads/}""#;
 
 /// Fixed persisted-run observation program; parity with SCRIPTS.REPORT is tested.
 pub const REPORT_SCRIPT: &str = r#"D="$1"
-case "$D" in '~/'*) D="$HOME/\${D#??}" ;; esac
+case "$D" in '~/'*) D="$HOME/${D#??}" ;; esac
 printf 'admission_complete=%s\n' "$(cat "$D/admission.complete" 2>/dev/null)"
 printf 'session=%s\n' "$(cat "$D/session.host" 2>/dev/null)"
 pid=$(cat "$D/pid" 2>/dev/null); alive=0
@@ -194,7 +194,7 @@ done"#;
 
 /// Fixed bounded full-session metadata program; parity with SCRIPTS.SESSION_FILES is tested.
 pub const SESSION_FILES_SCRIPT: &str = r#"D="$1"
-case "$D" in '~/'*) D="$HOME/\${D#??}" ;; esac
+case "$D" in '~/'*) D="$HOME/${D#??}" ;; esac
 # Return only bounded metadata. File bytes are read separately in fixed ranges.
 for attempt in 1 2 3; do
   before=$(cksum "$D/session.ckpt" "$D/session.log.1" 2>/dev/null)
@@ -205,7 +205,8 @@ for attempt in 1 2 3; do
     if [ -f "$D/$file" ]; then
       if [ "$file" = session.state ]; then
         sum=$(cksum "$D/$file" 2>/dev/null) || sum=""
-        bytes=""; [ -z "$sum" ] || bytes=$(printf '%s\n' "$sum" | awk '{print $2}')
+        bytes=""; [ -z "$sum" ] || bytes=$(printf '%s
+' "$sum" | awk '{print $2}')
       else bytes=$(wc -c < "$D/$file" | tr -d ' ') || exit 1; fi
       if [ "$file" = session.log ]; then
         sum="$inode"
@@ -224,8 +225,8 @@ exit 1"#;
 
 /// Fixed remote launch program; parity with SCRIPTS.START is tested.
 pub const START_SCRIPT: &str = r#"D="$1"; cwd="$2"; mode="$3"; shift 3
-case "$D" in '~/'*) D="$HOME/\${D#??}" ;; esac
-case "$cwd" in '~/'*) cwd="$HOME/\${cwd#??}" ;; esac
+case "$D" in '~/'*) D="$HOME/${D#??}" ;; esac
+case "$cwd" in '~/'*) cwd="$HOME/${cwd#??}" ;; esac
 umask 077
 mkdir -p "$D" || exit 1
 chmod 700 "$D"
@@ -246,18 +247,18 @@ setsid nohup env -i HOME="$HOME" PATH="$PATH" bash -c '
 D="$1"; mode="$2"; shift 2
 if [ "$mode" = full ]; then binary="$1"; shift; fi
 while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do
-  pair="$1"; key=\${pair%%=*}; value=\${pair#*=}
-  case "$value" in "~/"*) value="$HOME/\${value#??}" ;; esac
+  pair="$1"; key=${pair%%=*}; value=${pair#*=}
+  case "$value" in "~/"*) value="$HOME/${value#??}" ;; esac
   export "$key=$value"
   shift
 done
 shift
 if [ "$mode" = full ]; then
-  hash=\${binary%/pacer}; hash=\${hash##*/}
+  hash=${binary%/pacer}; hash=${hash##*/}
   # A refusal is written down so START reports it at once instead of waiting for a pid.
   [[ "$hash" =~ ^[a-f0-9]{64}$ ]] || { printf "invalid runtime path" > "$D/start.error"; exit 1; }
   if command -v sha256sum >/dev/null; then actual=$(sha256sum "$binary"); else actual=$(shasum -a 256 "$binary"); fi
-  [ "\${actual%% *}" = "$hash" ] || { printf "runtime binary failed its hash check" > "$D/start.error"; exit 1; }
+  [ "${actual%% *}" = "$hash" ] || { printf "runtime binary failed its hash check" > "$D/start.error"; exit 1; }
   printf "%s" "$binary" > "$D/session.binary"
   exec "$binary" _session "$D"
 fi
@@ -279,11 +280,12 @@ printf 'pid=%s\n' "$(cat "$D/pid")""#;
 
 /// Fixed bounded run-output reader; parity with SCRIPTS.READ_FROM is tested.
 pub const READ_FROM_SCRIPT: &str = r#"D="$1"
-case "$D" in '~/'*) D="$HOME/\${D#??}" ;; esac
+case "$D" in '~/'*) D="$HOME/${D#??}" ;; esac
 [ -f "$D/$2" ] || exit 0
 # Hex mode preserves arbitrary bytes across the text-only RunFn boundary.
-if [ "\${5:-}" = "hex" ]; then
-  tail -c +"$(($3 + 1))" "$D/$2" | head -c "$4" | od -An -v -tx1 | tr -d ' \n'
+if [ "${5:-}" = "hex" ]; then
+  tail -c +"$(($3 + 1))" "$D/$2" | head -c "$4" | od -An -v -tx1 | tr -d ' 
+'
 else
   tail -c +"$(($3 + 1))" "$D/$2" | head -c "$4"
 fi"#;
@@ -312,7 +314,7 @@ printf '%s\n' "$file""#;
 /// Fixed full-session socket bridge; parity with SCRIPTS.SESSION_PIPE is checked.
 pub const SESSION_PIPE_SCRIPT: &str = r#"# socket exec pipe: use the uploaded runtime, without extra host dependencies.
 D="$1"
-case "$D" in '~/'*) D="$HOME/\${D#??}" ;; esac
+case "$D" in '~/'*) D="$HOME/${D#??}" ;; esac
 binary=$(cat "$D/session.binary") || exit 1
 if [ -f "$D/session.sock.path" ]; then path=$(cat "$D/session.sock.path"); else path="$D/session.sock"; fi
 exec "$binary" _session "socket:$path""#;
@@ -323,8 +325,8 @@ pub const QUESTION_SCRIPT: &str = r#"file="$1/.pacer-question"
 cat "$file""#;
 
 /// Fixed read-only Codex session-log probe; parity with the legacy script is tested.
-pub const CODEX_USAGE_SCRIPT: &str = r#"home="\${1:-$HOME/.codex}"
-case "$home" in '~/'*) home="$HOME/\${home#??}" ;; esac
+pub const CODEX_USAGE_SCRIPT: &str = r#"home="${1:-$HOME/.codex}"
+case "$home" in '~/'*) home="$HOME/${home#??}" ;; esac
 [ -d "$home/sessions" ] || exit 0
 while IFS= read -r -d '' file; do
   mtime=$(stat -c %Y "$file" 2>/dev/null) || mtime=$(stat -f %m "$file") || continue
