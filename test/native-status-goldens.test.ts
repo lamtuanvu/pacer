@@ -1,7 +1,7 @@
 import { afterAll } from "bun:test";
-import { cleanupTestTmp, fakeCtx } from "./helpers";
-import { mkdirSync, readFileSync, writeFileSync, existsSync, utimesSync } from "node:fs";
-import { join } from "node:path";
+import { cleanupTestTmp, fakeCtx, localTs } from "./helpers";
+import { mkdirSync, readFileSync, writeFileSync, existsSync, utimesSync, appendFileSync, unlinkSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { expect, test } from "bun:test";
 import type { AccountEvidence, Evidence, EvidenceScope } from "../src/evidence/types";
 import type { Ctx, UsageKind, UsageReading, UsageSource, UsageWindow } from "../src/types";
@@ -14,6 +14,8 @@ import { accountSignIn } from "../src/usage/signin";
 import { cachedRemoteUsage } from "../src/remote/usage";
 import { endpointRow } from "../src/endpoints/row";
 import { accountEvidenceScope } from "../src/evidence/scope";
+import { buildActivity, loadActivity } from "../src/pace/activity";
+import { readJson } from "../src/fsutil";
 
 // The Rust pacer-status crate replays these recordings against its own
 // freshness::mark_freshness, evidence ports and usage store (crates/status/
@@ -411,6 +413,191 @@ test("endpoint goldens match the TypeScript endpoint row rule", () => {
   }, async (i: any) => endpointRow(accountCtx(i), i.account));
   record("endpoint");
 });
+
+// ---- B12-3 activity goldens ---------------------------------------------------
+// buildActivity and loadActivity read grow-only Claude/Codex logs and cache a
+// 168-bin weekly profile plus per-file cursors. The fixture records an ordered
+// `ops` script the Rust pacer-status tests replay identically (crates/status/
+// tests/activity.rs): it writes logs (with pinned mtimes so cursor `mtime` is
+// deterministic), appends, removes, and runs builds/loads. Cursor inodes are
+// machine-specific, so expected cursors are normalized (inode -> 0).
+
+type ActivityOp =
+  | { write: { path: string; content: string; mtime?: number } }
+  | { append: { path: string; content: string; mtime?: number } }
+  | { remove: { path: string } }
+  | { build: { now: number; lookbackDays?: number; threshold?: number } }
+  | { load: { now: number; readOnly?: boolean; lockToken?: string } };
+
+function actPath(ctx: Ctx, rel: string): string {
+  return rel.startsWith("~/") ? join(ctx.home, rel.slice(2)) : join(ctx.pacerHome, rel);
+}
+function actOut(ctx: Ctx): { profile: unknown; cursors: unknown; activityJson: string | null; lock: boolean } {
+  const cursorPath = join(ctx.pacerHome, "state", "activity-cursors.json");
+  const raw = existsSync(cursorPath) ? readJson(cursorPath) : null;
+  const cursors = raw ? normalizeCursors(raw, ctx.home) : null;
+  const activityPath = join(ctx.pacerHome, "activity.json");
+  const activityJson = existsSync(activityPath) ? readFileSync(activityPath, "utf8") : null;
+  return { profile: null, cursors, activityJson, lock: existsSync(join(ctx.pacerHome, "activity.lock")) };
+}
+// Cursor inodes and the absolute log paths in `files` are machine-specific:
+// zero each inode and make every cursor key home-relative (`~/` prefix), so
+// the Rust replay (a different tempdir) sees identical expected cursors.
+function normalizeCursors(v: any, home: string): any {
+  if (v && typeof v === "object" && !Array.isArray(v)) {
+    const out: any = {};
+    for (const [k, val] of Object.entries(v)) {
+      let key = k;
+      if (k === "inode") { out[key] = 0; continue; }
+      if (k.startsWith(home + "/")) key = "~/" + k.slice(home.length + 1);
+      out[key] = normalizeCursors(val, home);
+    }
+    return out;
+  }
+  if (Array.isArray(v)) return v.map((x) => normalizeCursors(x, home));
+  return v;
+}
+async function runActivityOps(ctx: Ctx, ops: ActivityOp[]): Promise<unknown> {
+  let profile: unknown = null;
+  for (const op of ops) {
+    if ("write" in op) {
+      const p = actPath(ctx, op.write.path);
+      mkdirSync(dirname(p), { recursive: true });
+      writeFileSync(p, op.write.content);
+      if (op.write.mtime !== undefined) utimesSync(p, op.write.mtime, op.write.mtime);
+    } else if ("append" in op) {
+      const p = actPath(ctx, op.append.path);
+      appendFileSync(p, op.append.content);
+      if (op.append.mtime !== undefined) utimesSync(p, op.append.mtime, op.append.mtime);
+    } else if ("remove" in op) {
+      unlinkSync(actPath(ctx, op.remove.path));
+    } else if ("build" in op) {
+      profile = await buildActivity({ ...ctx, now: op.build.now }, { lookbackDays: op.build.lookbackDays, threshold: op.build.threshold });
+    } else if ("load" in op) {
+      const c = {
+        ...ctx, now: op.load.now,
+        ...(op.load.readOnly ? { readOnly: true as const } : {}),
+        env: { ...ctx.env, ...(op.load.lockToken ? { PACER_ACTIVITY_LOCK_TOKEN: op.load.lockToken } : {}) },
+      };
+      profile = await loadActivity(c, { trigger: () => {} });
+    }
+  }
+  const out = actOut(ctx);
+  out.profile = profile;
+  return out;
+}
+// A ~70-minute spread of log stamps across 3 days and 5 distinct hours, so a
+// 0.2 threshold marks a subset active and 28-day / same-hour lookbacks differ.
+function genLogs(prefix: string, tsOffsets: number[]): string {
+  return tsOffsets.map((ts) => JSON.stringify({ type: "user", timestamp: new Date(ts * 1000).toISOString() })).join("\n");
+}
+// Seconds since epoch for a local wall clock (tests run with TZ=Asia/Ho_Chi_Minh).
+const H = 3600;
+// Race must be cleared: buildActivity keeps a process-global cursor store keyed
+// by path, so every case gets its own fake home (fresh store).
+
+test("activity goldens match the TypeScript activity profile and cursor writes", async () => {
+  cases = [];
+  const T = localTs(2026, 10, 10, 19, 0); // Saturday 19:00 local
+  const early = localTs(2026, 10, 8, 9, 5); // Thu 09:05
+  const stamps: number[] = [];
+  for (const h of [9, 10, 11]) for (const m of [5, 40]) stamps.push(localTs(2026, 10, 8, h, m));
+  // 1: a fresh home full-scans its logs into a profile and persists cursors.
+  recordActivity("build-initial", {
+    now: T, env: { TZ: "Asia/Ho_Chi_Minh" },
+    files: {
+      "~/.claude/projects/-p/one.jsonl": { content: genLogs("c", stamps), mtime: T - 60 },
+      "~/.codex/sessions/box/rollout-two.jsonl": { content: genLogs("x", [early + 60]), mtime: T - 60 },
+    },
+    ops: [{ build: { now: T } }],
+  });
+  // 2: a second build reuses the persisted cursors (same size+mtime) and the profile is unchanged.
+  recordActivity("build-reuse", {
+    now: T, env: { TZ: "Asia/Ho_Chi_Minh" },
+    files: {
+      "~/.claude/projects/-p/one.jsonl": { content: genLogs("c", stamps), mtime: T - 60 },
+    },
+    ops: [{ build: { now: T } }, { build: { now: T + 300 } }],
+  });
+  // 3: appending to a log grows the cursor offset and folds the new hour in.
+  recordActivity("build-append", {
+    now: T, env: { TZ: "Asia/Ho_Chi_Minh" },
+    files: {
+      "~/.claude/projects/-p/one.jsonl": { content: genLogs("c", stamps), mtime: T - 60 },
+    },
+    ops: [
+      { build: { now: T } },
+      { append: { path: "~/.claude/projects/-p/one.jsonl", content: "\n" + genLogs("c2", [localTs(2026, 10, 9, 13, 30)]), mtime: T + 10 } },
+      { build: { now: T + 20 } },
+    ],
+  });
+  // 4: a vanished log is pruned from the cursor map on the next build.
+  recordActivity("build-vanished", {
+    now: T, env: { TZ: "Asia/Ho_Chi_Minh" },
+    files: {
+      "~/.codex/sessions/box/rollout-keep.jsonl": { content: genLogs("k", [early]), mtime: T - 60 },
+      "~/.codex/sessions/box/rollout-gone.jsonl": { content: genLogs("g", [early + 3600]), mtime: T - 60 },
+    },
+    ops: [
+      { build: { now: T } },
+      { remove: { path: "~/.codex/sessions/box/rollout-gone.jsonl" } },
+      { build: { now: T + 30 } },
+    ],
+  });
+  // 5: a short lookback lands in the same clock hour -> exact-window scan, no reuse.
+  recordActivity("build-same-hour", {
+    now: localTs(2026, 10, 10, 10, 50), env: { TZ: "Asia/Ho_Chi_Minh" },
+    files: {
+      "~/.claude/projects/-p/now.jsonl": { content: genLogs("s", [localTs(2026, 10, 10, 10, 20)]), mtime: localTs(2026, 10, 10, 10, 40) },
+    },
+    ops: [{ build: { now: localTs(2026, 10, 10, 10, 50), lookbackDays: 0.03 } }],
+  });
+  // 6: a fresh cache younger than 1h is returned without touching cursors or lock.
+  recordActivity("load-cache-fresh", {
+    now: T, env: { TZ: "Asia/Ho_Chi_Minh" },
+    files: {
+      "activity.json": { content: JSON.stringify({ builtAt: T - 3600, days: 0, bins: new Array(168).fill(0), active: new Array(168).fill(false) }) },
+    },
+    ops: [{ load: { now: T } }],
+  });
+  // 7: a 25h-old cache is returned and triggers a rebuild; the bogus lock
+  // token keeps the lock in place so the lock-present state is deterministic.
+  recordActivity("load-cache-stale-25h", {
+    now: T, env: { TZ: "Asia/Ho_Chi_Minh" },
+    files: {
+      "activity.json": { content: JSON.stringify({ builtAt: T - 25 * H, days: 0, bins: new Array(168).fill(0), active: new Array(168).fill(false) }) },
+    },
+    ops: [{ load: { now: T, lockToken: "bogus" } }],
+  });
+  // 8: readOnly staleness returns the cache without taking the lock.
+  recordActivity("load-readonly", {
+    now: T, env: { TZ: "Asia/Ho_Chi_Minh" },
+    files: {
+      "activity.json": { content: JSON.stringify({ builtAt: T - 25 * H, days: 0, bins: new Array(168).fill(0), active: new Array(168).fill(false) }) },
+    },
+    ops: [{ load: { now: T, readOnly: true } }],
+  });
+  // 9: no cache -> build fresh, write activity.json and cursors.
+  recordActivity("load-no-cache", {
+    now: T, env: { TZ: "Asia/Ho_Chi_Minh" },
+    files: {
+      "~/.claude/projects/-p/two.jsonl": { content: genLogs("n", [early]), mtime: T - 60 },
+    },
+    ops: [{ load: { now: T } }],
+  });
+  await record("activity");
+});
+
+function recordActivity(name: string, input: { now: number; env: Record<string, string>; files: Record<string, FileSpec>; ops: ActivityOp[] }): void {
+  cases.push({
+    name: `activity:${name}`,
+    input: { now: input.now, env: input.env, files: input.files, ops: input.ops },
+    expected: (async () => {
+      const ctx = accountCtx({ now: input.now, env: input.env, files: input.files });
+      return await runActivityOps(ctx, input.ops);
+    })(),
+  });
+}
 
 function recordCase(name: string, input: unknown, run: (i: any) => unknown): void {
   cases.push({ name, input, expected: run(input) });
