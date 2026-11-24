@@ -49,7 +49,8 @@ export function Rail({ route, counts, narrow = false, settingsAttention: attenti
   return <nav className={narrow ? "pc-bottom-bar" : "pc-rail"} aria-label="pacer">
     {ITEMS.filter(item => !narrow || item.name !== "terminal").map(item => {
       const n = counts && !(narrow && item.name === "sessions") ? item.count(counts, snapshot) : 0;
-      const label = item.name === "terminal" ? "Workspace" : n > 0 ? `${item.label}, ${n} ${item.words}` : item.label;
+      const words = item.words && n === 1 && item.words.endsWith("s") ? item.words.slice(0, -1) : item.words;
+      const label = item.name === "terminal" ? "Workspace" : n > 0 ? `${item.label}, ${n} ${words}` : item.label;
       return <Tooltip key={item.name} text={label}>
         <AppLink className={`pc-rail__item${primaryFor(route) === item.name ? " on" : ""}`} to={item.to} query={route.query} aria-label={label}  aria-current={primaryFor(route) === item.name ? "page" : undefined}>
           <Icon name={item.icon} />{narrow && <span>{item.label}</span>}{n > 0 && <span className={`pc-rail__badge pc-rail__badge--${item.tone}${item.tone === "warn" ? " pc-rail__badge--count" : ""}`} aria-hidden="true">{n}</span>}

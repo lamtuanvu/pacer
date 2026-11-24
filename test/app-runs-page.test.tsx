@@ -120,11 +120,19 @@ test("RunsPage shows attention queue and run row fields", () => {
     <RunsPage query={{ repo: null, scope: null }} />,
   );
   expect(html).toContain("Needs your answer");
-  expect(html).toContain("Approve publish?");
+  expect(html).toContain("Publish the PR?");
   expect(html).toContain("Ship board");
   expect(html.includes("You") || html.includes("Waits on")).toBe(true);
   expect(html.includes("Urgent") || html.includes("urgent")).toBe(true);
   expect(html).toMatch(/pc-run-letter/);
+  // Neutral letter chip — no status-tone classes (UI-10 / I5).
+  expect(html).not.toMatch(/pc-run-letter--tone-/);
+  // Mobile/AT field prefixes stay in the DOM (I3).
+  expect(html).toContain("Waits on:");
+  expect(html).toContain("Priority:");
+  expect(html).toContain("Age:");
+  // Queue shows run title + question once (N1); no "also listed above" in the accessible name (N3).
+  expect(html).not.toContain("· also listed above");
 });
 
 test("RunsPage error state surfaces refresh failure copy", () => {

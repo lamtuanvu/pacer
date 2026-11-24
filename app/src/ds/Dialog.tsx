@@ -23,12 +23,17 @@ export function Dialog({ title, close, children, showClose = true }: { title: st
     const dialog = ref.current!;
     const invoking = dialog.ownerDocument.activeElement as HTMLElement | null;
     dialog.showModal();
+    // Same entry focus as AuroraSheet: prefer [data-autofocus], else first focusable control.
+    const autofocus = dialog.querySelector<HTMLElement>("[data-autofocus]");
+    const first = autofocus ?? [...dialog.querySelectorAll<HTMLElement>(FOCUSABLE)].find(element =>
+      !element.matches(':disabled,[tabindex="-1"]') && !element.closest('[hidden],[inert],[aria-hidden="true"]'));
+    (autofocus ?? first)?.focus({ preventScroll: true });
     return () => {
       dialog.close();
       if (invoking?.isConnected) invoking.focus();
     };
   }, []);
-  return <dialog className="pc-dialog" ref={ref} tabIndex={-1} aria-label={title}
+  return <dialog className="pc-dialog" ref={ref} tabIndex={-1} aria-modal="true" aria-label={title}
     onKeyDown={event => cycleDialogFocus(event.currentTarget, event)}
     onCancel={event => { event.preventDefault(); close(); }}>
     <div className="pc-dialog__head"><SectionHeading>{title}</SectionHeading>{showClose && <Button onClick={close}>Close</Button>}</div>
