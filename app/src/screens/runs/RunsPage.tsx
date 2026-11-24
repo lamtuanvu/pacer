@@ -20,7 +20,6 @@ import { Dialog } from "../../ds/Dialog";
 import { Page } from "../../ds/Page";
 import { EmptyState, ListRow } from "../../ds/Patterns";
 import { Pill } from "../../ds/Pill";
-import { ApiError } from "../../data/api";
 import { useActions } from "../../data/action-context";
 import { withQuery, type RouteQuery } from "../../router";
 import { PageHead } from "../../shell/slots";
@@ -43,6 +42,25 @@ type HeldAnswer = {
   itemTitle: string;
 };
 
+/** Prefer the higher rev between Reload-fetched and attention/queue data. */
+export function pickAnsweringQuestion(input: {
+  answerId: string | null;
+  reloaded: QuestionFormQuestion | null;
+  fromQueue: HeldAnswer | null;
+  held: HeldAnswer | null;
+}): HeldAnswer | null {
+  const { answerId, reloaded, fromQueue, held } = input;
+  if (!answerId) return null;
+  if (reloaded && reloaded.id === answerId) {
+    if (fromQueue && fromQueue.question.rev > reloaded.rev) return fromQueue;
+    const title = fromQueue?.itemTitle ?? held?.itemTitle ?? reloaded.text;
+    return { question: reloaded, itemTitle: title };
+  }
+  if (fromQueue) return fromQueue;
+  if (held && held.question.id === answerId) return held;
+  return null;
+}
+
 function mapQuestionGet(raw: unknown, fallbackRunId: string): RunQuestionView | undefined {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
   const data = raw as Record<string, unknown>;
@@ -62,6 +80,7 @@ export function RunsPage({ query, runId }: { query: RouteQuery; runId?: string }
   /** Authoritative question from question.get / Reload; overrides stale snapshot attention. */
   const [reloaded, setReloaded] = useState<QuestionFormQuestion | null>(null);
   const [reloadError, setReloadError] = useState<string | null>(null);
+  const [closedReason, setClosedReason] = useState<string | null>(null);
   const [focusTitle, setFocusTitle] = useState(false);
   const [announce, setAnnounce] = useState("");
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -111,6 +130,7 @@ export function RunsPage({ query, runId }: { query: RouteQuery; runId?: string }
       setHeld(null);
       setReloaded(null);
       setReloadError(null);
+      setClosedReason(null);
       setFocusTitle(false);
       return;
     }
@@ -120,17 +140,14 @@ export function RunsPage({ query, runId }: { query: RouteQuery; runId?: string }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- queue identity is read inside
   }, [answerId, fromQueueRev, fromQueueText, listState.queue]);
 
-  // Prefer a Reload-fetched question over stale snapshot attention until attention catches up.
-  const answering = (() => {
-    if (!answerId) return null;
-    if (reloaded && reloaded.id === answerId) {
-      const title = fromQueue?.item.title ?? held?.itemTitle ?? reloaded.text;
-      return { question: reloaded, itemTitle: title };
-    }
-    if (fromQueue) return { question: fromQueue.question, itemTitle: fromQueue.item.title };
-    if (held && held.question.id === answerId) return held;
-    return null;
-  })();
+  // Prefer Reload-fetched question until attention catches up; never let an older
+  // reloaded rev outrank a newer queue/attention rev forever.
+  const answering = pickAnsweringQuestion({
+    answerId,
+    reloaded,
+    fromQueue: fromQueue ? { question: fromQueue.question, itemTitle: fromQueue.item.title } : null,
+    held,
+  });
   const questionMissing = !!answerId && !fromQueue && !!held && !reloaded;
 
   const closeAnswer = () => {
@@ -138,6 +155,7 @@ export function RunsPage({ query, runId }: { query: RouteQuery; runId?: string }
     setHeld(null);
     setReloaded(null);
     setReloadError(null);
+    setClosedReason(null);
     setFocusTitle(false);
   };
 
@@ -164,31 +182,52 @@ export function RunsPage({ query, runId }: { query: RouteQuery; runId?: string }
   const reloadAnswer = () => {
     if (!answering) return;
     setReloadError(null);
+    setClosedReason(null);
     setFocusTitle(false);
     void (async () => {
+      const plainReloadError = "Couldn't reload this question. Close and try again.";
       try {
         let nextQuestion: QuestionFormQuestion | null = null;
+        let rawStatus: string | undefined;
         if (ops === undefined || ops.has("question.get")) {
           const raw = await api.call<unknown>("question.get", { id: answering.question.id });
+          if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+            const status = (raw as Record<string, unknown>).status;
+            rawStatus = typeof status === "string" ? status : undefined;
+          }
+          if (rawStatus && rawStatus !== "open") {
+            // Close the answer form; keep the dialog open with a plain status message.
+            setClosedReason("This question is no longer open");
+            setReloaded(null);
+            setHeld(null);
+            setFocusTitle(false);
+            const next = await refreshRunsList(api, store, ops);
+            setStore(next);
+            return;
+          }
           const mapped = mapQuestionGet(raw, answering.question.runId);
-          if (!mapped) throw new Error("Couldn't reload this question");
+          if (!mapped) throw new Error(plainReloadError);
           nextQuestion = mapped;
         } else {
-          // No question.get: refresh list + hope attention/SSE updates; still clear held conflict via list.
+          // No question.get: refresh list; surface a plain-language error (no op jargon).
           const next = await refreshRunsList(api, store, ops);
           setStore(next);
-          throw new Error("Couldn't reload this question (question.get unavailable)");
+          throw new Error(plainReloadError);
         }
         const next = await refreshRunsList(api, store, ops);
         setStore(next);
+        // Same rev: keep the conflict explanation visible (do not remount as "fresh").
+        if (nextQuestion.rev === answering.question.rev) {
+          setReloaded(nextQuestion);
+          setHeld({ question: nextQuestion, itemTitle: answering.itemTitle });
+          return;
+        }
         setReloaded(nextQuestion);
         setHeld({ question: nextQuestion, itemTitle: answering.itemTitle });
         setFocusTitle(true);
-      } catch (error) {
-        const message = error instanceof ApiError
-          ? error.message
-          : error instanceof Error ? error.message : "Couldn't reload this question";
-        setReloadError(message);
+      } catch {
+        // Keep technical detail (ApiError message / op names) out of the dialog UI.
+        setReloadError(plainReloadError);
       }
     })();
   };
@@ -254,6 +293,7 @@ export function RunsPage({ query, runId }: { query: RouteQuery; runId?: string }
                               setHeld({ question, itemTitle: item.title });
                               setReloaded(null);
                               setReloadError(null);
+                              setClosedReason(null);
                               setFocusTitle(false);
                               setAnnounce("");
                             }}
@@ -338,18 +378,24 @@ export function RunsPage({ query, runId }: { query: RouteQuery; runId?: string }
         </section>
       )}
 
-      {answering && (
+      {(answering || closedReason) && (
         <Dialog title="Answer question" close={closeAnswer}>
+          {closedReason ? (
+            <Alert tone="warning" title="Question closed">
+              <p>{closedReason}</p>
+            </Alert>
+          ) : null}
           {reloadError ? (
             <Alert tone="error" title="Couldn't reload">
               <p>{reloadError}</p>
             </Alert>
           ) : null}
-          {questionMissing ? (
+          {!closedReason && questionMissing ? (
             <Alert tone="warning" title="Question no longer available">
               <p>This question left the queue. Close and refresh the list, or wait if it returns.</p>
             </Alert>
-          ) : (
+          ) : null}
+          {!closedReason && answering && !questionMissing ? (
             <QuestionForm
               key={`${answering.question.id}:${answering.question.rev}`}
               question={answering.question}
@@ -358,7 +404,7 @@ export function RunsPage({ query, runId }: { query: RouteQuery; runId?: string }
               onSubmit={submitAnswer}
               onConflict={reloadAnswer}
             />
-          )}
+          ) : null}
         </Dialog>
       )}
     </Page>

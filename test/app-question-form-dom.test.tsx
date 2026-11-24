@@ -217,6 +217,64 @@ test("single option values are not silently truncated by QUESTION_ANSWER_MAX", a
   }
 });
 
+test("Submit shows a visible aria-describedby hint when disabled for incomplete input", async () => {
+  const dom = installDom();
+  try {
+    // approve_revise + revise + empty/whitespace note
+    await mount(dom, <QuestionForm
+      question={q({
+        answerType: "approve_revise",
+        options: [{ value: "approve" }, { value: "revise" }],
+        recommended: "approve",
+      })}
+      onSubmit={async () => {}}
+    />);
+    await tick();
+    const revise = findInput(dom.container as unknown as DomNode, n => n.getAttribute?.("type") === "radio" && n.getAttribute?.("value") === "revise");
+    fire(revise!, "change");
+    await tick();
+    expect(isDisabled(dom.container, "Submit answer")).toBe(true);
+    expect(domText(dom.container)).toContain("Add a revision note to submit");
+    const submit = allNodes(dom.container as unknown as DomNode).find(n => {
+      const walk = (node: DomNode): string => {
+        if (node.nodeType === 3) return String(node.data ?? "");
+        return (node.childNodes ?? []).map(walk).join("");
+      };
+      return walk(n).trim() === "Submit answer" && String(n.tagName).toLowerCase() === "button";
+    });
+    const describedBy = submit?.getAttribute?.("aria-describedby");
+    expect(describedBy).toBeTruthy();
+    expect(allNodes(dom.container as unknown as DomNode).some(n => n.getAttribute?.("id") === describedBy)).toBe(true);
+    await unmount(dom);
+
+    // text empty
+    await mount(dom, <QuestionForm
+      question={q({ answerType: "text", options: undefined, recommended: undefined })}
+      onSubmit={async () => {}}
+    />);
+    await tick();
+    expect(isDisabled(dom.container, "Submit answer")).toBe(true);
+    expect(domText(dom.container)).toContain("Write an answer to submit");
+    await unmount(dom);
+
+    // multi nothing selected
+    await mount(dom, <QuestionForm
+      question={q({
+        answerType: "multi",
+        options: [{ value: "docs" }, { value: "tests" }],
+        recommended: undefined,
+      })}
+      onSubmit={async () => {}}
+    />);
+    await tick();
+    expect(isDisabled(dom.container, "Submit answer")).toBe(true);
+    expect(domText(dom.container)).toContain("Choose at least one option");
+  } finally {
+    await unmount(dom);
+    dom.restore();
+  }
+});
+
 test("conflict keeps controls disabled until Reload brings a fresh rev, then resubmit works", async () => {
   const dom = installDom();
   try {

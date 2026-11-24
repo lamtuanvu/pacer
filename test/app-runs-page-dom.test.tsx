@@ -243,13 +243,150 @@ test("RunsPage Reload failure shows error inside the dialog with Close available
     submitForm(dom.container);
     await until(() => domText(dom.container).includes("Reload"), 2000);
     clickText(dom.container, "Reload");
-    await until(() => domText(dom.container).includes("Couldn't reload") || domText(dom.container).includes("reload boom"), 3000);
-    expect(domText(dom.container)).toMatch(/Couldn't reload|reload boom/);
+    await until(() => domText(dom.container).includes("Couldn't reload this question. Close and try again."), 3000);
+    expect(domText(dom.container)).toContain("Couldn't reload this question. Close and try again.");
+    expect(domText(dom.container)).not.toContain("question.get");
+    expect(domText(dom.container)).not.toContain("reload boom");
     expect(domText(dom.container)).toContain("Close");
   } finally {
     await unmount(dom);
     dom.restore();
   }
+});
+
+test("RunsPage Reload keeps conflict when question.get returns the same rev", async () => {
+  const dom = installDom();
+  try {
+    let getCalls = 0;
+    const api: BrowserApi = {
+      hello: async () => ({
+        protocol: "3.0.0", pacer: "0",
+        ops: ["run.list", "question.answer", "question.get"], events: [],
+      }),
+      snapshot: async () => ({ protocol: "3.0.0", seq: 1, snapshot: {} as never }),
+      call: async <T,>(op: string, params?: unknown) => {
+        if (op === "run.list") {
+          return [{
+            id: "run_1", workflow: "pacer-dev/dev", title: "Ship board",
+            status: "waiting", priority: "urgent", letter: "B", createdAt: 800,
+          }] as T;
+        }
+        if (op === "question.answer") throw new ApiError("conflict", "stale rev");
+        if (op === "question.get") {
+          getCalls++;
+          return {
+            id: "q_1", runId: "run_1", rev: 1, status: "open",
+            answerType: "single", text: "Which approach?", blocks: "run",
+            options: [{ value: "ship" }, { value: "hold" }], recommended: "ship",
+            artifact: "art_keep", stepId: "gate", attempt: 1, branch: "main",
+          } as T;
+        }
+        return {} as T;
+      },
+    };
+
+    await mount(dom, (
+      <TaskContext.Provider value={{ state: baseState(attentionItem(1)), api }}>
+        <RunsPage query={{ repo: null, scope: null }} />
+      </TaskContext.Provider>
+    ));
+    await tick();
+    clickByText(dom.container as unknown as DomNode, "Answer");
+    await until(() => domText(dom.container).includes("Submit answer"), 2000);
+    submitForm(dom.container);
+    await until(() => domText(dom.container).includes("Reload"), 2000);
+    clickText(dom.container, "Reload");
+    await until(() => getCalls >= 1, 3000);
+    expect(domText(dom.container)).toContain("This question changed");
+    expect(domText(dom.container)).toContain("Reload");
+    expect(isDisabled(dom.container, "Submit answer")).toBe(true);
+  } finally {
+    await unmount(dom);
+    dom.restore();
+  }
+});
+
+test("RunsPage Reload closes the form when question.get is no longer open", async () => {
+  const dom = installDom();
+  try {
+    let getCalls = 0;
+    const api: BrowserApi = {
+      hello: async () => ({
+        protocol: "3.0.0", pacer: "0",
+        ops: ["run.list", "question.answer", "question.get"], events: [],
+      }),
+      snapshot: async () => ({ protocol: "3.0.0", seq: 1, snapshot: {} as never }),
+      call: async <T,>(op: string) => {
+        if (op === "run.list") {
+          return [{
+            id: "run_1", workflow: "pacer-dev/dev", title: "Ship board",
+            status: "waiting", priority: "urgent", letter: "B", createdAt: 800,
+          }] as T;
+        }
+        if (op === "question.answer") throw new ApiError("conflict", "stale rev");
+        if (op === "question.get") {
+          getCalls++;
+          return {
+            id: "q_1", runId: "run_1", rev: 2, status: "withdrawn",
+            answerType: "single", text: "Which approach?", blocks: "run",
+            options: [{ value: "ship" }],
+          } as T;
+        }
+        return {} as T;
+      },
+    };
+
+    await mount(dom, (
+      <TaskContext.Provider value={{ state: baseState(attentionItem(1)), api }}>
+        <RunsPage query={{ repo: null, scope: null }} />
+      </TaskContext.Provider>
+    ));
+    await tick();
+    clickByText(dom.container as unknown as DomNode, "Answer");
+    await until(() => domText(dom.container).includes("Submit answer"), 2000);
+    submitForm(dom.container);
+    await until(() => domText(dom.container).includes("Reload"), 2000);
+    clickText(dom.container, "Reload");
+    await until(() => getCalls >= 1 && domText(dom.container).includes("This question is no longer open"), 3000);
+    expect(domText(dom.container)).toContain("This question is no longer open");
+    expect(domText(dom.container)).not.toContain("Submit answer");
+  } finally {
+    await unmount(dom);
+    dom.restore();
+  }
+});
+
+test("pickAnsweringQuestion prefers the higher rev between reloaded and queue", async () => {
+  const { pickAnsweringQuestion } = await import("../app/src/screens/runs/RunsPage");
+  const base = {
+    id: "q_1",
+    runId: "run_1",
+    text: "Q",
+    answerType: "single" as const,
+    rev: 2,
+  };
+  const reloaded = { ...base, rev: 2, text: "reloaded-2" };
+  const fromQueue = {
+    question: { ...base, rev: 5, text: "queue-5" },
+    itemTitle: "Ship board",
+  };
+  const picked = pickAnsweringQuestion({
+    answerId: "q_1",
+    reloaded,
+    fromQueue,
+    held: { question: { ...base, rev: 1 }, itemTitle: "held" },
+  });
+  expect(picked?.question.rev).toBe(5);
+  expect(picked?.question.text).toBe("queue-5");
+
+  const kept = pickAnsweringQuestion({
+    answerId: "q_1",
+    reloaded: { ...base, rev: 4, text: "reloaded-4" },
+    fromQueue: { question: { ...base, rev: 3, text: "queue-3" }, itemTitle: "Ship board" },
+    held: null,
+  });
+  expect(kept?.question.rev).toBe(4);
+  expect(kept?.question.text).toBe("reloaded-4");
 });
 
 test("RunsPage submitAnswer spreads note into question.answer params", async () => {

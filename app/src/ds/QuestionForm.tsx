@@ -116,6 +116,21 @@ export function QuestionForm({ question, canAnswer = true, busy = false, focusTi
     }
     return false;
   })();
+  /** Visible reason when Submit is disabled for incomplete input (UI-13). */
+  const submitHint = (() => {
+    if (!canAnswer || submitting || busy || conflict) return null;
+    if (needsNote && note.trim().length === 0) return "Add a revision note to submit";
+    if (question.answerType === "text" && text.trim().length === 0) return "Write an answer to submit";
+    if (question.answerType === "multi" && multi.length === 0) return "Choose at least one option";
+    if (
+      (question.answerType === "single" || question.answerType === "yes_no" || question.answerType === "approve_revise")
+      && single.length === 0
+    ) {
+      return "Choose an option to submit";
+    }
+    return null;
+  })();
+  const submitHintId = submitHint ? `${baseId}-submit-hint` : undefined;
 
   const toggleMulti = (value: string) => {
     setMulti(prev => prev.includes(value) ? prev.filter(v => v !== value) : [...prev, value]);
@@ -268,9 +283,19 @@ export function QuestionForm({ question, canAnswer = true, busy = false, focusTi
 
       {canAnswer && (
         <div className="pc-question-form__actions">
-          <Button type="submit" variant="primary" size="sm" busy={submitting || busy} disabled={!canSubmit}>
+          <Button
+            type="submit"
+            variant="primary"
+            size="sm"
+            busy={submitting || busy}
+            disabled={!canSubmit}
+            aria-describedby={submitHintId}
+          >
             Submit answer
           </Button>
+          {submitHint ? (
+            <span id={submitHintId} className="pc-question-form__submit-hint">{submitHint}</span>
+          ) : null}
           <span className="sr-only" aria-live="polite">
             {choiceValue ? `Selected ${choiceValue}` : "No answer selected"}
           </span>

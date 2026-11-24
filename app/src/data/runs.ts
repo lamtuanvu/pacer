@@ -172,6 +172,15 @@ export function questionFromEntity(data: Record<string, unknown>, runId: string)
     : typeof data.suggested === "string"
       ? data.suggested
       : undefined;
+  const artifactRaw = data.artifact;
+  let artifact: RunQuestionView["artifact"];
+  if (isObj(artifactRaw) && typeof artifactRaw.id === "string") {
+    artifact = { id: artifactRaw.id, ...(typeof artifactRaw.label === "string" ? { label: artifactRaw.label } : {}) };
+  } else if (typeof artifactRaw === "string" && artifactRaw) {
+    artifact = { id: artifactRaw };
+  } else if (typeof data.artifactId === "string") {
+    artifact = { id: data.artifactId, ...(typeof data.artifactLabel === "string" ? { label: data.artifactLabel } : {}) };
+  }
   return {
     id: data.id,
     runId,
@@ -181,7 +190,11 @@ export function questionFromEntity(data: Record<string, unknown>, runId: string)
     rev: data.rev,
     ...(options ? { options } : {}),
     ...(typeof data.recommended === "string" ? { recommended: data.recommended } : {}),
+    ...(artifact ? { artifact } : {}),
     ...(suggested ? { suggestedAnswer: suggested } : {}),
+    ...(typeof data.stepId === "string" ? { stepId: data.stepId } : {}),
+    ...(typeof data.attempt === "number" && Number.isFinite(data.attempt) ? { attempt: data.attempt } : {}),
+    ...(typeof data.branch === "string" && data.branch ? { branch: data.branch } : {}),
   };
 }
 
