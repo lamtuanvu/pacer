@@ -79,7 +79,10 @@ export function RunsPage({ query, runId }: { query: RouteQuery; runId?: string }
 
   const submitAnswer = async (input: { answer: string; note?: string; expect_rev: number }) => {
     if (!answering) return;
-    const call = runner?.call ?? api.call.bind(api);
+    // Prefer the action runner so confirm/conflict handling stays consistent; keep `this` bound.
+    const call = runner
+      ? <T,>(op: string, params?: unknown) => runner.call<T>(op, params)
+      : api.call.bind(api);
     try {
       await call("question.answer", {
         id: answering.question.id,
