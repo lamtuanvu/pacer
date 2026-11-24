@@ -1573,6 +1573,7 @@ dependencies = [
 name = "pacer-bundled-ssh"
 version = "0.0.0"
 dependencies = [
+ "base64 0.22.1",
  "pacer-plugin",
  "regex",
  "serde_json",

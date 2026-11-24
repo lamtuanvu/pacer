@@ -8,7 +8,7 @@ use crate::session_stream::stream_session;
 use pacer_plugin::{Ctx, PluginError, js};
 use serde_json::{Map, Value, json};
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
 pub struct Session {
@@ -47,23 +47,26 @@ fn valid_control_path(value: Option<&Value>) -> bool {
 }
 
 fn regex_of(pattern: &'static str) -> &'static regex::Regex {
-    static RE: std::sync::OnceLock<HashMap<&str, regex::Regex>> = std::sync::OnceLock::new();
-    match RE
-        .get_or_init(|| {
-            let mut m = HashMap::new();
-            let re = match regex::Regex::new(pattern) {
-                Ok(re) => re,
-                Err(_) => panic!("invalid static regex"),
-            };
-            m.insert(pattern, re);
-            m
-        })
-        .get(pattern)
-    {
-        Some(re) => re,
-        // Every pattern we cache in this map was just inserted above.
-        None => panic!("static regex was not registered"),
+    // Lazy per-pattern cache: compile and leak each distinct pattern to a
+    // static so call sites can hand out `&'static Regex`. A single
+    // `OnceLock` keyed on the first pattern would only ever register that
+    // pattern and fall over for any other one.
+    static RE: std::sync::OnceLock<Mutex<HashMap<&'static str, &'static regex::Regex>>> =
+        std::sync::OnceLock::new();
+    let cache = RE.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut guard = cache
+        .lock()
+        .unwrap_or_else(|_| panic!("regex cache lock poisoned"));
+    if let Some(re) = guard.get(pattern) {
+        return re;
     }
+    let re = match regex::Regex::new(pattern) {
+        Ok(re) => re,
+        Err(_) => panic!("invalid static regex"),
+    };
+    let re = Box::leak(Box::new(re));
+    guard.insert(pattern, re);
+    re
 }
 
 fn is_completion_nonce(v: Option<&Value>) -> bool {

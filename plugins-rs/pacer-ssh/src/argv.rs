@@ -9,24 +9,26 @@ use crate::scripts::*;
 use serde_json::Value;
 
 fn re(pattern: &'static str) -> &'static regex::Regex {
-    static RE: std::sync::OnceLock<std::collections::HashMap<&str, regex::Regex>> =
+    // Lazy per-pattern cache: compile and leak each distinct pattern to a
+    // static so call sites can hand out `&'static Regex`. A single
+    // `OnceLock` keyed on the first pattern would only ever register that
+    // pattern and fall over for any other one.
+    static RE: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<&'static str, &'static regex::Regex>>> =
         std::sync::OnceLock::new();
-    match RE
-        .get_or_init(|| {
-            let mut m = std::collections::HashMap::new();
-            let re = match regex::Regex::new(pattern) {
-                Ok(re) => re,
-                Err(_) => panic!("invalid static regex"),
-            };
-            m.insert(pattern, re);
-            m
-        })
-        .get(pattern)
-    {
-        Some(re) => re,
-        // Every pattern we cache in this map was just inserted above.
-        None => panic!("static regex was not registered"),
+    let cache = RE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+    let mut guard = cache
+        .lock()
+        .unwrap_or_else(|_| panic!("regex cache lock poisoned"));
+    if let Some(re) = guard.get(pattern) {
+        return re;
     }
+    let re = match regex::Regex::new(pattern) {
+        Ok(re) => re,
+        Err(_) => panic!("invalid static regex"),
+    };
+    let re = Box::leak(Box::new(re));
+    guard.insert(pattern, re);
+    re
 }
 
 fn is_match(pattern: &'static str, s: &str) -> bool {

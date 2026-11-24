@@ -206,14 +206,24 @@ pub async fn stream_session(
                     "SSH session output frame is invalid",
                 ));
             }
+            // Canonical padded base64 (empty string is valid: the eof terminator
+            // carries no payload). Non-decodable input is `is invalid`; a
+            // decoded length above the bound or a non-canonical padding is
+            // `exceeds the bound` (`session-stream.ts` outgoing loop).
             let bytes = match js::base64::decode(base64) {
-                Some(b) if !b.is_empty() && b.len() <= 65_536 && js::base64::encode(&b) == base64 => b,
-                _ => {
+                None => {
                     return Err(PluginError::new(
                         "plugin_refused",
                         "SSH session output frame is invalid",
                     ))
                 }
+                Some(b) if b.len() > 65_536 || js::base64::encode(&b) != base64 => {
+                    return Err(PluginError::new(
+                        "plugin_refused",
+                        "SSH session output frame exceeds the bound",
+                    ))
+                }
+                Some(b) => b,
             };
             let next = decoded.take(&bytes);
             if !next.is_empty() {
@@ -274,7 +284,7 @@ pub async fn stream_session(
         .await?;
     if receipt.get("ok").and_then(Value::as_bool) != Some(true)
         || receipt.get("code").and_then(Value::as_i64) != Some(0)
-        || receipt.get("signal").is_some()
+        || receipt.get("signal").and_then(Value::as_str).is_some()
         || receipt.get("terminated").and_then(Value::as_bool).unwrap_or(true)
     {
         return Err(PluginError::new(

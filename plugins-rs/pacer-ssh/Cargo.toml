@@ -14,6 +14,7 @@ tokio = { workspace = true, features = ["macros", "sync", "time"] }
 uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
+base64 = "0.22"
 pacer-plugin = { path = "../../crates/plugin-sdk", features = ["testing"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time"] }
 

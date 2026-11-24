@@ -45,8 +45,17 @@ export class HostError extends Error {
     this.name = "HostError";
   }
 }
-/** Answer one plugin→host request; return the result, or throw `HostError` for an error reply. */
-export type Answer = (params: any, call: { method: string; meta: unknown }) => unknown | Promise<unknown>;
+/**
+ * Answer one plugin→host request; return the result, or throw `HostError` for
+ * an error reply. The `send` argument lets a streaming answer push a JSON-RPC
+ * message back to the plugin over stdio (e.g. `$/streamInput` frames), so the
+ * driver can pump input into an owned full-session stream.
+ */
+export type Answer = (
+  params: any,
+  call: { method: string; meta: unknown },
+  send: (message: Record<string, unknown>) => void,
+) => unknown | Promise<unknown>;
 export interface CallRecord {
   method: string;
   params: unknown;
@@ -179,7 +188,10 @@ class Session {
     }
   }
 
-  async run(steps: Step[]): Promise<Transcript> {
+  async run(
+    steps: Step[],
+    bind?: (step: Step, results: StepRecord[]) => Step,
+  ): Promise<Transcript> {
     this.hello = await this.request("plugin.hello", {
       protocol: this.helloOpts.protocol ?? "1.11.0",
       features: this.helloOpts.features ?? [...REGISTRY_FEATURES],
@@ -189,12 +201,13 @@ class Session {
       grants: this.helloOpts.grants ?? [],
     });
     for (const step of steps) {
-      const token = step.unowned ? undefined : `parity-${this.nextId}`;
-      this.currentToken = step.unowned ? null : token ?? null;
-      const record = this.send(step.method, step.params, token);
-      if (step.cancelAfterMs) {
-        const target = (this.nextId - 1).toString();
-        setTimeout(() => this.child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "$/cancel", params: { id: target } })}\n`), step.cancelAfterMs);
+      const bound = bind ? bind(step, this.steps) : step;
+      const token = bound.unowned ? undefined : `parity-${this.nextId}`;
+      this.currentToken = bound.unowned ? null : token ?? null;
+      const record = this.send(bound.method, bound.params, token);
+      if (bound.cancelAfterMs) {
+        const target = this.nextId - 1;
+        setTimeout(() => this.child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "$/cancel", params: { id: target } })}\n`), bound.cancelAfterMs);
       }
       this.steps.push(await record);
       this.currentToken = null;
@@ -203,8 +216,9 @@ class Session {
   }
 
   private send(method: string, params: unknown, meta?: string): Promise<StepRecord> {
-    const id = (this.nextId++).toString();
-    const body: Record<string, unknown> = { jsonrpc: "2.0", id, method, params };
+    const idNum = this.nextId++;
+    const id = idNum.toString();
+    const body: Record<string, unknown> = { jsonrpc: "2.0", id: idNum, method, params };
     if (meta) body["_meta"] = { capabilityCall: meta };
     this.child.stdin.write(`${JSON.stringify(body)}\n`);
     return new Promise<StepRecord>((resolve) => {
@@ -303,7 +317,9 @@ class Session {
       this.replyError(id, "capability_denied", `no parity answer for ${method}`);
       return;
     }
-    Promise.resolve(answer(params, { method, meta })).then(
+    Promise.resolve(answer(params, { method, meta }, (message) => {
+      this.child.stdin.write(`${JSON.stringify(message)}\n`);
+    })).then(
       (result) => this.reply(id, result),
       (error) => {
         if (error instanceof HostError) this.replyError(id, error.code, error.message, error.data);
@@ -356,10 +372,11 @@ export async function drive(
   answers: Record<string, Answer>,
   hello: HelloOptions = {},
   _normalize?: (t: Transcript) => Transcript,
+  bind?: (step: Step, results: StepRecord[]) => Step,
 ): Promise<Transcript> {
   const session = new Session(argv, id, answers, hello, childEnv(process.env));
   await session.start();
-  return session.run(steps);
+  return session.run(steps, bind);
 }
 
 /**
@@ -373,9 +390,10 @@ export async function parity(
   answers: Record<string, Answer>,
   hello: HelloOptions = {},
   normalize: (t: Transcript) => Transcript = (t) => t,
+  bind?: (step: Step, results: StepRecord[]) => Step,
 ): Promise<{ ts: Transcript; rust: Transcript }> {
-  const ts = await drive(tsArgv(id), id, steps, answers, hello);
+  const ts = await drive(tsArgv(id), id, steps, answers, hello, undefined, bind);
   const door = rustArgv(id);
-  const rust = door ? await drive(door, id, steps, answers, hello) : ts;
+  const rust = door ? await drive(door, id, steps, answers, hello, undefined, bind) : ts;
   return { ts: normalize(ts), rust: normalize(rust) };
 }
