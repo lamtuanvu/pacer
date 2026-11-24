@@ -7,7 +7,9 @@ import { ENTITY_EVENT_TYPES, type ActivityEntry, type AttentionItem, type Job } 
 import type { ClientSnapshot as SnapshotV2 } from "../../../src/view-model/snapshot";
 /** The service's entity events plus pause, which a later service may send as an event. */
 const READ_MODEL_EVENTS: readonly string[] = [...ENTITY_EVENT_TYPES, "pause"];
-type EntityEventType = (typeof ENTITY_EVENT_TYPES)[number] | "pause";
+/** Workflow entity kinds unwrapped from SSE `entity` envelopes (run/step/decision/question). */
+const WORKFLOW_ENTITY_EVENTS = ["run", "step", "decision", "question"] as const;
+type EntityEventType = (typeof ENTITY_EVENT_TYPES)[number] | "pause" | (typeof WORKFLOW_ENTITY_EVENTS)[number];
 import { attentionOrder } from "../../../src/view-model/selectors";
 import { ApiError, createApi, type BrowserApi } from "./api";
 import { invalidateQueryCache } from "./query";
@@ -128,6 +130,14 @@ export function reduceStore(state: StoreState, action: StoreAction): StoreState 
       if (event.type === "discovery.found") return { ...state, snapshot: { ...state.snapshot, seq: event.seq, at: event.at }, invalidations: { ...state.invalidations, discovery: (state.invalidations.discovery ?? 0) + 1 } };
       // 2.1 entities carry fields the v1 envelope parser would strip, so they skip it.
       if (state.features.readModel && (event.type === "task" || READ_MODEL_EVENTS.includes(event.type))) return reduceReadModel(state, state.snapshot, event.type, event.data, event.seq, event.at);
+      // Workflow entities: bump runs invalidation so the Runs store refetches; keep seq fresh.
+      if ((WORKFLOW_ENTITY_EVENTS as readonly string[]).includes(event.type)) {
+        return {
+          ...state,
+          snapshot: { ...state.snapshot, seq: event.seq, at: event.at },
+          invalidations: { ...state.invalidations, runs: (state.invalidations.runs ?? 0) + 1 },
+        };
+      }
       // Without the read model, an attention or counts event means the snapshot is out of date.
       if (event.type === "attention" || event.type === "counts") return { ...state, needsSnapshot: true };
       const envelope = parseEnvelope({ v: 1, type: event.type, data: event.data });
