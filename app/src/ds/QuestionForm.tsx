@@ -10,9 +10,16 @@ import { Pill } from "./Pill";
 
 export { CONFLICT_QUESTION };
 
-const QUESTION_ANSWER_MAX = 2000;
-const QUESTION_NOTE_MAX = 4000;
+/** Cap aligned with `question.answer` / dashboard answer-encoding (UI-20: keep local). */
+export const QUESTION_ANSWER_MAX = 2000;
+export const QUESTION_NOTE_MAX = 4000;
 const MULTI_ANSWER_SEP = ",";
+
+/** Encode multi picks the way the service decodes them: option order, comma-separated. */
+export function encodeMultiAnswer(options: Array<{ value: string }>, selected: string[]): string {
+  const selectedSet = new Set(selected);
+  return options.map(o => o.value).filter(v => selectedSet.has(v)).join(MULTI_ANSWER_SEP);
+}
 
 export type QuestionAnswerType = "single" | "multi" | "text" | "yes_no" | "approve_revise";
 
@@ -33,14 +40,11 @@ export interface QuestionFormProps {
   /** When false, submit is omitted (ops catalog gate). */
   canAnswer?: boolean;
   busy?: boolean;
+  /** After Reload remounts the form, parent sets this so focus moves to the question title. */
+  focusTitle?: boolean;
   onSubmit: (input: { answer: string; note?: string; expect_rev: number }) => Promise<void> | void;
   /** Reload after conflict: parent refetches; form resets when question.id/rev change. */
   onConflict?: () => void;
-}
-
-function encodeMultiAnswer(options: Array<{ value: string }>, selected: string[]): string {
-  const selectedSet = new Set(selected);
-  return options.map(o => o.value).filter(v => selectedSet.has(v)).join(MULTI_ANSWER_SEP);
 }
 
 function optionLabel(value: string, answerType: QuestionAnswerType): string {
@@ -66,7 +70,7 @@ function isConflictError(err: unknown): boolean {
   return typeof err === "object" && err !== null && "code" in err && (err as { code: unknown }).code === "conflict";
 }
 
-export function QuestionForm({ question, canAnswer = true, busy = false, onSubmit, onConflict }: QuestionFormProps) {
+export function QuestionForm({ question, canAnswer = true, busy = false, focusTitle = false, onSubmit, onConflict }: QuestionFormProps) {
   const baseId = useId();
   const options = defaultOptions(question);
   const [single, setSingle] = useState(question.recommended ?? "");
@@ -77,6 +81,7 @@ export function QuestionForm({ question, canAnswer = true, busy = false, onSubmi
   const [conflict, setConflict] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const reloadRef = useRef<HTMLButtonElement>(null);
+  const titleRef = useRef<HTMLHeadingElement>(null);
 
   // Key/reset contract: when the parent passes a fresh id or rev, clear conflict and draft answers.
   useEffect(() => {
@@ -94,10 +99,16 @@ export function QuestionForm({ question, canAnswer = true, busy = false, onSubmi
     reloadRef.current?.focus({ preventScroll: true });
   }, [conflict]);
 
+  useEffect(() => {
+    if (!focusTitle) return;
+    titleRef.current?.focus({ preventScroll: true });
+  }, [focusTitle, question.id, question.rev]);
+
   const needsNote = question.answerType === "approve_revise" && single.toLowerCase() === "revise";
+  const noteReady = !needsNote || note.trim().length > 0;
   const choiceValue = question.answerType === "multi" ? multi.join(",") : single;
   const canSubmit = (() => {
-    if (!canAnswer || submitting || busy || conflict) return false;
+    if (!canAnswer || submitting || busy || conflict || !noteReady) return false;
     if (question.answerType === "text") return text.trim().length > 0;
     if (question.answerType === "multi") return multi.length > 0;
     if (question.answerType === "single" || question.answerType === "yes_no" || question.answerType === "approve_revise") {
@@ -116,9 +127,15 @@ export function QuestionForm({ question, canAnswer = true, busy = false, onSubmi
     setSubmitting(true);
     try {
       let answer = "";
-      if (question.answerType === "text") answer = text.trim().slice(0, QUESTION_ANSWER_MAX);
-      else if (question.answerType === "multi") answer = encodeMultiAnswer(options, multi).slice(0, QUESTION_ANSWER_MAX);
-      else answer = single.slice(0, QUESTION_ANSWER_MAX);
+      if (question.answerType === "text") {
+        answer = text.trim().slice(0, QUESTION_ANSWER_MAX);
+      } else if (question.answerType === "multi") {
+        // Cap the joined multi payload; never slice a single option value.
+        answer = encodeMultiAnswer(options, multi).slice(0, QUESTION_ANSWER_MAX);
+      } else {
+        // Option values must match the server exactly — do not silently truncate them.
+        answer = single;
+      }
       const payload: { answer: string; note?: string; expect_rev: number } = {
         answer,
         expect_rev: question.rev,
@@ -155,6 +172,7 @@ export function QuestionForm({ question, canAnswer = true, busy = false, onSubmi
       onSubmit={event => { event.preventDefault(); void submit(); }}
     >
       <h2
+        ref={titleRef}
         className="pc-question-form__title"
         id={`${baseId}-title`}
         tabIndex={-1}

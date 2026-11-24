@@ -18,7 +18,6 @@ import { ApiError } from "./api";
 export { RUNS_EMPTY, RUNS_UNAVAILABLE };
 
 const ANSWER_TYPES = new Set(["single", "multi", "text", "yes_no", "approve_revise"]);
-const WORKFLOW_ENTITY = new Set(["run", "step", "decision", "question"]);
 
 export type RunAnswerType = "single" | "multi" | "text" | "yes_no" | "approve_revise";
 
@@ -49,7 +48,6 @@ export interface RunListRow {
   age: string;
   createdAt: number;
   pausedReason?: string;
-  letterTone: number;
 }
 
 export interface RunsListState {
@@ -151,137 +149,16 @@ export function questionFromAttention(item: AttentionItem): RunQuestionView | un
   };
 }
 
-/** Stable tone index 0–4 from the run letter (token roles in CSS; not colour-alone status). */
-export function runLetterToneIndex(letter: string): number {
-  let n = 0;
-  for (const c of letter.toUpperCase()) {
-    if (c < "A" || c > "Z") continue;
-    n = n * 26 + (c.charCodeAt(0) - 64);
-  }
-  return n === 0 ? 0 : (n - 1) % 5;
-}
-
 export function initialRunsStore(): RunsStoreState {
   return { list: [], details: {}, listError: null, listLoading: false, listStamp: 0, entityStamp: 0 };
-}
-
-export function isWorkflowEntityEvent(type: string): boolean {
-  return WORKFLOW_ENTITY.has(type);
-}
-
-/** Apply one unwrapped SSE entity (type = kind, data = value or { id, removed }). */
-export function applyRunsEntityEvent(state: RunsStoreState, type: string, data: unknown): RunsStoreState {
-  if (!WORKFLOW_ENTITY.has(type) || !isObj(data)) return state;
-  const stamp = state.entityStamp + 1;
-  if (data.removed === true && typeof data.id === "string") {
-    if (type === "run") {
-      return {
-        ...state,
-        entityStamp: stamp,
-        list: state.list.filter(r => r.id !== data.id),
-        details: Object.fromEntries(Object.entries(state.details).filter(([id]) => id !== data.id)),
-      };
-    }
-    const details = { ...state.details };
-    for (const [id, detail] of Object.entries(details)) {
-      if (type === "question") {
-        details[id] = { ...detail, questions: detail.questions.filter(q => q.id !== data.id), stamp };
-      } else if (type === "decision") {
-        details[id] = {
-          ...detail,
-          decisions: detail.decisions.filter(d => !(isObj(d) && d.id === data.id)),
-          stamp,
-        };
-      } else if (type === "step") {
-        details[id] = {
-          ...detail,
-          steps: detail.steps.filter(s => !(isObj(s) && (s.id === data.id || `${s.stepId}:${s.attempt}` === data.id))),
-          stamp,
-        };
-      }
-    }
-    return { ...state, entityStamp: stamp, details };
-  }
-
-  if (type === "run" && typeof data.id === "string") {
-    const row = summaryFromEntity(data);
-    const at = state.list.findIndex(r => r.id === row.id);
-    const list = at >= 0 ? state.list.map((r, i) => i === at ? { ...r, ...row } : r) : [...state.list, row];
-    const existing = state.details[row.id];
-    const details = existing
-      ? { ...state.details, [row.id]: { ...existing, run: { ...existing.run, ...data }, stamp } }
-      : state.details;
-    return { ...state, entityStamp: stamp, list, details };
-  }
-
-  if (type === "question" && typeof data.id === "string") {
-    const runId = typeof data.runId === "string" ? data.runId : typeof data.run_id === "string" ? data.run_id : null;
-    if (!runId) return { ...state, entityStamp: stamp };
-    const detail = state.details[runId] ?? emptyDetail(runId);
-    const view = questionFromEntity(data, runId);
-    if (!view) return { ...state, entityStamp: stamp };
-    const qAt = detail.questions.findIndex(q => q.id === view.id);
-    const questions = qAt >= 0
-      ? detail.questions.map((q, i) => i === qAt ? view : q)
-      : [...detail.questions, view];
-    return { ...state, entityStamp: stamp, details: { ...state.details, [runId]: { ...detail, questions, stamp } } };
-  }
-
-  if (type === "decision" && typeof data.id === "string") {
-    const runId = typeof data.runId === "string" ? data.runId : typeof data.run_id === "string" ? data.run_id : null;
-    if (!runId) return { ...state, entityStamp: stamp };
-    const detail = state.details[runId] ?? emptyDetail(runId);
-    const dAt = detail.decisions.findIndex(d => isObj(d) && d.id === data.id);
-    const decisions = dAt >= 0
-      ? detail.decisions.map((d, i) => i === dAt ? data : d)
-      : [...detail.decisions, data];
-    return { ...state, entityStamp: stamp, details: { ...state.details, [runId]: { ...detail, decisions, stamp } } };
-  }
-
-  if (type === "step") {
-    const runId = typeof data.runId === "string" ? data.runId : typeof data.run_id === "string" ? data.run_id : null;
-    if (!runId) return { ...state, entityStamp: stamp };
-    const detail = state.details[runId] ?? emptyDetail(runId);
-    const key = stepKey(data);
-    const sAt = detail.steps.findIndex(s => isObj(s) && stepKey(s) === key);
-    const steps = sAt >= 0
-      ? detail.steps.map((s, i) => i === sAt ? data : s)
-      : [...detail.steps, data];
-    return { ...state, entityStamp: stamp, details: { ...state.details, [runId]: { ...detail, steps, stamp } } };
-  }
-
-  return { ...state, entityStamp: stamp };
-}
-
-function stepKey(data: Record<string, unknown>): string {
-  if (typeof data.id === "string") return data.id;
-  const stepId = typeof data.stepId === "string" ? data.stepId : String(data.step_id ?? "");
-  const attempt = typeof data.attempt === "number" ? data.attempt : 0;
-  const branch = typeof data.branch === "string" ? data.branch : "";
-  return `${stepId}:${attempt}:${branch}`;
 }
 
 function emptyDetail(id: string): RunDetailState {
   return { id, run: null, steps: [], questions: [], decisions: [], loading: false, error: null, stamp: 0 };
 }
 
-function summaryFromEntity(data: Record<string, unknown>): RunSummaryRow {
-  return {
-    id: String(data.id),
-    workflow: typeof data.workflow === "string" ? data.workflow : "",
-    title: typeof data.title === "string" ? data.title : (typeof data.workflow === "string" ? data.workflow : String(data.id)),
-    status: typeof data.status === "string" ? data.status : "running",
-    priority: typeof data.priority === "string" ? data.priority : "normal",
-    letter: typeof data.letter === "string" ? data.letter : null,
-    createdAt: typeof data.createdAt === "number" ? data.createdAt : typeof data.created_at === "number" ? data.created_at : 0,
-    updatedAt: typeof data.updatedAt === "number" ? data.updatedAt : undefined,
-    reason: typeof data.reason === "string" ? data.reason : undefined,
-    paused_reason: typeof data.paused_reason === "string" ? data.paused_reason : undefined,
-    pausedReason: typeof data.pausedReason === "string" ? data.pausedReason : undefined,
-  };
-}
-
-function questionFromEntity(data: Record<string, unknown>, runId: string): RunQuestionView | undefined {
+/** Map a question.get / entity payload into the Runs question view. */
+export function questionFromEntity(data: Record<string, unknown>, runId: string): RunQuestionView | undefined {
   if (typeof data.id !== "string" || typeof data.rev !== "number") return undefined;
   if (typeof data.answerType !== "string" || !ANSWER_TYPES.has(data.answerType)) return undefined;
   let options: RunQuestionView["options"];
@@ -290,6 +167,11 @@ function questionFromEntity(data: Record<string, unknown>, runId: string): RunQu
     if (parsed.some(o => !o)) return undefined;
     options = parsed as NonNullable<RunQuestionView["options"]>;
   }
+  const suggested = typeof data.suggestedAnswer === "string"
+    ? data.suggestedAnswer
+    : typeof data.suggested === "string"
+      ? data.suggested
+      : undefined;
   return {
     id: data.id,
     runId,
@@ -299,7 +181,7 @@ function questionFromEntity(data: Record<string, unknown>, runId: string): RunQu
     rev: data.rev,
     ...(options ? { options } : {}),
     ...(typeof data.recommended === "string" ? { recommended: data.recommended } : {}),
-    ...(typeof data.suggestedAnswer === "string" ? { suggestedAnswer: data.suggestedAnswer } : {}),
+    ...(suggested ? { suggestedAnswer: suggested } : {}),
   };
 }
 
@@ -378,7 +260,6 @@ export function buildRunsListState(input: {
       age: runAge(run.createdAt, input.now),
       createdAt: run.createdAt,
       pausedReason: run.paused_reason ?? run.pausedReason,
-      letterTone: runLetterToneIndex(letter),
     };
   });
 

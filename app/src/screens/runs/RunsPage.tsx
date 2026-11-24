@@ -4,11 +4,13 @@ import {
   buildRunsListState,
   initialRunsStore,
   markRunSeen,
+  questionFromEntity,
   refreshRunDetail,
   refreshRunsList,
   runRowPriorityLabel,
   runRowStatusLabel,
   runsBadgeCount,
+  type RunQuestionView,
   type RunsStoreState,
 } from "../../data/runs";
 import { QuestionForm, type QuestionFormQuestion } from "../../ds/QuestionForm";
@@ -41,6 +43,15 @@ type HeldAnswer = {
   itemTitle: string;
 };
 
+function mapQuestionGet(raw: unknown, fallbackRunId: string): RunQuestionView | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const data = raw as Record<string, unknown>;
+  const runId = typeof data.runId === "string" ? data.runId
+    : typeof data.run_id === "string" ? data.run_id
+      : fallbackRunId;
+  return questionFromEntity(data, runId);
+}
+
 export function RunsPage({ query, runId }: { query: RouteQuery; runId?: string }) {
   useRunsStyles();
   const { state, api } = useTaskContext();
@@ -48,6 +59,12 @@ export function RunsPage({ query, runId }: { query: RouteQuery; runId?: string }
   const [store, setStore] = useState<RunsStoreState>(() => initialRunsStore());
   const [answerId, setAnswerId] = useState<string | null>(null);
   const [held, setHeld] = useState<HeldAnswer | null>(null);
+  /** Authoritative question from question.get / Reload; overrides stale snapshot attention. */
+  const [reloaded, setReloaded] = useState<QuestionFormQuestion | null>(null);
+  const [reloadError, setReloadError] = useState<string | null>(null);
+  const [focusTitle, setFocusTitle] = useState(false);
+  const [announce, setAnnounce] = useState("");
+  const headingRef = useRef<HTMLHeadingElement>(null);
   const seen = useRef<string | null>(null);
   const alsoListedId = useId();
   const ops = state.features.ops;
@@ -92,6 +109,9 @@ export function RunsPage({ query, runId }: { query: RouteQuery; runId?: string }
   useEffect(() => {
     if (!answerId) {
       setHeld(null);
+      setReloaded(null);
+      setReloadError(null);
+      setFocusTitle(false);
       return;
     }
     const entry = listState.queue.find(q => q.question.id === answerId);
@@ -100,14 +120,25 @@ export function RunsPage({ query, runId }: { query: RouteQuery; runId?: string }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- queue identity is read inside
   }, [answerId, fromQueueRev, fromQueueText, listState.queue]);
 
-  const answering = fromQueue
-    ? { question: fromQueue.question, itemTitle: fromQueue.item.title }
-    : (held && held.question.id === answerId ? held : null);
-  const questionMissing = !!answerId && !fromQueue && !!held;
+  // Prefer a Reload-fetched question over stale snapshot attention until attention catches up.
+  const answering = (() => {
+    if (!answerId) return null;
+    if (reloaded && reloaded.id === answerId) {
+      const title = fromQueue?.item.title ?? held?.itemTitle ?? reloaded.text;
+      return { question: reloaded, itemTitle: title };
+    }
+    if (fromQueue) return { question: fromQueue.question, itemTitle: fromQueue.item.title };
+    if (held && held.question.id === answerId) return held;
+    return null;
+  })();
+  const questionMissing = !!answerId && !fromQueue && !!held && !reloaded;
 
   const closeAnswer = () => {
     setAnswerId(null);
     setHeld(null);
+    setReloaded(null);
+    setReloadError(null);
+    setFocusTitle(false);
   };
 
   const submitAnswer = async (input: { answer: string; note?: string; expect_rev: number }) => {
@@ -116,27 +147,50 @@ export function RunsPage({ query, runId }: { query: RouteQuery; runId?: string }
     const call = runner
       ? <T,>(op: string, params?: unknown) => runner.call<T>(op, params)
       : api.call.bind(api);
-    try {
-      await call("question.answer", {
-        id: answering.question.id,
-        answer: input.answer,
-        expect_rev: input.expect_rev,
-        ...(input.note ? { note: input.note } : {}),
-      });
-      closeAnswer();
-      const next = await refreshRunsList(api, store, ops);
-      setStore(next);
-    } catch (error) {
-      throw error instanceof ApiError ? error : error;
-    }
+    await call("question.answer", {
+      id: answering.question.id,
+      answer: input.answer,
+      expect_rev: input.expect_rev,
+      ...(input.note !== undefined && input.note !== "" ? { note: input.note } : {}),
+    });
+    closeAnswer();
+    setAnnounce("Answer submitted");
+    // Restore focus to the Runs heading; the Answer control that opened the dialog is gone.
+    queueMicrotask(() => headingRef.current?.focus({ preventScroll: true }));
+    const next = await refreshRunsList(api, store, ops);
+    setStore(next);
   };
 
   const reloadAnswer = () => {
-    void refreshRunsList(api, store, ops).then(next => {
-      setStore(next);
-      // If the refreshed queue no longer has this question, held stays so the
-      // missing-question message can render; otherwise fromQueue updates held.
-    });
+    if (!answering) return;
+    setReloadError(null);
+    setFocusTitle(false);
+    void (async () => {
+      try {
+        let nextQuestion: QuestionFormQuestion | null = null;
+        if (ops === undefined || ops.has("question.get")) {
+          const raw = await api.call<unknown>("question.get", { id: answering.question.id });
+          const mapped = mapQuestionGet(raw, answering.question.runId);
+          if (!mapped) throw new Error("Couldn't reload this question");
+          nextQuestion = mapped;
+        } else {
+          // No question.get: refresh list + hope attention/SSE updates; still clear held conflict via list.
+          const next = await refreshRunsList(api, store, ops);
+          setStore(next);
+          throw new Error("Couldn't reload this question (question.get unavailable)");
+        }
+        const next = await refreshRunsList(api, store, ops);
+        setStore(next);
+        setReloaded(nextQuestion);
+        setHeld({ question: nextQuestion, itemTitle: answering.itemTitle });
+        setFocusTitle(true);
+      } catch (error) {
+        const message = error instanceof ApiError
+          ? error.message
+          : error instanceof Error ? error.message : "Couldn't reload this question";
+        setReloadError(message);
+      }
+    })();
   };
 
   const canAnswer = ops.has("question.answer");
@@ -145,7 +199,7 @@ export function RunsPage({ query, runId }: { query: RouteQuery; runId?: string }
     <PageHead>
       <header className="runs-header">
         <div className="runs-heading">
-          <h1>Runs</h1>
+          <h1 ref={headingRef} tabIndex={-1}>Runs</h1>
           <span className="runs-cap">
             {listState.badge
               ? `${listState.badge} ${listState.badge === 1 ? "question needs" : "questions need"} you`
@@ -156,6 +210,7 @@ export function RunsPage({ query, runId }: { query: RouteQuery; runId?: string }
         </div>
       </header>
     </PageHead>
+    <p className="sr-only" role="status" aria-live="polite">{announce}</p>
     <Page width="full" className="pc-runs-page">
       {listState.unavailable && (
         <EmptyState title={RUNS_UNAVAILABLE} description="This service does not offer run.list yet." />
@@ -197,6 +252,10 @@ export function RunsPage({ query, runId }: { query: RouteQuery; runId?: string }
                               event.preventDefault();
                               setAnswerId(question.id);
                               setHeld({ question, itemTitle: item.title });
+                              setReloaded(null);
+                              setReloadError(null);
+                              setFocusTitle(false);
+                              setAnnounce("");
                             }}
                           >
                             Answer
@@ -252,15 +311,15 @@ export function RunsPage({ query, runId }: { query: RouteQuery; runId?: string }
                       <Pill tone={status.tone}>{status.label}</Pill>
                     </span>
                     <span className="runs-table-waits">
-                      <span className="runs-field-label">Waits on:</span>
+                      <span className="sr-only runs-field-label">Waits on:</span>
                       {run.waitsOn}
                     </span>
                     <span className="runs-table-priority">
-                      <span className="runs-field-label">Priority:</span>
+                      <span className="sr-only runs-field-label">Priority:</span>
                       {runRowPriorityLabel(run.priority)}
                     </span>
                     <span className="runs-table-age">
-                      <span className="runs-field-label">Age:</span>
+                      <span className="sr-only runs-field-label">Age:</span>
                       {run.age}
                     </span>
                   </li>
@@ -281,6 +340,11 @@ export function RunsPage({ query, runId }: { query: RouteQuery; runId?: string }
 
       {answering && (
         <Dialog title="Answer question" close={closeAnswer}>
+          {reloadError ? (
+            <Alert tone="error" title="Couldn't reload">
+              <p>{reloadError}</p>
+            </Alert>
+          ) : null}
           {questionMissing ? (
             <Alert tone="warning" title="Question no longer available">
               <p>This question left the queue. Close and refresh the list, or wait if it returns.</p>
@@ -290,6 +354,7 @@ export function RunsPage({ query, runId }: { query: RouteQuery; runId?: string }
               key={`${answering.question.id}:${answering.question.rev}`}
               question={answering.question}
               canAnswer={canAnswer}
+              focusTitle={focusTitle}
               onSubmit={submitAnswer}
               onConflict={reloadAnswer}
             />

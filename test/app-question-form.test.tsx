@@ -85,8 +85,3 @@ test("QuestionForm hides submit when canAnswer is false", () => {
   );
   expect(html).not.toContain("Submit answer");
 });
-
-test("conflict errors are detected by code property", () => {
-  const err = { code: "conflict", message: "stale rev" };
-  expect(err.code).toBe("conflict");
-});

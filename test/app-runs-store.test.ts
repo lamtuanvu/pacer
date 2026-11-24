@@ -1,13 +1,13 @@
 import { expect, test } from "bun:test";
 import type { AttentionItem } from "../src/attention/types";
 import {
-  applyRunsEntityEvent,
   buildRunsListState,
   initialRunsStore,
   questionFromAttention,
+  questionFromEntity,
   runAttentionQueue,
-  runLetterToneIndex,
 } from "../app/src/data/runs";
+import { initialState, reduceStore } from "../app/src/data/store";
 import { RUNS_EMPTY, RUNS_UNAVAILABLE } from "../src/view-model/runs";
 
 function attentionQuestion(overrides: Partial<AttentionItem> & { runId?: string } = {}): AttentionItem {
@@ -54,68 +54,66 @@ test("questionFromAttention fails closed on malformed questions", () => {
   expect(ok?.id).toBe("q_1");
 });
 
-test("applyRunsEntityEvent upserts and removes run rows", () => {
-  let state = initialRunsStore();
-  state = applyRunsEntityEvent(state, "run", {
-    id: "run_1",
-    workflow: "pacer-dev/dev",
-    title: "One",
-    status: "running",
-    priority: "normal",
-    letter: "A",
-    createdAt: 10,
-  });
-  expect(state.list).toHaveLength(1);
-  expect(state.list[0]!.title).toBe("One");
-  state = applyRunsEntityEvent(state, "run", {
-    id: "run_1",
-    workflow: "pacer-dev/dev",
-    title: "One updated",
-    status: "waiting",
-    priority: "urgent",
-    letter: "A",
-    createdAt: 10,
-  });
-  expect(state.list[0]!.title).toBe("One updated");
-  expect(state.list[0]!.status).toBe("waiting");
-  state = applyRunsEntityEvent(state, "run", { id: "run_1", removed: true });
-  expect(state.list).toHaveLength(0);
-});
-
-test("applyRunsEntityEvent patches detail questions and decisions", () => {
-  let state = initialRunsStore();
-  state = {
-    ...state,
-    details: {
-      run_1: {
-        id: "run_1",
-        run: { id: "run_1" },
-        steps: [],
-        questions: [],
-        decisions: [],
-        loading: false,
-        error: null,
-        stamp: 0,
-      },
-    },
-  };
-  state = applyRunsEntityEvent(state, "question", {
+test("questionFromEntity maps question.get payloads including suggested", () => {
+  const view = questionFromEntity({
     id: "q_9",
-    runId: "run_1",
-    rev: 2,
+    rev: 4,
     answerType: "single",
     text: "Which?",
     options: [{ value: "a" }, { value: "b" }],
     blocks: "branch",
-  });
-  expect(state.details.run_1!.questions[0]!.id).toBe("q_9");
-  state = applyRunsEntityEvent(state, "decision", {
-    id: "d_1",
+    suggested: "a",
+    recommended: "a",
+  }, "run_1");
+  expect(view).toMatchObject({
+    id: "q_9",
     runId: "run_1",
-    kind: "choose",
-    choice: "a",
+    rev: 4,
+    suggestedAnswer: "a",
+    recommended: "a",
   });
-  expect(state.details.run_1!.decisions).toHaveLength(1);
+});
+
+test("reduceStore bumps invalidations.runs on workflow entity SSE events", () => {
+  let state = reduceStore(initialState(), {
+    type: "snapshot",
+    snapshot: { seq: 1, at: 1, tasks: [], attention: [], counts: { attention: 0, running: 0, queued: 0, review: 0, failed: 0, setupOpen: 0 } } as never,
+  });
+  expect(state.invalidations.runs ?? 0).toBe(0);
+  for (const type of ["run", "step", "decision", "question"] as const) {
+    state = reduceStore(state, {
+      type: "event",
+      event: { type, seq: state.snapshot!.seq + 1, at: 2, data: { id: `${type}_1` } },
+    });
+    expect(state.invalidations.runs).toBeGreaterThan(0);
+  }
+  expect(state.invalidations.runs).toBe(4);
+  expect(state.snapshot!.seq).toBe(5);
+});
+
+test("buildRunsListState shows em dash age when snapshot-only rows lack createdAt", () => {
+  const store = initialRunsStore();
+  const withSnap = buildRunsListState({
+    ops: new Set(["run.list"]),
+    attention: [],
+    snapshotRuns: [{
+      id: "run_z",
+      letter: "Z",
+      title: "Zulu",
+      workflow: "pacer-dev/dev",
+      status: "waiting",
+      priority: "urgent",
+      waits_on: "you",
+      steps: { running: 0, waiting: 1, done: 0, failed: 0 },
+      orchestrator: { state: "idle" },
+    }],
+    store,
+    now: 1_800_000_000,
+  });
+  expect(withSnap.runs).toHaveLength(1);
+  expect(withSnap.runs[0]!.createdAt).toBe(0);
+  expect(withSnap.runs[0]!.age).toBe("—");
+  expect(withSnap.runs[0]!.age).not.toMatch(/\d{4,}d ago/);
 });
 
 test("buildRunsListState ranks queue from attention and surfaces empty/error/unavailable", () => {
@@ -170,11 +168,6 @@ test("buildRunsListState ranks queue from attention and surfaces empty/error/una
   expect(withSnap.runs[0]!.letter).toBe("Z");
   expect(withSnap.runs[0]!.waitsOn).toBe("You");
   expect(withSnap.badge).toBe(1);
-});
-
-test("runLetterToneIndex is stable for a letter", () => {
-  expect(runLetterToneIndex("A")).toBe(runLetterToneIndex("A"));
-  expect(runLetterToneIndex("B")).not.toBe(runLetterToneIndex("A"));
 });
 
 test("empty and unavailable copy match shared vocabulary", () => {
