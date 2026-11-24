@@ -127,6 +127,7 @@ layer = "tool"
 heavy = ["typify", "syn"]
 [crates.pacer-engine]
 layer = 5
+generated = true
 [crates.pacer-plugin-runtime]
 layer = 6
 [crates.pacer-read-model]
@@ -162,3 +163,6 @@ heavy = ["ratatui"]
 
 [crates.pacer-plugin-ops]
 layer = 5
+[crates.pacer-status]
+layer = 6
+generated = true
