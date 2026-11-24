@@ -1,0 +1,13 @@
+{
+  "id": "fx-workflow",
+  "version": "1.0.0",
+  "publisher": "pacer-conformance",
+  "host": ">=1.12.0",
+  "entry": "main.ts",
+  "capabilities": [],
+  "contributes": {
+    "workflow": {
+      "demo": { "title": "Demo" }
+    }
+  }
+}

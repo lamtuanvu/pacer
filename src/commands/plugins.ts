@@ -44,10 +44,13 @@ export async function pluginsCmd(args: string[], ctx: Ctx): Promise<Result> {
       }
       case "enable": {
         if (pos.length !== 1) throw Error(USAGE);
-        let r = await callOp(ctx, "plugin.enable", { id: pos[0] }) as { id: string; state: string; needs?: string[]; surfaces?: string[] };
-        if (r.state === "needs_grant" && r.needs) {
+        let r = await callOp(ctx, "plugin.enable", { id: pos[0] }) as { id: string; state: string; needs?: string[]; surfaces?: string[]; workflows?: string[] };
+        if (r.state === "needs_grant" && (r.needs || r.workflows || r.surfaces)) {
           const adds = r.surfaces?.length ? ` and adds UI: ${r.surfaces.join(", ")}` : "";
-          const ask = `${pos[0]} asks for: ${r.needs.join(", ") || "no capabilities"}${adds}. It runs as you, with your access, until plugin sandboxing lands. Grant and enable?`;
+          const flows = r.workflows?.length
+            ? ` It contributes workflows (${r.workflows.join(", ")}): they can start agents in your repositories, ask you questions, and publish only through the publishing gate.`
+            : "";
+          const ask = `${pos[0]} asks for: ${r.needs?.join(", ") || "no capabilities"}${adds}.${flows} It runs as you, with your access, until plugin sandboxing lands. Grant and enable?`;
           if (!flags.yes && !(await confirm(ask))) return { code: 1, out: "", err: `pacer: ${pos[0]} not enabled. ${ask} Re-run with --yes to grant.` };
           r = await callOp(ctx, "plugin.enable", { id: pos[0], grant: true }) as typeof r;
         }

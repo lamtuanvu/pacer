@@ -354,6 +354,7 @@ impl MutationOperations {
                     .map(|a| a.iter().map(|c| c["name"].clone()).collect::<Vec<_>>())
                     .unwrap_or_default();
                 let surfaces = e.kinds();
+                let workflows = e.workflows();
                 let covered = e.bundled
                     || (!current.is_null()
                         && needs.iter().all(|n| {
@@ -365,25 +366,49 @@ impl MutationOperations {
                             current["surfaces"]
                                 .as_array()
                                 .is_some_and(|a| a.contains(&json!(k)))
+                        })
+                        && workflows.iter().all(|name| {
+                            current["workflows"]
+                                .as_array()
+                                .is_some_and(|a| a.contains(&json!(name)))
                         }));
                 if !covered && p["grant"] != true {
                     let mut out = json!({"id":id,"state":"needs_grant","needs":needs});
                     if !surfaces.is_empty() {
                         out["surfaces"] = json!(surfaces);
                     }
+                    if !workflows.is_empty() {
+                        out["workflows"] = json!(workflows);
+                    }
                     return Ok(out);
                 }
                 let policy = m["contributes"].get("policy").is_some();
+                let recorded_workflows = current["workflows"]
+                    .as_array()
+                    .map(|a| {
+                        let mut names = a
+                            .iter()
+                            .filter_map(|v| v.as_str().map(str::to_owned))
+                            .collect::<Vec<_>>();
+                        names.sort();
+                        names.join("\0")
+                    })
+                    .unwrap_or_default();
+                let next_workflows = workflows.join("\0");
                 if !e.bundled
                     && (!covered
                         || current["version"] != m["version"]
-                        || current["policy"] != policy)
+                        || current["policy"] != policy
+                        || recorded_workflows != next_workflows)
                 {
                     let mut grant = json!({"version":m["version"],"capabilities":needs});
                     if !surfaces.is_empty() {
                         grant["surfaces"] = json!(surfaces);
                     }
                     grant["policy"] = json!(policy);
+                    if !workflows.is_empty() {
+                        grant["workflows"] = json!(workflows);
+                    }
                     edit_config(ctx, id, None, Some(Some(grant)))?;
                 }
                 edit_config(ctx, id, Some(false), None)?;

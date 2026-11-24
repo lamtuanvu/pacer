@@ -1,0 +1,22 @@
+id: pacer-dev/ask
+version: 1
+title: Ask
+inputs: { brief: string }
+steps:
+  answer:
+    type: agent
+    role: orchestrator
+    prompt: prompts/ask.md
+    code: false
+  approve_answer:
+    type: human
+    decision: must
+    question:
+      text: Accept this answer, or ask for a revise?
+      kind: approve_revise
+  done:
+    type: end
+edges:
+  - [answer, approve_answer]
+  - [approve_answer, done, "result.answer == 'approve'"]
+  - [approve_answer, answer, "result.answer == 'revise'", { max_loops: 2 }]

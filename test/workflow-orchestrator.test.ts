@@ -54,7 +54,23 @@ function fakeDeps() {
   };
   const deps: EngineDeps = {
     delegate,
-    stopTask: (ctx, id) => updateTask(ctx, id, t => { t.state = "stopped"; }),
+    // Match core.tasks.stop ownership: an executorProvider attempt only gets
+    // stopPending while running so stopLiveTurnsForRun can keep the turn live.
+    stopTask: (ctx, id) => updateTask(ctx, id, t => {
+      if (t.state === "running" && t.executorProvider) {
+        if (!t.stopPending) {
+          t.stopPending = {
+            attempt: t.run?.attempt ?? 1,
+            requestedAt: ctx.now,
+            providerId: t.executorProvider,
+            graceMs: 5000,
+            reason: "user",
+          };
+        }
+        return;
+      }
+      t.state = "stopped";
+    }),
   };
   return { deps, inputs };
 }

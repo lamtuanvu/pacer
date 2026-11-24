@@ -100,7 +100,7 @@ async function handle(line: string): Promise<void> {
   }
   if (method === "$/cancel") { cancelled.add((frame.params as { id?: string | number }).id as string | number); return; }
   if (method === "plugin.hello") {
-    write({ id, result: { protocol: "1.11.0", id: "fx-reply", version: "1.0.0", contributes: ["assistant"] } });
+    write({ id, result: { protocol: "1.12.0", id: "fx-reply", version: "1.0.0", contributes: ["assistant"] } });
     return;
   }
   if (id === undefined || id === null) return;

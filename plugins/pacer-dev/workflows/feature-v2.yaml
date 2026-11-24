@@ -1,0 +1,61 @@
+id: pacer-dev/feature
+version: 2
+title: Feature (generated plan)
+inputs: { brief: string }
+policy:
+  replan: { auto: 1, then: ask }
+steps:
+  brainstorm:
+    type: agent
+    role: orchestrator
+    interactive: true
+    prompt: prompts/brainstorm.md
+  approve_spec:
+    type: human
+    decision: must
+    question:
+      text: Approve the brainstormed spec, or ask for a revise?
+      kind: approve_revise
+  review:
+    type: fanout
+    branches: [architecture, devils-advocate, ux, security]
+    each:
+      type: agent
+      kind: research
+      prompt: prompts/review.md
+    join: all
+  plan:
+    type: generate
+    role: orchestrator
+    prompt: prompts/plan.md
+    limits:
+      step_types: [agent, fanout, human]
+      max_steps: 30
+      max_depth: 2
+      kinds: [feature, tests, docs, refactor, debug, boilerplate]
+      require_after: { "kind in [feature, refactor, debug]": reviewer }
+      require_last: { kind: tests }
+    approval: auto
+  approve_publish:
+    type: human
+    decision: must
+    approves: publish
+    question:
+      text: Approve publishing this run (push and open a PR)?
+      kind: approve_revise
+  open_pr:
+    type: agent
+    role: orchestrator
+    prompt: prompts/open-pr.md
+  done:
+    type: end
+edges:
+  - [brainstorm, approve_spec]
+  - [approve_spec, review, "result.answer == 'approve'"]
+  - [approve_spec, brainstorm, "result.answer == 'revise'", { max_loops: 3 }]
+  - [review, plan, "result.verdict == 'pass'"]
+  - [review, brainstorm, "result.verdict == 'revise'", { max_loops: 2 }]
+  - [plan, approve_publish, "result.status == 'done'"]
+  - [approve_publish, open_pr, "result.answer == 'approve'"]
+  - [approve_publish, plan, "result.answer == 'revise'", { max_loops: 2 }]
+  - [open_pr, done]

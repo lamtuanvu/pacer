@@ -104,7 +104,7 @@ describe("the turn-level plugin interface", () => {
   });
 
   test("assistant.reply is strict, 1.11.0, and capped at the host's deadline ceiling", () => {
-    expect(PLUGIN_PROTOCOL_VERSION).toBe("1.11.0");
+    expect(PLUGIN_PROTOCOL_VERSION).toBe("1.12.0");
     expect(EXTENSION_METHODS["assistant.reply"]!.deadlineMs).toBe(ASSISTANT_MAX_DEADLINE_MS);
     const valid = {
       conversationId: "c-1", turnId: "t-1", account: "ep", backend: "pacer", model: "m1",

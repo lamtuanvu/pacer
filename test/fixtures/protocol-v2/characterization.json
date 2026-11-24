@@ -22363,7 +22363,7 @@
         }
       },
       "plugin.enable": {
-        "description": "Enable a plugin. An installed plugin without a matching grant returns needs_grant with its capability set until called with grant: true.",
+        "description": "Enable a plugin. An installed plugin without a matching grant returns needs_grant with its capability set (and any UI surfaces or contributed workflow names) until called with grant: true.",
         "params": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "type": "object",
@@ -23850,7 +23850,7 @@
         }
       },
       "run.start": {
-        "description": "Start a run of an installed workflow for one brief and repository; the entry step becomes an ordinary task.",
+        "description": "Start a run of an installed workflow for one brief and repository; the entry step becomes an ordinary task. Pass workflow `auto` to start the configured router (strategy workflows.router, default pacer-dev/router).",
         "params": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "type": "object",
@@ -26392,7 +26392,7 @@
         }
       },
       "workflow.list": {
-        "description": "Installed workflow definitions, oldest first.",
+        "description": "Installed workflow definitions, oldest first. Each entry includes origin (manual or plugin:<id>@<version>) and whether it is disabled.",
         "params": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "type": "object",

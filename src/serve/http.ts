@@ -96,6 +96,15 @@ export function startServer(
   // Start-up: revoke orphan prg_ grants and settle live turns with no process (API-5b).
   // recoverOrphanTurns yields before any writer so this never blocks listener bind.
   void recoverOrphanTurns(initialCtx).catch(() => { /* recovery is best-effort */ });
+  // Phase 7: re-sync plugin workflows after listen — never on the synchronous start-up path
+  // (test/sqlite-startup-contention.test.ts; no new sync SQLite writes before bind).
+  // setTimeout(0) (not a microtask) so bind/return finish first; sync itself uses
+  // busy_timeout 0 so a held writer never stalls the request thread.
+  setTimeout(() => {
+    void import("../workflow/plugin-sync")
+      .then(({ syncAllPluginWorkflows }) => syncAllPluginWorkflows(getCtx()))
+      .catch(() => { /* workflow sync is best-effort */ });
+  }, 0);
   recoverJobs(initialCtx, undefined, async () => recoverFixtureHandover(initialCtx.pacerHome, compiledNativeFixture(),
     async () => (await triggerHandover({ ...getCtx(), now: Date.now() / 1000 })).summary));
   // Serving diagnostics must not wait on account configuration writes. New local

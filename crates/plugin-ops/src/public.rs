@@ -49,6 +49,22 @@ impl Entry {
             .filter(|k| !self.surfaces(k).is_empty())
             .collect()
     }
+    /// Workflow names declared under `contributes.workflow` (sorted for grant/list parity).
+    pub(crate) fn workflows(&self) -> Vec<String> {
+        let mut names = self.manifest()["contributes"]["workflow"]
+            .as_object()
+            .map(|o| o.keys().cloned().collect::<Vec<_>>())
+            .unwrap_or_default();
+        names.sort();
+        names
+    }
+    /// Contribution keys in manifest order (matches TypeScript `Object.keys`).
+    pub(crate) fn contributes(&self) -> Vec<String> {
+        self.manifest()["contributes"]
+            .as_object()
+            .map(|o| o.keys().cloned().collect())
+            .unwrap_or_default()
+    }
     pub(crate) fn available(&self) -> bool {
         ENABLED.contains(&self.state.as_str())
     }
@@ -197,7 +213,7 @@ impl PublicOperations {
         entries.sort_by(|a, b| collator.compare(&a.id, &b.id));
         if op == "plugin.list" {
             return Ok(
-                json!({"plugins":entries.iter().map(|e|{let m=e.manifest();let ui=KINDS.iter().map(|k|(k.to_string(),json!(e.surfaces(k).len()))).collect::<serde_json::Map<_,_>>();json!({"ui":ui,"surfaces":e.kinds(),"id":e.id,"version":m["version"].as_str().unwrap_or(""),"publisher":m["publisher"].as_str().unwrap_or(""),"tier":m["tier"].as_str().unwrap_or("free"),"bundled":e.bundled,"enabled":e.available() || e.state=="failing","state":e.state,"contributes":m["contributes"].as_object().map(|o|o.keys().collect::<Vec<_>>()).unwrap_or_default(),"capabilities":m["capabilities"].as_array().cloned().unwrap_or_default(),"grant":e.grant,"error":e.error,"pid":e.pid})}).collect::<Vec<_>>()}),
+                json!({"plugins":entries.iter().map(|e|{let m=e.manifest();let ui=KINDS.iter().map(|k|(k.to_string(),json!(e.surfaces(k).len()))).collect::<serde_json::Map<_,_>>();json!({"ui":ui,"surfaces":e.kinds(),"id":e.id,"version":m["version"].as_str().unwrap_or(""),"publisher":m["publisher"].as_str().unwrap_or(""),"tier":m["tier"].as_str().unwrap_or("free"),"bundled":e.bundled,"enabled":e.available() || e.state=="failing","state":e.state,"contributes":e.contributes(),"capabilities":m["capabilities"].as_array().cloned().unwrap_or_default(),"grant":e.grant,"error":e.error,"pid":e.pid})}).collect::<Vec<_>>()}),
             );
         }
         if op == "plugin.ui.list" {

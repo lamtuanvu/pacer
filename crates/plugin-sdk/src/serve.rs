@@ -111,6 +111,17 @@ impl Plugin {
         })
     }
 
+    /// Typed `workflow.definitions` handler (host ≥ 1.12.0). At most one workflow per page.
+    pub fn workflow_definitions<F, Fut>(self, f: F) -> Self
+    where
+        F: Fn(crate::types::WorkflowDefinitionsParams, Ctx) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<crate::types::WorkflowDefinitionsResult, PluginError>>
+            + Send
+            + 'static,
+    {
+        self.handle_typed("workflow.definitions", f)
+    }
+
     pub async fn serve<R, W>(self, input: R, mut output: W) -> std::io::Result<()>
     where
         R: AsyncBufRead + Unpin,

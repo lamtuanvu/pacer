@@ -25,7 +25,7 @@ describe("pacer-assistant plugin", () => {
     expect(EXTENSION_METHODS["assistant.respond"]!.deadlineMs).toBe(120_000);
     expect(EXTENSION_METHODS["assistant.respond"]!.deprecated).toBe(true);
     expect(EXTENSION_METHODS["assistant.respond"]!.description).toMatch(/^Deprecated\./);
-    expect(PLUGIN_PROTOCOL_VERSION).toBe("1.11.0");
+    expect(PLUGIN_PROTOCOL_VERSION).toBe("1.12.0");
   });
   test("maps messages, tool calls and tools onto an OpenAI-compatible request", () => {
     const body = chatRequest(params) as any;

@@ -339,15 +339,23 @@ export function getTurn(ctx: Ctx, id: string): TurnRow | null {
 /** The live (starting/running) turn for a run, if any. */
 export function liveTurn(ctx: Ctx, runId: string): TurnRow | null {
   const row = workflowDatabase(ctx).query<TurnDbRow, [string]>(
-    "SELECT * FROM workflow_turns WHERE run_id = ? AND status IN ('starting', 'running') LIMIT 1",
+    "SELECT * FROM workflow_turns WHERE run_id = ? AND status IN ('starting', 'running') ORDER BY rowid ASC LIMIT 1",
   ).get(runId);
   return row ? turnFromRow(row) : null;
 }
 
-/** The live turn whose orchestrator task is `taskId`, if any. */
-export function liveTurnForTask(ctx: Ctx, taskId: string): TurnRow | null {
+/** The live turn whose orchestrator task is `taskId`, if any.
+ *  When `runId` is set, only that run's turn matches — shared orch tasks can bind
+ *  turns on parent and child runs; callers must not settle a foreign run's turn. */
+export function liveTurnForTask(ctx: Ctx, taskId: string, runId?: string): TurnRow | null {
+  if (runId) {
+    const row = workflowDatabase(ctx).query<TurnDbRow, [string, string]>(
+      "SELECT * FROM workflow_turns WHERE task_id = ? AND run_id = ? AND status IN ('starting', 'running') ORDER BY rowid ASC LIMIT 1",
+    ).get(taskId, runId);
+    return row ? turnFromRow(row) : null;
+  }
   const row = workflowDatabase(ctx).query<TurnDbRow, [string]>(
-    "SELECT * FROM workflow_turns WHERE task_id = ? AND status IN ('starting', 'running') LIMIT 1",
+    "SELECT * FROM workflow_turns WHERE task_id = ? AND status IN ('starting', 'running') ORDER BY rowid ASC LIMIT 1",
   ).get(taskId);
   return row ? turnFromRow(row) : null;
 }
