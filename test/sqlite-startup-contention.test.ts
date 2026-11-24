@@ -376,16 +376,19 @@ await serve({
   createTask(ctx, input);
   dispatchDatabase(ctx);
   workflowDatabase(ctx);
-  await callOp(ctx, "plugin.enable", { id, grant: true });
 
-  // Hold the writer before startServer so its setTimeout(0) sync cannot race ahead of
-  // BEGIN IMMEDIATE and store the definition before the explicit defer assertion below.
+  // Hold the writer before plugin.enable: enable and startServer both start a background
+  // workflow sync, and on a fast runner either could store the definition before the
+  // explicit defer assertion below.
   const writer = new Database(join(ctx.pacerHome, "state/tasks.db"));
   writer.exec("BEGIN IMMEDIATE");
   const deferred: Array<() => void> = [];
   let released = false;
   let service: ReturnType<typeof startServer> | undefined;
   try {
+    const enabling = performance.now();
+    await callOp(ctx, "plugin.enable", { id, grant: true });
+    expect(performance.now() - enabling).toBeLessThan(1000);
     const started = performance.now();
     service = startServer(() => ctx, { port: 0, pumpMs: 0 });
     expect(performance.now() - started).toBeLessThan(1000);
