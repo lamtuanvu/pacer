@@ -140,6 +140,9 @@ function workflowCases(rust: boolean): ConformanceCase[] {
         await t.sleep(50);
       }
       assert(found, "host sync stores the single workflow after paging both replies");
+      await h.call("plugin.disable", { id });
+      const afterDisable = await h.call<{ id: string; disabled?: boolean }[]>("workflow.list", {});
+      assert(afterDisable.some(w => w.id === `${id}/demo` && w.disabled === true), "plugin.disable marks the contributed workflow disabled");
     },
   }];
 }

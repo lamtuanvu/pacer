@@ -413,7 +413,12 @@ impl Service {
                 _ => None,
             };
             if let Some(kind) = kind {
-                let _ = runtime.request(json!({"kind": kind, "id": id})).await;
+                let sent = runtime.request(json!({"kind": kind, "id": id})).await;
+                // Sync is fire-and-forget like registry.enable (Core logs async failures);
+                // a failed disable is an operation error, as registry.disable/remove throw.
+                if kind == "workflow_disable" {
+                    sent?;
+                }
             }
         }
         result
