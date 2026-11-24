@@ -82,10 +82,27 @@ pub fn render_frame(
 
 use unicode_general_category::{GeneralCategory, get_general_category};
 
-/// The dashboard strips C0, DEL, and C1 controls before measuring or painting.
+/// Untrusted text never carries control sequences into the frame (matches
+/// `src/dashboard/frame.ts` `safeText`): C0/DEL/C1, bidi overrides/embeds/isolates,
+/// ZWSP, word joiner / invisible math ops, BOM, ALM, U+2028/9 and tag chars.
 pub fn safe_text(text: &str) -> String {
     text.chars()
-        .filter(|&c| !matches!(c as u32, 0..=0x1f | 0x7f..=0x9f))
+        .filter(|&c| {
+            !matches!(
+                c as u32,
+                0..=0x1f
+                    | 0x7f..=0x9f
+                    | 0x061c
+                    | 0x200b
+                    | 0x2028
+                    | 0x2029
+                    | 0x202a..=0x202e
+                    | 0x2060..=0x2064
+                    | 0x2066..=0x2069
+                    | 0xfeff
+                    | 0xe0000..=0xe007f
+            )
+        })
         .collect()
 }
 
@@ -154,8 +171,9 @@ mod tests {
     #[test]
     fn ts_width_and_clip_semantics() {
         assert_eq!(safe_text("a\u{1b}b\u{85}c"), "abc");
+        assert_eq!(safe_text("a\u{feff}bc"), "abc");
         assert_eq!(cell_width("a界e\u{301}😀"), 6);
-        assert_eq!(clip("a\u{feff}bc", 3, "…"), "a…");
+        assert_eq!(clip("a\u{feff}bc", 3, "…"), "abc");
         assert_eq!(clip("abc", 1, "..."), ".");
         assert_eq!(clip("界x", 1, "…"), "…");
     }

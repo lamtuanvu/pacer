@@ -1,10 +1,16 @@
 /** Navigation, selection and overlays for the TUI. Pure: keys become a new state and, at most, one effect. */
 import type { Action } from "../attention/types";
 import type { ManagedStep } from "../view-model/managed-root";
+import {
+  encodeMultiAnswer,
+  optionValueRejected,
+  QUESTION_ANSWER_MAX,
+  QUESTION_NOTE_MAX,
+} from "./screens/answer-encoding";
 
-export type ScreenId = "home" | "review" | "sessions" | "settings" | "setup";
-export const SCREEN_LABELS: Record<ScreenId, string> = { home: "Home", review: "Needs you", sessions: "Tasks", settings: "Settings", setup: "Setup" };
-export const SCREEN_KEYS: Record<string, ScreenId> = { "1": "home", "2": "review", "3": "sessions", "4": "settings", "5": "setup" };
+export type ScreenId = "home" | "review" | "sessions" | "runs" | "settings" | "setup";
+export const SCREEN_LABELS: Record<ScreenId, string> = { home: "Home", review: "Needs you", sessions: "Tasks", runs: "Runs", settings: "Settings", setup: "Setup" };
+export const SCREEN_KEYS: Record<string, ScreenId> = { "1": "home", "2": "review", "3": "sessions", "4": "settings", "5": "setup", "6": "runs" };
 
 /** What an action does. The controller executes effects; screens only describe them. */
 export type Effect =
@@ -18,7 +24,11 @@ export type Effect =
   | { type: "handoff"; argv: string[]; label: string }
   /** Controller flows that need a read before asking, such as an integration preview. */
   | { type: "flow"; name: string; params: Record<string, unknown> }
-  | { type: "local"; label: string; run: () => void | Promise<void> };
+  | { type: "local"; label: string; run: () => void | Promise<void> }
+  /** Open (`id`) or leave (`null`) the Runs screen's run view. */
+  | { type: "run-view"; id: string | null }
+  /** Structured question form (Runs screen). */
+  | { type: "answer-form"; form: AnswerFormSpec };
 export interface Act {
   label: string;
   effect: Effect;
@@ -39,14 +49,43 @@ export interface PromptSpec {
   help?: string;
   value?: string;
   required?: string;
+  /** Client-side cap (e.g. run.answer 4000); refused before close. */
+  maxLength?: number;
   submit(value: string): Effect | undefined;
+}
+export interface AnswerFormOption { value: string; label: string; note?: string }
+export interface AnswerFormSpec {
+  title: string;
+  mode: "yes_no" | "single" | "multi" | "text" | "approve_revise";
+  options: AnswerFormOption[];
+  recommended?: string;
+  /** Shown when options are empty (malformed single/multi); Esc closes. */
+  emptyHint?: string;
+  submit(answer: string, note?: string): Effect;
 }
 export type Overlay =
   /** `scroll` is the first help row shown when the help is taller than the screen. */
   | { kind: "help"; scroll?: number }
   | { kind: "menu"; title: string; actions: Act[]; index: number }
   | { kind: "confirm"; title: string; body: string[]; yes: string; act: Act; alt?: Confirm["alt"] }
-  | { kind: "prompt"; spec: PromptSpec; value: string; error?: string };
+  | { kind: "prompt"; spec: PromptSpec; value: string; error?: string; submitting?: boolean }
+  | {
+    kind: "answer";
+    title: string;
+    mode: AnswerFormSpec["mode"];
+    options: AnswerFormOption[];
+    recommended?: string;
+    emptyHint?: string;
+    selected: string[];
+    note: string;
+    index: number;
+    /** approve_revise moves to a note line after choosing revise. */
+    phase: "choose" | "note" | "text";
+    error?: string;
+    /** True while question.answer / run.answer is in flight — blocks double Enter. */
+    submitting?: boolean;
+    submit: AnswerFormSpec["submit"];
+  };
 
 export interface UiState {
   screen: ScreenId;
@@ -59,8 +98,10 @@ export interface UiState {
   scroll: number;
   scope: string | null;
   overlay: Overlay | null;
+  /** When set on the Runs screen, the open run's id (tree view). */
+  runView: string | null;
 }
-export const initialState = (screen: ScreenId = "home"): UiState => ({ screen, selected: {}, section: "planner", focus: "list", scroll: 0, scope: null, overlay: null });
+export const initialState = (screen: ScreenId = "home"): UiState => ({ screen, selected: {}, section: "planner", focus: "list", scroll: 0, scope: null, overlay: null, runView: null });
 
 export interface KeyContext {
   /** Selectable rows of the visible list, in order. */
@@ -93,7 +134,7 @@ const select = (state: UiState, items: Item[], i: number): UiState => {
   const item = items[Math.max(0, Math.min(items.length - 1, i))];
   return item ? { ...state, selected: { ...state.selected, [state.screen]: item.id }, scroll: 0 } : state;
 };
-const go = (state: UiState, screen: ScreenId): UiState => ({ ...state, screen, focus: "list", scroll: 0, overlay: null });
+const go = (state: UiState, screen: ScreenId): UiState => ({ ...state, screen, focus: "list", scroll: 0, overlay: null, runView: screen === "runs" ? state.runView : null });
 
 /** Accept and reject verdicts, stops, removals, updates and danger-style service actions always confirm in the TUI, whichever
  * screen or menu offers them (TD-6). Acts that bring their own wording keep it. */
@@ -116,6 +157,28 @@ export function trigger(state: UiState, act: Act | undefined, confirmed = false)
   }
   if (act.effect.type === "prompt") return { state: { ...state, overlay: { kind: "prompt", spec: act.effect.prompt, value: act.effect.prompt.value ?? "" } } };
   if (act.effect.type === "choose") return { state: { ...state, overlay: { kind: "menu", title: act.effect.title, actions: act.effect.options, index: 0 } } };
+  if (act.effect.type === "answer-form") {
+    const { form } = act.effect;
+    const phase = form.mode === "text" ? "text" as const : "choose" as const;
+    return {
+      state: {
+        ...state,
+        overlay: {
+          kind: "answer",
+          title: form.title,
+          mode: form.mode,
+          options: form.options,
+          ...(form.recommended ? { recommended: form.recommended } : {}),
+          ...(form.emptyHint ? { emptyHint: form.emptyHint } : {}),
+          selected: [],
+          note: "",
+          index: 0,
+          phase,
+          submit: form.submit,
+        },
+      },
+    };
+  }
   return { state, effect: act.effect, act };
 }
 
@@ -146,18 +209,147 @@ function overlayKey(state: UiState, overlay: Overlay, key: string, page: number)
       if (key === "escape") return { state: close };
       if (key === "backspace") return { state: { ...state, overlay: { ...overlay, value: Array.from(overlay.value).slice(0, -1).join(""), error: undefined } } };
       if (key === "enter") {
+        if (overlay.submitting) return { state };
         const value = overlay.value.trim();
         if (!value && overlay.spec.required) return { state: { ...state, overlay: { ...overlay, error: overlay.spec.required } } };
+        const max = overlay.spec.maxLength;
+        if (max !== undefined && value.length > max) {
+          return { state: { ...state, overlay: { ...overlay, error: `Must be at most ${max} characters (${value.length}).` } } };
+        }
         const effect = overlay.spec.submit(value);
-        // Submitting a prompt (such as a reject note) is the confirmation.
+        const isAnswer = effect?.type === "action" && (effect.action.op === "run.answer" || effect.action.op === "question.answer");
+        // Answer prompts stay open until the controller confirms success / invalid_input.
+        if (effect && isAnswer) {
+          return {
+            state: { ...state, overlay: { ...overlay, error: undefined, submitting: true } },
+            effect,
+            act: { label: overlay.spec.title, effect },
+          };
+        }
         return effect ? trigger(close, { label: overlay.spec.title, effect }, true) : { state: close };
       }
       if (key.length && !["up", "down", "left", "right", "tab", "backtab", "pageup", "pagedown"].includes(key) && !/[\x00-\x1f\x7f]/.test(key)) {
+        const max = overlay.spec.maxLength;
+        if (max !== undefined && overlay.value.length >= max) {
+          return { state: { ...state, overlay: { ...overlay, error: `Must be at most ${max} characters.` } } };
+        }
         return { state: { ...state, overlay: { ...overlay, value: overlay.value + key, error: undefined } } };
       }
       return { state };
     }
+    case "answer":
+      return answerOverlayKey(state, overlay, key, close);
   }
+}
+
+function answerOverlayKey(
+  state: UiState,
+  overlay: Extract<Overlay, { kind: "answer" }>,
+  key: string,
+  close: UiState,
+): KeyResult {
+  if (key === "escape") return { state: close };
+  if (overlay.submitting) return { state };
+  /** Submit without closing: invalid_input must keep picks / typed text. */
+  const finish = (answer: string, note?: string): KeyResult => {
+    if (answer.length > QUESTION_ANSWER_MAX) {
+      return { state: { ...state, overlay: { ...overlay, error: `Answer must be at most ${QUESTION_ANSWER_MAX} characters (${answer.length}).` } } };
+    }
+    if (note !== undefined && note.length > QUESTION_NOTE_MAX) {
+      return { state: { ...state, overlay: { ...overlay, error: `Note must be at most ${QUESTION_NOTE_MAX} characters (${note.length}).` } } };
+    }
+    const effect = overlay.submit(answer, note);
+    return {
+      state: { ...state, overlay: { ...overlay, error: undefined, submitting: true } },
+      effect,
+      act: { label: "Answer", effect },
+    };
+  };
+  if (overlay.phase === "text" || overlay.phase === "note") {
+    if (key === "backspace") {
+      return { state: { ...state, overlay: { ...overlay, note: Array.from(overlay.note).slice(0, -1).join(""), error: undefined } } };
+    }
+    if (key === "enter") {
+      const note = overlay.note.trim();
+      if (overlay.phase === "note" && !note) {
+        return { state: { ...state, overlay: { ...overlay, error: "Add a note for the revision." } } };
+      }
+      if (overlay.phase === "text" && !note) {
+        return { state: { ...state, overlay: { ...overlay, error: "Add an answer first." } } };
+      }
+      if (overlay.phase === "text") return finish(note);
+      const revise = overlay.selected[0] ?? overlay.options.find(o => o.value.toLowerCase() === "revise")?.value ?? "revise";
+      return finish(revise, note);
+    }
+    if (key.length && !["up", "down", "left", "right", "tab", "backtab", "pageup", "pagedown"].includes(key) && !/[\x00-\x1f\x7f]/.test(key)) {
+      const max = overlay.phase === "note" ? QUESTION_NOTE_MAX : QUESTION_ANSWER_MAX;
+      if (overlay.note.length >= max) {
+        return { state: { ...state, overlay: { ...overlay, error: `${overlay.phase === "note" ? "Note" : "Answer"} must be at most ${max} characters.` } } };
+      }
+      return { state: { ...state, overlay: { ...overlay, note: overlay.note + key, error: undefined } } };
+    }
+    return { state };
+  }
+  if (overlay.mode === "yes_no") {
+    if (key === "y" || key === "Y") return finish(overlay.options.find(o => /^yes$/i.test(o.value))?.value ?? "yes");
+    if (key === "n" || key === "N") return finish(overlay.options.find(o => /^no$/i.test(o.value))?.value ?? "no");
+  }
+  const move = key === "up" || key === "k" ? -1 : key === "down" || key === "j" ? 1 : 0;
+  if (move) {
+    return { state: { ...state, overlay: { ...overlay, index: Math.max(0, Math.min(overlay.options.length - 1, overlay.index + move)) } } };
+  }
+  if (key === " " && overlay.mode === "multi") {
+    const value = overlay.options[overlay.index]?.value;
+    if (!value) return { state };
+    const rejected = optionValueRejected(value);
+    if (rejected) {
+      return { state: { ...state, overlay: { ...overlay, error: rejected } } };
+    }
+    const selected = overlay.selected.includes(value)
+      ? overlay.selected.filter(v => v !== value)
+      : [...overlay.selected, value];
+    return { state: { ...state, overlay: { ...overlay, selected, error: undefined } } };
+  }
+  if (key === "enter") {
+    const current = overlay.options[overlay.index];
+    if (!current) {
+      if (!overlay.options.length) {
+        return { state: { ...state, overlay: { ...overlay, error: "No options to choose. Esc to close." } } };
+      }
+      return { state };
+    }
+    if (overlay.mode === "multi") {
+      if (!overlay.selected.length) {
+        return { state: { ...state, overlay: { ...overlay, error: "Choose at least one option (space to toggle)." } } };
+      }
+      try {
+        return finish(encodeMultiAnswer(overlay.options, overlay.selected));
+      } catch (error) {
+        return { state: { ...state, overlay: { ...overlay, error: error instanceof Error ? error.message : String(error) } } };
+      }
+    }
+    const rejected = optionValueRejected(current.value);
+    if (rejected) {
+      return { state: { ...state, overlay: { ...overlay, error: rejected } } };
+    }
+    if (overlay.mode === "approve_revise" && current.value.toLowerCase() === "revise") {
+      return { state: { ...state, overlay: { ...overlay, selected: [current.value], phase: "note", note: "", error: undefined } } };
+    }
+    return finish(current.value);
+  }
+  if (/^[1-9]$/.test(key) && overlay.mode !== "multi") {
+    const option = overlay.options[Number(key) - 1];
+    if (!option) return { state };
+    const rejected = optionValueRejected(option.value);
+    if (rejected) {
+      return { state: { ...state, overlay: { ...overlay, error: rejected } } };
+    }
+    if (overlay.mode === "approve_revise" && option.value.toLowerCase() === "revise") {
+      return { state: { ...state, overlay: { ...overlay, selected: [option.value], phase: "note", note: "", error: undefined } } };
+    }
+    return finish(option.value);
+  }
+  return { state };
 }
 
 /** Global and list keys. Screen keys come from the selected item's `keys`. */
@@ -177,6 +369,21 @@ export function reduceKey(state: UiState, key: string, ctx: KeyContext): KeyResu
     if (key === "enter" || key === "right" || key === "l") return { state: { ...state, focus: "detail", scroll: 0 } };
   }
   if (key === "escape" || key === "left" || key === "h" && detail) {
+    // Narrow run detail: Esc returns to the tree before closing the run.
+    if (state.screen === "runs" && state.runView && key === "escape") {
+      if (detail) return { state: { ...state, focus: "list", scroll: 0 } };
+      // Restore the run list row (step:* selection would reset the list to the first row).
+      return {
+        state: {
+          ...state,
+          runView: null,
+          focus: "list",
+          scroll: 0,
+          overlay: null,
+          selected: { ...state.selected, runs: `run:${state.runView}` },
+        },
+      };
+    }
     if (detail) return { state: { ...state, focus: "list", scroll: 0 } };
     if (key === "escape" && state.screen === "settings") return { state: go(state, "home") };
     if (key === "escape") return { state };

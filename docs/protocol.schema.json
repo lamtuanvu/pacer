@@ -4922,6 +4922,10 @@
           "minLength": 1,
           "maxLength": 4000
         },
+        "note": {
+          "type": "string",
+          "maxLength": 4000
+        },
         "expect_rev": {
           "type": "integer",
           "exclusiveMinimum": 0,

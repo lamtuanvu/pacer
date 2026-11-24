@@ -116,9 +116,165 @@ fn label(screen: &str) -> &str {
         "home" => "Home",
         "review" => "Needs you",
         "sessions" => "Tasks",
+        "runs" => "Runs",
         "settings" => "Settings",
         _ => "Setup",
     }
+}
+
+/// Unambiguous short forms when the bar is tight (bare "N"/"T"/"S" collide).
+fn short_label(tab: &str) -> String {
+    match tab {
+        "review" => "Needs".into(),
+        "sessions" => "Tsk".into(),
+        "settings" => "Set".into(),
+        _ => label(tab).chars().next().unwrap_or('?').to_string(),
+    }
+}
+
+/// Prefer dropping Setup/Home before Needs/Tsk/Set so short labels stay unambiguous at 60 cols.
+fn omit_preference(tab: &str) -> i32 {
+    match tab {
+        "setup" => 0,
+        "home" => 1,
+        _ => 2,
+    }
+}
+
+fn tab_active(tab: &str, screen: &str) -> bool {
+    tab == screen || (tab == "setup" && screen == "setup")
+}
+
+fn tab_spans(tab: &str, screen: &str, badge: &[(&str, usize)], mode: &str) -> Line {
+    if mode == "omit" {
+        return vec![];
+    }
+    let active = tab_active(tab, screen);
+    let shown = if mode == "short" && !active {
+        short_label(tab)
+    } else {
+        label(tab).to_string()
+    };
+    let mut out: Line = vec!["  ".into()];
+    if active {
+        out.push(format!("[ {shown} ]"));
+    } else {
+        out.push(shown);
+    }
+    let n = badge
+        .iter()
+        .find(|(t, _)| *t == tab)
+        .map(|(_, n)| *n)
+        .unwrap_or(0);
+    // Full width: every badge. Short width: keep Needs attention only, drop Tsk/Runs counts.
+    if n > 0 && !active && (mode == "full" || (mode == "short" && tab == "review")) {
+        out.push(format!(" {n}"));
+    }
+    if tab == "setup" && !active {
+        out.push(" !".into());
+    }
+    out
+}
+
+/// Prefer a full active tab; abbreviate then drop inactive tabs when width is tight (UI-11).
+fn fit_tab_bar(tabs: &[&str], screen: &str, badge: &[(&str, usize)], budget: usize) -> Line {
+    use std::collections::HashMap;
+    let mut modes: HashMap<&str, &str> = tabs.iter().map(|t| (*t, "full")).collect();
+    let render = |modes: &HashMap<&str, &str>| -> Line {
+        tabs.iter()
+            .flat_map(|tab| {
+                tab_spans(
+                    tab,
+                    screen,
+                    badge,
+                    modes.get(tab).copied().unwrap_or("full"),
+                )
+            })
+            .collect()
+    };
+    if width(&render(&modes)) <= budget {
+        return render(&modes);
+    }
+    for tab in tabs.iter().rev() {
+        if tab_active(tab, screen) {
+            continue;
+        }
+        modes.insert(tab, "short");
+        if width(&render(&modes)) <= budget {
+            return render(&modes);
+        }
+    }
+    let mut omit_order: Vec<&str> = tabs.to_vec();
+    omit_order.sort_by(|a, b| {
+        omit_preference(a).cmp(&omit_preference(b)).then(
+            tabs.iter()
+                .position(|t| t == a)
+                .cmp(&tabs.iter().position(|t| t == b)),
+        )
+    });
+    for tab in omit_order {
+        if tab_active(tab, screen) {
+            continue;
+        }
+        modes.insert(tab, "omit");
+        if width(&render(&modes)) <= budget {
+            return render(&modes);
+        }
+    }
+    render(&modes)
+}
+
+/// Number shortcuts are not positional (Runs is 6; Settings stays 4).
+pub(crate) fn tab_key_max(tabs: &[&str]) -> usize {
+    [
+        ("home", 1usize),
+        ("review", 2),
+        ("sessions", 3),
+        ("settings", 4),
+        ("setup", 5),
+        ("runs", 6),
+    ]
+    .into_iter()
+    .filter(|(id, _)| tabs.contains(id))
+    .map(|(_, k)| k)
+    .max()
+    .unwrap_or(0)
+}
+
+pub(crate) fn screen_tabs(s: &V) -> Vec<&'static str> {
+    let mut tabs = vec!["home", "review", "sessions", "runs", "settings"];
+    if s["setup"]["ready"] == false {
+        tabs.push("setup");
+    }
+    tabs
+}
+
+/// Footer while a confirm overlay is open: dialog keys only.
+fn confirm_key_bar(ctx: &Ctx, overlay: &V, w: usize) -> Line {
+    let mut groups: Vec<Line> = vec![vec!["y/⏎".into(), format!(" {}", text(&overlay["yes"]))]];
+    if !overlay["alt"].is_null() {
+        groups.push(vec![
+            text(&overlay["alt"]["key"]).into(),
+            format!(" {}", text(&overlay["alt"]["label"])),
+        ]);
+    }
+    groups.push(vec!["n/Esc".into(), " Cancel".into()]);
+    groups.push(vec!["?".into(), " help".into()]);
+    let version = line(format!(
+        "pacer {}",
+        ctx.case["version"].as_str().unwrap_or("0.0.0-test")
+    ));
+    let join = |groups: &[Line]| -> Line {
+        let mut out = vec![];
+        for (i, g) in groups.iter().enumerate() {
+            if i > 0 {
+                out.push("  ".into());
+            }
+            out.extend(g.clone());
+        }
+        out
+    };
+    ends(join(&groups), version, w)
 }
 fn ends(left: Line, right: Line, w: usize) -> Line {
     let r = fit(&right, w.saturating_sub(10));
@@ -335,7 +491,7 @@ pub(crate) fn rows(input: &V, case: &V) -> Vec<Line> {
         now: case["now"].as_f64().unwrap_or(num(&s["at"])),
     };
     if s["setup"]["complete"] == false
-        && matches!(screen, "home" | "review" | "sessions")
+        && matches!(screen, "home" | "review" | "sessions" | "runs")
         && !(screen == "sessions"
             && arr(&case["ops"])
                 .iter()
@@ -360,33 +516,17 @@ pub(crate) fn rows(input: &V, case: &V) -> Vec<Line> {
             .or_else(|| v.items.iter().find(|i| i.id == v.initial))
             .or(v.items.first())
     };
-    let mut tabs = vec!["home", "review", "sessions", "settings"];
-    if s["setup"]["ready"] == false {
-        tabs.push("setup");
-    }
-    let mut left = vec!["▬".into(), "┃".into(), " pacer".into(), " ".into()];
+    let tabs = screen_tabs(s);
     let attention = needs(s, "").len();
-    for tab in tabs {
-        left.push("  ".into());
-        left.push(if tab == screen {
-            format!("[ {} ]", label(tab))
-        } else {
-            label(tab).into()
-        });
-        let n = if tab == "review" {
-            attention
-        } else if tab == "sessions" {
-            num(&s["counts"]["running"]) as usize
-        } else {
-            0
-        };
-        if n > 0 && tab != screen {
-            left.push(format!(" {n}"));
-        }
-        if tab == "setup" && tab != screen {
-            left.push(" !".into());
-        }
-    }
+    let run_attention = arr(&s["attention"])
+        .iter()
+        .filter(|a| !a["run"].is_null() && text(&a["kind"]) == "question")
+        .count();
+    let badge: Vec<(&str, usize)> = vec![
+        ("review", attention),
+        ("sessions", num(&s["counts"]["running"]) as usize),
+        ("runs", run_attention),
+    ];
     let connection = case["connection"].as_str().unwrap_or("live");
     let live = match connection {
         "connecting" => "○ connecting".into(),
@@ -431,6 +571,13 @@ pub(crate) fn rows(input: &V, case: &V) -> Vec<Line> {
         l
     };
     right.push(live);
+    let logo: Line = vec!["▬".into(), "┃".into(), " pacer".into(), " ".into()];
+    let right_fitted = fit(&right, inner.saturating_sub(10));
+    let tab_budget = inner
+        .saturating_sub(width(&logo))
+        .saturating_sub(width(&right_fitted))
+        .saturating_sub(2);
+    let left: Line = [logo, fit_tab_bar(&tabs, screen, &badge, tab_budget)].concat();
     let mut planner = if s["planner"].is_null() {
         line("Planner · waiting for service data")
     } else {
@@ -629,6 +776,11 @@ pub(crate) fn rows(input: &V, case: &V) -> Vec<Line> {
         ]
         .concat()
     });
-    out.push([line(" "), key_bar(&ctx, item, &v, screen, inner)].concat());
+    let footer = if text(&state["overlay"]["kind"]) == "confirm" {
+        confirm_key_bar(&ctx, &state["overlay"], inner)
+    } else {
+        key_bar(&ctx, item, &v, screen, inner)
+    };
+    out.push([line(" "), footer].concat());
     out
 }

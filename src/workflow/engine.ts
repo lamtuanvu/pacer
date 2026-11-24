@@ -51,6 +51,7 @@ import { isPersonPaused, isRunStepPaused, readPacingMode, syncRunPacingPause } f
 import { chooseStepChildRunId, completeWakeupRef, enqueueWakeup, liveTurnForTask, stepWakeRef } from "./wakeups";
 import { budgetForDefinition, serializeBudget, serializeSpent } from "./budget";
 import { canAutoApproveGenerate, canAutoDecide } from "./auto";
+import { sanitizeAnswerNote } from "./question-schema";
 import { questionEntityValue, raiseHumanStepQuestion, resolveHumanStepQuestion } from "./questions";
 import { settleOrchestratorTaskForEndedRun, settleTurn, stopLiveTurnsForRun } from "./orchestrator";
 import { ensureRootWorkNode, isWorkNodeRun, startStepTask } from "./worknode";
@@ -2066,7 +2067,7 @@ export async function retryFailedStep(
 }
 
 /** Answers a waiting human step: the answer becomes the step's result
- *  (`{ answer }`) and the run advances from it. */
+ *  (`{ answer }` or `{ answer, note }`) and the run advances from it. */
 export async function answerHumanStep(
   ctx: Ctx,
   runId: string,
@@ -2075,6 +2076,7 @@ export async function answerHumanStep(
   expectRev: number,
   deps: EngineDeps = defaultEngineDeps,
   spawn?: SpawnRunner,
+  note?: string,
 ): Promise<RunRow> {
   if (typeof answer !== "string" || answer.length < 1) throw new CoreError("invalid_input", "answer must be a non-empty string");
   const run = getRun(ctx, runId);
@@ -2144,6 +2146,10 @@ export async function answerHumanStep(
       reason: `approves: publish tip=${tip.toLowerCase()}`,
     };
   }
+  const cleanedNote = note !== undefined && note.trim() !== "" ? sanitizeAnswerNote(note) : undefined;
+  const stepResult = cleanedNote !== undefined && cleanedNote.trim() !== ""
+    ? { answer, note: cleanedNote }
+    : { answer };
   // One yield before the claim: a concurrent answer (or a stopping run) can then
   // reach the same row, and it is claimStepAnswer below — not the luck of
   // synchronous execution — that makes the answer exclusive (round 4 review).
@@ -2153,7 +2159,7 @@ export async function answerHumanStep(
   const claimed = claimStepAnswer(
     ctx,
     keyOf(row),
-    { answer },
+    stepResult,
     publishDecision ? { decision: publishDecision } : undefined,
   );
   if (!claimed) throw new CoreError("conflict", `conflict: step ${stepId} of ${runId} is not waiting for an answer`);
@@ -2168,6 +2174,7 @@ export async function answerHumanStep(
       answer,
       ctx.env.PACER_RUN_GRANT ? "orchestrator" : "person",
       row.branch,
+      cleanedNote !== undefined && cleanedNote !== "" ? cleanedNote : undefined,
     );
   } catch (err) {
     if (!(err instanceof CoreError) || err.code !== "conflict") throw err;
@@ -2181,7 +2188,7 @@ export async function answerHumanStep(
   } catch (err) {
     if (!(err instanceof CoreError) || err.code !== "conflict") throw err;
   }
-  await advanceFrom(ctx, runId, def, claimed, { answer }, { deps, spawn });
+  await advanceFrom(ctx, runId, def, claimed, stepResult, { deps, spawn });
   return getRun(ctx, runId)!;
 }
 
@@ -2413,21 +2420,23 @@ export async function answerGenerateApproval(
     }, spawn, deps);
     return getRun(ctx, input.runId)!;
   }
-  const note = input.note
+  const rawNote = input.note
     ?? (answer.startsWith("revise:") || answer.startsWith("revise ")
       ? answer.replace(/^revise[:\s]+/i, "").trim()
       : "");
+  // Trim before emptiness so whitespace-only notes do not become fenced space blocks.
+  const note = typeof rawNote === "string" && rawNote.trim() !== "" ? rawNote : undefined;
   const reviseCount = (typeof prior.reviseCount === "number" ? prior.reviseCount : 0) + 1;
   const retries = stepDef.retries ?? 2;
   setGraphStatus(ctx, {
     runId: run.id, stepId: input.stepId, attempt: row.attempt, version: prior.graphVersion as number,
-  }, "rejected", note || undefined);
+  }, "rejected", note);
   if (reviseCount > retries) {
     updateStep(ctx, keyOf(row), {
       status: "failed",
       error: `generate revise failed after ${retries} retries`,
       endedAt: ctx.now,
-      result: { ...prior, reviseCount, reviseNote: note || undefined, pendingApproval: undefined },
+      result: { ...prior, reviseCount, reviseNote: note, pendingApproval: undefined },
     });
     enqueueWakeup(ctx, {
       runId: run.id,
@@ -2441,7 +2450,7 @@ export async function answerGenerateApproval(
     result: {
       ...prior,
       reviseCount,
-      reviseNote: note || undefined,
+      reviseNote: note,
       pendingApproval: undefined,
       graphVersion: undefined,
     },

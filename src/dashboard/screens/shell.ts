@@ -5,12 +5,14 @@ import { agentInfo } from "../../view-model/agents";
 import { compactPolicyWords, policyWords, modeWords, paceStatus, type StatusTone } from "../../view-model/words";
 import { clock } from "../../view-model/time";
 import { captionReset, usageView } from "../../view-model/usage";
-import { box, clip, fit, glyph, heading, lineWidth, meter, pad, paint, rule, span, statusSpans, toneRole, wrap, type Line, type PaintRow } from "../frame";
-import { SCREEN_LABELS, selectedItem, type Item, type Overlay, type ScreenId, type UiState } from "../state";
+import { box, clip, clipEnd, fit, glyph, heading, lineWidth, meter, pad, paint, rule, span, statusSpans, toneRole, wrap, type Line, type PaintRow } from "../frame";
+import { QUESTION_ANSWER_MAX, QUESTION_NOTE_MAX } from "./answer-encoding";
+import { SCREEN_KEYS, SCREEN_LABELS, selectedItem, type Item, type Overlay, type ScreenId, type UiState } from "../state";
 import type { Style, TerminalTheme } from "../theme";
 import { MARK, type UpdateState } from "./common";
 import { homeScreen } from "./home";
 import { reviewScreen } from "./review";
+import { runsScreen } from "./runs";
 import { sessionsScreen } from "./sessions";
 import { settingsScreen } from "./settings";
 import { setupScreen } from "./setup";
@@ -42,38 +44,103 @@ export const MIN_WIDTH = 60, MIN_HEIGHT = 16, WIDE = 110, MAX_WIDTH = 160;
 const CHROME = 6;
 
 export function tabs(s: ClientSnapshot): ScreenId[] {
-  return ["home", "review", "sessions", "settings", ...(s.setup && s.setup.ready === false ? ["setup" as const] : [])];
+  return ["home", "review", "sessions", "runs", "settings", ...(s.setup && s.setup.ready === false ? ["setup" as const] : [])];
 }
 /** While setup is incomplete, work screens show Setup, as the app redirects them to #/setup. */
 export function effectiveScreen(s: ClientSnapshot, screen: ScreenId, ops?: readonly string[]): ScreenId {
   if (screen === "sessions" && ops?.includes("session.create")) return screen;
-  return s.setup && s.setup.complete === false && ["home", "review", "sessions"].includes(screen) ? "setup" : screen;
+  return s.setup && s.setup.complete === false && ["home", "review", "sessions", "runs"].includes(screen) ? "setup" : screen;
 }
 
 export function screenContext(input: FrameInput): ScreenCtx {
   const width = Math.min(MAX_WIDTH, Math.max(1, input.width)) - 2;
-  const supports = (op: string) => input.ops === undefined || input.ops.includes(op);
+  const supports = (op: string) => {
+    if (input.ops === undefined) {
+      if (op.startsWith("run.") || op.startsWith("question.")) return false;
+      return true;
+    }
+    return input.ops.includes(op);
+  };
   return { s: input.s, now: input.now, theme: input.theme, state: input.state, width, height: Math.max(1, input.height - CHROME), wide: input.width >= WIDE, supports, data: input.data, timeZone: input.timeZone, ...(input.spinner ? { spinner: input.spinner } : {}) };
 }
 export function screenView(input: FrameInput): { ctx: ScreenCtx; view: ScreenView; screen: ScreenId } {
   const ctx = screenContext(input), screen = effectiveScreen(input.s, input.state.screen, input.ops);
-  const build = { home: homeScreen, review: reviewScreen, sessions: sessionsScreen, settings: settingsScreen, setup: setupScreen }[screen];
+  const build = { home: homeScreen, review: reviewScreen, sessions: sessionsScreen, runs: runsScreen, settings: settingsScreen, setup: setupScreen }[screen];
   return { ctx, view: build({ ...ctx, state: { ...ctx.state, screen } }), screen };
+}
+
+/** Unambiguous short forms when the bar is tight (bare "N"/"T"/"S" collide). */
+const SHORT_LABELS: Partial<Record<ScreenId, string>> = {
+  review: "Needs",
+  sessions: "Tsk",
+  settings: "Set",
+};
+
+/** Build one tab's spans. `mode` shortens inactive labels when the bar is tight. */
+function tabSpans(
+  theme: TerminalTheme,
+  tab: ScreenId,
+  active: boolean,
+  badge: Partial<Record<ScreenId, [number, StatusTone]>>,
+  mode: "full" | "short" | "omit",
+): Line {
+  if (mode === "omit") return [];
+  const label = SCREEN_LABELS[tab];
+  const shown = mode === "short" && !active ? (SHORT_LABELS[tab] ?? label.slice(0, 1)) : label;
+  const out: Line = [span("  ")];
+  if (active) out.push(span(`[ ${shown} ]`, { fg: "focus", bold: true }));
+  else out.push(span(shown, { fg: "secondary" }));
+  const [n, tone] = badge[tab] ?? [0, "neutral"];
+  // Full width: every badge. Short width: keep Needs attention only (`Needs 15`), drop Tsk/Runs counts.
+  if (n > 0 && !active && (mode === "full" || (mode === "short" && tab === "review"))) {
+    out.push(span(theme.plain ? ` (${n})` : ` ${n}`, { fg: toneRole(tone), bold: true }));
+  }
+  if (tab === "setup" && !active) out.push(span(" !", { fg: "warn", bold: true }));
+  return out;
+}
+
+/** Prefer dropping Setup/Home before Needs/Tsk/Set so short labels stay unambiguous at 60 cols. */
+function omitPreference(tab: ScreenId): number {
+  if (tab === "setup") return 0;
+  if (tab === "home") return 1;
+  return 2;
+}
+
+/** Prefer a full active tab; abbreviate then drop inactive tabs when width is tight (UI-11). */
+export function fitTabBar(
+  theme: TerminalTheme,
+  tabIds: ScreenId[],
+  screen: ScreenId,
+  badge: Partial<Record<ScreenId, [number, StatusTone]>>,
+  budget: number,
+): Line {
+  const isActive = (tab: ScreenId) => tab === screen || (tab === "setup" && screen === "setup");
+  const modes = new Map<ScreenId, "full" | "short" | "omit">(tabIds.map(t => [t, "full"]));
+  const render = () => tabIds.flatMap(tab => tabSpans(theme, tab, isActive(tab), badge, modes.get(tab)!));
+  if (lineWidth(render()) <= budget) return render();
+  for (const tab of [...tabIds].reverse()) {
+    if (isActive(tab)) continue;
+    modes.set(tab, "short");
+    if (lineWidth(render()) <= budget) return render();
+  }
+  const omitOrder = [...tabIds].sort((a, b) => omitPreference(a) - omitPreference(b) || tabIds.indexOf(a) - tabIds.indexOf(b));
+  for (const tab of omitOrder) {
+    if (isActive(tab)) continue;
+    modes.set(tab, "omit");
+    if (lineWidth(render()) <= budget) return render();
+  }
+  // Last resort: active tab alone (may still clip via ends/fit if logo+active exceed budget).
+  return render();
 }
 
 function topBar(input: FrameInput, screen: ScreenId, width: number): Line {
   const { s, theme } = input, c = counts(s);
-  const left: Line = [span(glyph(theme, "▬┃").slice(0, -1), { fg: "ink", bold: true }), span(glyph(theme, "▬┃").slice(-1), { fg: "accent", bold: true }), span(" pacer", { fg: "ink", bold: true }), span(" ")];
-  const badge: Partial<Record<ScreenId, [number, StatusTone]>> = c ? { review: [c.attention, "warn"], sessions: [c.running, "info"] } : {};
-  for (const tab of tabs(s)) {
-    const label = SCREEN_LABELS[tab], active = tab === screen || tab === "setup" && screen === "setup";
-    left.push(span("  "));
-    if (active) left.push(span(`[ ${label} ]`, { fg: "focus", bold: true }));
-    else left.push(span(label, { fg: "secondary" }));
-    const [n, tone] = badge[tab] ?? [0, "neutral"];
-    if (n > 0 && !active) left.push(span(theme.plain ? ` (${n})` : ` ${n}`, { fg: toneRole(tone), bold: true }));
-    if (tab === "setup" && !active) left.push(span(" !", { fg: "warn", bold: true }));
-  }
+  // Logo uses ink (not accent/track): light-theme track fails 4.5:1 on the page surface (UI-2).
+  const logo: Line = [span(glyph(theme, "▬┃").slice(0, -1), { fg: "ink", bold: true }), span(glyph(theme, "▬┃").slice(-1), { fg: "ink", bold: true }), span(" pacer", { fg: "ink", bold: true }), span(" ")];
+  const runAttention = (input.s.attention ?? []).filter(a => a.run && a.kind === "question").length;
+  const badge: Partial<Record<ScreenId, [number, StatusTone]>> = c
+    ? { review: [c.attention, "warn"], sessions: [c.running, "info"], runs: [runAttention, "warn"] }
+    : { runs: [runAttention, "warn"] };
   // A quiet service keeps its snapshot time, so liveness follows the dashboard's own reads.
   const readAt = input.readAt ?? s.at;
   const live = input.connection === "connecting" ? `${glyph(theme, "○")} connecting`
@@ -84,7 +151,15 @@ function topBar(input: FrameInput, screen: ScreenId, width: number): Line {
   const mode = s.mode?.mode ?? s.planner?.mode;
   const liveSpan = span(live, { fg: input.connection === "live" ? "good" : input.connection === "offline" ? "warn" : "muted" });
   const right: Line = width < 100 ? [liveSpan] : [span(scope, { fg: "secondary" }), ...(mode ? [span(` ${glyph(theme, "·")} `, { fg: "muted" }), span(modeWords(mode), { fg: mode === "normal" ? "secondary" : "warn" })] : []), span(` ${glyph(theme, "·")} `, { fg: "muted" }), liveSpan];
+  const rightFitted = fit(right, Math.max(0, width - 10), theme);
+  const tabBudget = computeTabBudget(width, logo, rightFitted);
+  const left: Line = [...logo, ...fitTabBar(theme, tabs(s), screen, badge, tabBudget)];
   return ends(left, right, width, theme);
+}
+
+/** Tab-bar column budget for a given chrome width (logo + right chrome already measured). */
+export function computeTabBudget(width: number, logo: Line, rightFitted: Line): number {
+  return Math.max(0, width - lineWidth(logo) - lineWidth(rightFitted) - 2);
 }
 function ends(left: Line, right: Line, width: number, theme: TerminalTheme): Line {
   const r = fit(right, Math.max(0, width - 10), theme), l = fit(left, Math.max(0, width - lineWidth(r) - 2), theme);
@@ -154,16 +229,79 @@ function overlayLines(input: FrameInput, overlay: Overlay, view: ScreenView, wid
     case "help": return box(theme, "Keyboard shortcuts", scrolled(theme, helpLines(input), overlay.scroll ?? 0, Math.max(3, height - 2)), w);
     case "confirm": return box(theme, overlay.title, [
       ...overlay.body.flatMap(text => wrap(text, w - 4).map(line => [span(line, { fg: "secondary" })])), [],
-      [span("y", { bold: true }), span(` ${overlay.yes}`), ...(overlay.alt ? [span("   "), span(overlay.alt.key, { bold: true }), span(` ${overlay.alt.label}`)] : []), span("   "), span("n", { bold: true }), span(" Cancel")],
+      // Enter confirms and Esc cancels for every confirm (same as y/n); document both so the hint matches keys.
+      // Use glyph() so plain/ASCII themes show "Enter", not a bare "#" from ascii transliteration.
+      [span(`y/${glyph(theme, "⏎")}`, { bold: true }), span(` ${overlay.yes}`), ...(overlay.alt ? [span(" · "), span(overlay.alt.key, { bold: true }), span(` ${overlay.alt.label}`)] : []), span(" · "), span("n/Esc", { bold: true }), span(" Cancel")],
     ], w);
     case "menu": return box(theme, overlay.title, [...overlay.actions.map((a, i): Line => [span(i === overlay.index ? `${glyph(theme, "›")} ` : "  ", { fg: "focus", bold: true }), span(`${i + 1}`, { bold: true }), span(` ${a.label}`, a.danger ? { fg: "bad" } : {})]), [], [span("1-9 or ⏎ choose · Esc cancel", { fg: "muted" })]], w);
-    case "prompt": return box(theme, overlay.spec.title, [
-      [span(overlay.spec.label, { fg: "secondary" })],
-      [span(`${glyph(theme, "›")} `, { fg: "focus" }), span(clip(overlay.value, w - 8)), span(theme.unicode ? "▌" : "_", { fg: "focus" })],
-      ...(overlay.error ? [statusSpans(theme, { label: overlay.error, tone: "bad", glyph: "✕" })] : []),
-      ...(overlay.spec.help ? [[span(overlay.spec.help, { fg: "muted" })]] : []),
-      [], [span("⏎ submit · Esc cancel", { fg: "muted" })],
-    ], w);
+    case "prompt": {
+      const max = overlay.spec.maxLength;
+      const promptLines: Line[] = [
+        [span(overlay.spec.label, { fg: "secondary" })],
+        [span(`${glyph(theme, "›")} `, { fg: "focus" }), span(clipEnd(overlay.value, w - 8)), span(theme.unicode ? "▌" : "_", { fg: "focus" })],
+      ];
+      if (max !== undefined) {
+        promptLines.push([span(`${overlay.value.length}/${max}`, { fg: overlay.value.length > max ? "bad" : "muted" })]);
+      }
+      if (overlay.error) promptLines.push(statusSpans(theme, { label: overlay.error, tone: "bad", glyph: "✕" }));
+      if (overlay.spec.help) promptLines.push([span(overlay.spec.help, { fg: "muted" })]);
+      promptLines.push([], [span("⏎ submit · Esc cancel", { fg: "muted" })]);
+      return box(theme, overlay.spec.title, promptLines, w);
+    }
+    case "answer": {
+      const lines: Line[] = [];
+      // Question body in the box (title alone is clipped); bound wrap depth (N6).
+      const bodyLines = wrap(overlay.title, w - 4, 6).map((wline): Line => [span(wline, { fg: "secondary" })]);
+      if (overlay.recommended) lines.push([span(`Recommended: ${overlay.recommended}`, { fg: "good" })]);
+      if (overlay.phase === "text" || overlay.phase === "note") {
+        const max = overlay.phase === "note" ? QUESTION_NOTE_MAX : QUESTION_ANSWER_MAX;
+        lines.push(...bodyLines, []);
+        lines.push([span(overlay.phase === "note" ? "Revision note" : "Your answer", { fg: "secondary" })]);
+        lines.push([span(`${glyph(theme, "›")} `, { fg: "focus" }), span(clipEnd(overlay.note, w - 8)), span(theme.unicode ? "▌" : "_", { fg: "focus" })]);
+        lines.push([span(`${overlay.note.length}/${max}`, { fg: overlay.note.length > max ? "bad" : "muted" })]);
+        if (overlay.error) lines.push(statusSpans(theme, { label: overlay.error, tone: "bad", glyph: "✕" }));
+        lines.push([], [span("⏎ submit · Esc cancel", { fg: "muted" })]);
+        return box(theme, "Answer", lines, w);
+      }
+      if (overlay.mode === "yes_no") {
+        lines.push(...bodyLines, []);
+        lines.push([span("y", { bold: true }), span(" Yes   "), span("n", { bold: true }), span(" No")]);
+        if (overlay.recommended) lines.push([span(`Recommended: ${overlay.recommended}`, { fg: "muted" })]);
+        if (overlay.error) lines.push(statusSpans(theme, { label: overlay.error, tone: "bad", glyph: "✕" }));
+        lines.push([], [span("y / n · Esc cancel", { fg: "muted" })]);
+        return box(theme, "Answer", lines, w);
+      }
+      lines.push(...bodyLines);
+      if (bodyLines.length) lines.push([]);
+      for (const [i, option] of overlay.options.entries()) {
+        const on = overlay.selected.includes(option.value);
+        const focused = i === overlay.index;
+        const cursor = focused ? `${glyph(theme, "›")} ` : "  ";
+        // Multi keeps › with the checkbox so PLAIN_THEME/NO_COLOR still marks focus.
+        const mark = overlay.mode === "multi"
+          ? `${cursor}${on ? "[x]" : "[ ]"} `
+          : cursor;
+        const rec = option.value === overlay.recommended ? " · recommended" : "";
+        const note = option.note ? ` · ${option.note}` : "";
+        lines.push([
+          span(mark, { fg: "focus", bold: true }),
+          span(`${i + 1} ${option.label}${rec}${note}`, focused ? { bold: true } : {}),
+        ]);
+      }
+      if (!overlay.options.length) {
+        // Wrap so the question id and `pacer answer … "<your answer>"` stay fully visible (N6).
+        const hint = overlay.emptyHint ?? 'This question has no options; answer it with pacer answer "<your answer>"';
+        lines.push(...wrap(hint, w - 4).map((line): Line => [span(line, { fg: "warn" })]));
+      }
+      if (overlay.error) lines.push(statusSpans(theme, { label: overlay.error, tone: "bad", glyph: "✕" }));
+      const hint = !overlay.options.length
+        ? "Esc cancel"
+        : overlay.mode === "multi"
+          ? "space toggle · ⏎ submit · Esc cancel"
+          : "1-9 or ⏎ choose · Esc cancel";
+      lines.push([], [span(hint, { fg: "muted" })]);
+      return box(theme, "Answer", lines, w);
+    }
   }
 }
 /** Show `rows` from `scroll` within `room` lines, marking rows hidden above and below. */
@@ -187,13 +325,20 @@ const SCREEN_HELP: Partial<Record<ScreenId, HelpRow[]>> = {
   home: [["x", "Dismiss", "attention.dismiss"], ["v", "Open in Review"], ["b", "Block or unblock an executor", "runner.block"], ["t m", "Terminal window · tmux pane", "task.attach"], ["s", "Stop", "task.stop"]],
   review: [["a", "Mark accepted", "task.review"], ["s", "Send back with a note", "task.review"], ["r", "Reject with a note", "task.review"], ["t", "Retry on another executor", "task.review"], ["o", "Show worktree path"]],
   sessions: [["⏎", "Watch here", "task.attach"], ["t", "Open in a terminal window", "task.attach"], ["m", "Open in a tmux pane", "task.attach"], ["s", "Stop", "task.stop"], ["x", "Dismiss", "task.dismiss"]],
+  runs: [
+    ["⏎", "Open run / task"], ["a", "Answer", "question.answer"], ["p", "Pause or resume", "run.pause"],
+    ["s", "Stop", "run.stop"], ["P", "Cycle priority", "run.set_priority"], ["A", "Toggle auto", "run.set_auto"],
+    ["m", "Message orchestrator", "msg.send"], ["Esc", "Back to run list"],
+  ],
   settings: [["⏎ / →", "Open a section"], ["← →", "Adjust a value"], ["Esc", "Back to sections"]],
   setup: [["⏎", "Run the selected step"], ["x", "Skip first delegation", "onboarding.skip"]],
 };
 function helpLines(input: FrameInput): Line[] {
   const screen = effectiveScreen(input.s, input.state.screen, input.ops);
   const offered = (op?: string) => !op || input.ops === undefined || input.ops.includes(op);
-  const switchKeys = `1-${tabs(input.s).length} / Tab Shift-Tab`;
+  // Number shortcuts are not positional (Runs is 6; Settings stays 4), so the help
+  // shows the highest offered digit rather than the tab count.
+  const switchKeys = `1-${Math.max(0, ...Object.entries(SCREEN_KEYS).filter(([, id]) => tabs(input.s).includes(id)).map(([k]) => Number(k)))} / Tab Shift-Tab`;
   const keysOf = (k: string) => k === "TABS" ? switchKeys : k;
   // One key column for the whole overlay, as wide as its longest key.
   const column = Math.max(12, ...[...HELP, ...(SCREEN_HELP[screen] ?? [])].map(([k]) => keysOf(k).length + 2));
@@ -201,16 +346,47 @@ function helpLines(input: FrameInput): Line[] {
   return [...group("Anywhere", HELP), [], ...group(SCREEN_LABELS[screen], SCREEN_HELP[screen] ?? [])];
 }
 
+/** Footer while a confirm overlay is open: dialog keys only — never `⏎ Answer` while Enter means Stop. */
+function confirmKeyBar(
+  input: FrameInput,
+  overlay: Extract<Overlay, { kind: "confirm" }>,
+  width: number,
+): Line {
+  const { theme } = input;
+  const enter = glyph(theme, "⏎");
+  const groups: Line[] = [
+    [span(`y/${enter}`, { bold: true }), span(` ${overlay.yes}`, { fg: "secondary" })],
+  ];
+  if (overlay.alt) groups.push([span(overlay.alt.key, { bold: true }), span(` ${overlay.alt.label}`, { fg: "secondary" })]);
+  groups.push([span("n/Esc", { bold: true }), span(" Cancel", { fg: "secondary" })]);
+  const help: Line = [span("?", { bold: true }), span(" help", { fg: "secondary" })];
+  const version = span(`pacer ${input.version}`, { fg: "muted" });
+  const join = (list: Line[]) => list.flatMap((g, i) => i ? [span("  "), ...g] : g);
+  return ends(join([...groups, help]), [version], width, theme);
+}
+
 function keyBar(input: FrameInput, item: Item | undefined, view: ScreenView, screen: ScreenId, width: number): Line {
   const { theme } = input, groups: Line[] = [];
-  const add = (key: string, label: string) => { groups.push([span(key, { bold: true }), span(` ${label}`, { fg: "secondary" })]); };
+  // Dedupe by key+label: rebound acts are new objects, so referential `!== primary` fails.
+  const seen = new Set<string>();
+  const add = (key: string, label: string) => {
+    const id = `${key}\0${label}`;
+    if (seen.has(id)) return;
+    seen.add(id);
+    groups.push([span(key, { bold: true }), span(` ${label}`, { fg: "secondary" })]);
+  };
   const listFocus = screen === "settings" && input.state.focus === "list";
   const enter = glyph(theme, "⏎");
   if (listFocus) { add(enter, "open section"); add("j k", "sections"); }
   else if (item) {
     if (item.primary) add(enter, item.primary.label);
     // Arrow keys are summarised by the screen hint ("← → adjust").
-    for (const [key, act] of Object.entries(item.keys)) if (act !== item.primary && key !== "left" && key !== "right") add(key, act.label.toLowerCase());
+    const primaryLabel = item.primary?.label;
+    for (const [key, act] of Object.entries(item.keys)) {
+      if (key === "left" || key === "right") continue;
+      if (primaryLabel && act.label === primaryLabel) continue;
+      add(key, act.label.toLowerCase());
+    }
     const more = item.actions.length;
     if (more) add(".", `actions (${more + (item.primary ? 1 : 0)})`);
   }
@@ -304,6 +480,9 @@ export function renderFrame(input: FrameInput): string {
   out.push({ line: [span(" "), ...rule(theme, inner)] });
   const message = input.message ? statusSpans(theme, { label: input.message.text, tone: input.message.tone, glyph: input.message.tone === "bad" ? "✕" : input.message.tone === "warn" ? "!" : input.message.tone === "good" ? "✓" : "·" }) : [];
   out.push({ line: [span(" "), ...fit(message, inner, theme)] });
-  out.push({ line: [span(" "), ...keyBar(input, item, view, screen, inner)] });
+  const footer = state.overlay?.kind === "confirm"
+    ? confirmKeyBar(input, state.overlay, inner)
+    : keyBar(input, item, view, screen, inner);
+  out.push({ line: [span(" "), ...footer] });
   return paint(theme, out.slice(0, height), width);
 }

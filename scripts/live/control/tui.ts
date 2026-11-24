@@ -3,13 +3,14 @@ import type { OperationContext } from "./deadline";
 import { createHash } from "node:crypto";
 import { sandboxEnv, type Session } from "../core";
 import { ControlError, type SurfaceAdapter, type Target } from "./contract";
+import { liveTmuxArgs, liveTmuxSocket } from "../tmux-socket";
 export function createTuiAdapter(session: Session): SurfaceAdapter {
-  const pane = `pacer-live-${session.id}`;
+  const pane = liveTmuxSocket(session.id);
   const target: Target = { id: "main", surface: "tui", generation: session.createdAt ?? session.id, capabilities: ["inspect", "type", "key", "capture", "resize"] };
   async function tmux(args: string[], clock?: OperationContext, mutation = false): Promise<string> {
     if (!Bun.which("tmux", { PATH: sandboxEnv(session).PATH })) throw new ControlError("observer_unavailable", "tmux is unavailable");
     clock?.check();
-    const child = Bun.spawn(["tmux", ...args], { cwd: join(session.root, "repo"), env: sandboxEnv(session), stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+    const child = Bun.spawn(["tmux", ...liveTmuxArgs(session.id, args)], { cwd: join(session.root, "repo"), env: sandboxEnv(session), stdin: "ignore", stdout: "pipe", stderr: "pipe" });
     const stdout = child.stdout.getReader(), stderr = child.stderr.getReader();
     const cancel = () => {
       child.kill("SIGKILL");

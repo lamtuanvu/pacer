@@ -20,7 +20,7 @@ import {
 import {
   answerQuestion, askQuestion, escalateQuestion, syncHumanStepAnswerers,
 } from "../workflow/questions";
-import { questionInputSchema } from "../workflow/question-schema";
+import { answerNoteSchema, questionInputSchema, sanitizeAnswerNote } from "../workflow/question-schema";
 import { convertPromptWaitToQuestion } from "../workflow/prompt-detector";
 import {
   answerGenerateApproval, answerHumanStep, chooseWorkflow, defaultEngineDeps, recordStepResult, retryFailedStep,
@@ -170,7 +170,7 @@ export const workflowOps: Record<string, OpDef> = {
     },
   }),
   "run.get": op({
-    description: "One run with its step instances and generated graph versions. Person, or a live run grant for its own run (expect_rev for sync/publish).",
+    description: "One run with its step instances and generated graph versions. When the exact workflow@version definition is stored, the result includes additive `definition` `{ entry, edges[{ from, to, when?, maxLoops? }], steps{ id: { type, branches? } } }` (fanout steps carry `branches`); the field is omitted when that version is missing. Person, or a live run grant for its own run (expect_rev for sync/publish).",
     params: z.object({ id: runId }),
     handler: (ctx, p) => {
       // R3-I2: grants may read their own run (CLI sync/publish fetch expect_rev via run.get).
@@ -186,6 +186,25 @@ export const workflowOps: Record<string, OpDef> = {
       const run = getRun(ctx, p.id);
       if (!run) throw new CoreError("not_found", `unknown run ${p.id}`);
       const steps = stepsOfRun(ctx, p.id);
+      // Additive graph projection for clients (TUI tree): types + edges from the
+      // exact stored definition only — never fall back to another version's graph
+      // (clients render a flat startedAt order when the exact def is missing).
+      const def = getDefinition(ctx, `${run.workflow}@${run.version}`);
+      const definition = def ? {
+        entry: def.entry,
+        edges: def.edges.map(e => ({
+          from: e.from,
+          to: e.to,
+          ...(e.when !== undefined ? { when: e.when } : {}),
+          ...(e.maxLoops !== undefined ? { maxLoops: e.maxLoops } : {}),
+        })),
+        steps: Object.fromEntries(Object.entries(def.steps).map(([id, step]) => {
+          if (step.type === "fanout") {
+            return [id, { type: step.type as string, branches: [...step.branches] }];
+          }
+          return [id, { type: step.type as string }];
+        })),
+      } : undefined;
       let pendingApproval: {
         stepId: string;
         attempt: number;
@@ -220,6 +239,7 @@ export const workflowOps: Record<string, OpDef> = {
         steps,
         graphs: listGraphSummaries(ctx, p.id),
         artifacts: listArtifacts(ctx, p.id),
+        ...(definition ? { definition } : {}),
         ...(pendingApproval ? { pendingApproval } : {}),
       };
     },
@@ -234,7 +254,13 @@ export const workflowOps: Record<string, OpDef> = {
   }),
   "run.answer": op({
     description: "Answer a waiting human step or approve/revise a generated graph. Requires the run's current rev.",
-    params: z.object({ id: runId, step: z.string().min(1).max(128), answer: z.string().min(1).max(4000), expect_rev: z.number().int().positive() }),
+    params: z.object({
+      id: runId,
+      step: z.string().min(1).max(128),
+      answer: z.string().min(1).max(4000),
+      note: answerNoteSchema.optional(),
+      expect_rev: z.number().int().positive(),
+    }),
     handler: async (ctx, p, deps) => {
       assertPersonCaller(ctx);
       const { deps: engine, spawn } = engineDeps(deps);
@@ -242,12 +268,14 @@ export const workflowOps: Record<string, OpDef> = {
       if (!run) throw new CoreError("not_found", `unknown run ${p.id}`);
       const def = getDefinition(ctx, `${run.workflow}@${run.version}`) ?? getDefinition(ctx, run.workflow);
       const stepDef = def?.steps[p.step];
+      const note = p.note !== undefined ? sanitizeAnswerNote(p.note) : undefined;
+      const noteArg = note !== undefined && note.trim() !== "" ? note : undefined;
       if (stepDef?.type === "generate") {
         return answerGenerateApproval(ctx, {
-          runId: p.id, stepId: p.step, answer: p.answer, expectRev: p.expect_rev,
+          runId: p.id, stepId: p.step, answer: p.answer, note: noteArg, expectRev: p.expect_rev,
         }, engine, spawn);
       }
-      return answerHumanStep(ctx, p.id, p.step, p.answer, p.expect_rev, engine, spawn);
+      return answerHumanStep(ctx, p.id, p.step, p.answer, p.expect_rev, engine, spawn, noteArg);
     },
   }),
   "run.stop": op({
@@ -868,15 +896,23 @@ export const workflowOps: Record<string, OpDef> = {
     params: z.object({
       id: questionId,
       answer: z.string().min(1).max(2000),
-      note: z.string().max(4000).optional(),
+      note: answerNoteSchema.optional(),
       expect_rev: z.number().int().positive(),
     }),
-    handler: async (ctx, p, deps) => answerQuestion(ctx, {
-      id: p.id,
-      answer: p.answer,
-      ...(p.note !== undefined ? { note: p.note } : {}),
-      expectRev: p.expect_rev,
-    }, { spawnRunner: deps.spawnRunner }),
+    handler: async (ctx, p, deps) => {
+      const { deps: engine, spawn } = engineDeps(deps);
+      const cleaned = p.note !== undefined ? sanitizeAnswerNote(p.note) : undefined;
+      const note = cleaned !== undefined && cleaned.trim() !== "" ? cleaned : undefined;
+      return answerQuestion(ctx, {
+        id: p.id,
+        answer: p.answer,
+        ...(note !== undefined ? { note } : {}),
+        expectRev: p.expect_rev,
+      }, {
+        spawnRunner: spawn,
+        ...(deps.delegate ? { engineDeps: engine } : {}),
+      });
+    },
   }),
   "question.escalate": op({
     description: "Escalate an open orchestrator-answerer question to the person with a suggested answer.",

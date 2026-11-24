@@ -87,6 +87,10 @@ impl ::std::convert::From<::serde_json::Value> for PacerClientProtocol {
 ///      "type": "string",
 ///      "pattern": "^run_[a-z2-7]{10}$"
 ///    },
+///    "note": {
+///      "type": "string",
+///      "maxLength": 4000
+///    },
 ///    "step": {
 ///      "type": "string",
 ///      "maxLength": 128,
@@ -103,6 +107,8 @@ pub struct RunAnswerParams {
     pub answer: RunAnswerParamsAnswer,
     pub expect_rev: ::std::num::NonZeroU64,
     pub id: RunAnswerParamsId,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub note: ::std::option::Option<RunAnswerParamsNote>,
     pub step: RunAnswerParamsStep,
 }
 ///`RunAnswerParamsAnswer`
@@ -204,6 +210,58 @@ impl ::std::convert::TryFrom<&str> for RunAnswerParamsId {
     }
 }
 impl<'de> ::serde::Deserialize<'de> for RunAnswerParamsId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`RunAnswerParamsNote`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 4000
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct RunAnswerParamsNote(::std::string::String);
+impl ::std::ops::Deref for RunAnswerParamsNote {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<RunAnswerParamsNote> for ::std::string::String {
+    fn from(value: RunAnswerParamsNote) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for RunAnswerParamsNote {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 4000usize {
+            return Err("longer than 4000 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for RunAnswerParamsNote {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for RunAnswerParamsNote {
     fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
     where
         D: ::serde::Deserializer<'de>,
