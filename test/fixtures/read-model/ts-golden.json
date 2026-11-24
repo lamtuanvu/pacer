@@ -447,7 +447,7 @@
               }
             }
           ],
-          "notify": "important"
+          "notify": "all"
         }
       ],
       "service": {
@@ -1595,7 +1595,7 @@
               }
             }
           ],
-          "notify": "important",
+          "notify": "all",
           "taskId": "TASK_3",
           "executor": "codex"
         },
@@ -2078,7 +2078,7 @@
               }
             }
           ],
-          "notify": "important",
+          "notify": "all",
           "taskId": "TASK_3",
           "executor": "codex"
         },
@@ -2539,7 +2539,7 @@
               }
             }
           ],
-          "notify": "important",
+          "notify": "all",
           "taskId": "TASK_3",
           "executor": "codex"
         },
@@ -3028,7 +3028,7 @@
               }
             }
           ],
-          "notify": "important",
+          "notify": "all",
           "taskId": "TASK_3",
           "executor": "codex"
         },
@@ -3516,7 +3516,7 @@
               }
             }
           ],
-          "notify": "important",
+          "notify": "all",
           "taskId": "TASK_3",
           "executor": "codex"
         },
