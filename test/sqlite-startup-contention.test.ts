@@ -378,16 +378,18 @@ await serve({
   workflowDatabase(ctx);
   await callOp(ctx, "plugin.enable", { id, grant: true });
 
-  let service: ReturnType<typeof startServer> | undefined;
-  const started = performance.now();
-  service = startServer(() => ctx, { port: 0, pumpMs: 0 });
-  expect(performance.now() - started).toBeLessThan(1000);
-
+  // Hold the writer before startServer so its setTimeout(0) sync cannot race ahead of
+  // BEGIN IMMEDIATE and store the definition before the explicit defer assertion below.
   const writer = new Database(join(ctx.pacerHome, "state/tasks.db"));
   writer.exec("BEGIN IMMEDIATE");
   const deferred: Array<() => void> = [];
   let released = false;
+  let service: ReturnType<typeof startServer> | undefined;
   try {
+    const started = performance.now();
+    service = startServer(() => ctx, { port: 0, pumpMs: 0 });
+    expect(performance.now() - started).toBeLessThan(1000);
+
     await syncAllPluginWorkflows(ctx, {
       defer: work => { deferred.push(work); },
       retryDelaysMs: [1],
