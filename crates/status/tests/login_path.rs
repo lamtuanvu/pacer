@@ -11,6 +11,36 @@
 use pacer_status::login_path::{LoginPaths, login_shell, on_path};
 use std::collections::HashMap;
 use std::os::unix::fs::PermissionsExt;
+use std::path::Path;
+
+/// Write an executable fake login shell at `dir/fake` returning the temp
+/// dir. The script's body (`$body`) runs before the fixed `-c` command is
+/// executed through a real shell, so it can emulate profile output, PATH
+/// edits, sleep, or a marker file. Invoked as `fake -l -i -c COMMAND`.
+fn fake_shell(body: &str) -> tempfile::TempDir {
+    let d = tempfile::tempdir().unwrap();
+    let script = format!(
+        "#!/bin/sh\n{body}\nprev=\"\"\nfor a in \"$@\"; do\n  if [ \"$prev\" = \"-c\" ]; then exec sh -c \"$a\"; fi\n  prev=\"$a\"\ndone\n"
+    );
+    let path = d.path().join("fake");
+    std::fs::write(&path, script).unwrap();
+    let mut perms = std::fs::metadata(&path).unwrap().permissions();
+    perms.set_mode(0o755);
+    std::fs::set_permissions(&path, perms).unwrap();
+    d
+}
+
+/// A service environment pointing `SHELL` at a fake shell in `dir`.
+fn env_with_shell(dir: &tempfile::TempDir, cwd: &str) -> HashMap<String, String> {
+    let mut env = HashMap::new();
+    env.insert(
+        "SHELL".to_string(),
+        dir.path().join("fake").to_string_lossy().into_owned(),
+    );
+    env.insert("PATH".to_string(), "/usr/bin:/bin".to_string());
+    env.insert("PWD".to_string(), cwd.to_string());
+    env
+}
 
 fn make_cwd() -> (tempfile::TempDir, String) {
     // A live temp dir used as both the shell's working directory and a unique
@@ -139,5 +169,96 @@ fn login_paths_warm_and_cached_compose_the_login_path() {
         lp.cached(&off, std::path::Path::new(&cwd)),
         None,
         "PACER_LOGIN_ENV=off turns the cache off"
+    );
+}
+
+/// `PACER_LOGIN_ENV=off` makes `warm` spawn nothing: a fake login shell
+/// that would leave a marker file on the filesystem is never executed.
+#[test]
+fn login_off_warm_spawns_nothing() {
+    let lp = LoginPaths::new();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let (_cwd_dir, cwd) = make_cwd();
+
+    // A fake shell that would write a marker file when executed.
+    let dir = fake_shell(r#"echo spawned >> "$PWD"/marker"#);
+    let mut env = env_with_shell(&dir, &cwd);
+    env.insert("PACER_LOGIN_ENV".to_string(), "off".to_string());
+
+    rt.block_on(lp.warm(&env, Path::new(&cwd)));
+    assert!(
+        !Path::new(&cwd).join("marker").exists(),
+        "PACER_LOGIN_ENV=off must not spawn the login shell"
+    );
+    assert_eq!(
+        lp.cached(&env, Path::new(&cwd)),
+        None,
+        "off means no cached PATH"
+    );
+}
+
+/// A fake login shell printing profile noise, the marker line and an
+/// `env -0` block gives a composed PATH via `cached`: profile output
+/// before the marker is ignored, and the login shell's PATH wins.
+#[test]
+fn fake_shell_profile_noise_composes_path() {
+    let lp = LoginPaths::new();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let (_cwd_dir, cwd) = make_cwd();
+
+    // Fake shell: prints real profile noise, prepends a tool dir to PATH,
+    // then runs the fixed COMMAND (umask marker, env marker, env -0).
+    let dir = fake_shell("echo noisy-profile-output\nexport PATH=\"/opt/tool/bin:$PATH\"");
+    let env = env_with_shell(&dir, &cwd);
+
+    rt.block_on(lp.warm(&env, Path::new(&cwd)));
+    let cached = lp.cached(&env, Path::new(&cwd));
+    let path = cached.expect("a successful login capture must be cached");
+    assert!(
+        path.starts_with("/opt/tool/bin:"),
+        "the login shell's PATH additions must be composed first: {path}"
+    );
+    assert_eq!(
+        lp.cached(&env, Path::new(&cwd)),
+        Some(path),
+        "cached is served from memory"
+    );
+}
+
+/// A hanging login shell times out: `warm` returns after about 5 s with no
+/// cached value, and a second `warm` within 60 s does not spawn again
+/// because the failure is cached (login-env.ts:211).
+#[test]
+fn hanging_login_is_timed_out_and_cached() {
+    let lp = LoginPaths::new();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let (_cwd_dir, cwd) = make_cwd();
+
+    // A fake shell that, each spawn, records a line and then sleeps 10 s
+    // (never reaching the `-c` command).
+    let dir = fake_shell(r#"echo ran >> "$PWD"/spawn-count; exec sh -c 'sleep 10'"#);
+    let env = env_with_shell(&dir, &cwd);
+
+    let started = std::time::Instant::now();
+    rt.block_on(lp.warm(&env, Path::new(&cwd)));
+    let elapsed = started.elapsed();
+    assert!(
+        elapsed < std::time::Duration::from_secs(8),
+        "warm should time out around 5 s, took {elapsed:?}"
+    );
+    assert_eq!(
+        lp.cached(&env, Path::new(&cwd)),
+        None,
+        "a failed capture is not cached as a value"
+    );
+
+    // A second warm within the 60 s TTL must not spawn again.
+    rt.block_on(lp.warm(&env, Path::new(&cwd)));
+    let count = std::fs::read_to_string(Path::new(&cwd).join("spawn-count"))
+        .map(|s| s.matches("ran").count())
+        .unwrap_or(0);
+    assert_eq!(
+        count, 1,
+        "the failed first capture is cached; a second warm must not spawn again"
     );
 }
