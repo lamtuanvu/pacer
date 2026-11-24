@@ -74,6 +74,11 @@ const request = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("stop"), id: z.string() }).strict(),
   z.object({ kind: z.literal("changed"), id: z.string(), reset: z.boolean(), invalidate: z.boolean() }).strict(),
   z.object({ kind: z.literal("publish"), op: operation }).strict(),
+  // Native plugin.enable/disable/remove mirror TypeScript registry side effects for
+  // workflow definitions (phase 7): page `workflow.definitions` after enable, and
+  // mark contributed defs disabled on disable/remove.
+  z.object({ kind: z.literal("workflow_sync"), id: z.string() }).strict(),
+  z.object({ kind: z.literal("workflow_disable"), id: z.string() }).strict(),
   z.object({
     kind: z.literal("log"),
     id: z.string(),
@@ -180,6 +185,20 @@ export async function pluginNativeRequest(ctx: Ctx, raw: unknown, o: { stdio?: b
       case "publish":
         if (["plugin.enable", "plugin.disable", "plugin.remove", "plugin.ui.visibility", "plugin.settings.set"].includes(p.op)) await publishConfigChange(ctx, "plugins");
         break;
+      case "workflow_sync":
+      case "workflow_disable": {
+        const workflow = await import("../workflow/plugin-sync");
+        if (p.kind === "workflow_sync") {
+          // Match registry.enable: fire-and-forget so the native enable reply is not gated
+          // on paging; callers that need the defs wait on workflow.list (conformance).
+          void workflow.syncPluginWorkflows(ctx, p.id).catch(error => {
+            appendPluginLog(ctx, p.id, "workflow", error instanceof Error ? error.message : String(error));
+          });
+        } else {
+          workflow.disablePluginWorkflows(ctx, p.id);
+        }
+        break;
+      }
       case "log": appendPluginLog(ctx, p.id, p.level ?? "stderr", p.message); break;
       case "crashed":
         // Only the owner this Core's door runs supervises children it could see die.

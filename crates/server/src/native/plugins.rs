@@ -380,6 +380,11 @@ impl Service {
                 .surface_epochs
                 .retain(|id, _| runtime.entries.iter().any(|e| e["id"] == *id));
         }
+        let plugin_id = if is_mutation(op) {
+            params.get("id").and_then(Value::as_str).map(str::to_owned)
+        } else {
+            None
+        };
         let result = if is_mutation(op) {
             self.ops.call(ctx, &mut runtime, op, params).await
         } else {
@@ -393,6 +398,23 @@ impl Service {
         }
         if result.is_ok() && is_mutation(op) && op != "plugin.install" {
             runtime.request(json!({"kind":"publish", "op":op})).await?;
+        }
+        // Phase 7: TypeScript registry.enable/disable/remove sync or disable plugin
+        // workflow defs. Native mutations own the grant/config write, so Core must run
+        // the same side effects after a successful enable (not needs_grant) or disable/remove.
+        if let (Ok(value), Some(id)) = (&result, plugin_id.as_deref()) {
+            let kind = match op {
+                "plugin.enable"
+                    if value.get("state").and_then(Value::as_str) != Some("needs_grant") =>
+                {
+                    Some("workflow_sync")
+                }
+                "plugin.disable" | "plugin.remove" => Some("workflow_disable"),
+                _ => None,
+            };
+            if let Some(kind) = kind {
+                let _ = runtime.request(json!({"kind": kind, "id": id})).await;
+            }
         }
         result
     }
