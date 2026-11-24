@@ -36,8 +36,15 @@ fn global() -> Result<&'static Arc<DesktopUpdateRuntime>, CoreError> {
         .ok_or_else(|| unavailable_bridge("desktop update runtime unavailable"))
 }
 
-fn unavailable_bridge(msg: &'static str) -> CoreError {
-    CoreError::new(pacer_foundation::api::Code::Unavailable, msg)
+fn unavailable_bridge(_msg: &'static str) -> CoreError {
+    // Mirror the TypeScript runtime's `unavailable()` (service.ts) so a stdio
+    // door or an unregistered native runtime answers the 8 ops with exactly
+    // the error the sealed bridge used to produce.
+    CoreError::new(
+        pacer_foundation::api::Code::NotAllowed,
+        "Verified desktop update connection is unavailable",
+    )
+    .hint("Open a supported desktop connected to this service. Native update registration is required.")
 }
 
 /// The installed hallmarks for deriving a desktop installation identity.
