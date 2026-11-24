@@ -224,8 +224,9 @@ export function RunsPage({ query, runId }: { query: RouteQuery; runId?: string }
             canAnswer={canAnswer}
             onSubmit={submitAnswer}
             onConflict={() => {
+              // Keep the dialog mounted so QuestionForm can show CONFLICT_QUESTION;
+              // only refresh list/queue data (Task 2: conflict → message + reload).
               void refreshRunsList(api, store, ops).then(setStore);
-              setAnswerId(null);
             }}
           />
           <ButtonLink typography="board" size="sm" href={withQuery("#/runs", query)} onClick={event => { event.preventDefault(); setAnswerId(null); }}>
