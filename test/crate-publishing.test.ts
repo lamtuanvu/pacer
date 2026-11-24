@@ -100,8 +100,17 @@ test("release graph packages every independent area before the SDK", async () =>
   const { readFileSync } = await import("node:fs");
   const metadata = pluginCrateFolders.map(folder => Bun.TOML.parse(readFileSync(new URL(`../crates/${folder}/Cargo.toml`, import.meta.url), "utf8")) as { package: { name: string; version: string; publish: boolean }; dependencies: Record<string, unknown> });
   // A crate whose published bytes change needs its own version bump; the SDK pins each area's current version.
-  const versions: Record<string, string> = { "pacer-plugin-assistant-protocol": "0.4.0", "pacer-plugin": "0.4.0" };
-  for (const item of metadata) expect(item.package).toMatchObject({ version: versions[item.package.name] ?? "0.3.0", publish: true });
+  const versions: Record<string, string> = {
+    "pacer-plugin-decision-protocol": "0.4.0",
+    "pacer-plugin-agent-session-protocol": "0.4.0",
+    "pacer-plugin-install-protocol": "0.4.0",
+    "pacer-plugin-hosts-protocol": "0.4.0",
+    "pacer-plugin-exec-protocol": "0.4.0",
+    "pacer-plugin-assistant-protocol": "0.5.0",
+    "pacer-plugin-protocol": "0.4.0",
+    "pacer-plugin": "0.5.0",
+  };
+  for (const item of metadata) expect(item.package).toMatchObject({ version: versions[item.package.name], publish: true });
   const sdk = metadata.at(-1)!;
   for (const item of metadata.slice(0, -1)) expect(sdk.dependencies[item.package.name]).toMatchObject({ version: item.package.version });
   expect(sdk.dependencies["pacer-plugin-policy-protocol"]).toBeUndefined();
