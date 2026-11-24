@@ -11,7 +11,8 @@
 
 use crate::bridge_auth::{OwnerKey, authenticate, read_owner_key};
 use crate::bridge_listener::{BRIDGE_MAX_LINE_BYTES, current_uid, peer_uid};
-use crate::host_bridge::{HOST_SOCKET_NAME, METHOD_PLUGIN_STOP};
+use crate::connection_dir::find_socket_dir;
+use crate::host_bridge::{HOST_SOCKET_NAME, METHOD_PLUGIN_STOP, SOCKET_PATH_MAX};
 use serde_json::{Value, json};
 use std::{
     fs, io,
@@ -76,20 +77,46 @@ pub fn probe_home_owner(pacer_home: &Path) -> HomeOwner {
 /// Probe `run/host.sock`, trusting only the given uids for the directory, the
 /// socket file, the peer that accepts the connection and `host.key`. Blocks up
 /// to two seconds while a just-started serve publishes its key.
+///
+/// Follows where this home's `host.sock` actually lives: `run/` on a normal
+/// home, the private per-user directory of ADR 0027 item 5 on a deep one
+/// whose `run/host.sock` is too long to fit in `sockaddr_un`. The same trust
+/// checks apply to whichever directory holds the socket.
 pub fn probe_home_owner_as(pacer_home: &Path, trust: OwnerTrust) -> HomeOwner {
-    let run = pacer_home.join("run");
-    let meta = match fs::symlink_metadata(&run) {
+    // The serve falls back to a private per-user directory exactly when
+    // `run/host.sock` is too long; mirror that choice here.
+    let in_run = pacer_home
+        .join("run")
+        .join(HOST_SOCKET_NAME)
+        .as_os_str()
+        .len()
+        <= SOCKET_PATH_MAX;
+    // Untrusted livens up the report; the exact directory is chosen by the
+    // running serve, not by us.
+    let dir = match find_socket_dir(pacer_home, HOST_SOCKET_NAME) {
+        Some(dir) => dir,
+        None => return HomeOwner::Absent,
+    };
+    let meta = match fs::symlink_metadata(&dir) {
         Err(error) if error.kind() == io::ErrorKind::NotFound => return HomeOwner::Absent,
-        Err(_) => return HomeOwner::Untrusted("run directory is unreadable"),
+        Err(_) => return HomeOwner::Untrusted("directory is unreadable"),
         Ok(meta) => meta,
     };
     if meta.file_type().is_symlink() || !meta.is_dir() {
-        return HomeOwner::Untrusted("run is not a real directory");
+        return HomeOwner::Untrusted(if in_run {
+            "run is not a real directory"
+        } else {
+            "private socket directory is not a real directory"
+        });
     }
     if meta.uid() != trust.run_dir || meta.mode() & 0o077 != 0 {
-        return HomeOwner::Untrusted("run directory is not private to this user");
+        return HomeOwner::Untrusted(if in_run {
+            "run directory is not private to this user"
+        } else {
+            "private socket directory is not private to this user"
+        });
     }
-    let socket = run.join(HOST_SOCKET_NAME);
+    let socket = dir.join(HOST_SOCKET_NAME);
     let meta = match fs::symlink_metadata(&socket) {
         Err(error) if error.kind() == io::ErrorKind::NotFound => return HomeOwner::Absent,
         Err(_) => return HomeOwner::Untrusted("host.sock is unreadable"),
@@ -108,19 +135,19 @@ pub fn probe_home_owner_as(pacer_home: &Path, trust: OwnerTrust) -> HomeOwner {
         return HomeOwner::Untrusted("host.sock is served by another user");
     }
     drop(stream);
-    match published_key(&run, &meta, trust.socket) {
+    match published_key(&dir, &meta, trust.socket) {
         Ok(key) => HomeOwner::Live(socket, key),
         Err(reason) => HomeOwner::Untrusted(reason),
     }
 }
 
-/// `run/host.key` as written for the socket `bound`: a key older than the
+/// `host.key` as written for the socket `bound`: a key older than the
 /// socket is a crashed serve's, so wait for the live owner to replace it.
-fn published_key(run: &Path, bound: &fs::Metadata, uid: u32) -> Result<OwnerKey, &'static str> {
+fn published_key(dir: &Path, bound: &fs::Metadata, uid: u32) -> Result<OwnerKey, &'static str> {
     let bound = bound.modified().map_err(|_| "host.sock is unreadable")?;
     let deadline = Instant::now() + KEY_WAIT;
     loop {
-        if let Some((key, written)) = read_owner_key(run, uid)?
+        if let Some((key, written)) = read_owner_key(dir, uid)?
             && written >= bound
         {
             return Ok(key);

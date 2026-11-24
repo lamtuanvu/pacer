@@ -223,3 +223,51 @@ fn only_connection_socket_names_are_swept() {
         assert!(!is_connection_socket_name(name), "{name}");
     }
 }
+
+#[test]
+fn socket_dir_keeps_run_for_a_short_home_and_falls_back_for_a_deep_one() {
+    let root = short_dir();
+    let short = root.path().join("h");
+    assert_eq!(socket_dir(&short, NAME, me()).unwrap(), short.join("run"));
+
+    let deep = deep_home(root.path());
+    let bound = socket_dir(&deep, NAME, me());
+    let Ok(base) = user_private_dir() else {
+        // No per-user directory (for example Linux without XDG_RUNTIME_DIR):
+        // refuse, never /tmp.
+        let message = bound.err().unwrap().to_string();
+        assert!(message.contains("PACER_NATIVE_PLUGIN_HOST=0"), "{message}");
+        return;
+    };
+    let dir = bound.unwrap();
+    assert_eq!(dir.parent().unwrap(), base.as_path());
+    let name = dir.file_name().unwrap().to_str().unwrap();
+    assert!(name.starts_with("pacer-") && name.len() == 22, "{name}");
+    assert_eq!(fs::metadata(&dir).unwrap().mode() & 0o777, 0o700);
+    assert!(
+        !deep.exists(),
+        "the deep home's run directory is never created"
+    );
+    assert!(dir.join(NAME).as_os_str().len() <= SOCKET_PATH_MAX);
+    fs::remove_dir(&dir).unwrap();
+}
+
+#[test]
+fn find_socket_dir_resolves_wherever_the_socket_actually_lives() {
+    let root = short_dir();
+    // A path that fits resolves to run/, creating it as serve would.
+    let short = root.path().join("h");
+    assert_eq!(find_socket_dir(&short, NAME).unwrap(), short.join("run"));
+
+    // A deep home without a fallback directory is absent: nothing to read.
+    let deep = deep_home(root.path());
+    assert_eq!(find_socket_dir(&deep, NAME), None);
+
+    // Once the fallback directory exists, the same home resolves back to it.
+    let Ok(_base) = user_private_dir() else {
+        return; // no per-user directory to create one under
+    };
+    let dir = socket_dir(&deep, NAME, me()).unwrap();
+    assert_eq!(find_socket_dir(&deep, NAME).unwrap(), dir);
+    fs::remove_dir(&dir).unwrap();
+}
