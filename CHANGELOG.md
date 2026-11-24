@@ -10,6 +10,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- **`pacer retry` of a task that ran with placement `current` no longer fails with `local new placement is not selected`.** The owned local runner now classifies a reused checkout the same way as the legacy direct path: `current` when the path is the brief repo itself, `new` otherwise. This also covers retries of in-place tasks with `auto` placement, which, like the legacy path, are not refused for a dirty checkout (the changes are usually the earlier attempt's own work). When the reused checkout is a separate worktree, the retry's requested placement is recorded as `new`.
 - **Interactive resume turns no longer tell the agent both "do not run pacer report" and "completion requires running pacer report".** Interactive runners get a live turn prompt so the session can finish with `pacer report`.
 - **A delegated interactive session stuck in phase `needs-input` with no open pacer question is detected as a `silent_prompt` stall** after `execution.idle_after_min` and nudged to finish with `pacer report` or ask a question, instead of waiting forever while active time is paused. Human conversation tasks waiting at their prompt stay exempt.
 
