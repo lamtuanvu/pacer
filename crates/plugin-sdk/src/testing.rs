@@ -242,6 +242,14 @@ async fn listen(inner: Arc<Inner>, mut lines: Lines<BufReader<tokio::io::DuplexS
                 if let Some(data) = params.get("data").cloned() {
                     write_lock(&inner.progress).push(data);
                 }
+                // An SDK stream owner pushing an output frame emits `$/progress`
+                // with `{ id, event }` (not `data`). Record those whole so tests
+                // can assert the exact wire shape
+                // (test/plugin-sdk-session-stream.test.ts); standard `data`
+                // progress still goes through [`Harness::progress`].
+                if params.get("event").is_some() {
+                    write_lock(&inner.notifications).push((method, params));
+                }
             }
             wire::Incoming::Notification { method, params } => {
                 write_lock(&inner.notifications).push((method, params));
@@ -281,12 +289,24 @@ async fn answer_capability(inner: &Inner, id: &Value, method: &str, params: Valu
             Ok(value) => wire::result(id, value),
             Err(e) => wire::error(id, -32000, &e.message, host_error_data(&e)),
         },
-        None => wire::error(
-            id,
-            -32000,
-            "capability denied",
-            json!({"code": "capability_denied"}),
-        ),
+        // The SDK's owned streams acknowledge each output/input frame with
+        // `{seq}`, so a scripted host answers them by default unless a test
+        // registers an explicit answer to script the failure path.
+        None => match method {
+            "$/streamAck" | "$/streamInputAck" => {
+                let seq = params
+                    .get("seq")
+                    .cloned()
+                    .unwrap_or(Value::Null);
+                wire::result(id, json!({"seq": seq}))
+            }
+            _ => wire::error(
+                id,
+                -32000,
+                "capability denied",
+                json!({"code": "capability_denied"}),
+            ),
+        },
     }
 }
 
@@ -527,6 +547,12 @@ impl Harness {
             .inner
             .out
             .send(wire::notification("$/cancel", json!({"id": id})));
+    }
+
+    /// Send a host → plugin notification (for example a `$/streamInput` input
+    /// frame to an owned stream) without expecting a reply.
+    pub fn send(&self, method: &str, params: Value) {
+        let _ = self.inner.out.send(wire::notification(method, params));
     }
 
     /// Start an owned call without an owning-call `_meta`, returning the
