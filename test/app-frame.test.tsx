@@ -78,7 +78,7 @@ test("dock_not_rendered_on_terminal_route", () => {
   try {
     // Saved open: other routes mount the dock, the terminal route never does and offers no dock control.
     expect(withService("#/")).toContain('<div class="pc-dock"><div class="pc-offline-controls"><section id="pc-terminal-dock"');
-    const terminal = withService("#/workspace");
+    const terminal = withService("#/workspace?task=t-0412");
     expect(terminal).not.toContain("pc-dock");
     expect(terminal).not.toContain('aria-label="Terminal panel"');
     expect(terminal).toContain('aria-label="Toggle terminal panel (Ctrl+`)"');

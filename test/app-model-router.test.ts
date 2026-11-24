@@ -46,7 +46,7 @@ test("former routing and strategies settings links lead to Dispatcher with work 
 });
 
 test("incomplete setup redirects to Setup except within settings", () => {
-  for (const hash of ["#/", "#/review/one", "#/sessions", "#/missing", "#/tasks/t1"]) expect(resolveRoute(hash, false)).toEqual({ redirect: "#/setup" });
+  for (const hash of ["#/", "#/review/one", "#/sessions", "#/missing", "#/tasks/t1", "#/insights"]) expect(resolveRoute(hash, false)).toEqual({ redirect: "#/setup" });
   expect(resolveRoute("#/review/one?repo=k&scope=all", false)).toEqual({ redirect: "#/setup?repo=k&scope=all" });
   expect(route("#/settings", false).name).toBe("settings");
   expect(route("#/settings/hosts", false).name).toBe("hosts");
@@ -57,7 +57,26 @@ test("interactive entry and its sessions do not require planner integration setu
   expect(resolveRoute("#/", false, true)).toEqual({name:"dispatch",query:q});
   expect(resolveRoute("#/tasks/one", false, true)).toEqual({name:"sessions",id:"one",query:q});
   expect(resolveRoute("#/workspace?task=one", false, true)).toMatchObject({name:"terminal",id:"one",query:q});
+  expect(resolveRoute("#/insights", false, true)).toEqual({redirect:"#/setup"});
   expect(resolveRoute("#/needs-you", false, true)).toEqual({redirect:"#/setup"});
+});
+
+test("bare workspace and terminal hashes redirect to Tasks and keep work scope", () => {
+  expect(resolveRoute("#/workspace")).toEqual({ redirect: "#/tasks" });
+  expect(resolveRoute("#/workspace?repo=acme&scope=all")).toEqual({ redirect: "#/tasks?repo=acme&scope=all" });
+  expect(resolveRoute("#/terminal")).toEqual({ redirect: "#/tasks" });
+  expect(resolveRoute("#/terminal?repo=acme")).toEqual({ redirect: "#/tasks?repo=acme" });
+  expect(resolveRoute("#/workspace?task=one&panel=notes&repo=acme")).toMatchObject({ name: "terminal", id: "one", panel: "notes", query: { repo: "acme", scope: null } });
+  expect(parentFor(route("#/workspace?task=one&repo=acme"))).toEqual(routes.tasks({ repo: "acme", scope: null }));
+});
+
+test("onboarded installs keep Insights when required probes regress", async () => {
+  const { setupCompleteFrom } = await import("../app/src/router");
+  expect(setupCompleteFrom({ complete: false, onboarded: true })).toBe(true);
+  expect(setupCompleteFrom({ complete: false })).toBe(false);
+  expect(setupCompleteFrom({ complete: true, onboarded: false })).toBe(true);
+  expect(resolveRoute("#/insights", setupCompleteFrom({ complete: false, onboarded: true }))).toEqual({ name: "insights", query: q });
+  expect(resolveRoute("#/insights", setupCompleteFrom({ complete: false }))).toEqual({ redirect: "#/setup" });
 });
 
 test("while the first setup check is in flight, screens wait instead of flashing Setup", () => {
@@ -72,6 +91,7 @@ test("setup is unknown until a setup check answers; a failed check keeps waiting
   expect(setupCompleteFrom("error")).toBeNull();
   expect(setupCompleteFrom({ complete: false })).toBe(false);
   expect(setupCompleteFrom({ complete: true })).toBe(true);
+  expect(setupCompleteFrom({ complete: false, onboarded: true })).toBe(true);
 });
 
 test("Setup is reachable after required completion and Settings remains available before it", () => {

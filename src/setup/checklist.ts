@@ -2,7 +2,7 @@ import { policyWords, type PolicySummary } from "../view-model/words";
 import { PLANNERS } from "../config/strategy";
 
 export interface SetupItem { id:string; title:string; status:"done"|"pending"|"failed"; required:boolean; installed?:boolean; detail?:string; command?:string; action?:string; agent?:string; options?:string[] }
-export interface SetupChecklist { policy?: PolicySummary; integration?: {configuration:"configured"|"unverified";invocation:"unverified"}; checkedAt:number; complete:boolean; ready:boolean; items:SetupItem[] }
+export interface SetupChecklist { policy?: PolicySummary; integration?: {configuration:"configured"|"unverified";invocation:"unverified"}; checkedAt:number; complete:boolean; /** Sticky first-run gate; once true it stays true even if probes regress. Absent on older services. */ onboarded?:boolean; ready:boolean; items:SetupItem[] }
 export interface SetupFacts {
  version:string|null; planner:string|null; service:{installed:boolean;running:boolean}; link:boolean;
  signedIn?:boolean; loginCommand?:string; connected?:boolean;
@@ -21,7 +21,8 @@ export function updateChecklist(s:SetupChecklist,f:Pick<SetupFacts,"executors"|"
   return i;
  });
  const complete=items.filter(i=>i.required).every(i=>i.status==="done");
- return {...s,items,complete,ready:complete&&["executor","first"].every(id=>items.some(i=>i.id===id&&i.status==="done"))};
+ const onboarded=!!s.onboarded||complete;
+ return {...s,items,complete,onboarded,ready:complete&&["executor","first"].every(id=>items.some(i=>i.id===id&&i.status==="done"))};
 }
 /** Pure readiness rules shared by all clients. No probes or IO belong here. Unknown facts (undefined) never block. */
 export function setupChecklist(f:SetupFacts, checkedAt:number):SetupChecklist {
@@ -39,7 +40,7 @@ export function setupChecklist(f:SetupFacts, checkedAt:number):SetupChecklist {
   item("usage","Budget data",false,!!f.verdict&&f.verdict!=="UNKNOWN",`Start a session in ${f.planner??"your planner"} once`),
   item("first","First delegation",false,!!f.reviewed||!!f.skipped,f.skipped?"Skipped":undefined,undefined,"onboarding.try"),
   ...f.agents.filter(a=>a.id!==plannerAgent).map(a=>({...item(`agent:${a.id}`,a.name,false,a.installed,a.installed?"Connected":"Optional · not connected","pacer init","agent.connect"),agent:a.id,...(a.cliInstalled!==undefined?{installed:a.cliInstalled}:{})}))];
- return updateChecklist({checkedAt,complete:false,ready:false,items},f);
+ return updateChecklist({checkedAt,complete:false,onboarded:false,ready:false,items},f);
 }
 /** Timestamps must never trigger an iframe reload. */
 export const setupKey=(s:SetupChecklist)=>JSON.stringify([s.ready,s.items,s.policy]);

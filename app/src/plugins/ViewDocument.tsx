@@ -15,7 +15,7 @@ export function pluginLink(to: Extract<ViewNode, { type: "link" }>["to"]): Route
     case "overview": return routes.dispatch();
     case "review": return routes.needsYou();
     case "sessions": return to.taskId ? routes.task(to.taskId) : routes.tasks();
-    case "terminal": return routes.terminal();
+    case "terminal": return routes.tasks();
     case "settings": return routes.settings();
     case "hosts": return routes.hosts();
     case "add-executor": return routes.addExecutor();

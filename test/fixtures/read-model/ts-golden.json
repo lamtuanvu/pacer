@@ -150,6 +150,7 @@
           "plugins": 0
         },
         "complete": false,
+        "onboarded": false,
         "ready": false,
         "open": 3,
         "items": [
@@ -516,6 +517,7 @@
           "plugins": 0
         },
         "complete": false,
+        "onboarded": false,
         "ready": false,
         "open": 3,
         "items": [
@@ -1798,6 +1800,7 @@
           "plugins": 0
         },
         "complete": false,
+        "onboarded": false,
         "ready": false,
         "open": 3,
         "items": [
@@ -2745,6 +2748,7 @@
           "plugins": 0
         },
         "complete": false,
+        "onboarded": false,
         "ready": false,
         "open": 3,
         "items": [
@@ -3233,6 +3237,7 @@
           "plugins": 0
         },
         "complete": false,
+        "onboarded": false,
         "ready": false,
         "open": 3,
         "items": [
@@ -3719,6 +3724,7 @@
           "plugins": 0
         },
         "complete": false,
+        "onboarded": false,
         "ready": false,
         "open": 3,
         "items": [

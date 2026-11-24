@@ -1,13 +1,29 @@
 import { expect, test } from "bun:test";
-import { setupChecklist, setupKey } from "../src/setup/checklist";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { setupChecklist, setupKey, updateChecklist } from "../src/setup/checklist";
+import { checklistReply, stickyOnboarded } from "../src/setup/check";
 import { emptySnapshot } from "../src/link/envelope";
 import { renderDashboard } from "../src/dashboard/render";
+import { tmpDir } from "./helpers";
 const facts = { version: "0.1.22", planner: "codex", service: { installed:true, running:true }, link:true,signedIn:true,connected:true,executors:{ranked:[{id:"claude-code"}],excluded:[]},reviewed:true, agents:[{id:"claude-code",name:"Claude Code",installed:false}] };
 test("required checks gate readiness; optional agents do not",()=>{
  const ready=setupChecklist(facts,10);
- expect(ready.complete).toBe(true);expect(ready.items.find(i=>i.id==="agent:claude-code")?.status).toBe("pending");
+ expect(ready.complete).toBe(true);expect(ready.onboarded).toBe(true);expect(ready.items.find(i=>i.id==="agent:claude-code")?.status).toBe("pending");
  for(const patch of [{version:null},{planner:null},{service:{installed:true,running:false}},{link:false}]) expect(setupChecklist({...facts,...patch},10).complete).toBe(false);
  expect(setupKey(ready)).toBe(setupKey(setupChecklist(facts,70)));
+});
+test("onboarded sticks after the first complete check and persists under PACER_HOME", () => {
+ const home = tmpDir();
+ expect(stickyOnboarded(home, false)).toBe(false);
+ expect(stickyOnboarded(home, true)).toBe(true);
+ expect(existsSync(join(home, "onboarding", "onboarded"))).toBe(true);
+ expect(stickyOnboarded(home, false)).toBe(true);
+ const incomplete = setupChecklist({ ...facts, link: false }, 10);
+ expect(incomplete.onboarded).toBe(false);
+ expect(updateChecklist({ ...incomplete, onboarded: true }, {}).onboarded).toBe(true);
+ expect(checklistReply({ ...facts, connected: true, link: false }, 10).onboarded).toBe(false);
+ expect(checklistReply({ ...facts, connected: true }, 10, undefined, home).onboarded).toBe(true);
 });
 test("dashboard shows the same incomplete checklist instead of work screens",()=>{
  const checklist=setupChecklist({...facts,link:false},10);
