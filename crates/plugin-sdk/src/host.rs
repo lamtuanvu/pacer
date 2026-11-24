@@ -45,6 +45,9 @@ pub struct Host {
     pub(crate) state: Arc<RwLock<serve::FeatureState>>,
     /// The per-frame limit in bytes for `Host::fits`, overridable for tests.
     pub(crate) frame_limit: Arc<AtomicUsize>,
+    /// Whether this host belongs to a `hostRunner.stream` owner, which applies
+    /// the duplex deadlines (packages/plugin-sdk/src/index.ts:81-90).
+    pub(crate) owner_is_stream: bool,
 }
 
 fn unavailable() -> PluginError {
@@ -71,15 +74,18 @@ impl Host {
             fs_queue: Arc::new(Mutex::new(())),
             state,
             frame_limit: Arc::new(AtomicUsize::new(1048576)),
+            owner_is_stream: false,
         }
     }
 
     /// Host scoped to one inbound plugin call, echoing that call's capability
-    /// token and carrying its cancellation token.
+    /// token and carrying its cancellation token. `owner_is_stream` marks a
+    /// `hostRunner.stream` owner so duplex calls get the stream deadlines.
     pub(crate) fn for_call(
         &self,
         capability_call: Option<String>,
         cancel: CancellationToken,
+        owner_is_stream: bool,
     ) -> Self {
         Self {
             out: self.out.clone(),
@@ -92,6 +98,7 @@ impl Host {
             fs_queue: Arc::new(Mutex::new(())),
             state: self.state.clone(),
             frame_limit: self.frame_limit.clone(),
+            owner_is_stream,
         }
     }
 
@@ -105,6 +112,27 @@ impl Host {
         self.call_inner(method, params, false).await
     }
 
+    /// The duplex deadline for a stream-owned call (index.ts:81-90): open is
+    /// fixed at 10 s, close at 5 s, and read/write at `min(timeoutMs+5000, 65000)`.
+    fn duplex_deadline(&self, method: &str, params: &Value) -> Option<std::time::Duration> {
+        if !self.owner_is_stream {
+            return None;
+        }
+        let ms = match method {
+            "capability.process.duplex.open" => 10_000,
+            "capability.process.duplex.close" => 5_000,
+            "capability.process.duplex.read" | "capability.process.duplex.write" => {
+                let requested = params
+                    .get("timeoutMs")
+                    .and_then(Value::as_i64)
+                    .filter(|v| *v > 0);
+                requested.map_or(65_000, |v| (v + 5_000).min(65_000))
+            }
+            _ => return None,
+        };
+        Some(std::time::Duration::from_millis(ms as u64))
+    }
+
     async fn call_inner(
         &self,
         method: &str,
@@ -116,6 +144,7 @@ impl Host {
         }
         let (tx, rx) = oneshot::channel();
         let id = format!("p{}", self.next.fetch_add(1, Ordering::Relaxed));
+        let deadline = self.duplex_deadline(method, &params);
         let meta = self
             .capability_call
             .as_ref()
@@ -150,7 +179,25 @@ impl Host {
                 }
             });
         }
-        rx.await.unwrap_or_else(|_| Err(unavailable()))
+        let mut rx = rx;
+        if let Some(deadline) = deadline {
+            match tokio::time::timeout(deadline, &mut rx).await {
+                Ok(Ok(result)) => Ok(result?),
+                Ok(Err(_)) => Err(unavailable()),
+                Err(_) => {
+                    self.pending.lock().await.remove(&id);
+                    Err(PluginError::new(
+                        "plugin_timeout",
+                        format!(
+                            "{method} response passed its {} ms deadline",
+                            deadline.as_millis()
+                        ),
+                    ))
+                }
+            }
+        } else {
+            rx.await.unwrap_or_else(|_| Err(unavailable()))
+        }
     }
 
     pub async fn log(&self, level: &str, message: &str) -> Result<(), PluginError> {
@@ -160,6 +207,12 @@ impl Host {
         )
         .await?;
         Ok(())
+    }
+
+    /// Send a plugin → host notification (for example `$/progress` for an
+    /// owned stream) without waiting for a reply.
+    pub(crate) fn emit(&self, method: &str, params: Value) {
+        let _ = self.out.send(wire::notification(method, params));
     }
 
     pub async fn config(&self) -> Result<Map<String, Value>, PluginError> {

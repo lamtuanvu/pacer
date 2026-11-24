@@ -7,6 +7,7 @@ mod host;
 mod http;
 pub mod js;
 mod serve;
+mod stream;
 #[cfg(feature = "testing")]
 pub mod testing;
 #[cfg(feature = "testing")]
@@ -78,6 +79,7 @@ pub use fs::FileSystem;
 pub use host::{Host, MachineSignature};
 pub use http::HttpResponse;
 pub use serve::{Ctx, HandlerResult, Manifest, Plugin, Progress};
+pub use stream::{InputFrame, OwnedStream, stream_input_notification};
 pub use tokio_util::sync::CancellationToken;
 
 /// Feature the plugin can negotiate with the host over `plugin.hello`.

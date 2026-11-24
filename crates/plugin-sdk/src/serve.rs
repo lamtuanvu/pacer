@@ -1,4 +1,4 @@
-use crate::{Host, PluginError, chunk, wire};
+use crate::{Host, PluginError, chunk, js, stream, wire};
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 use std::{
@@ -47,11 +47,25 @@ pub(crate) struct FeatureState {
     pub minor: i64,
 }
 
+#[derive(Clone)]
 pub struct Ctx {
     pub host: Host,
     pub cancel: CancellationToken,
     pub progress: Progress,
     pub(crate) state: Arc<RwLock<FeatureState>>,
+    pub(crate) owned: Option<OwnedSlot>,
+}
+
+/// The owned-stream authority a `hostRunner.stream` request carries: the
+/// numeric request id, the string params.streamId, the per-call host and the
+/// shared registry of input slots.
+#[derive(Clone)]
+pub(crate) struct OwnedSlot {
+    pub request_id: u64,
+    pub stream_id: String,
+    pub host: Host,
+    pub cancel: CancellationToken,
+    pub streams: stream::Streams,
 }
 
 impl Ctx {
@@ -62,6 +76,19 @@ impl Ctx {
             Ok(g) => g.negotiated.contains(feature),
             Err(e) => e.into_inner().negotiated.contains(feature),
         }
+    }
+
+    /// An owned duplex stream handle, `Some` only for a `hostRunner.stream`
+    /// request with a numeric id, a string `params.streamId` and a string
+    /// `_meta.capabilityCall` (index.ts:296-300).
+    pub fn owned_stream(&self) -> Option<stream::OwnedStream> {
+        self.owned.as_ref().map(|o| stream::OwnedStream {
+            request_id: o.request_id,
+            stream_id: o.stream_id.clone(),
+            host: o.host.clone(),
+            cancel: o.cancel.clone(),
+            streams: o.streams.clone(),
+        })
     }
 }
 
@@ -208,6 +235,7 @@ impl Plugin {
         });
         let host = Host::new(out.clone(), self.state.clone());
         let inflight = Arc::new(Mutex::new(HashMap::<String, CancellationToken>::new()));
+        let streams = stream::Streams::default();
         let mut tasks = JoinSet::new();
         let mut started = None;
         let mut lines = input.lines();
@@ -233,6 +261,59 @@ impl Plugin {
                         && let Some(token) = inflight.lock().await.get(&key)
                     {
                         token.cancel();
+                    }
+                }
+                Some(wire::Incoming::Notification { method, params }) if method == "$/streamInput" => {
+                    let Some(request) = params.get("request").and_then(Value::as_u64) else {
+                        continue;
+                    };
+                    let slot = {
+                        let slots = streams.lock();
+                        match slots.get(&request) {
+                            Some(s) => s.clone(),
+                            None => continue,
+                        }
+                    };
+                    // Base64 must be canonical and round-trip (index.ts's regex
+                    // plus `Buffer.from` re-encode check).
+                    let encoded = params.get("base64").and_then(Value::as_str).unwrap_or_default();
+                    let decoded = js::base64::decode_lenient(encoded);
+                    let bytes_ok = !decoded.is_empty()
+                        && decoded.len() <= 65_536
+                        && js::base64::encode(&decoded) == encoded;
+                    // Read the slot's expected state, install the delivered frame,
+                    // and take any pending waiter while holding the lock once, so a
+                    // waiting `next_input` is woken only after the frame is present.
+                    let (valid, waiter) = {
+                        let mut st = stream::lock(&slot);
+                        let valid = params.get("streamId").and_then(Value::as_str)
+                            == Some(&*st.stream_id)
+                            && params.get("seq").and_then(Value::as_u64) == Some(st.next_seq)
+                            && st.frame.is_none()
+                            && params.as_object().map(|o| o.len() == 4).unwrap_or(false);
+                        if valid {
+                            st.frame = Some(stream::OwnedFrame {
+                                seq: st.next_seq,
+                                bytes: decoded.clone(),
+                                delivered: false,
+                            });
+                        }
+                        (valid, st.waiter.take())
+                    };
+                    if !valid || !bytes_ok {
+                        if let Some(token) = inflight.lock().await.get(&request.to_string()) {
+                            token.cancel();
+                        }
+                        if let Some(w) = waiter {
+                            let _ = w.send(Err(PluginError::new(
+                                "plugin_refused",
+                                "invalid stream input frame",
+                            )));
+                        }
+                        continue;
+                    }
+                    if let Some(w) = waiter {
+                        let _ = w.send(Ok(()));
                     }
                 }
                 Some(wire::Incoming::Request {
@@ -307,8 +388,49 @@ impl Plugin {
                     let cancel = CancellationToken::new();
                     let key = id_key(&id).unwrap_or_else(|| id.to_string());
                     inflight.lock().await.insert(key.clone(), cancel.clone());
-                    let call_host =
-                        host.for_call(wire::capability_call_token(meta.as_ref()), cancel.clone());
+                    // Own a duplex stream when the request is a `hostRunner.stream`
+                    // with a numeric id, a string params.streamId and a string
+                    // _meta.capabilityCall (index.ts:296-300). The owner pulls
+                    // input via `$/streamInput` and its duplex calls get the
+                    // stream deadlines (index.ts:81-90).
+                    let stream_owner = if method == "hostRunner.stream"
+                        && let Some(request_id) = id.as_u64()
+                        && let Some(stream_id) = params.get("streamId").and_then(Value::as_str)
+                        && wire::capability_call_token(meta.as_ref()).is_some()
+                    {
+                        Some((request_id, stream_id.to_owned()))
+                    } else {
+                        None
+                    };
+                    let call_host = host.for_call(
+                        wire::capability_call_token(meta.as_ref()),
+                        cancel.clone(),
+                        stream_owner.is_some(),
+                    );
+                    let owned = stream_owner.map(|(request_id, stream_id)| {
+                        let mut slots = streams.lock();
+                        slots.insert(
+                            request_id,
+                            Arc::new(std::sync::Mutex::new(stream::StreamInputState {
+                                stream_id: stream_id.clone(),
+                                next_seq: 0,
+                                frame: None,
+                                waiter: None,
+                            })),
+                        );
+                        drop(slots);
+                        OwnedSlot {
+                            request_id,
+                            stream_id,
+                            host: call_host.clone(),
+                            cancel: cancel.clone(),
+                            streams: streams.clone(),
+                        }
+                    });
+                    // Stream owners must tear their input slot down once the handler
+                    // returns: reject any still-waiting `next_input` and remove the
+                    // slot so a late `$/streamInput` for a dead owner is dropped.
+                    let cleanup_stream = owned.as_ref().map(|o| (o.request_id, o.streams.clone()));
                     let ctx = Ctx {
                         host: call_host.clone(),
                         cancel: cancel.clone(),
@@ -317,6 +439,7 @@ impl Plugin {
                             out: out.clone(),
                         },
                         state: state.clone(),
+                        owned,
                     };
                     let out = out.clone();
                     let inflight = inflight.clone();
@@ -364,6 +487,18 @@ impl Plugin {
                             Err(e) => wire::error(&id, -32000, &e.message, e.data()),
                         };
                         let _ = out.send(line);
+                        if let Some((request_id, streams)) = cleanup_stream {
+                            let mut slots = streams.lock();
+                            if let Some(slot) = slots.remove(&request_id) {
+                                let mut st = stream::lock(&slot);
+                                if let Some(w) = st.waiter.take() {
+                                    let _ = w.send(Err(PluginError::new(
+                                        "plugin_unavailable",
+                                        "stream input owner ended",
+                                    )));
+                                }
+                            }
+                        }
                         inflight.lock().await.remove(&key);
                     });
                 }
