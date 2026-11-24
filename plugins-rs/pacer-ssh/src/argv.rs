@@ -11,13 +11,22 @@ use serde_json::Value;
 fn re(pattern: &'static str) -> &'static regex::Regex {
     static RE: std::sync::OnceLock<std::collections::HashMap<&str, regex::Regex>> =
         std::sync::OnceLock::new();
-    RE.get_or_init(|| {
-        let mut m = std::collections::HashMap::new();
-        m.insert(pattern, regex::Regex::new(pattern).unwrap());
-        m
-    })
-    .get(pattern)
-    .expect("regex compiled")
+    match RE
+        .get_or_init(|| {
+            let mut m = std::collections::HashMap::new();
+            let re = match regex::Regex::new(pattern) {
+                Ok(re) => re,
+                Err(_) => panic!("invalid static regex"),
+            };
+            m.insert(pattern, re);
+            m
+        })
+        .get(pattern)
+    {
+        Some(re) => re,
+        // Every pattern we cache in this map was just inserted above.
+        None => panic!("static regex was not registered"),
+    }
 }
 
 fn is_match(pattern: &'static str, s: &str) -> bool {
@@ -130,10 +139,9 @@ pub fn clone_repo_argv(
     if args.len() != 3
         || !(a0.starts_with('/') || a0.starts_with("~/"))
         || utf16_len(a0) > 4096
-        || args
+        || (args
             .get(1)
-            .and_then(Value::as_str)
-            .map_or(true, |s| s != "clone")
+            .and_then(Value::as_str) != Some("clone"))
         || a2.is_empty()
         || utf16_len(a2) > 4096
         || args.iter().any(|v| {
@@ -160,7 +168,7 @@ pub fn clean_argv(
 ) -> Result<Vec<String>, String> {
     let a3 = args.get(3).and_then(Value::as_str).unwrap_or_default();
     let a4 = args.get(4).and_then(Value::as_str).unwrap_or_default();
-    let branch_ok = a4 == ""
+    let branch_ok = a4.is_empty()
         || a4 == format!("pacer/{a3}")
         || regex::Regex::new(&format!(
             "^pacer/{}-[1-9][0-9]*$",
@@ -173,10 +181,10 @@ pub fn clean_argv(
             && args
                 .get(5)
                 .and_then(Value::as_str)
-                .map_or(true, |s| s != "" && s != "force"))
+                .is_none_or(|s| !s.is_empty() && s != "force"))
         || args
             .iter()
-            .any(|v| v.as_str().map_or(true, |s| utf16_len(s) > 4096) || control_char(v))
+            .any(|v| v.as_str().is_none_or(|s| utf16_len(s) > 4096) || control_char(v))
         || !args
             .iter()
             .take(2)
@@ -201,7 +209,7 @@ pub fn stop_argv(
     args: &[Value],
     nonce: &str,
 ) -> Result<Vec<String>, String> {
-    let a0 = args.get(0).and_then(Value::as_str).unwrap_or_default();
+    let a0 = args.first().and_then(Value::as_str).unwrap_or_default();
     let a1 = args.get(1).and_then(Value::as_str).unwrap_or_default();
     if args.len() != 2
         || !a0.starts_with('/')
@@ -222,14 +230,14 @@ pub fn start_argv(
     args: &[Value],
     nonce: &str,
 ) -> Result<Vec<String>, String> {
-    let a0 = args.get(0).and_then(Value::as_str).unwrap_or_default();
+    let a0 = args.first().and_then(Value::as_str).unwrap_or_default();
     let a1 = args.get(1).and_then(Value::as_str).unwrap_or_default();
     let a2 = args.get(2).and_then(Value::as_str).unwrap_or_default();
     let a3 = args.get(3).and_then(Value::as_str).unwrap_or_default();
     let runs_ok = is_match("^/.*?/\\.pacer-remote/runs/t-\\d{8}-\\d{6}-[0-9a-f]{4}/[1-9][0-9]*$", a0);
     let env_start = if a2 == "full" { 4 } else { 3 };
     let dd = args.iter().position(|v| v.as_str() == Some("--"));
-    let env_ok = dd.map_or(false, |d| {
+    let env_ok = dd.is_some_and(|d| {
         args.iter().take(d).skip(env_start).all(|v| {
             v.as_str()
                 .is_some_and(|s| is_match("^[A-Za-z_][A-Za-z0-9_]*=", s))
@@ -237,7 +245,7 @@ pub fn start_argv(
     });
     // TS: `args.indexOf("--") < env_start` (dash not early) and
     // `args.indexOf("--") >= args.length - 1` (at least one command arg after).
-    let dash_ok = dd.map_or(false, |d| d >= env_start && d < args.len() - 1);
+    let dash_ok = dd.is_some_and(|d| d >= env_start && d < args.len() - 1);
     let mode_ok = a2 == "full" || a2 == "pty" || a2 == "pipe";
     let full_ok = a2 != "full"
         || is_match("^/.*?/\\.pacer-remote/bin/[a-f0-9]{64}/pacer$", a3);
@@ -245,7 +253,7 @@ pub fn start_argv(
         || args.len() > 25
         || args
             .iter()
-            .any(|v| v.as_str().map_or(true, |s| s.len() > 1024) || control_char(v))
+            .any(|v| v.as_str().is_none_or(|s| s.len() > 1024) || control_char(v))
         || !runs_ok
         || !a1.starts_with('/')
         || !mode_ok
@@ -261,14 +269,14 @@ pub fn start_argv(
 }
 
 fn valid_prepare_args(args: &[Value]) -> bool {
-    let a0 = args.get(0).and_then(Value::as_str).unwrap_or_default();
+    let a0 = args.first().and_then(Value::as_str).unwrap_or_default();
     let a1 = args.get(1).and_then(Value::as_str).unwrap_or_default();
     let a2 = args.get(2).and_then(Value::as_str).unwrap_or_default();
     let a3 = args.get(3).and_then(Value::as_str).unwrap_or_default();
     let a4 = args.get(4).and_then(Value::as_str).unwrap_or_default();
     let a5 = args.get(5).and_then(Value::as_str).unwrap_or_default();
     args.len() == 6
-        && !args.iter().any(|v| v.as_str().map_or(true, |s| s.len() > 4096) || control_char(v))
+        && !args.iter().any(|v| v.as_str().is_none_or(|s| s.len() > 4096) || control_char(v))
         && (a0.starts_with('/') || a0.starts_with("~/"))
         && is_match("^[A-Za-z0-9._-]+-[a-f0-9]{8}$", a1)
         && is_match("^t-\\d{8}-\\d{6}-[0-9a-f]{4}$", a2)
@@ -299,7 +307,7 @@ pub fn prepare_recover_argv(ssh_target: &str, control_path: &str, args: &[Value]
 }
 
 pub fn report_argv(ssh_target: &str, control_path: &str, args: &[Value]) -> Result<Vec<String>, String> {
-    let a0 = args.get(0).and_then(Value::as_str).unwrap_or_default();
+    let a0 = args.first().and_then(Value::as_str).unwrap_or_default();
     if args.len() != 1
         || !a0.starts_with('/')
         || utf16_len(a0) > 4096
@@ -312,7 +320,7 @@ pub fn report_argv(ssh_target: &str, control_path: &str, args: &[Value]) -> Resu
 }
 
 pub fn session_files_argv(ssh_target: &str, control_path: &str, args: &[Value]) -> Result<Vec<String>, String> {
-    let a0 = args.get(0).and_then(Value::as_str).unwrap_or_default();
+    let a0 = args.first().and_then(Value::as_str).unwrap_or_default();
     if args.len() != 1 || !is_match("^(?:/|~/)[^\\u0000-\\u001f\\u007f]+$", a0) {
         return Err("invalid host-issued session files path".to_owned());
     }
@@ -336,7 +344,7 @@ fn safe_int_f64(n: f64) -> bool {
 }
 
 pub fn read_from_argv(ssh_target: &str, control_path: &str, args: &[Value]) -> Result<Vec<String>, String> {
-    let a0 = args.get(0).and_then(Value::as_str).unwrap_or_default();
+    let a0 = args.first().and_then(Value::as_str).unwrap_or_default();
     let a1 = args.get(1).and_then(Value::as_str).unwrap_or_default();
     let a2 = args.get(2).and_then(Value::as_str).unwrap_or_default();
     let a3 = args.get(3).and_then(Value::as_str).unwrap_or_default();
@@ -369,7 +377,7 @@ pub fn read_from_argv(ssh_target: &str, control_path: &str, args: &[Value]) -> R
 }
 
 pub fn session_pipe_argv(ssh_target: &str, control_path: &str, args: &[Value]) -> Result<Vec<String>, String> {
-    let a0 = args.get(0).and_then(Value::as_str).unwrap_or_default();
+    let a0 = args.first().and_then(Value::as_str).unwrap_or_default();
     if args.len() != 1
         || !is_match("^/.*?/\\.pacer-remote/runs/t-\\d{8}-\\d{6}-[0-9a-f]{4}/[1-9][0-9]*$", a0)
         || utf16_len(a0) > 4096
@@ -382,7 +390,7 @@ pub fn session_pipe_argv(ssh_target: &str, control_path: &str, args: &[Value]) -
 }
 
 pub fn binary_check_argv(ssh_target: &str, control_path: &str, args: &[Value]) -> Result<Vec<String>, String> {
-    let a0 = args.get(0).and_then(Value::as_str).unwrap_or_default();
+    let a0 = args.first().and_then(Value::as_str).unwrap_or_default();
     let a1 = args.get(1).and_then(Value::as_str).unwrap_or_default();
     if args.len() != 2 || !is_match("^[a-f0-9]{64}$", a0) || a1 != "check" {
         return Err("invalid host-issued binary check".to_owned());
@@ -397,7 +405,7 @@ pub fn binary_upload_argv(
     args: &[Value],
     nonce: &str,
 ) -> Result<Vec<String>, String> {
-    let a0 = args.get(0).and_then(Value::as_str).unwrap_or_default();
+    let a0 = args.first().and_then(Value::as_str).unwrap_or_default();
     let a1 = args.get(1).and_then(Value::as_str).unwrap_or_default();
     if args.len() != 2
         || !is_match("^[a-f0-9]{64}$", a0)
@@ -411,7 +419,7 @@ pub fn binary_upload_argv(
 }
 
 pub fn bundle_out_argv(ssh_target: &str, control_path: &str, args: &[Value]) -> Result<Vec<String>, String> {
-    let a0 = args.get(0).and_then(Value::as_str).unwrap_or_default();
+    let a0 = args.first().and_then(Value::as_str).unwrap_or_default();
     let a1 = args.get(1).and_then(Value::as_str).unwrap_or_default();
     let a2 = args.get(2).and_then(Value::as_str).unwrap_or_default();
     if args.len() != 3
@@ -431,17 +439,17 @@ pub fn bundle_out_argv(ssh_target: &str, control_path: &str, args: &[Value]) -> 
 
 pub fn preflight_argv(ssh_target: &str, control_path: &str, args: &[Value]) -> Result<Vec<String>, String> {
     let n = args.len();
-    let a0 = args.get(0).and_then(Value::as_str).unwrap_or_default();
+    let a0 = args.first().and_then(Value::as_str).unwrap_or_default();
     let a1 = args.get(1).and_then(Value::as_str).unwrap_or_default();
     let a2 = args.get(2).and_then(Value::as_str).unwrap_or_default();
     let bad_base_sha = args
         .get(3)
         .and_then(Value::as_str)
-        .map_or(true, |s| !is_match("^[a-f0-9]{40}$", s));
+        .is_none_or(|s| !is_match("^[a-f0-9]{40}$", s));
     let bad_sha256 = args
         .get(4)
         .and_then(Value::as_str)
-        .map_or(true, |s| !is_match("^[a-f0-9]{64}$", s));
+        .is_none_or(|s| !is_match("^[a-f0-9]{64}$", s));
     let five_ok = n != 5 || (!bad_base_sha && !bad_sha256);
     if (n != 3 && n != 5)
         || !a0.starts_with('/')
@@ -465,10 +473,10 @@ pub fn set_identity_argv(
     args: &[Value],
     nonce: &str,
 ) -> Result<Vec<String>, String> {
-    let a0 = args.get(0).and_then(Value::as_str).unwrap_or_default();
-    let rest_bad = args.get(1..).map_or(false, |s| {
+    let a0 = args.first().and_then(Value::as_str).unwrap_or_default();
+    let rest_bad = args.get(1..).is_some_and(|s| {
         s.iter()
-            .any(|v| v.as_str().map_or(true, |x| x.is_empty() || x.len() > 256))
+            .any(|v| v.as_str().is_none_or(|x| x.is_empty() || x.len() > 256))
     });
     if args.len() != 3
         || !(a0.starts_with('/') || a0.starts_with("~/"))
@@ -484,7 +492,7 @@ pub fn set_identity_argv(
 }
 
 pub fn question_argv(ssh_target: &str, control_path: &str, args: &[Value]) -> Result<Vec<String>, String> {
-    let a0 = args.get(0).and_then(Value::as_str).unwrap_or_default();
+    let a0 = args.first().and_then(Value::as_str).unwrap_or_default();
     if args.len() != 1
         || !a0.starts_with('/')
         || utf16_len(a0) > 4096
@@ -498,7 +506,7 @@ pub fn question_argv(ssh_target: &str, control_path: &str, args: &[Value]) -> Re
 
 pub fn usage_argv(ssh_target: &str, control_path: &str, args: &[Value]) -> Result<Vec<String>, String> {
     let bad_one = args.len() == 1
-        && args.get(0).and_then(Value::as_str).map_or(true, |s| {
+        && args.first().and_then(Value::as_str).is_none_or(|s| {
             s.len() > 4096
                 || !(s.starts_with('/') || s.starts_with("~/"))
                 || s.chars().any(|c| (c as u32) <= 0x1f || c as u32 == 0x7f)

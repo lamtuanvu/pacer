@@ -106,12 +106,22 @@ pub async fn stream_session(
             "remote session stream was not issued for this provider",
         ));
     }
-    let owned = owned.expect("owned stream presence checked");
-    let timeout_ms = timeout_ms.expect("timeout checked");
-    let argv = (|| {
-        let args = args.expect("args presence checked");
-        session_pipe_argv(&session.ssh_target, &session.control_path, args).map_err(String::from)
-    })()
+    let Some(owned) = owned else {
+        return Err(PluginError::new(
+            "capability_denied",
+            "remote session stream was not issued for this provider",
+        ));
+    };
+    let Some(timeout_ms) = timeout_ms else {
+        return Err(PluginError::new(
+            "capability_denied",
+            "remote session stream was not issued for this provider",
+        ));
+    };
+    let argv = match args {
+        Some(args) => session_pipe_argv(&session.ssh_target, &session.control_path, args),
+        None => Err("args presence checked".to_owned()),
+    }
     .map_err(|_| {
         PluginError::new(
             "capability_denied",
@@ -138,7 +148,6 @@ pub async fn stream_session(
         let ctx = ctx.clone();
         let owned = owned.clone();
         let handle = handle.clone();
-        let timeout_ms = timeout_ms;
         async move {
             while !ctx.cancel.is_cancelled() {
                 let frame = owned.next_input().await?;

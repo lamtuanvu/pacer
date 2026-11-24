@@ -48,13 +48,22 @@ fn valid_control_path(value: Option<&Value>) -> bool {
 
 fn regex_of(pattern: &'static str) -> &'static regex::Regex {
     static RE: std::sync::OnceLock<HashMap<&str, regex::Regex>> = std::sync::OnceLock::new();
-    RE.get_or_init(|| {
-        let mut m = HashMap::new();
-        m.insert(pattern, regex::Regex::new(pattern).unwrap());
-        m
-    })
-    .get(pattern)
-    .expect("regex compiled")
+    match RE
+        .get_or_init(|| {
+            let mut m = HashMap::new();
+            let re = match regex::Regex::new(pattern) {
+                Ok(re) => re,
+                Err(_) => panic!("invalid static regex"),
+            };
+            m.insert(pattern, re);
+            m
+        })
+        .get(pattern)
+    {
+        Some(re) => re,
+        // Every pattern we cache in this map was just inserted above.
+        None => panic!("static regex was not registered"),
+    }
 }
 
 fn is_completion_nonce(v: Option<&Value>) -> bool {
@@ -202,11 +211,10 @@ fn parse_facts(data: &str) -> Map<String, Value> {
 fn filter_facts(facts: &Map<String, Value>, keep: &[&str], max: usize) -> Map<String, Value> {
     let mut out = Map::new();
     for key in keep {
-        if let Some(value) = facts.get(*key) {
-            if js::utf16_len(value.as_str().unwrap_or_default()) <= max {
+        if let Some(value) = facts.get(*key)
+            && js::utf16_len(value.as_str().unwrap_or_default()) <= max {
                 out.insert(key.to_string(), value.clone());
             }
-        }
     }
     out
 }
@@ -271,7 +279,7 @@ pub async fn run(input: &Value, ctx: &Ctx, sessions: &Sessions) -> Result<Value,
     let session_id = input.get("session");
     let probe = script == Some("PROBE") && args.is_some_and(|a| a.is_empty());
     let repo_check = script == Some("CHECK_REPO") && args.is_some_and(|a| a.len() == 2)
-        && matches!(args.and_then(|a| a.get(0)), Some(Value::String(s)) if !s.is_empty() && !s.contains('\0'))
+        && matches!(args.and_then(|a| a.first()), Some(Value::String(s)) if !s.is_empty() && !s.contains('\0'))
         && matches!(args.and_then(|a| a.get(1)), Some(Value::String(s)) if s == "check");
     let preflight = script == Some("PREFLIGHT") && args.is_some_and(|a| [3, 5].contains(&a.len()));
     let identity = script == Some("SET_IDENTITY") && args.is_some_and(|a| a.len() == 3)
@@ -328,10 +336,14 @@ pub async fn run(input: &Value, ctx: &Ctx, sessions: &Sessions) -> Result<Value,
     if ctx.cancel.is_cancelled() {
         return Err(fail("capability_denied", "SSH operation cancelled"));
     }
-    let args: &[Value] = args.expect("args present for an admitted op");
+    let Some(args) = args else {
+        return Err(fail(
+            "capability_denied",
+            "host operation is not issued for this provider",
+        ));
+    };
     let nonce = input.get("completionNonce").and_then(Value::as_str).unwrap_or_default();
-    let built = (|| {
-        if probe {
+    let built = if probe {
             probe_argv(&session.ssh_target, &session.control_path)
         } else if usage {
             usage_argv(&session.ssh_target, &session.control_path, args)
@@ -365,8 +377,7 @@ pub async fn run(input: &Value, ctx: &Ctx, sessions: &Sessions) -> Result<Value,
             check_repo_argv(&session.ssh_target, &session.control_path, args_iter_get(args, 0))
         } else {
             unreachable!("an admitted op implies a builder")
-        }
-    })();
+        };
     let argv = built.map_err(|_| fail("capability_denied", "invalid host-issued operation"))?;
     let result = ctx
         .host
@@ -401,9 +412,9 @@ pub async fn run(input: &Value, ctx: &Ctx, sessions: &Sessions) -> Result<Value,
 }
 
 fn args_iter_get(args: &[Value], i: usize) -> &str {
-    args.get(i)
-        .and_then(Value::as_str)
-        .expect("admitted check_repo has a non-empty string first arg")
+    // The caller's admission guarantee ("non-empty string first arg") means the
+    // fallback below is never observed.
+    args.get(i).and_then(Value::as_str).unwrap_or_default()
 }
 
 /// The `hostRunner.fetch` handler: bundle stage via `stageBundle`.
@@ -430,7 +441,12 @@ pub async fn fetch(input: &Value, ctx: &Ctx, sessions: &Sessions) -> Result<Valu
     if ctx.cancel.is_cancelled() {
         return Err(fail("capability_denied", "SSH bundle fetch cancelled"));
     }
-    let args: &[Value] = args.expect("3-arg bundle tuple");
+    let Some(args) = args else {
+        return Err(fail(
+            "capability_denied",
+            "bundle fetch is not issued for this provider",
+        ));
+    };
     let argv = bundle_out_argv(&session.ssh_target, &session.control_path, args)
         .map_err(|_| fail("capability_denied", "invalid host-issued bundle tuple"))?;
     let result = ctx
@@ -487,7 +503,12 @@ pub async fn upload(input: &Value, ctx: &Ctx, sessions: &Sessions) -> Result<Val
     if ctx.cancel.is_cancelled() {
         return Err(fail("capability_denied", "SSH binary upload cancelled"));
     }
-    let args: &[Value] = args.expect("2-arg upload tuple");
+    let Some(args) = args else {
+        return Err(fail(
+            "capability_denied",
+            "binary upload is not issued for this provider",
+        ));
+    };
     let nonce = attempt.and_then(Value::as_str).unwrap_or_default();
     let argv = binary_upload_argv(&session.ssh_target, &session.control_path, args, nonce)
         .map_err(|_| fail("capability_denied", "invalid host-issued binary upload"))?;
