@@ -1013,7 +1013,10 @@ pub fn raised(
             );
             row.insert("raisedAt".into(), t["promptWait"]["at"].clone());
             row.insert("since".into(), t["promptWait"]["at"].clone());
-            row.insert("notify".into(), json!(notify_level("stuck", Some(&t), ctx.now)));
+            row.insert(
+                "notify".into(),
+                json!(notify_level("stuck", Some(&t), ctx.now)),
+            );
             row.insert(
                 "actions".into(),
                 json!([
@@ -1376,7 +1379,8 @@ mod notify_level_tests {
 
     #[test]
     fn human_owned_failed_task_is_important() {
-        let task = json!({"source":"ui","work":{"rootId":"t","parentId":null,"depth":0},"origin":"human"});
+        let task =
+            json!({"source":"ui","work":{"rootId":"t","parentId":null,"depth":0},"origin":"human"});
         assert_eq!(notify_level("failed", Some(&task), 100.0), "important");
     }
 

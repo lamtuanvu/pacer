@@ -122,8 +122,7 @@ pub fn candidates(items: &[Item], level: &str, ledger: &Value) -> Vec<Candidate>
     let mut eligible = vec![];
     for item in items {
         let key = item_key(item);
-        if ledger_keys.contains(&key) || level == "important" && item.get("notify") != "important"
-        {
+        if ledger_keys.contains(&key) || level == "important" && item.get("notify") != "important" {
             continue;
         }
         eligible.push(item);
