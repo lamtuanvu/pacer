@@ -1,0 +1,146 @@
+[
+  {
+    "name": "remote-usage-match",
+    "input": {
+      "now": 1000000,
+      "account": {
+        "name": "codex",
+        "kind": "codex",
+        "source": "native"
+      },
+      "hosts": {
+        "box": {
+          "alias": "box",
+          "ssh": "box-ssh",
+          "accounts": {
+            "codex": {
+              "home": "~/.codex"
+            }
+          }
+        }
+      },
+      "files": {
+        "cache/remote-usage/codex.json": {
+          "content": "{\"version\":3,\"identity\":\"ba12ca8466eb53b85795f5f9bac98cd9a8f3e5f817c8b64309ebbc433a1f0f0c\",\"sourceIdentity\":\"[\\\"box\\\",\\\"box-ssh\\\",\\\"~/.codex\\\"]\",\"reading\":{\"windows\":[{\"name\":\"5h\",\"usedPct\":20,\"resetsAt\":1003600,\"lengthS\":18000,\"paced\":false}],\"capturedAt\":999990,\"stale\":false,\"source\":\"session-log\",\"remoteHost\":\"box\"}}"
+        }
+      }
+    },
+    "expected": {
+      "windows": [
+        {
+          "name": "5h",
+          "usedPct": 20,
+          "resetsAt": 1003600,
+          "lengthS": 18000,
+          "paced": false
+        }
+      ],
+      "capturedAt": 999990,
+      "stale": false,
+      "source": "session-log",
+      "remoteHost": "box"
+    }
+  },
+  {
+    "name": "remote-usage-version2",
+    "input": {
+      "now": 1000000,
+      "account": {
+        "name": "codex",
+        "kind": "codex",
+        "source": "native"
+      },
+      "hosts": {
+        "box": {
+          "alias": "box",
+          "ssh": "box-ssh",
+          "accounts": {
+            "codex": {
+              "home": "~/.codex"
+            }
+          }
+        }
+      },
+      "files": {
+        "cache/remote-usage/codex.json": {
+          "content": "{\"version\":2,\"identity\":\"ba12ca8466eb53b85795f5f9bac98cd9a8f3e5f817c8b64309ebbc433a1f0f0c\",\"sourceIdentity\":\"[\\\"box\\\",\\\"box-ssh\\\",\\\"~/.codex\\\"]\",\"reading\":{\"windows\":[{\"name\":\"5h\",\"usedPct\":20,\"resetsAt\":1003600,\"lengthS\":18000,\"paced\":false}],\"capturedAt\":999990,\"stale\":false,\"source\":\"session-log\",\"remoteHost\":\"box\"}}"
+        }
+      }
+    },
+    "expected": {
+      "windows": [
+        {
+          "name": "5h",
+          "usedPct": 20,
+          "resetsAt": 1003600,
+          "lengthS": 18000,
+          "paced": false
+        }
+      ],
+      "capturedAt": null,
+      "stale": true,
+      "source": "session-log",
+      "remoteHost": "box"
+    }
+  },
+  {
+    "name": "remote-usage-missing-host",
+    "input": {
+      "now": 1000000,
+      "account": {
+        "name": "codex",
+        "kind": "codex",
+        "source": "native"
+      },
+      "hosts": {},
+      "files": {
+        "cache/remote-usage/codex.json": {
+          "content": "{\"version\":3,\"identity\":\"ba12ca8466eb53b85795f5f9bac98cd9a8f3e5f817c8b64309ebbc433a1f0f0c\",\"sourceIdentity\":\"[\\\"box\\\",\\\"box-ssh\\\",\\\"~/.codex\\\"]\",\"reading\":{\"windows\":[{\"name\":\"5h\",\"usedPct\":20,\"resetsAt\":1003600,\"lengthS\":18000,\"paced\":false}],\"capturedAt\":999990,\"stale\":false,\"source\":\"session-log\",\"remoteHost\":\"box\"}}"
+        }
+      }
+    },
+    "expected": {
+      "windows": [
+        {
+          "name": "5h",
+          "usedPct": 20,
+          "resetsAt": 1003600,
+          "lengthS": 18000,
+          "paced": false
+        }
+      ],
+      "capturedAt": null,
+      "stale": true,
+      "source": "session-log",
+      "remoteHost": "box"
+    }
+  },
+  {
+    "name": "remote-usage-damaged",
+    "input": {
+      "now": 1000000,
+      "account": {
+        "name": "codex",
+        "kind": "codex",
+        "source": "native"
+      },
+      "hosts": {
+        "box": {
+          "alias": "box",
+          "ssh": "box-ssh",
+          "accounts": {
+            "codex": {
+              "home": "~/.codex"
+            }
+          }
+        }
+      },
+      "files": {
+        "cache/remote-usage/codex.json": {
+          "content": "{not json"
+        }
+      }
+    },
+    "expected": null
+  }
+]
