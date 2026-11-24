@@ -174,8 +174,26 @@ export async function pluginNativeRequest(ctx: Ctx, raw: unknown, o: { stdio?: b
         await reg.nativeStop(ctx, p.id);
         break;
       case "changed":
-        if (p.reset) reg.nativeReset(ctx, p.id);
+        // Parity with TypeScript registry.enable / disable / remove: native mutations
+        // edit config then notify Core via changed. Enable always sets reset; sync
+        // plugin-contributed workflows. When the plugin is no longer live, disable
+        // its origin definitions (disable/remove; harmless for settings/visibility).
+        if (p.reset) {
+          reg.nativeReset(ctx, p.id);
+          const manifest = reg.manifestOf(ctx, p.id);
+          if (manifest && Object.hasOwn(manifest.contributes, "workflow")) {
+            const { syncPluginWorkflows } = await import("../workflow/plugin-sync");
+            void syncPluginWorkflows(ctx, p.id).catch(error => {
+              appendPluginLog(ctx, p.id, "workflow", error instanceof Error ? error.message : String(error));
+            });
+          }
+        }
         if (p.invalidate) reg.invalidatePlugin(ctx, p.id);
+        if (!p.reset) {
+          const info = reg.list(ctx).find(entry => entry.id === p.id);
+          const { disablePluginWorkflows, pluginWorkflowsAreLive } = await import("../workflow/plugin-sync");
+          if (!pluginWorkflowsAreLive(info, reg.manifestOf(ctx, p.id))) disablePluginWorkflows(ctx, p.id);
+        }
         break;
       case "publish":
         if (["plugin.enable", "plugin.disable", "plugin.remove", "plugin.ui.visibility", "plugin.settings.set"].includes(p.op)) await publishConfigChange(ctx, "plugins");
