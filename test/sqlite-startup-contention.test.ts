@@ -15,7 +15,7 @@ import { getDefinition, insertRun, workflowDatabase } from "../src/workflow/stor
 import { getTurn, insertTurn } from "../src/workflow/wakeups";
 import { issueRunGrant, verifyRunGrant } from "../src/workflow/run-grant";
 import { recoverOrphanTurns } from "../src/workflow/orchestrator";
-import { syncAllPluginWorkflows } from "../src/workflow/plugin-sync";
+import { syncAllPluginWorkflows, syncPluginWorkflows } from "../src/workflow/plugin-sync";
 import { callOp } from "../src/api/ops";
 import { shutdownPlugins } from "../src/plugins";
 
@@ -377,17 +377,28 @@ await serve({
   dispatchDatabase(ctx);
   workflowDatabase(ctx);
   await callOp(ctx, "plugin.enable", { id, grant: true });
+  // Enable fire-and-forgets syncPluginWorkflows; drain it and clear so the held-writer
+  // assertion observes only syncAllPluginWorkflows under SQLITE_BUSY (not a race with enable).
+  const featureId = `${id}/feature`;
+  const featureRef = `${featureId}@1`;
+  await syncPluginWorkflows(ctx, id);
+  expect(getDefinition(ctx, featureRef)).not.toBeNull();
+  const workflows = workflowDatabase(ctx);
+  workflows.query("DELETE FROM workflow_prompts WHERE def_id = ?").run(featureId);
+  workflows.query("DELETE FROM workflow_defs WHERE id = ?").run(featureId);
+  expect(getDefinition(ctx, featureRef)).toBeNull();
 
-  let service: ReturnType<typeof startServer> | undefined;
-  const started = performance.now();
-  service = startServer(() => ctx, { port: 0, pumpMs: 0 });
-  expect(performance.now() - started).toBeLessThan(1000);
-
+  // Hold the writer before startServer so its post-listen syncAll cannot win a race.
   const writer = new Database(join(ctx.pacerHome, "state/tasks.db"));
   writer.exec("BEGIN IMMEDIATE");
   const deferred: Array<() => void> = [];
   let released = false;
+  let service: ReturnType<typeof startServer> | undefined;
   try {
+    const started = performance.now();
+    service = startServer(() => ctx, { port: 0, pumpMs: 0 });
+    expect(performance.now() - started).toBeLessThan(1000);
+
     await syncAllPluginWorkflows(ctx, {
       defer: work => { deferred.push(work); },
       retryDelaysMs: [1],
@@ -398,17 +409,17 @@ await serve({
       signal: AbortSignal.timeout(1500),
     });
     expect(response.status).toBe(204);
-    expect(getDefinition(ctx, `${id}/feature@1`)).toBeNull();
+    expect(getDefinition(ctx, featureRef)).toBeNull();
     writer.exec("ROLLBACK");
     released = true;
     writer.close();
     for (const work of deferred) work();
     const deadline = Date.now() + 5000;
     while (Date.now() < deadline) {
-      if (getDefinition(ctx, `${id}/feature@1`)) break;
+      if (getDefinition(ctx, featureRef)) break;
       await Bun.sleep(20);
     }
-    expect(getDefinition(ctx, `${id}/feature@1`)).not.toBeNull();
+    expect(getDefinition(ctx, featureRef)).not.toBeNull();
   } finally {
     if (!released) { writer.exec("ROLLBACK"); writer.close(); }
     await service?.stop();
