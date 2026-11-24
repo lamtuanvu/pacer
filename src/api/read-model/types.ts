@@ -59,6 +59,8 @@ export interface ReadModelFields {
  pause: PauseState | null; attention: AttentionItem[]; service: ServiceInfo; planner: PlannerMeter | null; counts: Counts; today: Today;
  machine: MachineCapacity;
  executors: ExecutorRow[]; accounts: AccountSummary[]; hosts: HostSummary[]; repos: RepoRef[]; setup: SetupSummary;
+ /** Additive /v3-only live run summaries (Phase 6). Absent on v2. */
+ runs?: import("./runs").SnapshotRun[];
 }
 export type ReadModel = ReadModelFields;
 

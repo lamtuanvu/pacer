@@ -146,6 +146,9 @@ export function sandboxEnv(session: Session, inherited = process.env): NodeJS.Pr
     PACER_PORT: String(session.port),
     PACER_BACKEND: "direct",
     PACER_NO_UPDATE_CHECK: "1",
+    // Marks the sandbox service as the live harness so PACER_TEST_ENTRY_LEASE_S /
+    // PACER_TEST_START_DELAY_MS (read once at serve boot onto Ctx) are honored.
+    PACER_LIVE_HARNESS: "1",
     PACER_ORCA_USER_DATA: join(session.root, "orca-profile"),
     ...(session.seed ? {
       HOME: join(session.root, "home"),
@@ -162,7 +165,7 @@ export function shellQuote(value: string): string {
 }
 export function environmentScript(session: Session): string {
   const env = sandboxEnv(session);
-  return ["PATH", "PACER_BIN", "PACER_HOME", "PACER_PORT", "PACER_BACKEND", "PACER_NO_UPDATE_CHECK", "PACER_ORCA_USER_DATA", ...(session.frontDoor === "rust" ? ["PACER_CORE_ARGV"] : []),
+  return ["PATH", "PACER_BIN", "PACER_HOME", "PACER_PORT", "PACER_BACKEND", "PACER_NO_UPDATE_CHECK", "PACER_LIVE_HARNESS", "PACER_ORCA_USER_DATA", ...(session.frontDoor === "rust" ? ["PACER_CORE_ARGV"] : []),
     ...(session.nativeForwardOps ? ["PACER_FORWARD_OPS"] : []), ...(session.nativePluginHost ? ["PACER_NATIVE_PLUGIN_HOST"] : []), ...(session.localModelPorts ? ["PACER_TEST_LOCAL_SERVER_PORTS"] : []), ...(session.seed ? ["HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME"] : [])]
     .map(key => `export ${key}=${shellQuote(env[key]!)}`).join("\n") + "\n";
 }
@@ -424,9 +427,9 @@ export async function stopService(session: Session): Promise<void> {
   record(session, { kind: "note", text: `Service ${session.pid} stopped; its process group exited` });
 }
 /** Start the sandbox service again on its inner port, after `stopService`. */
-export async function startService(session: Session): Promise<void> {
+export async function startService(session: Session, overrides: NodeJS.ProcessEnv = {}): Promise<void> {
   if (!session.serviceGroup?.stopped) throw Error("The sandbox service must stop before it starts again");
-  session.pid = launch(session, serviceArgv(session), "serve.log");
+  session.pid = launch(session, serviceArgv(session), "serve.log", overrides);
   const serviceIdentity = processIdentity(session.pid);
   if (!serviceIdentity) throw Error("Could not prove launched sandbox process incarnation");
   session.serviceIdentity = serviceIdentity;

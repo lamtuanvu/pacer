@@ -100,7 +100,27 @@ export interface Ctx {
   readOnly?: boolean; // Suppress cache writes for strategy previews.
   home: string;       // user home (agent logs live under it)
   pacerHome: string;  // pacer state dir
-  now: number;        // unix seconds
+  now: number;        // unix seconds (request snapshot; may be stale during long work)
+  /**
+   * Live clock for lease claim/renew/expiry (unix seconds). When unset, those paths use
+   * `Date.now()/1000` so a frozen `now` snapshot cannot keep writing the same deadline.
+   * Tests inject this (fakeCtx binds it to mutable `now`) for deterministic advancement.
+   */
+  clock?: () => number;
+  /**
+   * Test / live-harness only: override entry-lease length in seconds (1–120).
+   * Production never sets this; makeCtx fills it from PACER_TEST_ENTRY_LEASE_S only when
+   * PACER_LIVE_HARNESS=1 (or NODE_ENV=test) is present at process boot.
+   */
+  entryLeaseS?: number;
+  /**
+   * Test / live-harness only: artificial startRun delay in ms (1–120_000).
+   * Same gating as entryLeaseS (PACER_TEST_START_DELAY_MS + harness flag).
+   */
+  startRunDelayMs?: number;
+  /** Test-only: injectable timers for entry-lease heartbeats (no real wall wait). */
+  setInterval?: typeof setInterval;
+  clearInterval?: typeof clearInterval;
   env: Record<string, string | undefined>;
   run: RunFn;
   which: (bin: string) => string | null;

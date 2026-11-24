@@ -35,7 +35,7 @@ export function localTs(y: number, mo: number, d: number, h = 0, mi = 0): number
 
 export function fakeCtx(o: Partial<Ctx> = {}): Ctx {
   const home = o.home ?? tmpDir();
-  return {
+  const ctx: Ctx = {
     home,
     pacerHome: o.pacerHome ?? join(home, ".pacer"),
     now: o.now ?? localTs(2026, 10, 10, 19, 0),
@@ -43,6 +43,13 @@ export function fakeCtx(o: Partial<Ctx> = {}): Ctx {
     run: o.run ?? (async () => ({ code: 127, stdout: "", stderr: "not available in tests" })),
     which: o.which ?? (() => "/usr/bin/fake"),
   };
+  // Deterministic leases: bind clock to mutable ctx.now unless the caller injects one.
+  ctx.clock = o.clock ?? (() => ctx.now);
+  if (o.entryLeaseS !== undefined) ctx.entryLeaseS = o.entryLeaseS;
+  if (o.startRunDelayMs !== undefined) ctx.startRunDelayMs = o.startRunDelayMs;
+  if (o.setInterval) ctx.setInterval = o.setInterval;
+  if (o.clearInterval) ctx.clearInterval = o.clearInterval;
+  return ctx;
 }
 
 /** A RunFn that really runs commands (git in temp repos). */

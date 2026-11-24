@@ -282,6 +282,7 @@
         "failed": 0,
         "byRepo": {}
       },
+      "runs": [],
       "tasks": [],
       "strategies": [
         {
@@ -653,6 +654,7 @@
         "failed": 0,
         "byRepo": {}
       },
+      "runs": [],
       "tasks": [
         {
           "id": "TASK_1",
@@ -1922,6 +1924,7 @@
           "local:FIXTURE": 2
         }
       },
+      "runs": [],
       "tasks": [
         {
           "id": "TASK_1",
@@ -2870,6 +2873,7 @@
           "local:FIXTURE": 2
         }
       },
+      "runs": [],
       "tasks": [
         {
           "id": "TASK_1",
@@ -3357,6 +3361,7 @@
           "local:FIXTURE": 2
         }
       },
+      "runs": [],
       "tasks": [
         {
           "id": "TASK_1",
@@ -3840,6 +3845,7 @@
           "local:FIXTURE": 2
         }
       },
+      "runs": [],
       "tasks": [
         {
           "id": "TASK_1",

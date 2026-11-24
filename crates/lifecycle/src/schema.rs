@@ -216,6 +216,7 @@ fn rule(value: &Value) -> Result<(), AdmissionError> {
                                 "ancestor",
                                 "top_peer",
                                 "same_tree",
+                                "run_peer",
                                 "none",
                             ],
                         )?;

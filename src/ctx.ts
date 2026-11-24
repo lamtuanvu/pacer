@@ -18,11 +18,31 @@ export function assertPacerHomeAllowed(path: string): void {
   guard?.(path);
 }
 
+/**
+ * Harness-only entry-lease / start-delay knobs. Honored only when an explicit
+ * harness flag is present (PACER_LIVE_HARNESS=1); unit tests inject Ctx fields directly. Values are
+ * read once at makeCtx (serve boot) and copied onto Ctx — never from $PACER_HOME files.
+ */
+export function harnessEntryOverrides(env: Record<string, string | undefined>): {
+  entryLeaseS?: number;
+  startRunDelayMs?: number;
+} {
+  const allowed = env.PACER_LIVE_HARNESS === "1";
+  if (!allowed) return {};
+  const out: { entryLeaseS?: number; startRunDelayMs?: number } = {};
+  const lease = Number(env.PACER_TEST_ENTRY_LEASE_S);
+  if (Number.isFinite(lease) && lease >= 1 && lease <= 120) out.entryLeaseS = lease;
+  const delay = Number(env.PACER_TEST_START_DELAY_MS);
+  if (Number.isFinite(delay) && delay > 0 && delay <= 120_000) out.startRunDelayMs = Math.floor(delay);
+  return out;
+}
+
 export function makeCtx(o: Partial<Ctx> = {}): Ctx {
   const env = o.env ?? process.env;
   const home = o.home ?? env.HOME ?? process.env.HOME ?? homedir();
   const pacerHome = o.pacerHome ?? env.PACER_HOME ?? join(home, ".pacer");
   assertPacerHomeAllowed(pacerHome);
+  const harness = harnessEntryOverrides(env);
   return {
     home,
     pacerHome,
@@ -30,5 +50,15 @@ export function makeCtx(o: Partial<Ctx> = {}): Ctx {
     env,
     run: o.run ?? defaultRun,
     which: o.which ?? ((bin) => Bun.which(bin)),
+    // Explicit Partial overrides win; otherwise apply boot-time harness env once.
+    ...(o.entryLeaseS !== undefined
+      ? { entryLeaseS: o.entryLeaseS }
+      : harness.entryLeaseS !== undefined ? { entryLeaseS: harness.entryLeaseS } : {}),
+    ...(o.startRunDelayMs !== undefined
+      ? { startRunDelayMs: o.startRunDelayMs }
+      : harness.startRunDelayMs !== undefined ? { startRunDelayMs: harness.startRunDelayMs } : {}),
+    ...(o.clock ? { clock: o.clock } : {}),
+    ...(o.setInterval ? { setInterval: o.setInterval } : {}),
+    ...(o.clearInterval ? { clearInterval: o.clearInterval } : {}),
   };
 }

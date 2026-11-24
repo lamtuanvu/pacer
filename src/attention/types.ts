@@ -4,7 +4,7 @@ export type AttentionKind = "question" | "review" | "failed" | "limit" | "stuck"
 export type AttentionUnblocks = "run" | "branch" | "nothing";
 export type RunAttentionPriority = "urgent" | "normal" | "background";
 export interface Action { label: string; op: string; params: Record<string, unknown>; style?: "primary" | "danger"; confirm?: string }
-/** Run identity on a /v3-only run-question attention item (D10). Letter is fixed per run id until Phase 6 assigns letters. */
+/** Run identity on /v3-only workflow attention items (D10). Letter is the stored Phase 6 run letter. */
 export interface AttentionRunRef {
   id: string;
   letter: string;

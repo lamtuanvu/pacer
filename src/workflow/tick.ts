@@ -27,18 +27,11 @@ import {
 import { defaultEngineDeps, failRun, joinFanout, onTaskSettled, readvanceStep, reconcileOrphanStep, stepRequestId, type EngineDeps } from "./engine";
 import { orchestrateRuns, type OrchestratorDeps } from "./orchestrator";
 import { enqueueWakeup, stepWakeRef } from "./wakeups";
+import { isTransientError } from "./transient";
+
+export { isTransientError };
 
 const SETTLE_STATES: readonly TaskState[] = ["done", "failed", "stopped", "limit"];
-
-/** SQLite lock contention (SQLITE_BUSY and its messages, including the busy-timeout
- *  expiry) is transient: the tick stops and retries next time instead of failing a
- *  run over a lock another connection still holds. */
-export function isTransientError(err: unknown): boolean {
-  const text = `${err instanceof Error ? err.message : String(err)}`.toLowerCase();
-  return text.includes("sqlite_busy") || text.includes("database is locked")
-    || text.includes("database table is locked") || text.includes("database is busy")
-    || text.includes("database schema is locked");
-}
 
 /** Settles one step task: transient errors are retried on the next tick, but only
  *  a bounded number of times per change (Review Focus: run correctness 6) — after
@@ -366,6 +359,18 @@ export async function advanceRuns(
   // It is skipped when the walk stopped early (a transient or an aborted rescan):
   // the next tick re-processes the log first, then recovers.
   if (!walk.stopped) handled += await recoverLostSettlements(ctx, spawn, deps);
+  // Phase 6: sync pacing pauses with the current mode before starting turns, so a
+  // loosened mode resumes at the next step boundary / wake window.
+  try {
+    const { applyPacingToLiveRuns } = await import("./pacing");
+    await applyPacingToLiveRuns(ctx, orch.readPacingMode
+      ?? (orch.pacingMode !== undefined ? async () => orch.pacingMode! : undefined));
+  } catch { /* never block the tick */ }
+  // Runs paused at start have no step rows; start def.entry once the pause clears.
+  try {
+    const { startPendingEntries } = await import("./engine");
+    handled += await startPendingEntries(ctx, { deps, spawn });
+  } catch { /* never block the tick */ }
   // Fifth phase: start due orchestrator turns, settle terminal ones, recreate lost wake-ups.
   const orchDeps: OrchestratorDeps = { ...orch, ...(spawn && !orch.spawn ? { spawn } : {}) };
   const orchestrated = await orchestrateRuns(ctx, orchDeps);

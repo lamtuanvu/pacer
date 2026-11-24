@@ -346,6 +346,7 @@ pub(crate) fn messaging(raw: &Value) -> Option<Value> {
                                     | "ancestor"
                                     | "top_peer"
                                     | "same_tree"
+                                    | "run_peer"
                                     | "none"
                             )
                         )

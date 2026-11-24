@@ -60,10 +60,14 @@ fn defaults_apply_without_a_strategy() {
         .iter()
         .map(|r| r["layer"].clone())
         .collect();
-    assert_eq!(layers, vec![json!("default"); 6]);
+    assert_eq!(layers, vec![json!("default"); 7]);
     assert_eq!(
         serde_json::to_string(&policy["rules"][4]).unwrap(),
         r#"{"effect":"allow","from_position":"child","relation":["sibling","child"],"grant":"required","layer":"default"}"#
+    );
+    assert_eq!(
+        serde_json::to_string(&policy["rules"][6]).unwrap(),
+        r#"{"effect":"allow","relation":["run_peer"],"layer":"default"}"#
     );
 }
 
@@ -155,9 +159,12 @@ fn layers_merge_strategy_project_and_tree() {
 }
 
 #[test]
-fn checks_without_tasks_leave_the_store_closed() {
+fn checks_probe_run_peer_and_open_the_store() {
+    // TypeScript's bothRunParticipants → workflowSchemaPresent opens the task
+    // store on every checkSend that falls through to run_peer, even when neither
+    // side is a task. Native must match that side effect for parity.
     let dir = tempfile::tempdir().unwrap();
     let r = run(&dir, "human", "external:codex", false);
     assert_eq!(r["decision"], "allow");
-    assert!(!dir.path().join("state").exists());
+    assert!(dir.path().join("state/tasks.db").exists());
 }

@@ -6,7 +6,8 @@ import { reference } from "./fixtures/p6e/reference";
 import { p6eCases } from "./fixtures/p6e/cases";
 
 const root = join(import.meta.dir, "..");
-const example = join(root, "target", "debug", "examples", "decisions");
+const cargoTarget = globalThis.process.env.CARGO_TARGET_DIR ?? join(root, "target");
+const example = join(cargoTarget, "debug", "examples", "decisions");
 
 beforeAll(() => {
   const build = spawnSync(

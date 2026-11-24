@@ -24,7 +24,7 @@ import { questionInputSchema } from "../workflow/question-schema";
 import { convertPromptWaitToQuestion } from "../workflow/prompt-detector";
 import {
   answerGenerateApproval, answerHumanStep, chooseWorkflow, defaultEngineDeps, recordStepResult, retryFailedStep,
-  skipFailedStep, startRun, stopRun,
+  skipFailedStep, startPendingEntries, startRun, stopRun,
   type EngineDeps,
 } from "../workflow/engine";
 import { listArtifacts, storeArtifact } from "../workflow/artifacts";
@@ -42,6 +42,13 @@ import { spawnRunner, type SpawnRunner } from "../tasks/api";
 import { orchestratorTaskIdForGrant, verifyRunGrant } from "../workflow/run-grant";
 import { PLANNERS } from "../config/strategy";
 import { publish } from "../link/publish";
+import {
+  applyPriorityToQueuedRunTasks, RUN_PRIORITIES, type RunPriority,
+} from "../workflow/priority";
+import {
+  pauseRunByPerson, readPacingMode, resumeRunByPerson, syncRunPacingPause,
+} from "../workflow/pacing";
+import { markRunSeen, storeRunSummary, SUMMARY_MAX_BYTES } from "../workflow/summary";
 
 const op = <P extends z.ZodTypeAny>(def: OpDef<P>) => def as unknown as OpDef;
 
@@ -143,6 +150,7 @@ export const workflowOps: Record<string, OpDef> = {
       repo: z.string().min(1).max(4096),
       brief: z.string().min(1).max(8000),
       title: z.string().min(1).max(120).optional(),
+      priority: z.enum(RUN_PRIORITIES).optional(),
       publish: z.literal("draft").optional(),
     }),
     handler: async (ctx, p, deps) => {
@@ -150,9 +158,13 @@ export const workflowOps: Record<string, OpDef> = {
       const { deps: engine, spawn } = engineDeps(deps);
       // The engine publishes the run entity: on creation, on a failed start and on
       // every status change it makes.
+      // Return the store row (same shape as run.list); run.get adds the orchestrator block.
       return startRun(ctx, {
-        workflow: p.workflow, repo: p.repo, brief: p.brief,
+        workflow: p.workflow,
+        repo: p.repo,
+        brief: p.brief,
         ...(p.title ? { title: p.title } : {}),
+        ...(p.priority ? { priority: p.priority as RunPriority } : {}),
         ...(p.publish ? { publish: p.publish } : {}),
       }, spawn, engine);
     },
@@ -331,6 +343,95 @@ export const workflowOps: Record<string, OpDef> = {
       }));
     },
   }),
+  "run.set_priority": op({
+    description: "Set a run's priority (urgent|normal|background). Person only. Re-prioritizes the run's queued step tasks.",
+    params: z.object({
+      id: runId,
+      priority: z.enum(RUN_PRIORITIES),
+      expect_rev: z.number().int().positive(),
+    }),
+    handler: async (ctx, p) => {
+      assertPersonCaller(ctx);
+      const run = getRun(ctx, p.id);
+      if (!run) throw new CoreError("not_found", `unknown run ${p.id}`);
+      let updated = updateRun(ctx, p.id, p.expect_rev, { priority: p.priority as RunPriority });
+      applyPriorityToQueuedRunTasks(ctx, updated);
+      try {
+        const mode = await readPacingMode(ctx);
+        updated = syncRunPacingPause(ctx, updated, mode);
+      } catch { /* */ }
+      try {
+        await publish(ctx, [
+          { type: "entity", data: { kind: "run", id: updated.id, value: runEntityValue(updated) } },
+        ]);
+      } catch { /* */ }
+      return runEntityValue(updated);
+    },
+  }),
+  "run.pause": op({
+    description: "Pause a run at the next step boundary. Person only. Running steps finish.",
+    params: z.object({ id: runId, expect_rev: z.number().int().positive() }),
+    handler: async (ctx, p) => {
+      assertPersonCaller(ctx);
+      const run = getRun(ctx, p.id);
+      if (!run) throw new CoreError("not_found", `unknown run ${p.id}`);
+      if (run.status === "done" || run.status === "failed" || run.status === "stopped") {
+        throw new CoreError("not_allowed", `run ${p.id} is ${run.status}`);
+      }
+      const updated = pauseRunByPerson(ctx, p.id, p.expect_rev);
+      try {
+        await publish(ctx, [
+          { type: "entity", data: { kind: "run", id: updated.id, value: runEntityValue(updated) } },
+        ]);
+      } catch { /* */ }
+      return runEntityValue(updated);
+    },
+  }),
+  "run.resume": op({
+    description: "Resume a person-paused run. Person only. A pacing pause returns if the mode still requires it.",
+    params: z.object({ id: runId, expect_rev: z.number().int().positive() }),
+    handler: async (ctx, p, deps) => {
+      assertPersonCaller(ctx);
+      const run = getRun(ctx, p.id);
+      if (!run) throw new CoreError("not_found", `unknown run ${p.id}`);
+      if (run.status === "done" || run.status === "failed" || run.status === "stopped") {
+        throw new CoreError("not_allowed", `run ${p.id} is ${run.status}`);
+      }
+      const mode = await readPacingMode(ctx);
+      const updated = resumeRunByPerson(ctx, p.id, p.expect_rev, mode);
+      // Paused-at-start runs (root or children) have no step rows; start entry once clear.
+      // Scope to the resumed tree — do not scan every live run on each person resume.
+      const { deps: engine, spawn } = engineDeps(deps);
+      try {
+        // Resume must not consume the durable transient entry-start budget (batch H);
+        // the tick still counts toward the time/attempt bound.
+        await startPendingEntries(ctx, {
+          deps: engine, spawn, rootRunId: updated.id, countTransient: false,
+        });
+      } catch { /* tick retries */ }
+      const live = getRun(ctx, updated.id) ?? updated;
+      try {
+        await publish(ctx, [
+          { type: "entity", data: { kind: "run", id: live.id, value: runEntityValue(live) } },
+        ]);
+      } catch { /* */ }
+      return runEntityValue(live);
+    },
+  }),
+  "run.seen": op({
+    description: "Mark that the person opened a run. Writes a returned wake-up when something changed since last look and no fresher summary exists. Person/client only; not a run-grant op.",
+    params: z.object({ id: runId }),
+    handler: async (ctx, p) => {
+      assertPersonCaller(ctx);
+      const { run } = markRunSeen(ctx, p.id);
+      try {
+        await publish(ctx, [
+          { type: "entity", data: { kind: "run", id: run.id, value: runEntityValue(run) } },
+        ]);
+      } catch { /* */ }
+      return runEntityValue(run);
+    },
+  }),
   "run.retry_orchestrator": op({
     description: "Clear a blocked orchestrator after repeated failures so the next tick can start a turn. Person only. Does not clear a budget block — use run.set_budget.",
     params: z.object({ id: runId, expect_rev: z.number().int().positive() }),
@@ -477,67 +578,107 @@ export const workflowOps: Record<string, OpDef> = {
     },
   }),
   "run.decide": op({
-    description: "Answer an auto human step or auto graph approval under a live run grant. Never answers a must step.",
-    params: z.object({
-      id: runId,
-      step: z.string().min(1).max(128),
-      choice: z.string().min(1).max(4000),
-      reason: z.string().min(1).max(4000),
-    }),
+    description: "Answer an auto human step or auto graph approval under a live run grant, or write a since-you-last-looked summary (kind: summary). Never answers a must step.",
+    params: z.union([
+      z.object({
+        id: runId,
+        kind: z.literal("summary"),
+        summary: z.string().min(1).superRefine((s, issueCtx) => {
+          // Must match SUMMARY_MAX_BYTES so the op refuses what storage would truncate.
+          if (Buffer.byteLength(s, "utf8") > SUMMARY_MAX_BYTES) {
+            issueCtx.addIssue({ code: z.ZodIssueCode.custom, message: `Summary exceeds ${SUMMARY_MAX_BYTES} bytes UTF-8` });
+          }
+        }),
+        reason: z.string().min(1).max(4000).optional(),
+      }),
+      z.object({
+        id: runId,
+        step: z.string().min(1).max(128),
+        choice: z.string().min(1).max(4000),
+        reason: z.string().min(1).max(4000),
+        kind: z.literal("decide").optional(),
+      }),
+    ]),
     handler: async (ctx, p, deps) => {
       // Grant-only: person uses run.answer. An executor without a grant is refused.
       const grant = ctx.env.PACER_RUN_GRANT ? verifyRunGrant(ctx, ctx.env.PACER_RUN_GRANT) : null;
       if (!grant || rootRunId(ctx, p.id) !== grant.runId) {
         throw new CoreError("not_allowed", "run.decide requires a live run grant for this run");
       }
+      if ("kind" in p && p.kind === "summary") {
+        const run = getRun(ctx, p.id);
+        if (!run) throw new CoreError("not_found", `unknown run ${p.id}`);
+        const updated = storeRunSummary(ctx, p.id, run.rev, p.summary);
+        recordDecision(ctx, {
+          runId: p.id,
+          stepId: "summary",
+          attempt: 0,
+          actor: "orchestrator",
+          kind: "summary",
+          choice: updated.summary ?? p.summary,
+          reason: p.reason ?? "since you last looked",
+        });
+        try {
+          await publish(ctx, [
+            { type: "entity", data: { kind: "run", id: updated.id, value: runEntityValue(updated) } },
+          ]);
+        } catch { /* */ }
+        return runEntityValue(updated);
+      }
+      const step = "step" in p ? p.step : undefined;
+      const choice = "choice" in p ? p.choice : undefined;
+      const reason = "reason" in p ? p.reason : undefined;
+      if (!step || !choice || !reason) {
+        throw new CoreError("invalid_input", "run.decide requires step, choice and reason (or kind: summary)");
+      }
       const run = getRun(ctx, p.id);
       if (!run) throw new CoreError("not_found", `unknown run ${p.id}`);
       const def = getDefinition(ctx, `${run.workflow}@${run.version}`) ?? getDefinition(ctx, run.workflow);
-      const stepDef = def?.steps[p.step];
-      const waiting = stepsOfRun(ctx, p.id).filter(s => s.stepId === p.step && s.status === "waiting");
+      const stepDef = def?.steps[step];
+      const waiting = stepsOfRun(ctx, p.id).filter(s => s.stepId === step && s.status === "waiting");
       const row = waiting[waiting.length - 1];
       const attempt = row?.attempt ?? 0;
       // Auto/strict live on the root run; child choose_workflow rows have auto=0 (I2).
       const root = getRun(ctx, rootRunId(ctx, p.id)) ?? run;
       const { deps: engine, spawn } = engineDeps(deps);
       if (stepDef?.type === "generate") {
-        if (!canAutoApproveGenerate(root, p.step, stepDef as GenerateStep)) {
+        if (!canAutoApproveGenerate(root, step, stepDef as GenerateStep)) {
           recordDecision(ctx, {
-            runId: p.id, stepId: p.step, attempt, actor: "orchestrator",
-            kind: "refused", choice: p.choice, reason: p.reason,
+            runId: p.id, stepId: step, attempt, actor: "orchestrator",
+            kind: "refused", choice, reason,
           });
           throw new CoreError("not_allowed", "Orchestrator cannot answer this step (must, strict, or auto off)");
         }
-        if (!row) throw new CoreError("conflict", `conflict: step ${p.step} of ${p.id} is not waiting for an answer`);
+        if (!row) throw new CoreError("conflict", `conflict: step ${step} of ${p.id} is not waiting for an answer`);
         const updated = await answerGenerateApproval(ctx, {
-          runId: p.id, stepId: p.step, answer: p.choice, note: p.reason, expectRev: run.rev,
+          runId: p.id, stepId: step, answer: choice, note: reason, expectRev: run.rev,
         }, engine, spawn);
         recordDecision(ctx, {
-          runId: p.id, stepId: p.step, attempt: row.attempt, actor: "orchestrator",
-          kind: "decide", choice: p.choice, reason: p.reason,
+          runId: p.id, stepId: step, attempt: row.attempt, actor: "orchestrator",
+          kind: "decide", choice, reason,
         });
         return updated;
       }
       if (!stepDef || stepDef.type !== "human") {
-        throw new CoreError("conflict", `conflict: step ${p.step} is not a human step`);
+        throw new CoreError("conflict", `conflict: step ${step} is not a human step`);
       }
-      if (!canAutoDecide(root, p.step, stepDef as HumanStep)) {
+      if (!canAutoDecide(root, step, stepDef as HumanStep)) {
         recordDecision(ctx, {
           runId: p.id,
-          stepId: p.step,
+          stepId: step,
           attempt,
           actor: "orchestrator",
           kind: "refused",
-          choice: p.choice,
-          reason: p.reason,
+          choice,
+          reason,
         });
         throw new CoreError("not_allowed", "Orchestrator cannot answer this step (must, strict, or auto off)");
       }
-      if (!row) throw new CoreError("conflict", `conflict: step ${p.step} of ${p.id} is not waiting for an answer`);
+      if (!row) throw new CoreError("conflict", `conflict: step ${step} of ${p.id} is not waiting for an answer`);
       // Escalated human_step questions stay person-owned even while canAutoDecide (I-2).
       const escalatedPerson = listQuestions(ctx, p.id, "open").some(q =>
         q.askerKind === "human_step"
-        && q.stepId === p.step
+        && q.stepId === step
         && q.attempt === row.attempt
         && (q.branch ?? undefined) === (row.branch ?? undefined)
         && q.answerer === "person"
@@ -546,24 +687,24 @@ export const workflowOps: Record<string, OpDef> = {
       if (escalatedPerson) {
         recordDecision(ctx, {
           runId: p.id,
-          stepId: p.step,
+          stepId: step,
           attempt: row.attempt,
           actor: "orchestrator",
           kind: "refused",
-          choice: p.choice,
-          reason: p.reason,
+          choice,
+          reason,
         });
         throw new CoreError("not_allowed", "Only the person can answer this question");
       }
-      const updated = await answerHumanStep(ctx, p.id, p.step, p.choice, run.rev, engine, spawn);
+      const updated = await answerHumanStep(ctx, p.id, step, choice, run.rev, engine, spawn);
       recordDecision(ctx, {
         runId: p.id,
-        stepId: p.step,
+        stepId: step,
         attempt: row.attempt,
         actor: "orchestrator",
         kind: "decide",
-        choice: p.choice,
-        reason: p.reason,
+        choice,
+        reason,
       });
       return updated;
     },

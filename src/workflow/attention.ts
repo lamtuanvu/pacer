@@ -20,6 +20,7 @@ import {
 } from "./store";
 import { taskDatabase } from "../tasks/store";
 import { isBudgetBlocked, parseBudget, parseSpent } from "./budget";
+import { resolveRunLetters } from "./letters";
 
 /** Person-facing cue so human-step / planner / executor questions differ on Dispatch. */
 function askerCue(kind: QuestionAskerKind): string {
@@ -254,11 +255,22 @@ export function suppressOrdinaryQuestionItems<T extends { kind: string; taskId?:
   return items.filter(i => !(i.kind === "question" && i.taskId && askers.has(i.taskId)));
 }
 
-/** Stable A–Z letter from a run id until Phase 6 assigns fixed letters. */
+/** Prefer the stored Phase 6 letter; else the same resolveRunLetters map as the snapshot. */
+export function attentionLetterForRun(
+  run: { id: string; letter?: string | null; createdAt?: number },
+  letters?: Map<string, string>,
+): string {
+  if (letters?.has(run.id)) return letters.get(run.id)!;
+  const stored = typeof run.letter === "string" ? run.letter.trim() : "";
+  if (stored) return stored;
+  return resolveRunLetters([{
+    id: run.id, letter: run.letter, createdAt: run.createdAt ?? 0,
+  }]).get(run.id)!;
+}
+
+/** Letter for a lone run id via resolveRunLetters (same as snapshot for a single letterless row). */
 export function runAttentionLetter(runId: string): string {
-  let h = 0;
-  for (let i = 0; i < runId.length; i++) h = (h * 31 + runId.charCodeAt(i)) >>> 0;
-  return String.fromCharCode(65 + (h % 26));
+  return resolveRunLetters([{ id: runId, createdAt: 0 }]).get(runId)!;
 }
 
 function unblocksFor(blocks: QuestionBlocks): AttentionUnblocks {
@@ -285,11 +297,19 @@ function questionPayload(q: QuestionRow): Record<string, unknown> {
   return out;
 }
 
-function runQuestionItem(ctx: Ctx, q: QuestionRow, run: RunRow): AttentionItem {
+function attentionRunRef(run: RunRow, letters?: Map<string, string>) {
+  return {
+    id: run.id,
+    letter: attentionLetterForRun(run, letters),
+    title: run.title || run.workflow,
+    priority: (run.priority === "urgent" || run.priority === "background" ? run.priority : "normal") as "urgent" | "normal" | "background",
+  };
+}
+
+function runQuestionItem(ctx: Ctx, q: QuestionRow, run: RunRow, letters?: Map<string, string>): AttentionItem {
   const unblocks = unblocksFor(q.blocks);
   const at = q.createdAt || ctx.now;
   const actions = runQuestionActions(q);
-  const runTitle = run.title || run.workflow;
   return {
     id: `question:${q.id}`,
     kind: "question",
@@ -302,12 +322,7 @@ function runQuestionItem(ctx: Ctx, q: QuestionRow, run: RunRow): AttentionItem {
     notify: unblocks === "nothing" ? "all" : "important",
     actions,
     unblocks,
-    run: {
-      id: run.id,
-      letter: runAttentionLetter(run.id),
-      title: runTitle,
-      priority: "normal",
-    },
+    run: attentionRunRef(run, letters),
     question: questionPayload(q),
   };
 }
@@ -415,13 +430,15 @@ function blockedFailureActions(run: RunRow): Action[] {
 /** Attention items for live runs: blocked orchestrator, budget thresholds, and person questions. */
 export function deriveWorkflowAttention(ctx: Ctx): AttentionItem[] {
   const items: AttentionItem[] = [];
-  const liveById = new Map(liveRuns(ctx).map(r => [r.id, r]));
+  const live = liveRuns(ctx);
+  const letters = resolveRunLetters(live);
+  const liveById = new Map(live.map(r => [r.id, r]));
   for (const q of listOpenPersonQuestions(ctx)) {
     const run = liveById.get(q.runId) ?? getRun(ctx, q.runId);
     if (!run || (run.status !== "running" && run.status !== "waiting")) continue;
-    items.push(runQuestionItem(ctx, q, run));
+    items.push(runQuestionItem(ctx, q, run, letters));
   }
-  for (const run of liveRuns(ctx)) {
+  for (const run of live) {
     // Child runs share the root's orchestrator/budget attention.
     if (run.parentRunId) continue;
     const budget = parseBudget(run.budget);
@@ -454,6 +471,7 @@ export function deriveWorkflowAttention(ctx: Ctx): AttentionItem[] {
         actions: budgetSpent
           ? [raisePlanningAction(run), stopRunAction(run)]
           : blockedFailureActions(run),
+        run: attentionRunRef(run, letters),
       });
       continue;
     }
@@ -470,6 +488,7 @@ export function deriveWorkflowAttention(ctx: Ctx): AttentionItem[] {
         since: at,
         notify: "important",
         actions: [raisePlanningAction(run), stopRunAction(run)],
+        run: attentionRunRef(run, letters),
       });
     } else if (budget.orchestratorTurns > 0 && spent.orchestratorTurns / budget.orchestratorTurns >= 0.8) {
       const at = attentionClock(ctx, run, "budget_warn");
@@ -485,6 +504,7 @@ export function deriveWorkflowAttention(ctx: Ctx): AttentionItem[] {
         since: at,
         notify: "all",
         actions: [raisePlanningAction(run)],
+        run: attentionRunRef(run, letters),
       });
     }
     if (spent.messageTurns >= budget.messageTurns && budget.messageTurns > 0) {
@@ -500,6 +520,7 @@ export function deriveWorkflowAttention(ctx: Ctx): AttentionItem[] {
         since: at,
         notify: "important",
         actions: [raiseMessageAction(run), stopRunAction(run)],
+        run: attentionRunRef(run, letters),
       });
     } else if (budget.messageTurns > 0 && spent.messageTurns / budget.messageTurns >= 0.8) {
       const at = attentionClock(ctx, run, "budget_msg_warn");
@@ -514,6 +535,7 @@ export function deriveWorkflowAttention(ctx: Ctx): AttentionItem[] {
         since: at,
         notify: "all",
         actions: [raiseMessageAction(run)],
+        run: attentionRunRef(run, letters),
       });
     }
   }

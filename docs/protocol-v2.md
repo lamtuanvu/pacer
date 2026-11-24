@@ -2869,6 +2869,7 @@ Params JSON Schema:
                         "ancestor",
                         "top_peer",
                         "same_tree",
+                        "run_peer",
                         "none"
                       ]
                     }

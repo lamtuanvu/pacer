@@ -1778,6 +1778,7 @@ dependencies = [
  "pacer-config",
  "pacer-foundation",
  "pacer-store",
+ "rusqlite",
  "serde_json",
  "tempfile",
  "tokio",

@@ -25,6 +25,7 @@ const RELATIONS: &[&str] = &[
     "ancestor",
     "top_peer",
     "same_tree",
+    "run_peer",
     "none",
 ];
 const MSG_KINDS: &[&str] = &["message", "question", "answer", "report", "nudge", "close"];

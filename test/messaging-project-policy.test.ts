@@ -22,7 +22,7 @@ test("project policy overrides a global deny only in its repo and follows tree >
   await callOp(ctx, "project.messaging.set", { repo: key, expect_rev: 0, rules: [{ effect: "allow", from_kind: "human" }] });
   expect(checkSend(ctx, send(task)).layer).toBe("project");
   expect((await callOp(ctx, "msg.policy", { check: { from: "human", to: task, kind: "message" } }) as { rules: { layer: string }[] }).rules[0]?.layer).toBe("project");
-  expect(effectivePolicy(ctx, { root: task }).rules.map(r => r.layer)).toEqual(["project", "global", "default", "default", "default", "default", "default", "default"]);
+  expect(effectivePolicy(ctx, { root: task }).rules.map(r => r.layer)).toEqual(["project", "global", "default", "default", "default", "default", "default", "default", "default"]);
   const other = createTask(ctx, { brief: { goal: "other", repo: ctx.home }, kind: "feature", requestedExecutor: null, timeoutS: 600 });
   updateTask(ctx, other.id, t => { t.origin = "human"; t.repo = { ...t.repo!, key: "github.com/example/two" }; });
   expect(() => checkSend(ctx, send(`task:${other.id}`))).toThrow();

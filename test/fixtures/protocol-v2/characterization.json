@@ -17330,7 +17330,7 @@
     "input": {
       "coreBuild": {
         "schemaVersion": 1,
-        "releaseVersion": "0.17.9",
+        "releaseVersion": "0.17.10",
         "buildId": "development-uncompiled",
         "role": "core",
         "targetOs": "darwin",
@@ -17338,7 +17338,7 @@
       },
       "protocol": "3.0.0",
       "previous": "2.8.0",
-      "pacer": "0.17.9",
+      "pacer": "0.17.10",
       "ops": [
         "account.add",
         "account.adopt",
@@ -17525,11 +17525,15 @@
         "run.decide",
         "run.get",
         "run.list",
+        "run.pause",
         "run.publish",
+        "run.resume",
         "run.retry_orchestrator",
+        "run.seen",
         "run.set_auto",
         "run.set_budget",
         "run.set_planner",
+        "run.set_priority",
         "run.start",
         "run.stop",
         "run.submit_graph",
@@ -17646,7 +17650,7 @@
     },
     "output": {
       "protocol": "2.8.0",
-      "pacer": "0.17.9",
+      "pacer": "0.17.10",
       "ops": [
         "account.add",
         "account.adopt",
@@ -22835,6 +22839,7 @@
                             "ancestor",
                             "top_peer",
                             "same_tree",
+                            "run_peer",
                             "none"
                           ]
                         }
@@ -23485,38 +23490,74 @@
         }
       },
       "run.decide": {
-        "description": "Answer an auto human step or auto graph approval under a live run grant. Never answers a must step.",
+        "description": "Answer an auto human step or auto graph approval under a live run grant, or write a since-you-last-looked summary (kind: summary). Never answers a must step.",
         "params": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
-          "type": "object",
-          "properties": {
-            "id": {
-              "type": "string",
-              "pattern": "^run_[a-z2-7]{10}$"
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^run_[a-z2-7]{10}$"
+                },
+                "kind": {
+                  "type": "string",
+                  "const": "summary"
+                },
+                "summary": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4000
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "summary"
+              ],
+              "additionalProperties": false
             },
-            "step": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 128
-            },
-            "choice": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 4000
-            },
-            "reason": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 4000
+            {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^run_[a-z2-7]{10}$"
+                },
+                "step": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "choice": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4000
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4000
+                },
+                "kind": {
+                  "type": "string",
+                  "const": "decide"
+                }
+              },
+              "required": [
+                "id",
+                "step",
+                "choice",
+                "reason"
+              ],
+              "additionalProperties": false
             }
-          },
-          "required": [
-            "id",
-            "step",
-            "choice",
-            "reason"
-          ],
-          "additionalProperties": false
+          ]
         }
       },
       "run.get": {
@@ -23553,6 +23594,29 @@
               ]
             }
           },
+          "additionalProperties": false
+        }
+      },
+      "run.pause": {
+        "description": "Pause a run at the next step boundary. Person only. Running steps finish.",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^run_[a-z2-7]{10}$"
+            },
+            "expect_rev": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "id",
+            "expect_rev"
+          ],
           "additionalProperties": false
         }
       },
@@ -23594,6 +23658,29 @@
           "additionalProperties": false
         }
       },
+      "run.resume": {
+        "description": "Resume a person-paused run. Person only. A pacing pause returns if the mode still requires it.",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^run_[a-z2-7]{10}$"
+            },
+            "expect_rev": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "id",
+            "expect_rev"
+          ],
+          "additionalProperties": false
+        }
+      },
       "run.retry_orchestrator": {
         "description": "Clear a blocked orchestrator after repeated failures so the next tick can start a turn. Person only. Does not clear a budget block — use run.set_budget.",
         "params": {
@@ -23613,6 +23700,23 @@
           "required": [
             "id",
             "expect_rev"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "run.seen": {
+        "description": "Mark that the person opened a run. Writes a returned wake-up when something changed since last look and no fresher summary exists. Person/client only; not a run-grant op.",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^run_[a-z2-7]{10}$"
+            }
+          },
+          "required": [
+            "id"
           ],
           "additionalProperties": false
         }
@@ -23713,6 +23817,38 @@
           "additionalProperties": false
         }
       },
+      "run.set_priority": {
+        "description": "Set a run's priority (urgent|normal|background). Person only. Re-prioritizes the run's queued step tasks.",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^run_[a-z2-7]{10}$"
+            },
+            "priority": {
+              "type": "string",
+              "enum": [
+                "urgent",
+                "normal",
+                "background"
+              ]
+            },
+            "expect_rev": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "id",
+            "priority",
+            "expect_rev"
+          ],
+          "additionalProperties": false
+        }
+      },
       "run.start": {
         "description": "Start a run of an installed workflow for one brief and repository; the entry step becomes an ordinary task.",
         "params": {
@@ -23738,6 +23874,14 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 120
+            },
+            "priority": {
+              "type": "string",
+              "enum": [
+                "urgent",
+                "normal",
+                "background"
+              ]
             },
             "publish": {
               "type": "string",
@@ -25510,6 +25654,7 @@
                                 "ancestor",
                                 "top_peer",
                                 "same_tree",
+                                "run_peer",
                                 "none"
                               ]
                             }
@@ -28515,6 +28660,7 @@
                                 "ancestor",
                                 "top_peer",
                                 "same_tree",
+                                "run_peer",
                                 "none"
                               ]
                             }
@@ -29221,6 +29367,10 @@
     "step.retry",
     "run.set_auto",
     "run.set_budget",
+    "run.set_priority",
+    "run.pause",
+    "run.resume",
+    "run.seen",
     "run.set_planner",
     "run.retry_orchestrator",
     "run.decide",
