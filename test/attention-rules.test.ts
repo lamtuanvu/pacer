@@ -11,11 +11,62 @@ const ctx = fakeCtx();
 function input(): RuleInput { return { now: ctx.now, tasks: [], executors: [], accounts: [], planner: null, setup: { complete: true, open: 0, items: [] }, update: null, retryTarget: () => null }; }
 const task = (state: Parameters<typeof record>[0], at = ctx.now) => apiTask(ctx, record(state, at));
 test("unanswered needs_input raises a blocked question and clears after answering or stopping", () => {
- const raw=record("needs_input",ctx.now);
+ const raw=record("needs_input",ctx.now,{source:"ui"});
  raw.question={text:'which db? $(echo no)\n' + "x".repeat(220),at:ctx.now-10};
  const t=apiTask(ctx,raw);
  expect(deriveItems({...input(),tasks:[t]})[0]).toMatchObject({id:`question:${t.id}`,kind:"question",severity:"blocked",notify:"important",detail:raw.question.text.slice(0,200),since:raw.question.at,actions:[{label:"Answer",op:"task.answer",params:{id:t.id}},{label:"Stop",op:"task.stop",params:{id:t.id}}]});
  for(const patch of [{question:{...raw.question,answer:"postgres"}},{retriedBy:"next"},{dismissed:true},{state:"stopped"}]) expect(deriveItems({...input(),tasks:[{...t,...patch}]})).toEqual([]);
+});
+
+test("planner-delegated question is not important; user-started question is; request-review on delegated task is", () => {
+  const q = { text: "Which db?", at: ctx.now };
+  const plannerQ = { ...task("needs_input"), source: "planner" as const, question: q };
+  const userQ = { ...task("needs_input"), source: "ui" as const, question: q };
+  const review = { ...task("done"), source: "planner" as const, reviewRequest: { note: "Please review", at: ctx.now } };
+  expect(deriveItems({ ...input(), tasks: [plannerQ] })[0]).toMatchObject({ kind: "question", notify: "all" });
+  expect(deriveItems({ ...input(), tasks: [userQ] })[0]).toMatchObject({ kind: "question", notify: "important" });
+  expect(deriveItems({ ...input(), tasks: [review] })[0]).toMatchObject({ kind: "review", notify: "important" });
+  expect(deriveItems({ ...input(), tasks: [{ ...task("needs_input"), question: q }] })[0]).toMatchObject({ notify: "all" });
+});
+
+test("cli-sourced task with external agent origin is not important", () => {
+  const q = { text: "Which approach?", at: ctx.now };
+  const plannerViaCli = {
+    ...task("needs_input"),
+    source: "cli" as const,
+    origin: "external:claude-code:1c692ab2-8ecc-48ed-ba08-7010929fc652",
+    question: q,
+  };
+  const humanCli = { ...task("needs_input"), source: "cli" as const, origin: "human", question: q };
+  expect(deriveItems({ ...input(), tasks: [plannerViaCli] })[0]).toMatchObject({ kind: "question", notify: "all" });
+  expect(deriveItems({ ...input(), tasks: [humanCli] })[0]).toMatchObject({ kind: "question", notify: "important" });
+});
+
+test("stuck stalled executor_down and discovery are not important; account_signin stays important", () => {
+  const idle = { ...task("running"), progress: { phase: "idle" as const, lastOutputAt: ctx.now - 600, files: 0, commits: 0, logBytes: 0 } };
+  expect(deriveItems({ ...input(), tasks: [idle] })[0]).toMatchObject({ kind: "stuck", notify: "all" });
+  const stalled = { ...task("done"), liveness: { stalled: true, reason: "no_progress", since: ctx.now - 60 } };
+  expect(deriveItems({ ...input(), tasks: [stalled] })[0]).toMatchObject({ kind: "stalled", notify: "all" });
+  const { s, st } = capacityFixture();
+  const model = buildReadModel(ctx, { strategy: s, status: st, tasks: [], hosts: [], setup: { complete: true, checkedAt: ctx.now, ready: false, items: [] } });
+  const executor = { ...model.executors.find(e => e.rank !== "planner")!, state: "down" as const };
+  expect(deriveItems({ ...input(), executors: [executor] })[0]).toMatchObject({ kind: "executor_down", notify: "all" });
+  const account = { ...model.accounts.find(a => a.name === executor.account)!, signedIn: false };
+  expect(deriveItems({ ...input(), accounts: [account], executors: [{ ...executor, state: "ready" }] })[0]).toMatchObject({ kind: "account_signin", notify: "important" });
+});
+
+test("promptWait raises stuck with notify all even for a human-owned task", () => {
+  const t = {
+    ...task("running"),
+    source: "ui" as const,
+    promptWait: { text: "Overwrite? [Y/n]", at: ctx.now - 40 },
+  };
+  const items = deriveItems({ ...input(), tasks: [t] });
+  expect(items).toContainEqual(expect.objectContaining({
+    id: `prompt_wait:${t.id}`,
+    kind: "stuck",
+    notify: "all",
+  }));
 });
 test("ordinary completions never escalate for missing verdicts", () => {
  for (const acceptanceState of ["passed", "none", "pending"] as const) {

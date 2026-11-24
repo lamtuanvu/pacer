@@ -569,7 +569,12 @@ fn enrich_api_task(
             .optional()?;
         if let Some((root, parent, depth, options)) = work {
             let options: Value = serde_json::from_str(&options).unwrap_or_default();
-            row["work"] = json!({"rootId":root,"parentId":parent,"depth":depth,"allowDelegation":options["allowDelegation"].as_bool().unwrap_or(false)});
+            let mut work = json!({"rootId":root,"parentId":parent,"depth":depth,"allowDelegation":options["allowDelegation"].as_bool().unwrap_or(false)});
+            // Mirror TS apiTask: userStarted when work root and origin is human.
+            if parent.is_none() && t["origin"] == "human" {
+                work["userStarted"] = json!(true);
+            }
+            row["work"] = work;
         }
     }
     row["fullTitle"] = json!(full_title(t));
@@ -583,6 +588,9 @@ fn enrich_api_task(
     row["queue"] = t["queue"].clone();
     if truth(&t["source"]) {
         row["source"] = t["source"].clone();
+    }
+    if truth(&t["origin"]) {
+        row["origin"] = t["origin"].clone();
     }
     row["repo"] = repo;
     row["kind"] = t["kind"].clone();
@@ -642,6 +650,9 @@ fn enrich_api_task(
                 );
                 if *node != own {
                     v["waitingOn"] = json!(node);
+                }
+                if let Some(at) = escalated.filter(|n| *n != 0.0) {
+                    v["escalatedAt"] = number(at);
                 }
                 row["liveness"] = v;
                 break;

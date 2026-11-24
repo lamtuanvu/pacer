@@ -7,6 +7,11 @@ import { workActionRequestId } from "../work/action-id";
 import type { Action, AttentionItem, AttentionKind, AttentionUnblocks, RunAttentionPriority } from "./types";
 import { discoveryPrompts, type DiscoveryRuleInput } from "../discovery/prompts";
 
+/** Stalled caller_decision older than this becomes an important (grouped) notification. */
+export const CALLER_GONE_AFTER_S = 30 * 60;
+/** Same attention id is not re-notified within this window after a successful delivery. */
+export const NOTIFY_COOLDOWN_S = 30 * 60;
+
 export interface RuleInput {
   now: number; tasks: ApiTask[]; executors: ExecutorRow[]; accounts: AccountSummary[];
   hosts?: HostSummary[]; planner: PlannerMeter | null; setup: SetupSummary;
@@ -27,6 +32,51 @@ const clipCodePoints = (s: string, max: number) => {
 const severityOrder = { blocked: 0, problem: 1, decide: 2 };
 const unblocksOrder: Record<AttentionUnblocks, number> = { run: 0, branch: 1, nothing: 2 };
 const priorityOrder: Record<RunAttentionPriority, number> = { urgent: 0, normal: 1, background: 2 };
+const QUIET_KINDS = new Set<AttentionKind>(["stuck", "executor_down", "host_down", "discovery", "discovery-network", "setup", "update"]);
+const BLOCKING_KINDS = new Set<AttentionKind>(["account_signin", "planner_quota"]);
+/** Escalated liveness promotes these kinds to important. */
+const ESCALATED_KINDS = new Set<AttentionKind>(["question", "failed", "limit", "message"]);
+/** Human-owned roots promote these kinds to important (not bare unread messages). */
+const OWNED_IMPORTANT_KINDS = new Set<AttentionKind>(["question", "failed", "limit"]);
+
+/** Planner/agent caller ids look like `external:<agent>` or `external:<agent>:<session>`. */
+export function isExternalAgentOrigin(origin?: string | null): boolean {
+  return !!origin && origin.startsWith("external:");
+}
+
+/**
+ * Human owns the decision on this root when they started it (not a work-tree child).
+ * `source` alone is not enough: CLI `pacer delegate` from a planner session still has
+ * `source:"cli"` but `origin:"external:<agent>:<session>"` — that is planner-owned.
+ * Missing/unknown source is not human-owned.
+ */
+export function ownedByHuman(t: Pick<ApiTask, "source" | "work" | "origin">): boolean {
+  if (t.work?.parentId) return false;
+  if (t.work?.userStarted) return true;
+  if (t.source === "ui" || t.source === "onboarding") return true;
+  if (t.source === "cli") return !isExternalAgentOrigin(t.origin);
+  return false;
+}
+
+function callerGoneImportant(t: ApiTask | null, now: number): boolean {
+  const live = t?.liveness;
+  return live?.reason === "caller_decision" && live.since !== undefined
+    && now - live.since >= CALLER_GONE_AFTER_S;
+}
+
+/** Notify level for a raised attention kind on an optional task. */
+export function notifyLevel(kind: AttentionKind, t: ApiTask | null, now: number): "important" | "all" {
+  if (BLOCKING_KINDS.has(kind)) return "important";
+  if (QUIET_KINDS.has(kind)) return "all";
+  if (kind === "stalled") return callerGoneImportant(t, now) ? "important" : "all";
+  if (!t) return "important";
+  if (kind === "review") return "important";
+  if (kind === "message" && t.messages?.question) return "important";
+  if (t.liveness?.escalatedAt && ESCALATED_KINDS.has(kind)) return "important";
+  if (ownedByHuman(t) && OWNED_IMPORTANT_KINDS.has(kind)) return "important";
+  return "all";
+}
+
 export function sortItems(items: AttentionItem[]): AttentionItem[] {
   // Total order: ordinary items use sentinel unblocks=nothing and priority=normal
   // so mixed run/ordinary triples cannot cycle (I9).
@@ -39,10 +89,10 @@ export function sortItems(items: AttentionItem[]): AttentionItem[] {
 }
 export function deriveItems(input: RuleInput): AttentionItem[] {
   const items: AttentionItem[] = [];
-  const add = (kind: AttentionKind, key: string, title: string, detail: string, actions: Action[], extra: Partial<AttentionItem> = {}) => {
+  const add = (kind: AttentionKind, key: string, title: string, detail: string, actions: Action[], extra: Partial<AttentionItem> = {}, task: ApiTask | null = null) => {
     items.push({ id: `${kind}:${key}`, kind, severity: kind === "stuck" || kind === "stalled" ? "blocked" : ["review","update","discovery","discovery-network"].includes(kind) ? "decide" : "problem",
       repo: null, title, detail, raisedAt: input.now, since: input.now, actions,
-      notify: ["setup","update"].includes(kind) ? "all" : "important", ...extra });
+      notify: notifyLevel(kind, task, input.now), ...extra });
   };
   for (const t of input.tasks) {
     const extra = { repo: t.repo, taskId: t.id, ...(t.executor ? {executor:t.executor}:{}), ...(t.host ? {host:t.host}:{}), since:t.updatedAt, raisedAt:t.updatedAt };
@@ -52,22 +102,22 @@ export function deriveItems(input: RuleInput): AttentionItem[] {
       add("question",t.id,t.goal,q.text.slice(0,200),[
         {label:"Answer",op:t.work ? "dispatch.answer" : "task.answer",params:{id:t.id,...(t.work ? {expect_rev:t.rev,requestId:workActionRequestId(t.id,t.rev,"answer")} : {})}},
         {label:"Stop",op:"task.stop",params:{id:t.id},style:"danger"},
-      ],{...extra,severity:"blocked",since:q.at,raisedAt:q.at});
+      ],{...extra,severity:"blocked",since:q.at,raisedAt:q.at},t);
     } else if (reason === "checks_failed" || reason === "incomplete") {
       const label = reason === "checks_failed" ? "Inspect failures" : "Inspect incomplete work";
       add("failed", t.id, t.goal, reason === "checks_failed" ? "Acceptance checks failed" : "Execution is incomplete",
-        [open(label, {view:"task",id:t.id})], extra);
+        [open(label, {view:"task",id:t.id})], extra, t);
     } else if (reason === "review_requested") {
       add("review", t.id, t.goal, t.reviewRequest!.note,
-        [open("Review changes", {view:"review",id:t.id})], {...extra, since:t.reviewRequest!.at, raisedAt:t.reviewRequest!.at});
+        [open("Review changes", {view:"review",id:t.id})], {...extra, since:t.reviewRequest!.at, raisedAt:t.reviewRequest!.at}, t);
     } else if ((t.state === "failed" || t.state === "limit") && !t.retriedBy && !t.dismissed && !t.review && !t.resolved) {
       const target=t.work ? null : input.retryTarget(t);
       add(t.state,t.id,t.goal,t.work || target ? `${displayName(t.executor)} ${t.state === "limit" ? "reached its limit" : "failed"}` : "No other executor available",[
         {label:target ? `Retry on ${displayName(target)}` : "Retry",op:t.work ? "dispatch.retry" : "task.retry",params:{id:t.id,...(t.work ? {expect_rev:t.rev,requestId:workActionRequestId(t.id,t.rev,"retry")} : target ? {executor:target} : {})}},
         open("See error",{view:"task",id:t.id}),
-      ],extra);
+      ],extra,t);
     } else if (t.state === "running" && t.progress?.phase === "idle") {
-      add("stuck",t.id,t.goal,"Waiting for output",[open("Open task",{view:"task",id:t.id}),{label:"Stop it",op:"task.stop",params:{id:t.id},style:"danger"}],extra);
+      add("stuck",t.id,t.goal,"Waiting for output",[open("Open task",{view:"task",id:t.id}),{label:"Stop it",op:"task.stop",params:{id:t.id},style:"danger"}],extra,t);
     }
     if (t.state === "running" && t.promptWait) {
       const raw = clipCodePoints(t.promptWait.text, 200);
@@ -82,7 +132,7 @@ export function deriveItems(input: RuleInput): AttentionItem[] {
         detail: `Convert hands the question to the workflow planner, who answers or asks you. ${raw}`,
         raisedAt: t.promptWait.at,
         since: t.promptWait.at,
-        notify: "important",
+        notify: notifyLevel("stuck", t, input.now),
         actions: [
           // Convert first: Dispatch/tray show only the first action; convert_prompt
           // succeeds with { id } alone (UI evidence batch G).
@@ -101,7 +151,7 @@ export function deriveItems(input: RuleInput): AttentionItem[] {
         : t.liveness.reason === "caller_decision" ? `Waiting for ${callerLabel(t.liveness.waitingOn)} to review and decide`
         : `Conversation stalled: ${t.liveness.reason}`;
       add("stalled", t.id, t.goal, detail, [open("Open messages", { view: "task", id: t.id, tab: "messages" })],
-        { ...extra, since: t.liveness.since, raisedAt: t.liveness.since });
+        { ...extra, since: t.liveness.since, raisedAt: t.liveness.since, ...(t.liveness.waitingOn ? { waitingOn: t.liveness.waitingOn } : {}) }, t);
     }
     // An unanswered task question already raises the "question" item above.
     const legacyQuestion = t.state === "needs_input" && !!t.question && t.question.answer === undefined && !t.retriedBy;
@@ -112,7 +162,7 @@ export function deriveItems(input: RuleInput): AttentionItem[] {
       add("message", t.id, t.goal, q ? q.text.slice(0, 200) : `${n} unread message${n === 1 ? "" : "s"}`, [
         // A question lands on the task's answer composer; other messages only open the task.
         { ...(answerable ? open("Answer", { view: "task", id: t.id, tab: "answer" }) : open("Open task", { view: "task", id: t.id })), style: "primary" },
-      ], { ...extra, severity: q ? "blocked" : "decide", since: q?.at ?? t.updatedAt, raisedAt: q?.at ?? t.updatedAt });
+      ], { ...extra, severity: q ? "blocked" : "decide", since: q?.at ?? t.updatedAt, raisedAt: q?.at ?? t.updatedAt }, t);
     }
   }
   for (const a of input.accounts) if (a.signedIn === false && input.executors.some(e=>e.account===a.name && e.enabled)) {

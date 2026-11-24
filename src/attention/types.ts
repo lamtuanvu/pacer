@@ -17,6 +17,8 @@ export interface AttentionItem {
   taskId?: string; executor?: string; host?: string; account?: string;
   title: string; detail: string; raisedAt: number; since: number;
   actions: Action[]; notify: "important" | "all"; snoozedUntil?: number;
+  /** Caller participant when a stalled item is waiting on an escalated parent (caller-gone grouping). */
+  waitingOn?: string;
   /** Present only on structured run questions (Phase 4). */
   unblocks?: AttentionUnblocks;
   run?: AttentionRunRef;
