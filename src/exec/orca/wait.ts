@@ -19,6 +19,8 @@ export interface WaitOpts {
   run: string;
   dispatchId: string;
   terminal: string | null;
+  /** A live interactive root a person started: sitting at the prompt is the user's to end, not an idle failure. */
+  heldOpenForHuman?: boolean;
   deadlineMs: number;
   isStopped: () => boolean;
   sliceMs?: number;
@@ -131,7 +133,7 @@ export async function waitForWorker(ctx: Ctx, c: OrcaClient, o: WaitOpts): Promi
         }
       } else {
         busyAt = null;
-        if (tail !== lastTail || working || !IDLE_PROMPT.test(tail)) { idleAt = null; idleNudged = false; }
+        if (tail !== lastTail || working || !IDLE_PROMPT.test(tail) || o.heldOpenForHuman) { idleAt = null; idleNudged = false; }
         else if (o.terminal) {
           idleAt ??= now();
           if (now() - idleAt >= 600_000) {

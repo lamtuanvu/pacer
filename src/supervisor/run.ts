@@ -19,7 +19,7 @@ import { pruneSessions } from "../session/retention";
 import type { InteractionMode } from "../tasks/types";
 import { stat } from "node:fs/promises";
 
-export interface RunSpec { interactionMode?: InteractionMode; takeover?: boolean; dir: string; argv: string[]; cwd: string; env: Record<string, string | undefined>; stdin?: string; session?: "pty" | "pipe" | "interactive"; sessionLogMb?: number;
+export interface RunSpec { interactionMode?: InteractionMode; taskId?: string; takeover?: boolean; dir: string; argv: string[]; cwd: string; env: Record<string, string | undefined>; stdin?: string; session?: "pty" | "pipe" | "interactive"; sessionLogMb?: number;
   /** The login shell's umask for the agent only (validated octal); absent keeps the service's. */
   umask?: string;
   /** Color flags the user's profile set, kept in an interactive PTY. */
@@ -77,7 +77,7 @@ export function startRun(spec: RunSpec): { pid: number } | { error: string } {
     let command=["/bin/sh", script, spec.dir, ...argv];
     if(pty) {
       chmodSync(spec.dir,0o700); if(taskRun) chmodSync(dirname(spec.dir),0o700);
-      writeFileSync(join(spec.dir,"session.json"),JSON.stringify({interactive,interactionMode:spec.interactionMode,takeover:spec.takeover,...(spec.terminal?{terminal:true}:{}),argv,cwd:spec.cwd,...(spec.keepColor?.length?{keepColor:spec.keepColor}:{}),pacerHome:ctx.pacerHome,capBytes:(spec.sessionLogMb ?? execution?.sessionLogMb ?? 8)*1024*1024}),{mode:0o600});
+      writeFileSync(join(spec.dir,"session.json"),JSON.stringify({interactive,interactionMode:spec.interactionMode,taskId:spec.taskId,takeover:spec.takeover,...(spec.terminal?{terminal:true}:{}),argv,cwd:spec.cwd,...(spec.keepColor?.length?{keepColor:spec.keepColor}:{}),pacerHome:ctx.pacerHome,capBytes:(spec.sessionLogMb ?? execution?.sessionLogMb ?? 8)*1024*1024}),{mode:0o600});
       // Bun source runs and compiled binaries both re-enter through the CLI.
       command=/(^|\/)bun(?:\.exe)?$/.test(process.execPath)
         ? [process.execPath,fileURLToPath(new URL("../cli.ts",import.meta.url)),"_session",spec.dir]

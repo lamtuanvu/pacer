@@ -1,7 +1,8 @@
 import { managedDispatchConfigured } from "../dispatch/configured";
 type Difficulty = WorkOptions["difficulty"];
 import { route } from "../core/routing";
-import { visibleTaskState } from "./types";
+import { visibleTaskState, type TaskResult } from "./types";
+import { heldSettlement } from "./held-report";
 import { prepareCreationAdmission } from "./creation-admission";
 import { createHash } from "node:crypto";
 import { withLock } from "../core/lock";
@@ -523,12 +524,7 @@ async function superviseTaskRecord(ctx: Ctx, t: TaskRecord, spawn: SpawnRunner, 
       return updateTask(ctx, id, current => {
         const deadline = current.stopPending?.reason === "deadline";
         const last = current.attempts[current.attempts.length - 1];
-        delete current.stopPending;
-        delete current.pendingAttempt;
-        delete current.childPid;
-        delete current.runnerPid;
-        current.state = deadline ? "failed" : "stopped";
-        current.result = {
+        const settled: TaskResult = {
           status: deadline ? "failed" : "stopped",
           executor: last?.executor ?? current.executor ?? null,
           model: last?.model ?? null,
@@ -537,6 +533,18 @@ async function superviseTaskRecord(ctx: Ctx, t: TaskRecord, spawn: SpawnRunner, 
             ? "Executor deadline reached; recorded attempt already settled"
             : "Executor exited after stop was requested",
           backend: current.backend ?? "direct",
+        };
+        // A held root's last report survives a user stop, including this reconcile path.
+        const preserved = heldSettlement(ctx, current, settled);
+        delete current.stopPending;
+        delete current.pendingAttempt;
+        delete current.childPid;
+        delete current.runnerPid;
+        current.result = preserved ?? settled;
+        current.state = current.result.status;
+        if (current.interactionMode === "conversation") current.conversation = {
+          ...current.conversation, activity: "ended",
+          endReason: preserved || current.state === "stopped" ? "user" : current.state === "done" ? "agent_exit" : "failure",
         };
       });
     });

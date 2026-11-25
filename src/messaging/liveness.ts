@@ -5,7 +5,7 @@ import { readReport } from "../session/reports";
 import { listTasksWhere } from "../tasks/store";
 import type { TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
-import { parentOf, participantKind, taskOf } from "./participants";
+import { heldOpenForHuman, parentOf, participantKind, taskOf } from "./participants";
 import { effectivePolicy } from "./policy";
 import { getMessage, messagesDatabase } from "./store";
 import { isClosed } from "./turns";
@@ -22,7 +22,7 @@ export interface Stall { node: string; reason: StallReason; waitingOn?: string; 
  * latest file change or commit, attempt start or outgoing message other than a nudge; terminal output is not progress.
  * `silentSince` is when the session entered needs-input (session-status / report `at`), not lastOutputAt — redraws must not reset the timer.
  */
-export interface SnapshotTask { task: TaskRecord; work: boolean; parent: string | null; depth: number; lastProgressAt: number; silentSince?: number }
+export interface SnapshotTask { task: TaskRecord; work: boolean; parent: string | null; depth: number; lastProgressAt: number; heldOpenForHuman: boolean; silentSince?: number }
 /** `noProgressS` is `execution.no_progress_min` in seconds; `idleAfterS` is `execution.idle_after_min` in seconds. */
 export interface LivenessSnapshot { tasks: SnapshotTask[]; unread: Message[]; questions: Message[]; retryDelivery: boolean; noProgressS: number; idleAfterS: number }
 
@@ -93,7 +93,8 @@ export function buildSnapshot(ctx: Ctx): LivenessSnapshot {
     const started = task.attemptStartedAt ?? task.run?.startedAt ?? task.createdAt;
     const lastProgressAt = Math.max(task.progress?.lastChangeAt ?? 0, started, lastSent.get(self)?.at ?? 0);
     const silentSince = silentAtPrompt(task) ? silentPromptSince(task) : undefined;
-    return { task, work: !!getWork(ctx, task.id), parent, depth, lastProgressAt, ...(silentSince !== undefined ? { silentSince } : {}) };
+    return { task, work: !!getWork(ctx, task.id), parent, depth, lastProgressAt,
+      heldOpenForHuman: heldOpenForHuman(ctx, task, parent), ...(silentSince !== undefined ? { silentSince } : {}) };
   });
   const ids = (sql: string, ...args: number[]) => db.query<{ id: string }, number[]>(sql).all(...args).map(r => getMessage(ctx, r.id)!).filter(Boolean);
   const unread = ids("SELECT id FROM messages WHERE status IN ('pending','delivered') ORDER BY id");
@@ -128,16 +129,17 @@ export function analyzeLiveness(snapshot: LivenessSnapshot, now: number): Stall[
   const stalls = new Map<string, Stall>();
   for (const [p, n] of open) {
     const t = n.task;
-    if (t.state === "running" && t.progress?.phase === "idle") stalls.set(p, { node: p, reason: "idle_run", blocking: blocking(p) });
+    // A session a person started is idle or quiet because the user owns it, not because the agent stalled.
+    if (!n.heldOpenForHuman && t.state === "running" && t.progress?.phase === "idle") stalls.set(p, { node: p, reason: "idle_run", blocking: blocking(p) });
     // Sitting at the prompt with no open question: not waiting on anyone legitimate. Wall-clock from
     // silentSince (report/session-status at), after idle_after_min — distinct from idle_run so the live session is nudged, not stopped.
-    else if (silentAtPrompt(t) && !hasOpenQuestion(p, t, snapshot.questions)) {
+    else if (!n.heldOpenForHuman && silentAtPrompt(t) && !hasOpenQuestion(p, t, snapshot.questions)) {
       const since = n.silentSince ?? t.attemptStartedAt ?? t.run?.startedAt ?? t.createdAt;
       if (now - since >= snapshot.idleAfterS) stalls.set(p, { node: p, reason: "silent_prompt", blocking: blocking(p) });
     }
     // Output keeps a spinner or retry loop out of idle_run; only progress clears this. A run without a readable worktree
     // (remote, or git failing) cannot show progress; a human typing, or a conversation at its prompt, holds the move.
-    else if (t.state === "running" && t.progress?.gitObserved && !t.progress.controlled && !NO_PROGRESS_EXEMPT.has(t.progress.phase)
+    else if (!n.heldOpenForHuman && t.state === "running" && t.progress?.gitObserved && !t.progress.controlled && !NO_PROGRESS_EXEMPT.has(t.progress.phase)
       && t.conversation?.activity !== "idle" && t.conversation?.activity !== "waiting" && now - n.lastProgressAt >= snapshot.noProgressS) {
       stalls.set(p, { node: p, reason: "no_progress", blocking: blocking(p) });
     }

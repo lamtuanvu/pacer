@@ -1,6 +1,7 @@
 import { lstatSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { CoreError } from "../core/errors";
+import { heldOpenForHuman } from "../messaging/participants";
 import { readRun, stopRun } from "../supervisor/run";
 import { readTask, updateTask, withTaskLock } from "../tasks/store";
 import type { CallAuthority } from "./authority";
@@ -12,9 +13,11 @@ export async function answerExecutorReportedCompletion(authority: CallAuthority,
   params: { taskId: string; attempt: number }): Promise<{
     status: "done" | "failed"; summary: string; at: number; exitCode: number }> {
   const grant = authority.observedRun(params.taskId, params.attempt);
+  let held = false;
   const check = () => withTaskLock(authority.ctx, params.taskId, () => {
     authority.assertActive();
     const task = readTask(authority.ctx, params.taskId), run = task?.run;
+    held = !!task && heldOpenForHuman(authority.ctx, task);
     if (!task || task.state !== "running" || task.stopPending ||
       task.executorProvider !== grant.providerId || task.executor !== grant.executor ||
       task.attempts.length + 1 !== params.attempt || !run || run.host ||
@@ -42,6 +45,14 @@ export async function answerExecutorReportedCompletion(authority: CallAuthority,
   });
   const before = check();
   authority.consumeExecutorComplete(params.taskId, params.attempt);
+  if (held) {
+    // A live interactive root a person started is owned by the user, not the reporting agent.
+    // The report is already persisted in the run directory for the UI; do not reap the wrapper,
+    // issue an exit receipt or settle the task. Only the user's stop (or the agent's own exit) ends it.
+    // Today no owned-executor route can reach a held root (conversations are excluded upstream), so
+    // the absence of an exit receipt does not affect executor-production's completion binding.
+    return { status: before.status, summary: before.summary, at: before.at, exitCode: before.exit ?? 0 };
+  }
   const stable = () => {
     const current = check();
     if (current.status !== before.status || current.summary !== before.summary ||

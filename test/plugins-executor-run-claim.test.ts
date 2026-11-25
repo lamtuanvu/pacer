@@ -271,6 +271,45 @@ test("reported interactive completion requires the exact live report and reaped 
   }
 });
 
+test("a human-started interactive root keeps its live run after reporting done", async () => {
+  // A session a person started is held open: the report is recorded for the UI, but the host must
+  // not reap its wrapper or settle the task. Agent-delegated runs still get an exit receipt.
+  const { ctx, task, resource, manifest, cleanup } = fixture();
+  updateTask(ctx, task.id, current => {
+    current.origin = "human"; current.source = "ui";
+    current.interactionMode = "conversation"; current.interactive = true;
+  });
+  const authority = createCallAuthority(ctx, { reads: [], commands: [], stores: [],
+    executorClaim: { ...resource, launch: { ...resource.launch,
+      argv: ["bun", "-e", "setTimeout(() => {}, 30000)"], session: "interactive" } } },
+  { deadlineMs: Date.now() + 15_000, grants: ["process.spawn"] });
+  const call = (method: string, params: unknown) => answerCapability(ctx,
+    { id: manifest.id, manifest }, method, params, authority);
+  try {
+    const claim = await call("capability.process.claimRun", { taskId: task.id, attempt: 1 }) as
+      { task: { id: string; rev: number }; attempt: number; runDir: 1 };
+    await call("capability.process.startRun", { task: claim.task, attempt: 1, runDir: 1 });
+    const dir = readTask(ctx, task.id)!.run!.dir;
+    writeReport(dir, "done", "human session report");
+    const result = await call("capability.process.completeReportedRun", { taskId: task.id,
+      attempt: 1 }) as { status: string; summary: string };
+    expect(result).toMatchObject({ status: "done", summary: "human session report" });
+    // The live terminal is untouched: no wrapper exit, no settled task, no exit receipt.
+    expect((await call("capability.process.pollRun", { taskId: task.id,
+      attempt: 1 }) as { state: string }).state).toBe("running");
+    expect(readTask(ctx, task.id)?.state).toBe("running");
+    expect(readTask(ctx, task.id)?.executorReportReceipt).toBeUndefined();
+    // A second completion call cannot reuse the one-use capability.
+    await expect(call("capability.process.completeReportedRun", { taskId: task.id, attempt: 1 }))
+      .rejects.toMatchObject({ code: "capability_denied" });
+  } finally {
+    await authority.revoke();
+    const dir = readTask(ctx, task.id)?.run?.dir;
+    if (dir) await stopRun(dir, { graceMs: 1000 });
+    cleanup();
+  }
+});
+
 test("interactive completion refuses a pipe run and a changed owner before signaling", async () => {
   for (const change of ["pipe", "provider", "stop"] as const) {
     const { ctx, task, resource, manifest, cleanup } = fixture();

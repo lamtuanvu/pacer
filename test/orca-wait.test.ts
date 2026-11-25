@@ -171,6 +171,12 @@ test("idle prompt gets one nudge after ten minutes then fails after ten more",as
  const sends=h.f.calls.filter(a=>a[1]==="terminal"&&a[2]==="send");expect(sends).toHaveLength(1);expect(arg(sends[0],"--text")).toBe("continue the assigned task; report when done");expect(h.logs[0]).toContain("worker idle: nudge");
  expect(h.at()).toBe(1260000);
 });
+test("a held human root is never failed or nudged for sitting idle at its prompt",async()=>{
+  const h=monitor(()=>["› "],{deadlineMs:1400000,heldOpenForHuman:true});
+  expect(await waitForWorker(h.ctx,h.c,h.opts)).toEqual({kind:"timeout"});
+  expect(h.f.calls.filter(a=>a[1]==="terminal"&&a[2]==="send")).toHaveLength(0);
+  expect(h.logs).toHaveLength(0);
+});
 test("new output and active working indicator reset idle observation; absent tail never proves idle",async()=>{
  for(const tail of [(_at:number)=>["Working · esc to interrupt","› "],(at:number)=>[`output ${at}`,"› "],(_at:number)=>[]]){
   const h=monitor(tail,{deadlineMs:1400000});expect(await waitForWorker(h.ctx,h.c,h.opts)).toEqual({kind:"timeout"});expect(h.logs).toHaveLength(0);

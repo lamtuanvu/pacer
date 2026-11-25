@@ -44,7 +44,7 @@ function msg(from: string, to: string, o: Partial<Message> = {}): Message {
   return { id: `m-${String(seq).padStart(14, "0")}`, taskId: null, rootId: to, from, to, kind: "message", body: "x", replyTo: null, requestId: null,
     status: "pending", createdAt: NOW - 50, deliveredAt: null, readAt: null, turnId: null, ...o };
 }
-const node = (t: TaskRecord, o: Partial<SnapshotTask> = {}): SnapshotTask => ({ task: t, work: false, parent: "external:planner", depth: 1, lastProgressAt: NOW, ...o });
+const node = (t: TaskRecord, o: Partial<SnapshotTask> = {}): SnapshotTask => ({ task: t, work: false, parent: "external:planner", depth: 1, lastProgressAt: NOW, heldOpenForHuman: false, ...o });
 const snap = (o: Partial<LivenessSnapshot>): LivenessSnapshot => ({ tasks: [], unread: [], questions: [], retryDelivery: true, noProgressS: 1800, idleAfterS: 600, ...o });
 
 test("a settled task with a pending message is undelivered", () => {
@@ -188,6 +188,31 @@ test("a conversation task at its prompt is never silent_prompt", () => {
     });
     expect(analyzeLiveness(snap({ tasks: [node(waiting)] }), NOW)).toEqual([]);
   }
+});
+
+test("a human-started running conversation with idle phase is never idle_run", () => {
+  // A live chat / `delegate --interactive` root whose agent has gone quiet is held open for the user,
+  // not stalled: the broker must not stop its terminal.
+  const held = task("t-a", { state: "running", interactionMode: "conversation",
+    progress: { phase: "idle", lastOutputAt: NOW - 5 } as TaskRecord["progress"] });
+  expect(analyzeLiveness(snap({ tasks: [node(held, { parent: "human", heldOpenForHuman: true })] }), NOW)).toEqual([]);
+  // An agent-delegated conversation is not held open and keeps today's liveness signal.
+  const delegated = task("t-b", { state: "running", interactionMode: "conversation",
+    progress: { phase: "idle", lastOutputAt: NOW - 5 } as TaskRecord["progress"] });
+  expect(analyzeLiveness(snap({ tasks: [node(delegated, { parent: "external:planner" })] }), NOW))
+    .toEqual([expect.objectContaining({ node: "task:t-b", reason: "idle_run" })]);
+});
+
+test("a human-started conversation whose agent keeps working is never no_progress or silent_prompt", () => {
+  const held = working("working", { interactionMode: "conversation", conversation: { activity: "working" } });
+  expect(analyzeLiveness(snap({ tasks: [node(held, { parent: "human", heldOpenForHuman: true, lastProgressAt: NOW - 7200 })] }), NOW)).toEqual([]);
+  const atPrompt = working("needs-input", { interactionMode: "conversation", conversation: { activity: "working" },
+    attemptStartedAt: NOW - 700,
+    progress: { phase: "needs-input", lastOutputAt: NOW - 700, lastChangeAt: NOW - 3600, gitObserved: true } as TaskRecord["progress"] });
+  expect(analyzeLiveness(snap({ tasks: [node(atPrompt, { parent: "human", heldOpenForHuman: true, silentSince: NOW - 700 })] }), NOW)).toEqual([]);
+  // Delegated interactive tasks are still covered by the no-progress backstop.
+  expect(stale(working("working", { interactionMode: "conversation", conversation: { activity: "working" } })))
+    .toEqual([expect.objectContaining({ reason: "no_progress" })]);
 });
 
 test("silent_prompt timer is not reset by a later lastOutputAt (terminal redraw)", () => {

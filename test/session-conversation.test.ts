@@ -7,6 +7,7 @@ import { writeFileSync, chmodSync, existsSync, mkdirSync, readFileSync } from "n
 import { folderKeys } from "../src/exec/claude-trust";
 import { join } from "node:path";
 import { localRunIO, startRun, stopRun } from "../src/supervisor/run";
+import { launchTaskId } from "../src/session/host";
 import { fakeCtx } from "./helpers";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
 import { progressPoller } from "../src/exec/direct";
@@ -18,6 +19,58 @@ import { gitRepo, realRun } from "./helpers";
 import { validateStrategy } from "../src/config/strategy";
 import { parseEnvelope } from "../src/link/envelope";
 import { taskStatus } from "../src/view-model/words";
+import { heldOpenForHuman } from "../src/messaging/participants";
+import { heldSettlement } from "../src/tasks/held-report";
+import type { TaskResult } from "../src/tasks/types";
+
+test("heldOpenForHuman covers human-started chats and interactive roots, not delegated tasks", () => {
+  const ctx = fakeCtx();
+  // session.create conversations have no work registration: source ui is the human parent.
+  const chat = createTask(ctx, { brief: { goal: "chat", repo: tmpDir() }, kind: null, requestedExecutor: null, timeoutS: 600,
+    source: "ui", interactionMode: "conversation" });
+  expect(heldOpenForHuman(ctx, chat)).toBe(true);
+  // `pacer delegate --interactive` run by a person is interactive with an explicit human origin.
+  const interactive = createTask(ctx, { brief: { goal: "lane", repo: tmpDir() }, kind: null, requestedExecutor: null, timeoutS: 600 });
+  updateTask(ctx, interactive.id, t => { t.origin = "human"; t.interactionMode = "conversation"; t.interactive = true; });
+  expect(heldOpenForHuman(ctx, readTask(ctx, interactive.id)!)).toBe(true);
+  // A headless root is not held open, even when a human started it.
+  const headless = createTask(ctx, { brief: { goal: "headless", repo: tmpDir() }, kind: null, requestedExecutor: null, timeoutS: 600 });
+  updateTask(ctx, headless.id, t => { t.origin = "human"; });
+  expect(heldOpenForHuman(ctx, readTask(ctx, headless.id)!)).toBe(false);
+  // Anything another agent started keeps today's auto-completion.
+  const delegated = createTask(ctx, { brief: { goal: "child", repo: tmpDir() }, kind: null, requestedExecutor: null, timeoutS: 600 });
+  updateTask(ctx, delegated.id, t => { t.origin = "task:t-parent"; t.interactionMode = "conversation"; t.interactive = true; });
+  expect(heldOpenForHuman(ctx, readTask(ctx, delegated.id)!)).toBe(false);
+});
+
+test("a human-started interactive root reporting done keeps running until the user stops it", async () => {
+  let polls = 0, stops = 0;
+  const state: RunState = { pid: 123, startedAt: 1, alive: true, exit: null,
+    stdoutBytes: 0, stderrBytes: 0, lastOutputAt: null, interactive: true,
+    report: { status: "done", summary: "Agent's report", at: 2 } };
+  const result = await supervise({
+    heldOpenForHuman: true, deadlineMs: 0, now: () => 86400_000,
+    io: { read: async () => { polls++; return state; }, stop: async () => { stops++; return { code: 143, killed: false }; } },
+    isStopped: () => polls >= 3, onPoll: async () => "idle", sleep: async () => {},
+  });
+  expect(result).toEqual({ kind: "stopped", code: 143 });
+  expect(polls).toBe(3);
+  expect(stops).toBe(1);
+});
+
+test("an agent-delegated interactive task reporting done still ends as today", async () => {
+  let stops = 0;
+  const state: RunState = { pid: 123, startedAt: 1, alive: true, exit: null,
+    stdoutBytes: 0, stderrBytes: 0, lastOutputAt: null, interactive: true,
+    report: { status: "done", summary: "Agent's report", at: 2 } };
+  const result = await supervise({
+    heldOpenForHuman: false, deadlineMs: 0, now: () => 86400_000,
+    io: { read: async () => state, stop: async () => { stops++; return { code: 0, killed: false }; } },
+    isStopped: () => false, sleep: async () => {},
+  });
+  expect(result).toEqual({ kind: "reported", code: 0 });
+  expect(stops).toBe(1);
+});
 
 // A completed turn/report must never terminate a persistent conversation.
 for (const status of ["done", "failed", "turn-ended"] as const) {
@@ -63,6 +116,52 @@ test("agent hooks persist the native conversation identity for explicit resume",
   const dir = tmpDir();
   agentHook(dir, {hook_event_name: "Stop", session_id: "native-session-123"});
   expect(require("node:fs").readFileSync(join(dir, "agent-session-id"), "utf8")).toBe("native-session-123");
+});
+
+test("heldSettlement keeps a report while a plugin-owned stop is still pending", () => {
+  const ctx = fakeCtx();
+  const task = createTask(ctx, { brief: { goal: "chat", repo: ctx.home }, kind: null,
+    requestedExecutor: null, timeoutS: 60 });
+  const dir = tmpDir();
+  writeFileSync(join(dir, "interactive.json"), JSON.stringify({ interactionMode: "conversation" }), { mode: 0o600 });
+  writeReport(dir, "done", "plugin-owned report");
+  updateTask(ctx, task.id, current => {
+    current.state = "running"; current.origin = "human"; current.source = "ui";
+    current.interactionMode = "conversation"; current.interactive = true;
+    current.executorProvider = "pacer-exec-direct";
+    current.stopPending = { attempt: 1, requestedAt: ctx.now, providerId: "pacer-exec-direct", graceMs: 5000, reason: "user" };
+    current.run = { dir, attempt: 1, executor: "codex", startedAt: ctx.now, mode: "current",
+      workdir: ctx.home, logFile: join(dir, "log"), session: "interactive" };
+  });
+  const stopped: TaskResult = { status: "stopped", executor: "codex", model: null, files: "", report: "stopped", backend: "direct" };
+  expect(heldSettlement(ctx, readTask(ctx, task.id)!, stopped)).toMatchObject({ status: "done", report: "plugin-owned report" });
+  // A human root with no report still settles as stopped, and so does an agent-delegated task.
+  const plain = createTask(ctx, { brief: { goal: "child", repo: ctx.home }, kind: null,
+    requestedExecutor: null, timeoutS: 60 });
+  updateTask(ctx, plain.id, current => {
+    current.state = "stopped"; current.origin = "task:t-parent"; current.interactionMode = "conversation";
+    current.run = { dir, attempt: 1, executor: "codex", startedAt: ctx.now, mode: "current",
+      workdir: ctx.home, logFile: join(dir, "log"), session: "interactive" };
+  });
+  expect(heldSettlement(ctx, readTask(ctx, plain.id)!, stopped)).toBeNull();
+});
+
+test("a session launch carries its owning task id regardless of the run directory layout", async () => {
+  const ctx = fakeCtx();
+  const task = createTask(ctx, { brief: { goal: "chat", repo: ctx.home }, kind: null,
+    requestedExecutor: null, timeoutS: 60, source: "ui", interactionMode: "conversation" });
+  const dir = tmpDir();
+  const started = startRun({ dir, argv: ["sleep", "30"], cwd: dir, env: { PATH: process.env.PATH },
+    session: "interactive", interactionMode: "conversation", taskId: task.id });
+  expect(started).toHaveProperty("pid");
+  try {
+    const launch = JSON.parse(readFileSync(join(dir, "session.json"), "utf8"));
+    expect(launch.taskId).toBe(task.id);
+    expect(launchTaskId(dir, launch)).toBe(task.id);
+    // An older launch without the field still resolves runs/<task>/<attempt>, but nothing else.
+    expect(launchTaskId(join(ctx.pacerHome, "runs", task.id, "1"), { argv: [], cwd: dir })).toBe(task.id);
+    expect(launchTaskId(dir, { argv: [], cwd: dir })).toBeUndefined();
+  } finally { await stopRun(dir, { graceMs: 500 }); }
 });
 
 test("detached conversation host survives reports after its supervisor disconnects", async () => {

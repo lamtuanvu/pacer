@@ -149,6 +149,10 @@ export async function brokerTick(ctx: Ctx, deps: BrokerDeps): Promise<BrokerRepo
               replyTo: null, requestId: pingId(row.nudges + 1) });
             await deliver(ctx, node, deps.spawnRunner);
             row.nudges++; acted = true;
+          } else if (seen?.heldOpenForHuman) {
+            // A session a person started keeps its terminal; even unanswered pings cannot end it.
+            // Agent-delegated conversations are not held and keep today's auto-completion.
+            stallNow = true;
           } else {
             // Record it on the attempt first, so the runner classifies the stopped run even across a restart.
             // Only the run the broker saw stall is marked and stopped; a run that ended or was replaced since is left alone.
@@ -190,8 +194,9 @@ export async function brokerTick(ctx: Ctx, deps: BrokerDeps): Promise<BrokerRepo
             row.nudges++; acted = true;
           } else if (stall.reason === "idle_run") {
             // As supervise does for an idle run: stop the turn, then a nudge resumes it once the task settles.
+            // A session a person started keeps its live terminal; agent-delegated runs are stopped as before.
             const task = readTask(ctx, taskOf(node)!);
-            if (task?.run?.dir) await stopRun(task.run.dir);
+            if (!seen?.heldOpenForHuman && task?.run?.dir) await stopRun(task.run.dir);
             insertMessage(ctx, { taskId: taskOf(node), rootId: rootOf(ctx, node), from: "broker", to: node,
               kind: "nudge", body: "pacer: your run was idle. Resume the work, ask for help, or report progress.",
               replyTo: null, requestId: pingId(row.nudges + 1) });
