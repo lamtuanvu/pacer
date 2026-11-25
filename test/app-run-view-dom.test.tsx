@@ -241,7 +241,7 @@ test("a failed step reads Failed in the strip and the run header", async () => {
 test("a paused run says why, in plain words", async () => {
   const { dom } = await open(paused);
   try {
-    expect(domText(dom.container)).toContain("Paused to stay within your usage limits");
+    expect(domText(dom.container)).toContain("Paused by strict pacing");
     expect(domText(dom.container)).not.toContain("pacing: strict");
   } finally { await done(dom); }
 });

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { RunDetail } from "../src/dashboard/screens/types";
 import {
-  actorLabel, boardAvailability, conversationRail, decisionKindLabel, evidenceStatusLabel, executionWaves, pausedReasonLabel,
+  actorLabel, boardAvailability, conversationRail, decisionKindLabel, evidenceStatusLabel, executionWaves,
   pickSpecArtifact, reviewerPanels, stripSteps, testsAndPr, artifactMetas, type BoardInput,
 } from "../src/view-model/run-board";
 import { evidence, fanout, generated, plain } from "./app-run-view-fixtures";
@@ -95,15 +95,12 @@ test("boardAvailability offers only boards with data", () => {
   expect(boardAvailability({ detail: detailOf(generated), children: child }, true).execution).toBe(true);
 });
 
-test("vocabulary: plain words for actors, kinds, evidence status and pause reasons", () => {
+test("vocabulary: plain words for actors, kinds, evidence status", () => {
   expect(actorLabel("person")).toBe("You");
   expect(actorLabel("orchestrator")).toBe("Planner");
   expect(decisionKindLabel("publish_approved")).toBe("Approved publishing");
   expect(decisionKindLabel("some_new_kind")).toBe("some new kind");
   expect(evidenceStatusLabel("unverified")).toEqual({ label: "Unverified", tone: "warn", glyph: "?" });
-  expect(pausedReasonLabel("pacing: emergency")).toBe("Paused to stay within your usage limits");
-  expect(pausedReasonLabel("budget")).toContain("budget");
-  expect(pausedReasonLabel("person")).toBe("Paused by you");
 });
 
 test("pickSpecArtifact prefers the requested id, then a spec-like label, then the newest", () => {

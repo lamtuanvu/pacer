@@ -457,7 +457,10 @@ export async function refreshRunDetail(
       try {
         const log = await api.call<{ messages?: unknown[] }>("msg.log", { task: taskId });
         messages = asArray(log?.messages).map(messageFrom).filter((m): m is RunMessageView => !!m);
-      } catch { messages = prev.messages; }
+      } catch (error) {
+        console.warn("runs: message log failed", error);
+        messages = prev.messages;
+      }
     }
     const children = await loadChildren(api, state, id);
     return {

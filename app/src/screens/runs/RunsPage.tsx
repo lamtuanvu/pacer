@@ -79,11 +79,12 @@ function mapQuestionGet(raw: unknown, fallbackRunId: string): RunQuestionView | 
 
 /** The Runs page: the list, or one run when the route names it. */
 export function RunsPage({ query, runId }: { query: RouteQuery; runId?: string }) {
+  // Both views share the page header styles, so a direct link to a run adopts them too.
+  useRunsStyles();
   return runId ? <RunView runId={runId} query={query} /> : <RunsList query={query} />;
 }
 
 function RunsList({ query }: { query: RouteQuery }) {
-  useRunsStyles();
   const { state, api } = useTaskContext();
   const [store, setStore] = useState<RunsStoreState>(() => initialRunsStore());
   const [answerId, setAnswerId] = useState<string | null>(null);

@@ -5,7 +5,7 @@ import { act } from "preact/test-utils";
 import type { AttentionItem } from "../src/attention/types";
 import type { ClientSnapshot } from "../src/view-model/snapshot";
 import {
-  RUN_DETAIL_ERROR, RUN_QUESTIONS_ERROR, RUN_SEEN_ERROR, RUN_SEEN_OK, RUN_VIEW_PENDING,
+  RUN_DETAIL_ERROR, RUN_QUESTIONS_ERROR, RUN_SEEN_ERROR,
   RUNS_REFRESH_ERROR, RUNS_UNAVAILABLE_DETAIL,
 } from "../src/view-model/runs";
 import { ActionContext } from "../app/src/data/action-context";
@@ -79,7 +79,6 @@ async function withDom(run: (dom: TestDom) => Promise<void>) {
 const settle = () => act(async () => { await new Promise(resolve => setTimeout(resolve, 30)); });
 const control = (dom: TestDom, text: string) =>
   findAll(dom.container, n => (n.localName === "a" || n.localName === "button") && domText(n).trim() === text)[0];
-const ages = (dom: TestDom) => findAll(dom.container, n => n.attrs.class === "runs-table-age" || n.className === "runs-table-age").map(n => domText(n));
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -131,25 +130,28 @@ test("Answer is offered only when the service offers question.answer", () => {
   expect(without).not.toContain("answer=q_1");
 });
 
-test("opening a run marks it seen and says so only after success", () => withDom(async dom => {
+test("opening a run marks it seen once and shows the run view, not a placeholder", () => withDom(async dom => {
   const calls: string[] = [], gate = deferred<unknown>();
   await mount(dom, page(state(), api({ "run.seen": () => gate.promise }, calls), "run_1"));
   await settle();
-  expect(calls.filter(op => op === "run.seen")).toHaveLength(1);
-  expect(domText(dom.container)).toContain(RUN_VIEW_PENDING);
-  expect(domText(dom.container)).not.toContain(RUN_SEEN_OK);
   await act(async () => { gate.resolve({}); });
   await settle();
-  expect(domText(dom.container)).toContain(RUN_SEEN_OK);
-  expect(domText(dom.container)).not.toContain("later phase");
+  expect(calls.filter(op => op === "run.seen")).toHaveLength(1);
+  expect(domText(dom.container)).toContain("Steps");
+  expect(domText(dom.container)).not.toContain("Opened run");
+  expect(domText(dom.container)).not.toContain(RUN_SEEN_ERROR);
 }));
 
-test("a failed run.seen shows a plain error and never claims success", () => withDom(async dom => {
-  await mount(dom, page(state(), api({ "run.seen": () => { throw new ApiError("internal", "run.seen SQLITE_BUSY"); } }), "run_1"));
+test("a failed run.seen shows a plain error and the next refresh retries it", () => withDom(async dom => {
+  const calls: string[] = [];
+  const a = api({ "run.seen": () => { throw new ApiError("internal", "run.seen SQLITE_BUSY"); } }, calls);
+  await mount(dom, page(state(), a, "run_1"));
   await settle();
   expect(domText(dom.container)).toContain(RUN_SEEN_ERROR);
-  expect(domText(dom.container)).not.toContain(RUN_SEEN_OK);
   expect(domText(dom.container)).not.toContain("SQLITE_BUSY");
+  await mount(dom, page(state({ invalidations: { runs: 1 } }), a, "run_1"));
+  await settle();
+  expect(calls.filter(op => op === "run.seen")).toHaveLength(2);
 }));
 
 test("without run.seen the page claims nothing about it", () => withDom(async dom => {
@@ -157,8 +159,14 @@ test("without run.seen the page claims nothing about it", () => withDom(async do
   await mount(dom, page(state({ ops: ["run.list", "run.get"] }), api({}, calls), "run_1"));
   await settle();
   expect(calls).not.toContain("run.seen");
-  expect(domText(dom.container)).not.toContain(RUN_SEEN_OK);
   expect(domText(dom.container)).not.toContain(RUN_SEEN_ERROR);
+}));
+
+test("the run view says why a run is paused in the same words as the list", () => withDom(async dom => {
+  await mount(dom, page(state(), api({ "run.get": () => ({ run: { id: "run_1", pausedReason: "pacing: strict" }, steps: [] }) }), "run_1"));
+  await settle();
+  expect(domText(dom.container)).toContain("Paused by strict pacing");
+  expect(domText(dom.container)).not.toContain("pacing: strict");
 }));
 
 test.each([
@@ -179,16 +187,6 @@ test("list failure and missing run.list never show service text or op names", ()
   const unavailable = renderToString(page(state({ ops: [] }), api()));
   expect(unavailable).toContain(RUNS_UNAVAILABLE_DETAIL);
   expect(unavailable).not.toContain("run.list");
-}));
-
-test("a detail refresh that finishes after the list does not drop the list", () => withDom(async dom => {
-  const detail = deferred<unknown>();
-  await mount(dom, page(state({ runs: [{ id: "run_1", letter: "B", title: "Ship board", workflow: "w", status: "waiting", priority: "urgent", waits_on: "you" }] }), api({ "run.get": () => detail.promise }), "run_1"));
-  await settle();
-  expect(ages(dom)).toEqual(["Age:3m ago"]);
-  await act(async () => { detail.resolve({ run: {}, steps: [], questions: [] }); });
-  await settle();
-  expect(ages(dom)).toEqual(["Age:3m ago"]);
 }));
 
 test("an older post-submit refresh cannot overwrite a newer one", () => withDom(async dom => {

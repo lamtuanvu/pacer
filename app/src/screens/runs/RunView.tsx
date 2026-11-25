@@ -2,14 +2,15 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { RunDetail } from "../../../../src/dashboard/screens/types";
 import {
-  boardAvailability, conversationRail, orchestratorNeedsAttention, executionWaves, pausedReasonLabel, pickSpecArtifact, artifactMetas,
+  boardAvailability, conversationRail, orchestratorNeedsAttention, executionWaves, pickSpecArtifact, artifactMetas,
   reviewerPanels, sentenceCase, stripSteps, testsAndPr, type BoardChild, type BoardInput, type BoardMessage, type BoardQuestion,
 } from "../../../../src/view-model/run-board";
 import {
-  displayRunLetter, orchestratorBlock, runAge, runPriorityLabel, runStatus, waitsOnLabel,
+  displayRunLetter, orchestratorBlock, pausedReasonLabel, runAge, runPriorityLabel, runStatus, waitsOnLabel,
+  RUN_QUESTIONS_ERROR, RUN_SEEN_ERROR,
 } from "../../../../src/view-model/runs";
 import {
-  initialRunsStore, markRunSeen, mergeSnapshotRuns, refreshRunDetail, refreshRunsList,
+  initialRunsStore, markRunSeen, mergeDetailRefresh, mergeListRefresh, mergeSnapshotRuns, refreshRunDetail, refreshRunsList,
   type RunQuestionView, type RunsStoreState,
 } from "../../data/runs";
 import { runLettersForList } from "../../../../src/view-model/runs";
@@ -57,6 +58,7 @@ export function RunView({ runId, query, fetchText }: { runId: string; query: Rou
   const [announce, setAnnounce] = useState("");
   const headingRef = useRef<HTMLHeadingElement>(null);
   const seen = useRef<string | null>(null);
+  const [seenFailed, setSeenFailed] = useState<string | null>(null);
 
   const mounted = useRef(true);
   const loadSeq = useRef(0);
@@ -66,7 +68,9 @@ export function RunView({ runId, query, fetchText }: { runId: string; query: Rou
     const mine = ++loadSeq.current;
     const listed = await refreshRunsList(api, storeRef.current, ops);
     const next = await refreshRunDetail(api, listed, runId, ops);
-    if (mounted.current && mine === loadSeq.current) setStore(next);
+    if (mounted.current && mine === loadSeq.current) {
+      setStore(current => mergeDetailRefresh(mergeListRefresh(current, listed), next, runId));
+    }
   };
   useEffect(() => {
     // A different run in the same instance starts from its own overview.
@@ -76,7 +80,13 @@ export function RunView({ runId, query, fetchText }: { runId: string; query: Rou
   useEffect(() => {
     if (seen.current !== runId) {
       seen.current = runId;
-      void markRunSeen(api, runId, ops);
+      setSeenFailed(null);
+      void markRunSeen(api, runId, ops).then(result => {
+        if (result !== "failed" || seen.current !== runId) return;
+        // A failed call is retried by the next refresh.
+        seen.current = null;
+        if (mounted.current) setSeenFailed(runId);
+      });
     }
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- load reads the latest store through a ref
@@ -174,9 +184,12 @@ export function RunView({ runId, query, fetchText }: { runId: string; query: Rou
           <Button size="sm" onClick={() => { void load(); }}>Try again</Button>
         </Alert>
       )}
+      {seenFailed === runId ? <Alert tone="error" title={RUN_SEEN_ERROR} /> : null}
       {detailState?.error && raw && (
-        <Alert tone="warning" title="This run may be out of date">
-          <p>The last refresh failed, so you are seeing the version loaded earlier.</p>
+        <Alert tone="warning" title={detailState.error === RUN_QUESTIONS_ERROR ? RUN_QUESTIONS_ERROR : "This run may be out of date"}>
+          <p>{detailState.error === RUN_QUESTIONS_ERROR
+            ? "The rest of the run is shown without them."
+            : "The last refresh failed, so you are seeing the version loaded earlier."}</p>
           <Button size="sm" onClick={() => { void load(); }}>Try again</Button>
         </Alert>
       )}

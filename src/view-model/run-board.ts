@@ -426,15 +426,6 @@ export function boardAvailability(input: BoardInput, hasOrchestratorTask: boolea
   };
 }
 
-/** Why a run is paused, in plain words (UI-12). Raw values come from the engine's paused reasons. */
-export function pausedReasonLabel(reason: string | undefined): string {
-  if (!reason) return "Paused";
-  if (reason === "person") return "Paused by you";
-  if (reason === "budget") return "Paused: the run's budget is spent";
-  if (reason.startsWith("pacing")) return "Paused to stay within your usage limits";
-  return "Paused";
-}
-
 /** First letter capitalised, for the orchestrator block line. */
 export function sentenceCase(text: string): string {
   return text ? text[0]!.toUpperCase() + text.slice(1) : text;
