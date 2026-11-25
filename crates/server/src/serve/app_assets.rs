@@ -27,13 +27,16 @@ fn assets() -> &'static [Asset] {
     })
 }
 
-/// The code flow and error pages remain on the TypeScript fallback. A missing
-/// static path also falls through so its HTML error is byte-for-byte identical.
+/// Static assets are served natively; the sign-in hop is handled by `serve::handle`
+/// and error pages are rendered natively instead of forwarding to the core.
 pub fn route<B>(req: &Request<B>) -> Option<Response> {
-    if req.method() != Method::GET && req.method() != Method::HEAD {
-        return None;
-    }
     let path = req.uri().path().strip_prefix("/app/")?;
+    if req.method() != Method::GET && req.method() != Method::HEAD {
+        return Some(super::app_pages::app_page(
+            "Method not allowed.",
+            StatusCode::METHOD_NOT_ALLOWED,
+        ));
+    }
     if path == "auth" {
         return None;
     }
@@ -44,14 +47,18 @@ pub fn route<B>(req: &Request<B>) -> Option<Response> {
         .next()
         .unwrap_or(path);
     let has_extension = basename.rfind('.').is_some_and(|position| position > 0);
-    let file = assets()
-        .iter()
-        .find(|asset| asset.path == if path.is_empty() { "index.html" } else { path })
-        .or_else(|| {
-            (!has_extension)
-                .then(|| assets().iter().find(|asset| asset.path == "index.html"))
-                .flatten()
-        })?;
+    let file = match assets().iter().find(|asset| {
+        asset.path == if path.is_empty() { "index.html" } else { path }
+    }) {
+        Some(file) => file,
+        None if !has_extension => assets().iter().find(|asset| asset.path == "index.html")?,
+        None => {
+            return Some(super::app_pages::app_page(
+                "Not found.",
+                StatusCode::NOT_FOUND,
+            ));
+        }
+    };
     let mut response = Response::new(Body::empty());
     let headers = response.headers_mut();
     headers.insert(

@@ -29,7 +29,7 @@
   },
   "status": 405,
   "body": null,
-  "bodySha256": "8e027d0c9b5bf8e8f8e17bd3b14d3e2d6311b7547fe4a9e91d126d873c7357ec"
+  "bodySha256": "26409fa0c5e52991b0d0e5dd3eb029a9575eb37620951b43d198e832e67d9b5b"
  },
  {
   "name": "options-v3-x",
@@ -60,7 +60,7 @@
   },
   "status": 403,
   "body": null,
-  "bodySha256": "837eea7b49d64c6fafb4d8d2f2a84d7903ec740a5f1356cd0ae68f5f89b8a5c9"
+  "bodySha256": "f2694b511f597f4a610ddc5c1b85ffccca9ae8234133033fd13c2197f717049f"
  },
  {
   "name": "valid-bearer-v3-hello",
@@ -94,7 +94,7 @@
   },
   "status": 401,
   "body": null,
-  "bodySha256": "e7619bc48222e32828b420c5a6466ef67bd2f3d00ff31985d3f3791db0135fd7"
+  "bodySha256": "fc719f81c7349cf45081af92251569c5041483b5b86e421e4686b3c0506ec6b5"
  },
  {
   "name": "cookie-session-exchange",

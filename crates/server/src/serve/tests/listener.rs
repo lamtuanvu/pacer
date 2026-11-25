@@ -29,6 +29,7 @@ async fn public_listener_routes_static_and_forwards_fallbacks() {
         .unwrap();
     let port = socket.local_addr().unwrap().port();
     let session = sessions::create(&ctx.at_now()).unwrap();
+    let code = app_codes::create(&ctx.at_now()).unwrap();
     let core_build = Arc::new(meta_routes::CoreBuild::from_core(&[], &HashMap::new()));
     let snapshot_cache = meta_routes::snapshot_cache(core.clone(), ctx.clone());
     let state = Arc::new(Listener {
@@ -69,9 +70,9 @@ async fn public_listener_routes_static_and_forwards_fallbacks() {
         ("HEAD", "/app/app.js", bearer, "200"),
         ("GET", "/app/app.js", bearer, "200"),
         ("GET", "/v3/hello", "", "401"),
-        ("GET", "/app/auth", bearer, "502"),
-        ("GET", "/app/missing.js", bearer, "502"),
-        ("GET", "/app/missing.js/", bearer, "502"),
+        ("GET", "/app/auth", bearer, "403"),
+        ("GET", "/app/missing.js", bearer, "404"),
+        ("GET", "/app/missing.js/", bearer, "404"),
         ("GET", "/v3/attachments", bearer, "502"),
         (
             "GET",
@@ -94,6 +95,22 @@ async fn public_listener_routes_static_and_forwards_fallbacks() {
             );
         }
     }
+    // A one-time sign-in code redeems natively and sets the session cookie; a replay
+    // cannot mint a second session. Neither reaches Core.
+    let sign_in = format!("/app/auth?code={code}");
+    let response = request(port, "GET", &sign_in, bearer).await;
+    assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+    assert!(
+        response
+            .to_ascii_lowercase()
+            .contains("set-cookie: pacer_session="),
+        "{response}"
+    );
+    assert!(!response.contains("core:"), "{response}");
+    let replay = request(port, "GET", &sign_in, bearer).await;
+    assert!(replay.starts_with("HTTP/1.1 403"), "{replay}");
+    assert!(!replay.contains("core:"), "{replay}");
+
     // Native meta routes answer without a core (no 502): `/v3/hello` and
     // `/v3/snapshot` in JSON, `/v3/session/exchange` with 204 and a cookie.
     let hello = request(port, "GET", "/v3/hello", bearer).await;
@@ -299,11 +316,7 @@ async fn public_listener_forwards_to_available_core() {
         .await
         .unwrap();
     });
-    for (path, status) in [
-        ("/app/auth", "200"),
-        ("/app/missing.js/", "404"),
-        ("/v3/attachments", "200"),
-    ] {
+    for (path, status) in [("/v3/attachments", "200")] {
         let response = request(port, "GET", path, "Authorization: Bearer token\r\n").await;
         assert!(
             response.starts_with(&format!("HTTP/1.1 {status}")),
@@ -313,6 +326,15 @@ async fn public_listener_forwards_to_available_core() {
             response.contains(&format!("core:{path}")),
             "{path}: {response}"
         );
+    }
+    // The sign-in hop and app error pages are native even while Core is available.
+    for (path, status) in [("/app/auth", "403"), ("/app/missing.js/", "404")] {
+        let response = request(port, "GET", path, "Authorization: Bearer token\r\n").await;
+        assert!(
+            response.starts_with(&format!("HTTP/1.1 {status}")),
+            "{path}: {response}"
+        );
+        assert!(!response.contains("core:"), "{path}: {response}");
     }
     let mut upgrade = format!("ws://127.0.0.1:{port}/v3/tasks/one/session")
         .into_client_request()
