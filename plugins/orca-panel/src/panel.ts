@@ -1,82 +1,30 @@
 // Thin DOM glue: all decisions live in panel-view.ts.
 import {
   absoluteTime,
-  actionNeedsConfirm,
   answerActionParams,
   answerDisabled,
-  attentionButtons,
-  allReposQuestionTitle,
-  attentionCaptionFor,
-  attentionCardTone,
-  attentionGlyph,
-  attentionListGlyph,
-  buildDelegateParams,
-  byRepoCaption,
-  confirmTextFor,
-  DELEGATE_KINDS,
-  DELEGATE_SUBMIT_KEY,
-  delegatedCaption,
-  delegateWhyCaption,
-  doneGlyph,
-  emptyNeedsYouCopy,
-  emptyRunningCopy,
-  executorLabelFor,
-  executorMonogram,
-  executorOptionDisabled,
-  executorShortLabel,
-  executorStateWords,
   controlBusy,
-  headerStatus,
+  doneGlyph,
   initialPanelState,
-  isAnswerAction,
-  menuItems,
-  meterTone,
-  modePillLabel,
   panelModel,
-  pauseBannerExtra,
-  phaseWords,
-  plannerAgentDisplay,
-  plannerCaption,
-  plannerHeadline,
-  questionWaitingTitle,
-  queuedCaption,
-  rankChipText,
   reducePanel,
-  rejectConfirmText,
   reviewExpectRev,
-  runningCaption,
-  runningRowBusy,
-  shouldShowAdvice,
   showOpenWorktree,
-  showsAnswerComposer,
   stalledMinutes,
   stalledPillText,
-  statusForTarget,
-  successTextForAction,
-  successTextForConfirm,
-  visibleByRepos,
-  whoRunsCounts,
-  worktreeRadioCaption,
-  type AttentionBtn,
-  type ConfirmSpec,
+  summaryText,
+  taskGlyph,
+  taskStatusText,
+  worktreeTasks,
   type PanelEvent,
   type PanelState,
   type RunRequest,
 } from './panel-view'
-
-const FOLDER_ICON =
-  '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg>'
 import type { AttentionAction } from './pacer-client'
 import type { AttentionRow, PanelSnapshot, PanelTask } from './protocol'
 
 let state: PanelState = initialPanelState()
 const root = document.getElementById('pacer-panel')
-let menuButton: HTMLButtonElement | null = null
-let menuKeyHandler: ((e: KeyboardEvent) => void) | null = null
-let prevMenuOpen = false
-let prevView: PanelState['ui']['view'] = 'main'
-let prevExpandedAnswerId: string | null = null
-let answerKeyHandler: ((e: KeyboardEvent) => void) | null = null
 
 function dispatch(event: PanelEvent): void {
   const next = reducePanel(state, event)
@@ -119,30 +67,19 @@ async function runRequest(run: RunRequest, successText?: string): Promise<void> 
   }
 }
 
-function el<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  className?: string,
-  text?: string,
-): HTMLElementTagNameMap[K] {
+function el<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, text?: string): HTMLElementTagNameMap[K] {
   const node = document.createElement(tag)
   if (className) node.className = className
   if (text !== undefined) node.textContent = text
   return node
 }
 
-function pill(text: string, tone: string = 'neutral'): HTMLElement {
-  const toneClass =
-    tone === 'good' || tone === 'warn' || tone === 'bad' || tone === 'info' ? ` pc-pill--${tone}` : ''
-  return el('span', `pc-pill${toneClass}`, text)
-}
-
 function markSvg(): SVGSVGElement {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
-  svg.setAttribute('width', '18')
-  svg.setAttribute('height', '18')
+  svg.setAttribute('width', '16')
+  svg.setAttribute('height', '16')
   svg.setAttribute('viewBox', '0 0 48 48')
   svg.setAttribute('aria-hidden', 'true')
-  svg.classList.add('pc-mark')
   const lane = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
   lane.setAttribute('x', '4'); lane.setAttribute('y', '20'); lane.setAttribute('width', '40'); lane.setAttribute('height', '8')
   lane.setAttribute('rx', '4'); lane.setAttribute('fill', 'var(--line)')
@@ -156,1188 +93,437 @@ function markSvg(): SVGSVGElement {
   return svg
 }
 
-function button(label: string, opts: {
-  variant?: 'primary' | 'ghost' | 'secondary'
-  size?: 'sm' | 'md'
-  disabled?: boolean
-  ariaLabel?: string
-  className?: string
-  fullWidth?: boolean
-  onClick: () => void
-}): HTMLButtonElement {
+function button(label: string, opts: { variant?: 'primary' | 'ghost' | 'secondary'; size?: 'sm' | 'md'; disabled?: boolean; onClick: () => void; className?: string }): HTMLButtonElement {
   const classes = ['pc-btn']
   if (opts.size === 'sm') classes.push('pc-btn--sm')
-  if (opts.size === 'md' || opts.variant === 'primary') classes.push('pc-btn--md')
+  if (opts.size === 'md') classes.push('pc-btn--md')
   if (opts.variant === 'primary') classes.push('pc-btn--primary')
   if (opts.variant === 'ghost') classes.push('pc-btn--ghost')
-  if (opts.fullWidth) classes.push('pc-btn--block')
   if (opts.className) classes.push(opts.className)
   const node = el('button', classes.join(' '), label)
   node.type = 'button'
   if (opts.disabled) node.disabled = true
-  if (opts.ariaLabel) node.setAttribute('aria-label', opts.ariaLabel)
   node.addEventListener('click', opts.onClick)
   return node
 }
 
-function statusLine(key: string): HTMLElement | null {
-  const status = state.ui.statusByKey[key]
-  if (!status) return null
-  return statusNode(status)
-}
-
-function statusNode(status: { tone: 'good' | 'bad' | 'warn'; text: string }): HTMLElement {
-  const node = el('p', `pc-status pc-status--${status.tone}`, status.text)
-  node.setAttribute('role', 'status')
-  node.setAttribute('aria-live', 'polite')
-  return node
-}
-
-function statusForPlace(
-  target: Parameters<typeof statusForTarget>[1],
-): HTMLElement | null {
-  const status = statusForTarget(state.ui.statusByKey, target)
-  return status ? statusNode(status) : null
-}
-
-function renderConfirm(confirm: ConfirmSpec): HTMLElement {
-  const box = el('div', 'pc-confirm')
-  box.append(el('p', undefined, confirm.text))
-  const actions = el('div', 'pc-confirm-actions')
-  actions.append(
-    button(confirm.confirmLabel, {
-      size: 'sm',
-      onClick: () => void runRequest(confirm.run, successTextForConfirm(confirm)),
-    }),
-    button(confirm.cancelLabel, {
-      size: 'sm',
-      variant: 'ghost',
-      onClick: () => dispatch({ type: 'cancel-confirm' }),
-    }),
-  )
-  box.append(actions)
-  return box
-}
-
-function askOrRun(
-  action: AttentionAction,
-  pendingKey: string,
-  kind: string,
-  extraParams?: Record<string, unknown>,
-): void {
-  const params = { ...action.params, ...extraParams }
-  const run: RunRequest = { kind: 'act', op: action.op, params, pendingKey }
-  const successText = successTextForAction(action, kind)
-  if (actionNeedsConfirm(action)) {
-    dispatch({
-      type: 'ask-confirm',
-      confirm: {
-        key: pendingKey,
-        text: confirmTextFor(action),
-        confirmLabel: action.label,
-        cancelLabel: 'Cancel',
-        successText,
-        run,
-      },
-    })
-    return
+function verdictWords(verdict?: string): string {
+  const map: Record<string, string> = {
+    behind: 'behind pace',
+    on_pace: 'on pace',
+    ahead: 'ahead of pace',
+    out: 'out of quota',
   }
-  void runRequest(run, successText)
+  return verdict ? (map[verdict] ?? verdict) : ''
 }
 
-function renderHeader(snapshot: PanelSnapshot, connected: boolean): HTMLElement {
-  const header = el('header', 'pc-header')
-  header.append(markSvg(), el('span', 'pc-wordmark', 'pacer'))
-  if (connected) {
-    const mode = modePillLabel(snapshot)
-    header.append(pill(mode.text, mode.tone))
-  }
-  header.append(el('span', 'pc-header-spacer'))
-  const live = el('span', 'pc-live')
-  live.append(el('span', `pc-live-dot${connected ? '' : ' off'}`), document.createTextNode(connected ? 'Live' : 'Not connected'))
-  header.append(live)
-  if (connected) {
-    menuButton = button('', {
-      variant: 'ghost',
-      size: 'sm',
-      className: 'pc-btn--icon',
-      ariaLabel: 'More actions',
-      onClick: () => dispatch({ type: 'toggle-menu' }),
-    })
-    menuButton.id = 'menu-button'
-    menuButton.setAttribute('aria-haspopup', 'menu')
-    menuButton.setAttribute('aria-expanded', state.ui.menuOpen ? 'true' : 'false')
-    menuButton.innerHTML =
-      '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="5" cy="12" r="1"></circle><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle></svg>'
-    header.append(menuButton)
-    if (state.ui.menuOpen) header.append(renderMenu(snapshot))
-  } else {
-    menuButton = null
-  }
-  const status = headerStatus(state.ui.statusByKey)
-  if (status) {
-    const line = el('p', `pc-header-status pc-status pc-status--${status.tone}`, status.text)
-    line.setAttribute('role', 'status')
-    line.setAttribute('aria-live', 'polite')
-    header.append(line)
+function renderHeader(snapshot: PanelSnapshot): HTMLElement {
+  const header = el('header', undefined)
+  header.style.cssText = 'display:flex;align-items:center;gap:8px;padding:10px 16px;border-bottom:1px solid var(--line);'
+  header.append(markSvg())
+  const spacer = el('span')
+  spacer.style.flexGrow = '1'
+  header.append(spacer)
+  const planner = snapshot.planner
+  if (planner && typeof planner.usedPct === 'number') {
+    const text = `${plannerAgentDisplay(planner.agent)} ${Math.round(planner.usedPct)}% · ${verdictWords(planner.verdict)}`
+    header.append(el('span', undefined, text))
+    const span = header.lastChild as HTMLElement
+    span.style.cssText = 'font-size:12px;line-height:16px;color:var(--ink-muted);'
   }
   return header
 }
 
-function detachMenuKeyHandler(): void {
-  if (menuKeyHandler) {
-    document.removeEventListener('keydown', menuKeyHandler)
-    menuKeyHandler = null
+function plannerAgentDisplay(agent: string | null | undefined): string {
+  // reuse from panel-view? not exported; duplicate minimal
+  const map: Record<string, string> = {
+    'claude-code': 'Claude', claude: 'Claude', codex: 'Codex', cursor: 'Cursor',
+    opencode: 'OpenCode', agy: 'Antigravity', antigravity: 'Antigravity', local: 'Local model',
   }
+  if (!agent) return 'Planner'
+  return map[agent.toLowerCase()] ?? agent
 }
 
-function attachMenuKeyHandler(menu: HTMLElement): void {
-  detachMenuKeyHandler()
-  const items = () => Array.from(menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'))
-  menuKeyHandler = (e: KeyboardEvent) => {
-    if (!state.ui.menuOpen) {
-      detachMenuKeyHandler()
-      return
+function renderNeedsRow(item: AttentionRow, model: Extract<ReturnType<typeof panelModel>, { kind: 'ready' }>, now: number): HTMLElement {
+  const expanded = state.ui.expandedTaskId === item.id // reuse expandedTaskId? For needs rows use item.id too maybe separate. We'll use a separate expandedNeedsId? 
+  // We'll track expanded needs via same expandedTaskId with prefix 'need:'? Simpler: use state.ui.expandedTaskId === `need:${item.id}`.
+  const isOpen = state.ui.expandedTaskId === `need:${item.id}`
+  const row = el('div')
+  row.style.cssText = 'border-top:1px solid var(--surface-lane);'
+  const btn = el('button', 'row')
+  btn.type = 'button'
+  btn.setAttribute('aria-expanded', isOpen ? 'true' : 'false')
+  btn.addEventListener('click', () => dispatch({ type: 'toggle-task', id: isOpen ? null : `need:${item.id}` }))
+  const glyph = el('span', undefined, '◐')
+  glyph.style.cssText = 'flex:none;width:14px;text-align:center;color:var(--warn-fg);'
+  btn.append(glyph)
+  const title = el('span', undefined, item.title)
+  title.style.cssText = 'flex-grow:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;'
+  btn.append(title)
+  const status = el('span', undefined, item.kind === 'review' ? 'review asked' : 'message for you')
+  status.style.cssText = 'flex:none;font-size:12px;color:var(--warn-fg);'
+  btn.append(status)
+  row.append(btn)
+  if (isOpen) {
+    const detail = el('div')
+    detail.style.cssText = 'display:flex;flex-direction:column;gap:8px;padding:0 12px 12px 34px;'
+    const when = absoluteTime(item.since, now)
+    const exec = item.executor ?? ''
+    detail.append(el('span', undefined, `${item.detail ?? ''} · ${exec} · ${when}`))
+    const actions = el('div')
+    actions.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;'
+    // Accept/Reject for review
+    if (item.kind === 'review') {
+      const taskId = item.taskId
+      const expect = reviewExpectRev(model.snapshot, taskId)
+      actions.append(button('Accept', { size: 'sm', onClick: () => {
+        const pendingKey = `att:${item.id}:accept`
+        dispatch({ type: 'begin', pendingKey })
+        void runRequest({ kind: 'act', op: 'task.review', params: { id: taskId, verdict: 'accept', ...(expect != null ? { expect_rev: expect } : {}) }, pendingKey }, 'Accepted')
+      } }))
+      actions.append(button('Reject', { size: 'sm', onClick: () => {
+        const pendingKey = `att:${item.id}:reject`
+        dispatch({ type: 'ask-confirm', confirm: { key: pendingKey, text: 'Reject this result?', confirmLabel: 'Reject it', cancelLabel: 'Keep it', successText: 'Rejected', run: { kind: 'act', op: 'task.review', params: { id: taskId, verdict: 'reject', ...(expect != null ? { expect_rev: expect } : {}) }, pendingKey } } })
+      } }))
     }
-    const list = items()
-    if (e.key === 'Escape') {
-      e.preventDefault()
-      dispatch({ type: 'toggle-menu', open: false })
-      return
+    // service actions
+    for (const a of item.actions ?? []) {
+      const pendingKey = `att:${item.id}:${a.op}`
+      actions.append(button(a.label, { size: 'sm', variant: 'ghost', onClick: () => {
+        dispatch({ type: 'begin', pendingKey })
+        void runRequest({ kind: 'act', op: a.op, params: { ...a.params }, pendingKey }, a.label)
+      } }))
     }
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-      e.preventDefault()
-      if (list.length === 0) return
-      const i = list.indexOf(document.activeElement as HTMLButtonElement)
-      const next =
-        e.key === 'ArrowDown'
-          ? list[(i + 1) % list.length]!
-          : list[(i <= 0 ? list.length : i) - 1]!
-      next.focus()
-    }
+    detail.append(actions)
+    row.append(detail)
   }
-  document.addEventListener('keydown', menuKeyHandler)
-}
-
-function renderMenu(snapshot: PanelSnapshot): HTMLElement {
-  const menu = el('div', 'pc-menu')
-  menu.id = 'pc-menu'
-  menu.setAttribute('role', 'menu')
-  menu.setAttribute('aria-label', 'More actions')
-  const now = Date.now() / 1000
-  for (const item of menuItems(snapshot, now)) {
-    if (item.kind === 'divider') {
-      menu.append(el('div', 'pc-menu-divider'))
-      continue
-    }
-    const b = el('button', 'pc-menu-item')
-    b.type = 'button'
-    b.setAttribute('role', 'menuitem')
-    if (controlBusy(state.ui.pending, item.run.pendingKey)) b.disabled = true
-    b.append(el('span', undefined, item.label))
-    if (item.caption) b.append(el('span', 'pc-menu-caption', item.caption))
-    b.addEventListener('click', () => {
-      dispatch({ type: 'toggle-menu', open: false })
-      void runRequest(item.run, item.successText)
-    })
-    menu.append(b)
-  }
-  return menu
-}
-
-function appendAttentionButtons(
-  actions: HTMLElement,
-  item: AttentionRow,
-  model: Extract<ReturnType<typeof panelModel>, { kind: 'ready' }>,
-  btns: AttentionBtn[],
-  busy: boolean,
-): void {
-  const taskId = item.taskId
-  const expect = reviewExpectRev(model.snapshot, taskId)
-  for (const btn of btns) {
-    if (btn.kind === 'spacer') {
-      actions.append(el('span', 'pc-actions-spacer'))
-      continue
-    }
-    if (btn.source === 'accept') {
-      actions.append(
-        button(btn.label, {
-          size: 'sm',
-          disabled: busy || !taskId,
-          onClick: () =>
-            void runRequest(
-              {
-                kind: 'act',
-                op: 'task.review',
-                params: { id: taskId, verdict: 'accept', ...(expect != null ? { expect_rev: expect } : {}) },
-                pendingKey: `att:${item.id}:accept`,
-              },
-              'Accepted',
-            ),
-        }),
-      )
-      continue
-    }
-    if (btn.source === 'reject') {
-      actions.append(
-        button(btn.label, {
-          size: 'sm',
-          disabled: busy || !taskId,
-          onClick: () => {
-            const execName = executorLabelFor(item.executor, model.names)
-            dispatch({
-              type: 'ask-confirm',
-              confirm: {
-                key: `att:${item.id}:reject`,
-                text: rejectConfirmText(execName),
-                confirmLabel: 'Reject it',
-                cancelLabel: 'Keep it',
-                successText: 'Rejected',
-                run: {
-                  kind: 'act',
-                  op: 'task.review',
-                  params: { id: taskId, verdict: 'reject', ...(expect != null ? { expect_rev: expect } : {}) },
-                  pendingKey: `att:${item.id}:reject`,
-                },
-              },
-            })
-          },
-        }),
-      )
-      continue
-    }
-    if (btn.source === 'expand-answer') {
-      actions.append(
-        button(btn.label, {
-          size: 'sm',
-          disabled: busy,
-          onClick: () => dispatch({ type: 'expand-answer', id: item.id }),
-        }),
-      )
-      continue
-    }
-    if (btn.source === 'answer' && btn.action) {
-      const text = (state.ui.answers[item.id] ?? '').trim()
-      const pendingKey = `att:${item.id}:${btn.action.op}`
-      actions.append(
-        button(btn.label, {
-          size: 'sm',
-          disabled: answerDisabled(text, busy),
-          onClick: () =>
-            askOrRun(btn.action!, pendingKey, item.kind, answerActionParams(btn.action!, text, expect)),
-        }),
-      )
-      continue
-    }
-    if (btn.action) {
-      const pendingKey = `att:${item.id}:${btn.action.op}`
-      actions.append(
-        button(btn.label, {
-          size: 'sm',
-          variant: btn.role === 'ghost' ? 'ghost' : 'secondary',
-          disabled: busy,
-          onClick: () => askOrRun(btn.action!, pendingKey, item.kind),
-        }),
-      )
-    }
-  }
-}
-
-function renderAnswerComposer(item: AttentionRow): HTMLElement[] {
-  const answerId = `answer-${item.id}`
-  const label = el('label', 'sr-only', 'Your answer')
-  label.htmlFor = answerId
-  const area = el('textarea', 'pc-answer-area')
-  area.id = answerId
-  area.name = `answer-${item.id}`
-  area.rows = 2
-  area.placeholder = 'Your answer'
-  area.value = state.ui.answers[item.id] ?? ''
-  area.addEventListener('input', () => dispatch({ type: 'set-answer', id: item.id, text: area.value }))
-  return [label, area]
-}
-
-function renderAttentionCard(item: AttentionRow, model: Extract<ReturnType<typeof panelModel>, { kind: 'ready' }>, now: number): HTMLElement {
-  const tone = attentionCardTone(item.kind)
-  const card = el('div', `pc-card${tone === 'default' ? '' : ` pc-card--${tone}`}`)
-  card.dataset.id = item.id
-  const when = absoluteTime(item.since, now)
-  const exec = executorLabelFor(item.executor, model.names)
-  const caption = attentionCaptionFor(item.kind, {
-    executorLabel: exec,
-    when,
-    detail: item.detail,
-    taskTitle: item.title,
-  })
-
-  const head = el('div', 'pc-card-head')
-  const mono = executorMonogram(item.executor)
-  if (mono) head.append(el('span', 'pc-mono-tile', mono))
-  const titleWrap = el('div', 'pc-card-body')
-  if (showsAnswerComposer(item.kind)) {
-    const title = el('div', 'pc-row-title')
-    const glyph = el('span', 'pc-warn-glyph', '◐')
-    title.append(glyph, document.createTextNode(` ${questionWaitingTitle(exec)}`))
-    titleWrap.append(title, el('div', 'pc-caption', caption))
-  } else {
-    const glyph = attentionGlyph(item.kind)
-    titleWrap.append(
-      el('div', 'pc-row-title', `${glyph ? `${glyph} ` : ''}${item.title}`),
-      el('div', 'pc-caption', caption),
-    )
-  }
-  head.append(titleWrap)
-  if (item.kind === 'review') head.append(pill('Review', 'info'))
-  card.append(head)
-
-  if (showsAnswerComposer(item.kind) && item.detail) {
-    card.append(el('p', 'pc-question-box', item.detail))
-  }
-
-  const confirm = state.ui.confirm
-  if (confirm && confirm.key.startsWith(`att:${item.id}`)) {
-    card.append(renderConfirm(confirm))
-    return card
-  }
-
-  const busy = Object.keys(state.ui.pending).some((k) => k.startsWith(`att:${item.id}`))
-  if (showsAnswerComposer(item.kind)) {
-    for (const node of renderAnswerComposer(item)) card.append(node)
-  }
-
-  const actions = el('div', 'pc-actions')
-  appendAttentionButtons(actions, item, model, attentionButtons(item, 'repo'), busy)
-  card.append(actions)
-  const status =
-    statusLine(`att:${item.id}:accept`) ||
-    statusLine(`att:${item.id}:reject`) ||
-    item.actions.map((a) => statusLine(`att:${item.id}:${a.op}`)).find(Boolean)
-  if (status) card.append(status)
-  return card
-}
-
-function renderAttentionListRow(
-  item: AttentionRow,
-  model: Extract<ReturnType<typeof panelModel>, { kind: 'ready' }>,
-  now: number,
-): HTMLElement {
-  const tone = attentionCardTone(item.kind)
-  const row = el(
-    'div',
-    `pc-needs-list-row${tone === 'warn' ? ' pc-needs-list-row--warn' : tone === 'bad' ? ' pc-needs-list-row--bad' : ''}`,
-  )
-  row.dataset.id = item.id
-  const g = attentionListGlyph(item.kind)
-  const glyph = el('span', 'pc-needs-glyph', g.glyph)
-  if (g.glyph) glyph.style.color = g.colorVar
-  glyph.setAttribute('aria-label', g.label)
-  row.append(glyph)
-
-  const col = el('div', 'pc-needs-col')
-  col.append(el('div', 'pc-repo-label', item.repoLabel ?? 'All repos'))
-  const when = absoluteTime(item.since, now)
-  const exec = executorLabelFor(item.executor, model.names)
-  const caption = attentionCaptionFor(item.kind, {
-    executorLabel: exec,
-    when,
-    detail: item.detail,
-    taskTitle: item.title,
-  })
-  const expanded = state.ui.expandedAnswerId === item.id && showsAnswerComposer(item.kind)
-  if (expanded) {
-    const title = el('div', 'pc-row-title')
-    title.append(el('span', 'pc-warn-glyph', '◐'), document.createTextNode(` ${questionWaitingTitle(exec)}`))
-    col.append(title, el('div', 'pc-caption', caption))
-    if (item.detail) col.append(el('p', 'pc-question-box', item.detail))
-  } else if (item.kind === 'question') {
-    col.append(
-      el('div', 'pc-row-title', allReposQuestionTitle(exec, item.detail)),
-      el('div', 'pc-caption', caption),
-    )
-  } else {
-    col.append(el('div', 'pc-row-title', item.title), el('div', 'pc-caption', caption))
-  }
-
-  const confirm = state.ui.confirm
-  if (confirm && confirm.key.startsWith(`att:${item.id}`)) {
-    col.append(renderConfirm(confirm))
-    row.append(col)
-    return row
-  }
-
-  const busy = Object.keys(state.ui.pending).some((k) => k.startsWith(`att:${item.id}`))
-  if (expanded) {
-    for (const node of renderAnswerComposer(item)) col.append(node)
-    const actions = el('div', 'pc-needs-actions')
-    const answerAction = item.actions.find((a) => isAnswerAction(a))
-    if (answerAction) {
-      const text = (state.ui.answers[item.id] ?? '').trim()
-      const expect = reviewExpectRev(model.snapshot, item.taskId)
-      actions.append(
-        button('Send answer', {
-          size: 'sm',
-          disabled: answerDisabled(text, busy),
-          onClick: () =>
-            askOrRun(
-              answerAction,
-              `att:${item.id}:${answerAction.op}`,
-              item.kind,
-              answerActionParams(answerAction, text, expect),
-            ),
-        }),
-      )
-    }
-    col.append(actions)
-  } else {
-    const actions = el('div', 'pc-needs-actions')
-    appendAttentionButtons(actions, item, model, attentionButtons(item, 'global'), busy)
-    col.append(actions)
-  }
-  const status =
-    statusLine(`att:${item.id}:accept`) ||
-    statusLine(`att:${item.id}:reject`) ||
-    item.actions.map((a) => statusLine(`att:${item.id}:${a.op}`)).find(Boolean)
-  if (status) col.append(status)
-  row.append(col)
   return row
 }
 
-function renderRunningRow(task: PanelTask, model: Extract<ReturnType<typeof panelModel>, { kind: 'ready' }>, now: number): HTMLElement {
-  const allRepos = model.scope === 'global'
-  const row = el('div', `pc-list-row${allRepos ? '' : ' pc-list-row--running'}`)
-  row.dataset.id = task.id
-  const mono = executorMonogram(task.executor)
-  if (mono) row.append(el('span', 'pc-mono-tile', mono))
-  const mid = el('div', 'pc-running-col')
-  mid.append(el('div', 'pc-row-title ellipsis', task.title))
-  const started = absoluteTime(task.attemptStartedAt ?? task.updatedAt, now)
-  mid.append(
-    el(
-      'div',
-      'pc-caption',
-      runningCaption({
-        scope: model.scope,
-        repoLabel: task.repoLabel,
-        executorLabel: executorLabelFor(task.executor, model.names),
-        phase: phaseWords(task.phase),
-        started,
-      }),
-    ),
-  )
-  // All-repos running rows: no buttons, no stalled pill (S10).
-  if (allRepos) {
-    row.append(mid)
-    return row
-  }
-  if (task.liveness?.stalled) {
-    mid.append(pill(stalledPillText(stalledMinutes(task.liveness.since, now)), 'warn'))
-  }
-  const confirm = state.ui.confirm
-  if (confirm?.key === `run:${task.id}:stop`) {
-    mid.append(renderConfirm(confirm))
-    row.append(mid)
-    return row
-  }
-  const actions = el('div', 'pc-running-actions')
-  const busy = runningRowBusy(state.ui.pending, task.id)
-  if (showOpenWorktree(task.orcaWorkspaceId)) {
-    const openBtn = button('Open worktree', {
-      size: 'sm',
-      variant: 'ghost',
-      disabled: busy,
-      onClick: () =>
-        void runRequest({
-          kind: 'openWorkspace',
-          workspaceId: task.orcaWorkspaceId!,
-          pendingKey: `run:${task.id}:open`,
-        }),
-    })
-    openBtn.innerHTML = `${FOLDER_ICON} Open worktree`
-    actions.append(openBtn)
-  }
-  actions.append(
-    button('Watch', {
-      size: 'sm',
-      variant: 'ghost',
-      disabled: busy,
-      onClick: () =>
-        void runRequest(
-          { kind: 'act', op: 'task.attach', params: { id: task.id, target: 'orca' }, pendingKey: `run:${task.id}:watch` },
-          'Watching',
-        ),
-    }),
-    button('Stop', {
-      size: 'sm',
-      variant: 'ghost',
-      disabled: busy,
-      onClick: () =>
-        dispatch({
-          type: 'ask-confirm',
-          confirm: {
-            key: `run:${task.id}:stop`,
-            text: 'Stop this task?',
-            confirmLabel: 'Stop it',
-            cancelLabel: 'Keep it',
-            successText: 'Stopped',
-            run: {
-              kind: 'act',
-              op: 'task.stop',
-              params: { id: task.id, expect_rev: task.rev },
-              pendingKey: `run:${task.id}:stop`,
-            },
-          },
-        }),
-    }),
-  )
-  mid.append(actions)
-  const runStatus = statusForPlace({ place: 'running', taskId: task.id })
-  if (runStatus) mid.append(runStatus)
-  row.append(mid)
-  return row
-}
-
-function renderDelegate(model: Extract<ReturnType<typeof panelModel>, { kind: 'ready' }>, now: number): HTMLElement {
-  const section = el('section', 'pc-section')
-  section.setAttribute('aria-label', 'Delegate')
-  const repoLabel = model.snapshot.focusedRepo?.label ?? 'this repo'
-
-  if (model.ui.view === 'delegate-done' && model.ui.delegated) {
-    const shell = el('div', 'pc-shell')
-    const header = el('header', 'pc-header')
-    const back = button('', {
-      variant: 'ghost',
-      size: 'sm',
-      className: 'pc-btn--icon',
-      ariaLabel: 'Back to the panel',
-      onClick: () => dispatch({ type: 'set-view', view: 'main' }),
-    })
-    back.innerHTML =
-      '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>'
-    header.append(back, el('h1', 'pc-headline', `Delegate in ${repoLabel}`))
-    shell.append(header)
-    const main = el('main', 'pc-main')
-    const card = el('div', 'pc-card pc-card--sunken pc-card--done')
-    const head = el('div', 'pc-delegate-done-head')
-    head.append(el('span', 'pc-status pc-status--good', '✓'))
-    head.append(el('strong', 'pc-headline', `Running on ${model.ui.delegated.executorLabel}`))
-    card.append(head)
-    card.append(el('p', undefined, model.ui.delegated.goal))
-    card.append(
-      el(
-        'span',
-        'pc-caption',
-        delegatedCaption(model.ui.delegated.worktree, absoluteTime(model.ui.delegated.startedAt, now)),
-      ),
-    )
-    card.append(el('code', 'pc-task-id', model.ui.delegated.taskId))
-    main.append(card)
-    const actions = el('div', 'pc-delegate-done-actions')
-    const watchPending = controlBusy(state.ui.pending, 'delegate:watch')
-    const openPending = controlBusy(state.ui.pending, 'delegate:open')
-    actions.append(
-      button('Watch', {
-        size: 'md',
-        disabled: watchPending,
-        onClick: () =>
-          void runRequest(
-            {
-              kind: 'act',
-              op: 'task.attach',
-              params: { id: model.ui.delegated!.taskId, target: 'orca' },
-              pendingKey: 'delegate:watch',
-            },
-            'Watching',
-          ),
-      }),
-    )
-    const hasWorktree = showOpenWorktree(model.ui.delegated.orcaWorkspaceId)
-    const openBtn = button('Open worktree', {
-      size: 'md',
-      disabled: !hasWorktree || openPending,
-      onClick: () => {
-        if (!model.ui.delegated?.orcaWorkspaceId) return
-        void runRequest({
-          kind: 'openWorkspace',
-          workspaceId: model.ui.delegated.orcaWorkspaceId,
-          pendingKey: 'delegate:open',
-        })
-      },
-    })
-    if (!hasWorktree) openBtn.title = 'No Orca workspace matches this worktree yet'
-    actions.append(openBtn)
-    main.append(actions)
-    const doneStatus = statusForPlace({ place: 'delegate-done' })
-    if (doneStatus) main.append(doneStatus)
-    const backLink = button('Back to the panel', {
-      size: 'sm',
-      variant: 'ghost',
-      className: 'pc-link-btn pc-back-link',
-      onClick: () => dispatch({ type: 'set-view', view: 'main' }),
-    })
-    main.append(backLink)
-    shell.append(main)
-    return shell
-  }
-
-  if (model.ui.view === 'delegate') {
-    const shell = el('div', 'pc-shell')
-    const header = el('header', 'pc-header')
-    const back = button('', {
-      variant: 'ghost',
-      size: 'sm',
-      className: 'pc-btn--icon',
-      ariaLabel: 'Back to the panel',
-      onClick: () => dispatch({ type: 'set-view', view: 'main' }),
-    })
-    back.innerHTML =
-      '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>'
-    header.append(back, el('h1', 'pc-headline', `Delegate in ${repoLabel}`))
-    shell.append(header)
-    const main = el('main', 'pc-main')
-    const goalLabel = el('label', 'pc-label', 'Goal')
-    goalLabel.htmlFor = 'delegate-goal'
-    const goal = el('textarea')
-    goal.id = 'delegate-goal'
-    goal.name = 'delegate-goal'
-    goal.rows = 5
-    goal.value = model.ui.goal
-    goal.placeholder = `What should an executor do in ${repoLabel}?`
-    goal.addEventListener('input', () => dispatch({ type: 'set-goal', goal: goal.value }))
-    main.append(goalLabel, goal)
-
-    main.append(el('div', 'pc-label', 'Kind'))
-    const chips = el('div', 'pc-chips')
-    for (const kind of DELEGATE_KINDS) {
-      const chip = el('button', 'pc-chip', kind.label)
-      chip.type = 'button'
-      chip.setAttribute('aria-pressed', model.ui.delegateKind === kind.id ? 'true' : 'false')
-      chip.addEventListener('click', () => dispatch({ type: 'set-delegate-kind', kind: kind.id }))
-      chips.append(chip)
+function renderTaskRow(task: PanelTask, model: Extract<ReturnType<typeof panelModel>, { kind: 'ready' }>, now: number): HTMLElement {
+  const isOpen = state.ui.expandedTaskId === task.id
+  const rowWrap = el('div')
+  const btn = el('button', 'row')
+  btn.type = 'button'
+  btn.setAttribute('aria-expanded', isOpen ? 'true' : 'false')
+  btn.addEventListener('click', () => dispatch({ type: 'toggle-task', id: isOpen ? null : task.id }))
+  const g = taskGlyph(task)
+  const glyph = el('span', undefined, g.glyph)
+  glyph.style.cssText = `flex:none;width:14px;text-align:center;color:${g.colorVar};`
+  btn.append(glyph)
+  const title = el('span', undefined, task.title)
+  title.style.cssText = 'flex-grow:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'
+  btn.append(title)
+  const status = el('span', undefined, taskStatusText(task, now))
+  const stColor = taskStatusText(task, now).startsWith('no output') ? 'var(--warn-fg)' : taskStatusText(task,now).startsWith('failed') ? 'var(--bad-fg)' : 'var(--ink-muted)'
+  status.style.cssText = `flex:none;font-size:12px;color:${stColor};`
+  btn.append(status)
+  rowWrap.append(btn)
+  if (isOpen) {
+    const detail = el('div')
+    detail.style.cssText = 'display:flex;flex-direction:column;gap:8px;padding:0 12px 12px 34px;'
+    const cls = (task as any)._cls
+    const c = taskStatusText(task, now)
+    // detail text
+    const execLabel = task.executor ?? 'executor'
+    let detailText = ''
+    const cl = classifyLocal(task)
+    if (cl === 'asked') {
+      const when = absoluteTime(task.updatedAt, now)
+      detailText = `${execLabel} asked the caller (this worktree's agent) · ${when}. The caller usually answers; answer yourself only to override.`
+    } else if (cl === 'caller-deciding') {
+      detailText = `${execLabel} · waiting on caller's decision`
+    } else if (cl === 'running') {
+      const phase = task.phase ?? 'working'
+      const phaseMap: Record<string,string> = { driving:"you're driving", starting:'starting', working:'editing', testing:'testing', idle:'idle', 'lost-contact':'lost contact', queued:'queued' }
+      const pw = phaseMap[phase] ?? phase
+      detailText = `${execLabel} · ${pw} · started ${absoluteTime(task.attemptStartedAt ?? task.updatedAt, now)}`
+    } else if (cl === 'queued') {
+      const next = task.nextExecutor ?? 'an executor'
+      detailText = `Waits for ${next} · queued ${absoluteTime(task.updatedAt, now)}`
+    } else {
+      detailText = task.title
     }
-    main.append(chips)
+    detail.append(el('span', undefined, detailText))
+    const span = detail.lastChild as HTMLElement
+    span.style.cssText = 'font-size:12px;line-height:16px;color:var(--ink-secondary);'
 
-    const execLabel = el('label', 'pc-label', 'Executor')
-    execLabel.htmlFor = 'delegate-executor'
-    const select = el('select')
-    select.id = 'delegate-executor'
-    select.name = 'delegate-executor'
-    const next = model.next
-    const nextLabel = next ? executorLabelFor(next.id, model.names) : 'Automatic'
-    const auto = el('option', undefined, `Auto · ${nextLabel} runs next`)
-    auto.value = 'auto'
-    select.append(auto)
-    for (const row of model.snapshot.executors) {
-      const name = executorLabelFor(row.id, model.names) ?? row.id
-      const opt = el('option', undefined, name)
-      opt.value = row.id
-      if (executorOptionDisabled(row)) {
-        opt.disabled = true
-        opt.textContent = `${name} · ${executorStateWords(row).label}`
+    // question box
+    if (cl === 'asked' && task.question) {
+      const qbox = el('p', undefined, task.question)
+      qbox.style.cssText = 'margin:0;padding:8px 10px;border-radius:8px;border:1px solid var(--line);font-size:12px;line-height:16px;'
+      detail.append(qbox)
+    }
+    // answer yourself flow
+    if (cl === 'asked') {
+      const isAnswering = state.ui.answeringTaskId === task.id
+      if (isAnswering) {
+        const ta = el('textarea') as HTMLTextAreaElement
+        ta.placeholder = 'Your answer instead of the caller\'s'
+        ta.value = state.ui.answers[task.id] ?? ''
+        ta.addEventListener('input', () => dispatch({ type: 'set-answer', id: task.id, text: ta.value }))
+        detail.append(ta)
       }
-      select.append(opt)
+      const actions = el('div')
+      actions.style.cssText = 'display:flex;gap:4px;flex-wrap:wrap;margin-left:-12px;'
+      if (cl === 'asked') {
+        if (state.ui.answeringTaskId === task.id) {
+          // Send answer + Cancel
+          const sendBtn = button('Send answer', { size: 'sm', variant: 'ghost', disabled: answerDisabled(state.ui.answers[task.id] ?? '', controlBusy(state.ui.pending, `run:${task.id}:answer`)), onClick: () => {
+            const action = { label: 'Answer', op: 'task.answer', params: { id: task.id } } as AttentionAction
+            const text = (state.ui.answers[task.id] ?? '').trim()
+            const params = answerActionParams(action, text, task.rev)
+            const pendingKey = `run:${task.id}:answer`
+            dispatch({ type: 'begin', pendingKey })
+            void runRequest({ kind: 'act', op: 'task.answer', params, pendingKey }, 'Answer sent')
+          } })
+          actions.append(sendBtn)
+          actions.append(button('Cancel', { size: 'sm', variant: 'ghost', onClick: () => dispatch({ type: 'cancel-answer', id: task.id }) }))
+        } else {
+          actions.append(button('Answer yourself', { size: 'sm', variant: 'ghost', onClick: () => dispatch({ type: 'start-answer', id: task.id }) }))
+        }
+      }
+      // Watch, Open worktree, Stop
+      const busy = controlBusy(state.ui.pending, `run:${task.id}:watch`) || controlBusy(state.ui.pending, `run:${task.id}:stop`)
+      actions.append(button('Watch', { size: 'sm', variant: 'ghost', disabled: busy, onClick: () => {
+        const pendingKey = `run:${task.id}:watch`
+        dispatch({ type: 'begin', pendingKey })
+        void runRequest({ kind: 'act', op: 'task.attach', params: { id: task.id, target: 'orca' }, pendingKey }, 'Watching')
+      } }))
+      if (showOpenWorktree(task.orcaWorkspaceId)) {
+        actions.append(button('Open worktree', { size: 'sm', variant: 'ghost', disabled: busy, onClick: () => {
+          const pendingKey = `run:${task.id}:open`
+          dispatch({ type: 'begin', pendingKey })
+          void runRequest({ kind: 'openWorkspace', workspaceId: task.orcaWorkspaceId!, pendingKey })
+        } }))
+      }
+      actions.append(button('Stop', { size: 'sm', variant: 'ghost', disabled: busy, onClick: () => {
+        dispatch({ type: 'ask-confirm', confirm: { key: `run:${task.id}:stop`, text: 'Stop this task?', confirmLabel: 'Stop it', cancelLabel: 'Keep it', successText: 'Stopped', run: { kind: 'act', op: 'task.stop', params: { id: task.id, expect_rev: task.rev }, pendingKey: `run:${task.id}:stop` } } })
+      } }))
+      detail.append(actions)
+    } else if (cl === 'running') {
+      const actions = el('div')
+      actions.style.cssText = 'display:flex;gap:4px;flex-wrap:wrap;margin-left:-12px;'
+      const busy = controlBusy(state.ui.pending, `run:${task.id}:watch`) || controlBusy(state.ui.pending, `run:${task.id}:stop`)
+      actions.append(button('Watch', { size: 'sm', variant: 'ghost', disabled: busy, onClick: () => {
+        const pendingKey = `run:${task.id}:watch`
+        dispatch({ type: 'begin', pendingKey })
+        void runRequest({ kind: 'act', op: 'task.attach', params: { id: task.id, target: 'orca' }, pendingKey }, 'Watching')
+      } }))
+      if (showOpenWorktree(task.orcaWorkspaceId)) {
+        actions.append(button('Open worktree', { size: 'sm', variant: 'ghost', disabled: busy, onClick: () => {
+          const pendingKey = `run:${task.id}:open`
+          dispatch({ type: 'begin', pendingKey })
+          void runRequest({ kind: 'openWorkspace', workspaceId: task.orcaWorkspaceId!, pendingKey })
+        } }))
+      }
+      actions.append(button('Stop', { size: 'sm', variant: 'ghost', disabled: busy, onClick: () => {
+        dispatch({ type: 'ask-confirm', confirm: { key: `run:${task.id}:stop`, text: 'Stop this task?', confirmLabel: 'Stop it', cancelLabel: 'Keep it', successText: 'Stopped', run: { kind: 'act', op: 'task.stop', params: { id: task.id, expect_rev: task.rev }, pendingKey: `run:${task.id}:stop` } } })
+      } }))
+      detail.append(actions)
+    } else if (cl === 'queued') {
+      const actions = el('div')
+      actions.style.cssText = 'display:flex;gap:4px;flex-wrap:wrap;margin-left:-12px;'
+      actions.append(button('Stop', { size: 'sm', variant: 'ghost', onClick: () => {
+        dispatch({ type: 'ask-confirm', confirm: { key: `run:${task.id}:stop`, text: 'Stop this task?', confirmLabel: 'Stop it', cancelLabel: 'Keep it', successText: 'Stopped', run: { kind: 'act', op: 'task.stop', params: { id: task.id, expect_rev: task.rev }, pendingKey: `run:${task.id}:stop` } } })
+      } }))
+      detail.append(actions)
+    } else if (cl === 'failed') {
+      // attention item actions: find attention item for task
+      const att = (model.snapshot.attention ?? []).find((a: any) => a.taskId === task.id)
+      const actions = el('div')
+      actions.style.cssText = 'display:flex;gap:4px;flex-wrap:wrap;margin-left:-12px;'
+      if (att) {
+        for (const a of att.actions ?? []) {
+          actions.append(button(a.label, { size: 'sm', variant: 'ghost', onClick: () => {
+            const pendingKey = `att:${att.id}:${a.op}`
+            dispatch({ type: 'begin', pendingKey })
+            void runRequest({ kind: 'act', op: a.op, params: { ...a.params }, pendingKey }, a.label)
+          } }))
+        }
+      }
+      detail.append(actions)
     }
-    select.value = model.ui.delegateExecutor
-    select.addEventListener('change', () => dispatch({ type: 'set-delegate-executor', executor: select.value }))
-    main.append(execLabel, select)
-    main.append(
-      el(
-        'p',
-        'pc-caption pc-why',
-        delegateWhyCaption(model.ui.delegateExecutor, next, model.names, model.snapshot.executors),
-      ),
-    )
 
-    main.append(el('div', 'pc-label pc-where-label', 'Where it works'))
-    const where = el('div', 'pc-radio-list')
-    for (const id of ['new', 'current'] as const) {
-      const label = el('label', 'pc-radio')
-      const input = el('input') as HTMLInputElement
-      input.type = 'radio'
-      input.name = 'delegate-worktree'
-      input.value = id
-      input.checked = model.ui.delegateWorktree === id
-      input.addEventListener('change', () => dispatch({ type: 'set-delegate-worktree', worktree: id }))
-      const text = el('span', 'pc-radio-text')
-      text.append(el('strong', undefined, id === 'new' ? 'New worktree' : 'This worktree'))
-      text.append(el('span', 'pc-caption', worktreeRadioCaption(id)))
-      label.append(input, text)
-      where.append(label)
+    // confirm render
+    const confirm = state.ui.confirm
+    if (confirm && confirm.key.startsWith(`run:${task.id}`)) {
+      const box = el('div', undefined)
+      box.style.cssText = 'display:flex;flex-direction:column;gap:8px;padding:10px 12px;border-radius:8px;background:var(--surface-lane);'
+      box.append(el('p', undefined, confirm.text))
+      const acts = el('div')
+      acts.style.cssText = 'display:flex;gap:8px;'
+      acts.append(button(confirm.confirmLabel, { size: 'sm', onClick: () => void runRequest(confirm.run, confirm.successText) }))
+      acts.append(button(confirm.cancelLabel, { size: 'sm', variant: 'ghost', onClick: () => dispatch({ type: 'cancel-confirm' }) }))
+      box.append(acts)
+      detail.append(box)
     }
-    main.append(where)
-
-    const accLabel = el('label', 'pc-label', 'Done when this passes')
-    accLabel.htmlFor = 'delegate-acceptance'
-    const optional = el('span', 'pc-label-soft', ' · optional')
-    accLabel.append(optional)
-    const acc = el('input', 'pc-mono') as HTMLInputElement
-    acc.id = 'delegate-acceptance'
-    acc.name = 'delegate-acceptance'
-    acc.type = 'text'
-    acc.value = model.ui.acceptance
-    acc.placeholder = 'optional command'
-    acc.addEventListener('input', () => dispatch({ type: 'set-acceptance', acceptance: acc.value }))
-    main.append(accLabel, acc)
-
-    const targetName =
-      model.ui.delegateExecutor === 'auto'
-        ? nextLabel
-        : executorLabelFor(model.ui.delegateExecutor, model.names)
-    const row = el('div', 'pc-delegate-submit')
-    row.append(
-      button(`Delegate to ${targetName}`, {
-        variant: 'primary',
-        size: 'md',
-        disabled: !model.ui.goal.trim() || !model.snapshot.focusedRepo || !!model.ui.pending[DELEGATE_SUBMIT_KEY],
-        onClick: () => {
-          if (!model.snapshot.focusedRepo) return
-          const params = buildDelegateParams({
-            goal: model.ui.goal,
-            repoPath: model.snapshot.focusedRepo.path,
-            kind: model.ui.delegateKind,
-            executor: model.ui.delegateExecutor,
-            worktree: model.ui.delegateWorktree,
-            acceptance: model.ui.acceptance,
-            requestId: `ui-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          })
-          void runRequest(
-            { kind: 'act', op: 'task.delegate', params, pendingKey: DELEGATE_SUBMIT_KEY },
-            `Running on ${targetName}`,
-          )
-        },
-      }),
-      button('Cancel', {
-        size: 'md',
-        onClick: () => dispatch({ type: 'set-view', view: 'main' }),
-      }),
-    )
-    main.append(row)
-    if (model.ui.delegateError) main.append(el('p', 'pc-status pc-status--bad', model.ui.delegateError))
-    shell.append(main)
-    return shell
+    rowWrap.append(detail)
   }
+  return rowWrap
+}
 
-  // Compact delegate on main
-  const label = el('label', 'pc-label', 'Delegate from this worktree')
-  label.htmlFor = 'goal'
-  const goal = el('textarea')
-  goal.id = 'goal'
-  goal.name = 'goal'
-  goal.rows = 3
-  goal.placeholder = `What should an executor do in ${repoLabel}?`
-  goal.value = model.ui.goal
-  goal.addEventListener('input', () => dispatch({ type: 'set-goal', goal: goal.value }))
-  const row = el('div', 'pc-delegate-compact')
-  const nextName = model.next ? executorLabelFor(model.next.id, model.names) : 'an executor'
-  const caption = el('span', 'pc-caption')
-  caption.append(document.createTextNode(`Runs on ${nextName} · new worktree · `))
-  const options = button('Options', {
-    variant: 'ghost',
-    size: 'sm',
-    className: 'pc-link-btn',
-    onClick: () => dispatch({ type: 'set-view', view: 'delegate' }),
-  })
-  caption.append(options)
-  const delegate = button('Delegate', {
-    variant: 'primary',
-    size: 'md',
-    disabled: !model.ui.goal.trim() || !model.snapshot.focusedRepo || !!model.ui.pending[DELEGATE_SUBMIT_KEY],
-    onClick: () => {
-      if (!model.snapshot.focusedRepo) return
-      const params = buildDelegateParams({
-        goal: model.ui.goal,
-        repoPath: model.snapshot.focusedRepo.path,
-        kind: 'auto',
-        executor: 'auto',
-        worktree: 'new',
-        acceptance: '',
-        requestId: `ui-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      })
-      void runRequest(
-        { kind: 'act', op: 'task.delegate', params, pendingKey: DELEGATE_SUBMIT_KEY },
-        `Running on ${nextName}`,
-      )
-    },
-  })
-  row.append(caption, delegate)
-  section.append(label, goal, row)
-  if (model.ui.delegateError) section.append(el('p', 'pc-status pc-status--bad', model.ui.delegateError))
-  return section
+function classifyLocal(task: PanelTask): string {
+  if (task.state === 'needs_input' && task.question) return 'asked'
+  if (task.liveness?.reason === 'caller_decision') return 'caller-deciding'
+  if (task.state === 'queued') return 'queued'
+  if (task.state === 'failed' || task.state === 'limit') return 'failed'
+  return 'running'
 }
 
 function renderReady(model: Extract<ReturnType<typeof panelModel>, { kind: 'ready' }>, now: number): HTMLElement {
   const shell = el('div', 'pc-shell')
+  shell.style.cssText = 'display:flex;flex-direction:column;min-height:100%;'
   const snapshot = model.snapshot
+  shell.append(renderHeader(snapshot))
 
-  if (model.ui.view === 'delegate' || model.ui.view === 'delegate-done') {
-    return renderDelegate(model, now)
+  const main = el('main')
+  main.style.cssText = 'display:flex;flex-direction:column;gap:16px;padding:12px 16px 16px;flex:1;'
+
+  // no focus
+  if (!snapshot.focusedWorkspace) {
+    main.append(el('p', undefined, 'Focus an Orca worktree to see the tasks delegated from it.'))
+    const p = main.lastChild as HTMLElement
+    p.style.color = 'var(--ink-secondary)'
+    shell.append(main)
+    // still status? no
+    return shell
   }
 
-  shell.append(renderHeader(snapshot, true))
-  const main = el('main', 'pc-main')
-  const allRepos = model.scope === 'global'
+  const tasks = model.tasks
+  const empty = tasks.length === 0 && model.needsYou.length === 0
 
-  // S15: pause card is the first item in main, above the planner card.
-  if (snapshot.pause) {
-    const until = snapshot.pause.until ? absoluteTime(snapshot.pause.until, now) : 'later'
-    const card = el('div', 'pc-card pc-card--warn')
-    const title = el('p', 'pc-pause-title')
-    title.append(el('span', 'pc-warn-glyph', '◐'), document.createTextNode(` Delegation is paused until ${until}`))
-    card.append(title)
-    const captionParts = ['New tasks wait in the queue; running ones finish.']
-    const extra = pauseBannerExtra(snapshot.pause, null)
-    if (extra) captionParts.push(extra)
-    card.append(el('p', 'pc-caption', captionParts.join(' ')))
-    const resumeRow = el('div', 'pc-actions')
-    resumeRow.append(
-      button('Resume now', {
-        size: 'sm',
-        onClick: () =>
-          void runRequest({ kind: 'act', op: 'delegation.resume', params: {}, pendingKey: 'pause:resume' }, 'Resumed'),
-      }),
-    )
-    card.append(resumeRow)
-    main.append(card)
+  // title line
+  const titleRow = el('div')
+  titleRow.style.cssText = 'display:flex;align-items:baseline;gap:8px;'
+  titleRow.append(el('h1', undefined, `From ${snapshot.focusedWorkspace.name}`))
+  const h1 = titleRow.firstChild as HTMLElement
+  h1.style.cssText = 'margin:0;font-size:14px;line-height:20px;font-weight:650;'
+  titleRow.append(el('span', undefined, model.summary))
+  const cap = titleRow.lastChild as HTMLElement
+  cap.style.cssText = 'font-size:12px;line-height:16px;color:var(--ink-muted);'
+  main.append(titleRow)
+
+  if (empty) {
+    const p = el('p', undefined, 'Nothing delegated from this worktree yet.')
+    p.style.color = 'var(--ink-secondary)'
+    p.style.margin = '0'
+    main.append(p)
   }
 
-  const plannerCard = el('div', 'pc-card pc-card--sunken')
-  const planner = snapshot.planner
-  const resetLabel = planner?.resetsAt ? absoluteTime(planner.resetsAt, now) : ''
-  const headRow = el('div', 'pc-planner-head')
-  headRow.append(el('h1', 'pc-headline', plannerHeadline(planner, resetLabel)))
-  if (planner && typeof planner.usedPct === 'number') {
-    headRow.append(el('span', 'pc-number', `${Math.round(planner.usedPct)}%`))
+  // Needs you
+  if (model.needsYou.length > 0) {
+    const section = el('section')
+    section.setAttribute('aria-label', 'Needs you')
+    section.style.cssText = 'display:flex;flex-direction:column;gap:6px;'
+    const h2 = el('h2', undefined, `NEEDS YOU · ${model.needsYou.length}`)
+    h2.style.cssText = 'margin:0;font-size:11px;line-height:14px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--bad-fg);'
+    section.append(h2)
+    const box = el('div')
+    box.style.cssText = 'display:flex;flex-direction:column;border:1px solid var(--warn-line);border-radius:10px;background:var(--warn-tint);overflow:hidden;'
+    for (const item of model.needsYou) box.append(renderNeedsRow(item, model, now))
+    section.append(box)
+    main.append(section)
   }
-  plannerCard.append(headRow)
-  if (planner && typeof planner.usedPct === 'number') {
-    const tone = meterTone(planner.verdict, planner.stale)
-    const meter = el('div', 'pc-meter')
-    meter.setAttribute('role', 'progressbar')
-    meter.setAttribute('aria-valuenow', String(Math.round(planner.usedPct)))
-    const agentLabel = plannerAgentDisplay(planner.agent)
-    meter.setAttribute(
-      'aria-label',
-      `${agentLabel} weekly usage ${Math.round(planner.usedPct)} percent, pace ${Math.round(planner.pacePct ?? 0)} percent`,
-    )
-    const fill = el('div', `pc-meter-fill pc-meter-fill--${tone}`)
-    fill.style.width = `${Math.min(100, Math.max(0, planner.usedPct))}%`
-    meter.append(fill)
-    if (typeof planner.pacePct === 'number') {
-      const tick = el('div', 'pc-meter-tick')
-      tick.style.left = `calc(${Math.min(100, Math.max(0, planner.pacePct))}% - 1px)`
-      meter.append(tick)
+
+  // Tasks
+  const tsection = el('section')
+  tsection.setAttribute('aria-label', 'Tasks')
+  tsection.style.cssText = 'display:flex;flex-direction:column;gap:6px;'
+  const th2 = el('h2', undefined, `TASKS · ${tasks.length}`)
+  th2.style.cssText = 'margin:0;font-size:11px;line-height:14px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--ink-muted);'
+  tsection.append(th2)
+  const tbox = el('div')
+  tbox.style.cssText = 'display:flex;flex-direction:column;border:1px solid var(--line);border-radius:10px;overflow:hidden;'
+  for (const t of tasks) tbox.append(renderTaskRow(t, model, now))
+  tsection.append(tbox)
+  main.append(tsection)
+
+  // Done
+  const doneSection = el('section')
+  doneSection.setAttribute('aria-label', 'Done')
+  doneSection.style.cssText = 'display:flex;flex-direction:column;gap:6px;'
+  const doneBtn = el('button', 'row')
+  doneBtn.type = 'button'
+  doneBtn.style.cssText = 'padding:4px 0;min-height:28px;'
+  doneBtn.setAttribute('aria-expanded', state.ui.doneOpen ? 'true' : 'false')
+  doneBtn.addEventListener('click', () => dispatch({ type: 'toggle-done' }))
+  const chev = el('span', undefined, state.ui.doneOpen ? '▾' : '▸')
+  chev.style.cssText = 'flex:none;width:14px;color:var(--ink-muted);'
+  doneBtn.append(chev)
+  const doneLabel = el('span', undefined, `DONE · ${model.doneTasks.length + model.doneMore}`)
+  doneLabel.style.cssText = 'font-size:11px;line-height:14px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--ink-muted);'
+  doneBtn.append(doneLabel)
+  doneSection.append(doneBtn)
+  if (state.ui.doneOpen) {
+    const dbox = el('div')
+    dbox.style.cssText = 'display:flex;flex-direction:column;border:1px solid var(--line);border-radius:10px;'
+    for (const d of model.doneTasks) {
+      const drow = el('div')
+      drow.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 12px;border-top:1px solid var(--surface-lane);font-size:12px;line-height:16px;'
+      const g = doneGlyph(d)
+      const dg = el('span', undefined, g.glyph)
+      dg.style.cssText = `flex:none;width:14px;text-align:center;color:${g.tone === 'good' ? 'var(--good-fg)' : g.tone === 'bad' ? 'var(--bad-fg)' : g.tone === 'warn' ? 'var(--warn-fg)' : 'var(--ink-muted)'};`
+      dg.setAttribute('aria-label', g.label)
+      drow.append(dg)
+      const dt = el('span', undefined, d.title)
+      dt.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink);'
+      drow.append(dt)
+      const meta = el('span', undefined, `${d.executor ?? 'Automatic'} · ${absoluteTime(d.updatedAt, now)}`)
+      // use short label? keep executor raw maybe; brief wants Agent. We'll leave.
+      meta.style.cssText = 'flex:none;color:var(--ink-muted);'
+      drow.append(meta)
+      dbox.append(drow)
     }
-    plannerCard.append(meter)
-    plannerCard.append(el('p', 'pc-caption', plannerCaption(planner, resetLabel)))
-    // S8: All repos planner has no advice line.
-    if (!allRepos && shouldShowAdvice(planner.advice, planner.verdict)) {
-      plannerCard.append(el('p', 'pc-advice', planner.advice))
-    }
-  } else {
-    plannerCard.append(el('p', 'pc-caption', 'Usage unknown.'))
-  }
-  main.append(plannerCard)
-
-  if (snapshot.focusedRepo) {
-    const nav = el('nav', 'pc-scope')
-    nav.setAttribute('aria-label', 'Scope')
-    const repoBtn = el('button', undefined, `This repo · ${snapshot.focusedRepo.label}`)
-    repoBtn.type = 'button'
-    if (model.scope === 'repo') repoBtn.setAttribute('aria-current', 'page')
-    repoBtn.addEventListener('click', () => dispatch({ type: 'set-scope', scope: 'repo' }))
-    const allBtn = el('button')
-    allBtn.type = 'button'
-    allBtn.append(document.createTextNode('All repos'))
-    if (model.globalNeedsYou > 0) allBtn.append(el('span', 'pc-badge', String(model.globalNeedsYou)))
-    if (model.scope === 'global') allBtn.setAttribute('aria-current', 'page')
-    allBtn.addEventListener('click', () => dispatch({ type: 'set-scope', scope: 'global' }))
-    nav.append(repoBtn, allBtn)
-    main.append(nav)
-  } else {
-    main.append(el('p', 'pc-caption', "This workspace isn't a repo pacer knows."))
-  }
-
-  // This-repo only: Delegate (S8 hides it in All repos).
-  if (!allRepos && snapshot.focusedRepo) {
-    main.append(renderDelegate(model, now))
-  }
-
-  if (allRepos) {
-    const { rows: byRepoRows, more: byRepoMore } = visibleByRepos(snapshot.repos)
-    if (byRepoRows.length > 0) {
-      const byRepo = el('section', 'pc-section')
-      byRepo.setAttribute('aria-label', 'By repo')
-      byRepo.append(el('h2', 'pc-label', 'By repo'))
-      const list = el('div', 'pc-list')
-      for (const repo of byRepoRows) {
-        const row = el('div', 'pc-list-row')
-        const mid = el('div', 'pc-card-body')
-        const title = el('div', 'pc-row-title ellipsis', repo.label)
-        if (snapshot.focusedRepo?.key === repo.key) {
-          title.textContent = `${repo.label} · this worktree`
-        }
-        mid.append(title, el('div', 'pc-caption', byRepoCaption(repo)))
-        row.append(mid)
-        if (repo.needsYou > 0) row.append(pill(String(repo.needsYou), 'bad'))
-        if (showOpenWorktree(repo.orcaWorkspaceId)) {
-          const openKey = `repo:${repo.key}:open`
-          row.append(
-            button('Open in Orca', {
-              size: 'sm',
-              variant: 'ghost',
-              disabled: controlBusy(state.ui.pending, openKey),
-              onClick: () =>
-                void runRequest({
-                  kind: 'openWorkspace',
-                  workspaceId: repo.orcaWorkspaceId!,
-                  pendingKey: openKey,
-                }),
-            }),
-          )
-        }
-        const repoStatus = statusForPlace({ place: 'repo', repoKey: repo.key })
-        if (repoStatus) row.append(repoStatus)
-        list.append(row)
-      }
-      byRepo.append(list)
-      if (byRepoMore > 0) {
-        byRepo.append(
-          button(`${byRepoMore} more in the pacer app`, {
-            variant: 'ghost',
-            size: 'sm',
-            className: 'pc-link-btn',
-            disabled: controlBusy(state.ui.pending, 'by-repo:more'),
-            onClick: () =>
-              void runRequest({
-                kind: 'act',
-                op: 'ui.open',
-                params: { view: 'overview' },
-                pendingKey: 'by-repo:more',
-              }),
-          }),
-        )
-        const moreStatus = statusForPlace({ place: 'by-repo-more' })
-        if (moreStatus) byRepo.append(moreStatus)
-      }
-      main.append(byRepo)
-    }
-  }
-
-  const needs = el('section', 'pc-section')
-  needs.setAttribute('aria-label', 'Needs you')
-  const needsHead = el('div', 'pc-section-head')
-  needsHead.append(el('h2', 'pc-label', 'Needs you'))
-  if (model.attention.length > 0) needsHead.append(pill(String(model.attention.length), 'bad'))
-  needs.append(needsHead)
-  if (model.attention.length === 0) {
-    needs.append(el('div', 'pc-empty', emptyNeedsYouCopy(model.scope, snapshot.focusedRepo?.label)))
-    if (!allRepos && model.otherNeedsYou > 0) {
-      needs.append(
-        button(`${model.otherNeedsYou} in other repos`, {
-          variant: 'ghost',
-          size: 'sm',
-          className: 'pc-link-btn',
-          onClick: () => dispatch({ type: 'set-scope', scope: 'global' }),
-        }),
-      )
-    }
-  } else if (allRepos) {
-    // S9: one bordered list box, not cards.
-    const list = el('div', 'pc-list')
-    for (const item of model.attention) list.append(renderAttentionListRow(item, model, now))
-    needs.append(list)
-  } else {
-    for (const item of model.attention) needs.append(renderAttentionCard(item, model, now))
-  }
-  main.append(needs)
-
-  const running = el('section', 'pc-section')
-  running.setAttribute('aria-label', 'Running')
-  const runHead = el('div', 'pc-section-head')
-  runHead.append(el('h2', 'pc-label', 'Running'), pill(String(model.running.length)))
-  if (allRepos && model.slots) {
-    runHead.append(el('span', 'pc-caption', `${model.slots.used} of ${model.slots.max} slots in use`))
-  }
-  running.append(runHead)
-  if (model.running.length === 0) {
-    const nextName = model.next ? executorLabelFor(model.next.id, model.names) : null
-    running.append(el('div', 'pc-empty', emptyRunningCopy(nextName)))
-  } else {
-    const list = el('div', 'pc-list')
-    for (const task of model.running) list.append(renderRunningRow(task, model, now))
-    running.append(list)
-  }
-  main.append(running)
-
-  // S16: Queued section after Running.
-  if (model.queued.length > 0) {
-    const queued = el('section', 'pc-section')
-    queued.setAttribute('aria-label', 'Queued')
-    const qHead = el('div', 'pc-section-head')
-    qHead.append(el('h2', 'pc-label', 'Queued'), pill(String(model.queued.length)))
-    queued.append(qHead)
-    const list = el('div', 'pc-list')
-    const nextName = model.next ? executorLabelFor(model.next.id, model.names) : null
-    for (const task of model.queued) {
-      const row = el('div', 'pc-list-row')
-      row.style.flexDirection = 'column'
-      row.style.alignItems = 'flex-start'
-      row.style.gap = '2px'
-      row.append(el('div', 'pc-row-title', task.title))
-      row.append(
-        el(
-          'div',
-          'pc-caption',
-          queuedCaption(!!snapshot.pause, nextName, absoluteTime(task.updatedAt, now)),
-        ),
-      )
-      list.append(row)
-    }
-    queued.append(list)
-    main.append(queued)
-  }
-
-  // S8: Who runs next + Done today only in This repo.
-  if (!allRepos) {
-    const who = el('section', 'pc-section')
-    who.setAttribute('aria-label', 'Who runs next')
-    const counts = whoRunsCounts(snapshot.executors)
-    const whoHead = el('div', 'pc-section-head')
-    whoHead.append(
-      el('h2', 'pc-label', 'Who runs next'),
-      el('span', 'pc-caption', `${counts.ready} ready · ${counts.out} out`),
-    )
-    who.append(whoHead)
-    const whoList = el('div', 'pc-list')
-    for (const row of snapshot.executors) {
-      const item = el('div', 'pc-list-row')
-      const rank = el('span', `pc-rank${row.next ? ' pc-rank--next' : ''}`, rankChipText(row))
-      item.append(rank)
-      const mid = el('div', 'pc-card-body')
-      mid.append(el('div', 'pc-row-title ellipsis', executorLabelFor(row.id, model.names) ?? row.id))
-      mid.append(el('div', 'pc-caption', `${row.next ? 'Next · ' : ''}${row.sub}`))
-      item.append(mid)
-      const words = executorStateWords(row)
-      item.append(pill(words.label, words.tone))
-      whoList.append(item)
-    }
-    who.append(whoList)
-    main.append(who)
-
-    const done = el('section', 'pc-section')
-    done.setAttribute('aria-label', 'Done today')
-    const doneHead = el('div', 'pc-section-head')
-    doneHead.append(el('h2', 'pc-label', 'Done today'), pill(String(model.doneToday.length)))
-    done.append(doneHead)
-    const doneList = el('div', 'pc-list')
-    for (const task of model.doneVisible) {
-      const row = el('div', 'pc-list-row pc-list-row--done')
-      const g = doneGlyph(task)
-      const glyph = el('span', 'pc-done-glyph', g.glyph)
-      glyph.style.color =
-        g.tone === 'good'
-          ? 'var(--good-fg)'
-          : g.tone === 'bad'
-            ? 'var(--bad-fg)'
-            : g.tone === 'warn'
-              ? 'var(--warn-fg)'
-              : 'var(--ink-muted)'
-      glyph.setAttribute('aria-label', g.label)
-      row.append(glyph)
-      row.append(el('span', 'pc-done-title', task.title))
-      row.append(
-        el(
-          'span',
-          'pc-done-meta',
-          `${executorShortLabel(task.executor, snapshot.executors) ?? 'Automatic'} · ${absoluteTime(task.updatedAt, now)}`,
-        ),
-      )
-      doneList.append(row)
-    }
-    done.append(doneList)
+    doneSection.append(dbox)
     if (model.doneMore > 0) {
-      done.append(
-        button(`${model.doneMore} more in the pacer app`, {
-          variant: 'ghost',
-          size: 'sm',
-          className: 'pc-link-btn',
-          disabled: controlBusy(state.ui.pending, 'done:more'),
-          onClick: () =>
-            void runRequest({ kind: 'act', op: 'ui.open', params: { view: 'tasks' }, pendingKey: 'done:more' }),
-        }),
-      )
-      const doneStatus = statusForPlace({ place: 'done-more' })
-      if (doneStatus) done.append(doneStatus)
+      const more = button(`${model.doneMore} more in the pacer app`, { size: 'sm', variant: 'ghost', className: 'pc-link-btn', onClick: () => {
+        const pendingKey = 'done:more'
+        dispatch({ type: 'begin', pendingKey })
+        void runRequest({ kind: 'act', op: 'ui.open', params: { view: 'tasks' }, pendingKey })
+      } })
+      doneSection.append(more)
     }
-    main.append(done)
   }
+  main.append(doneSection)
 
   shell.append(main)
-
-  const footer = el('footer', 'pc-footer')
-  footer.append(
-    button('Open the pacer app', {
-      size: 'md',
-      fullWidth: true,
-      disabled: controlBusy(state.ui.pending, 'footer:open'),
-      onClick: () =>
-        void runRequest({ kind: 'act', op: 'ui.open', params: { view: 'overview' }, pendingKey: 'footer:open' }),
-    }),
-  )
-  const footerStatus = statusForPlace({ place: 'footer' })
-  if (footerStatus) footer.append(footerStatus)
-  // S8: All repos footer has the button only (no caption).
-  if (!allRepos) {
-    footer.append(el('p', 'pc-caption pc-footer-caption', 'Settings, accounts and routing live in the app.'))
-  }
-  shell.append(footer)
   return shell
 }
 
 function renderModel(model: ReturnType<typeof panelModel>, now: number): HTMLElement {
   switch (model.kind) {
     case 'loading':
-      return el('p', 'pc-caption', 'Loading')
+      return el('p', undefined, 'Loading')
     case 'load-error': {
-      const card = el('div', 'pc-card pc-card--warn')
-      card.append(el('div', 'pc-headline', 'Could not reach the plugin worker'))
-      card.append(el('p', 'pc-caption', 'retrying'))
+      const card = el('div')
+      card.style.cssText = 'border:1px solid var(--warn-line);background:var(--warn-tint);border-radius:10px;padding:12px;gap:10px;display:flex;flex-direction:column;'
+      card.append(el('div', undefined, 'Could not reach the plugin worker'))
+      const h = card.firstChild as HTMLElement
+      h.style.cssText = 'font-size:16px;line-height:22px;font-weight:650;'
+      card.append(el('p', undefined, 'retrying'))
       return card
     }
     case 'not-connected': {
       const shell = el('div', 'pc-shell')
-      shell.append(renderHeader(model.snapshot, false))
-      const main = el('main', 'pc-main')
-      const card = el('div', 'pc-card pc-card--sunken')
-      card.append(el('h1', 'pc-headline', "pacer isn't running."))
-      card.append(
-        el(
-          'p',
-          'pc-caption',
-          'The pacer app starts it. This panel reconnects by itself as soon as the service answers.',
-        ),
-      )
+      shell.style.cssText = 'display:flex;flex-direction:column;min-height:100%;'
+      shell.append(renderHeader(model.snapshot))
+      const main = el('main')
+      main.style.cssText = 'display:flex;flex-direction:column;gap:16px;padding:12px 16px 16px;flex:1;'
+      const card = el('div')
+      card.style.cssText = 'border:1px solid var(--line);background:var(--surface-card);border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:12px;'
+      const h = el('h1', undefined, "pacer isn't running.")
+      h.style.cssText = 'margin:0;font-size:16px;line-height:22px;font-weight:650;'
+      card.append(h)
+      card.append(el('p', undefined, 'The pacer app starts it. This panel reconnects by itself as soon as the service answers.'))
       if (model.lastSeenAt) {
-        card.append(
-          el(
-            'span',
-            'pc-caption',
-            `Last seen ${absoluteTime(model.lastSeenAt, now)} · retrying every few seconds`,
-          ),
-        )
+        card.append(el('span', undefined, `Last seen ${absoluteTime(model.lastSeenAt, now)} · retrying every few seconds`))
       }
-      card.append(
-        button('Open the pacer app', {
-          variant: 'primary',
-          size: 'md',
-          disabled: controlBusy(state.ui.pending, 'offline:open'),
-          onClick: () =>
-            void runRequest({ kind: 'act', op: 'ui.open', params: { view: 'overview' }, pendingKey: 'offline:open' }),
-        }),
-      )
-      const offlineStatus = statusForPlace({ place: 'offline' })
-      if (offlineStatus) card.append(offlineStatus)
-      card.append(el('p', 'pc-caption', 'No app on this machine? Start it from a terminal:'))
-      card.append(el('code', 'pc-code-box', 'pacer serve'))
+      card.append(button('Open the pacer app', { size: 'md', variant: 'primary', onClick: () => {
+        const pendingKey = 'offline:open'
+        dispatch({ type: 'begin', pendingKey })
+        void runRequest({ kind: 'act', op: 'ui.open', params: { view: 'overview' }, pendingKey })
+      } }))
       main.append(card)
       shell.append(main)
       return shell
@@ -1347,115 +533,21 @@ function renderModel(model: ReturnType<typeof panelModel>, now: number): HTMLEle
   }
 }
 
-/** Stable selector for any focused text control (id, data-focus, or name). */
-function focusSelector(active: Element | null): string | null {
-  if (!(active instanceof HTMLElement) || !root?.contains(active)) return null
-  if (active.id) return `#${CSS.escape(active.id)}`
-  const dataFocus = active.getAttribute('data-focus')
-  if (dataFocus) return `[data-focus="${CSS.escape(dataFocus)}"]`
-  if (
-    (active instanceof HTMLInputElement ||
-      active instanceof HTMLTextAreaElement ||
-      active instanceof HTMLSelectElement) &&
-    active.name
-  ) {
-    return `${active.tagName.toLowerCase()}[name="${CSS.escape(active.name)}"]`
-  }
-  return null
-}
-
-function detachAnswerKeyHandler(): void {
-  if (answerKeyHandler) {
-    document.removeEventListener('keydown', answerKeyHandler)
-    answerKeyHandler = null
-  }
-}
-
-function attachAnswerEscapeHandler(): void {
-  detachAnswerKeyHandler()
-  answerKeyHandler = (e: KeyboardEvent) => {
-    if (e.key !== 'Escape' || !state.ui.expandedAnswerId) return
-    e.preventDefault()
-    dispatch({ type: 'expand-answer', id: null })
-  }
-  document.addEventListener('keydown', answerKeyHandler)
-}
-
 function render(): void {
   if (root === null) return
-  const active = document.activeElement
-  const selector = focusSelector(active)
-  const selection =
-    active instanceof HTMLTextAreaElement || active instanceof HTMLInputElement
-      ? { start: active.selectionStart, end: active.selectionEnd }
-      : null
   const now = Date.now() / 1000
-  const openingMenu = state.ui.menuOpen && !prevMenuOpen
-  const closingMenu = !state.ui.menuOpen && prevMenuOpen
-  const openingDelegate = state.ui.view === 'delegate' && prevView !== 'delegate'
-  const openingAnswer =
-    state.ui.expandedAnswerId != null && state.ui.expandedAnswerId !== prevExpandedAnswerId
   root.replaceChildren(renderModel(panelModel(state, now), now))
-
-  if (openingDelegate) {
-    const goal = root.querySelector('#delegate-goal') as HTMLTextAreaElement | null
-    goal?.focus()
-  } else if (openingAnswer && state.ui.expandedAnswerId) {
-    const area = root.querySelector(`#answer-${CSS.escape(state.ui.expandedAnswerId)}`) as HTMLTextAreaElement | null
-    area?.focus()
-  } else if (openingMenu) {
-    const first = root.querySelector<HTMLButtonElement>('#pc-menu [role="menuitem"]')
-    first?.focus()
-  } else if (closingMenu) {
-    menuButton?.focus()
-  } else if (selector) {
-    const next = root.querySelector(selector) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null
-    if (next) {
-      next.focus()
-      if (selection && 'setSelectionRange' in next && selection.start != null && selection.end != null) {
-        try {
-          next.setSelectionRange(selection.start, selection.end)
-        } catch {
-          /* ignore */
-        }
-      }
-    }
-  }
-
-  if (state.ui.menuOpen) {
-    const menu = root.querySelector('#pc-menu') as HTMLElement | null
-    if (menu) attachMenuKeyHandler(menu)
-  } else {
-    detachMenuKeyHandler()
-  }
-
-  if (state.ui.expandedAnswerId) attachAnswerEscapeHandler()
-  else detachAnswerKeyHandler()
-
-  prevMenuOpen = state.ui.menuOpen
-  prevView = state.ui.view
-  prevExpandedAnswerId = state.ui.expandedAnswerId
 }
 
-function loadSnapshot(): void {
-  orca.plugin
-    .request('pacer.snapshot')
-    .then((answer) => dispatch({ type: 'snapshot', snapshot: answer }))
-    .catch(() => {
-      dispatch({ type: 'load-error' })
-      setTimeout(loadSnapshot, 3_000)
-    })
-}
-loadSnapshot()
-orca.plugin.on('pacer.changed', (payload) => dispatch({ type: 'snapshot', snapshot: payload.snapshot }))
+// orca global is provided by host; declare for TS
+declare const orca: any
 
-setInterval(() => {
-  if (root === null || state.snapshot === null || !state.snapshot.connected) return
-  const now = Date.now() / 1000
-  for (const task of state.snapshot.running) {
-    if (!task.liveness?.stalled) continue
-    const mins = stalledMinutes(task.liveness.since, now)
-    const node = root.querySelector(`[data-id="${CSS.escape(task.id)}"] .pc-pill--warn`)
-    if (node) node.textContent = stalledPillText(mins)
-  }
-}, 30_000)
+orca.plugin.on('pacer.changed', (e: { snapshot: PanelSnapshot }) => {
+  dispatch({ type: 'snapshot', snapshot: e.snapshot })
+})
+
+void orca.plugin.request('pacer.snapshot').then((snap: PanelSnapshot) => {
+  dispatch({ type: 'snapshot', snapshot: snap })
+}).catch(() => dispatch({ type: 'load-error' }))
+
+export {}

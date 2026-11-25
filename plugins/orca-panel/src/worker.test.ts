@@ -363,7 +363,7 @@ test('pacer.snapshot trims a realistic snapshot, hides snoozed items, matches or
     const worker = await mountWorker(main, { host })
     const snapshot = (await worker.request('pacer.snapshot')) as PanelSnapshot
     assert.equal(snapshot.connected, true)
-    assert.equal(snapshot.focusedRepo?.key, 'k1')
+    assert.equal(snapshot.focusedWorkspace?.path, '/repo')
     assert.deepEqual(snapshot.attention.map((a) => a.id).sort(), [])
     assert.equal(snapshot.running[0]?.orcaWorkspaceId, 'ws-wt')
     assert.equal(snapshot.running.every((t) => t.state !== 'queued'), true)
@@ -479,7 +479,7 @@ test('status bar text/tone for each verdict including ahead/behind fix', () => {
   const base: PanelSnapshot = {
     connected: true,
     at: 1,
-    focusedRepo: { key: 'k1', label: 'jawfish', path: '/repo' },
+    focusedWorkspace: { path: '/repo', name: 'jawfish' },
     planner: {
       agent: 'Claude',
       usedPct: 14,
@@ -517,7 +517,6 @@ test('status bar text/tone for each verdict including ahead/behind fix', () => {
   const outAt = Date.UTC(2026, 10, 24, 9, 0, 0) / 1000
   const out = {
     ...base,
-    focusedRepo: null,
     focusedWorkspace: null,
     planner: { ...base.planner!, usedPct: 100, verdict: 'out', resetsAt: outAt },
     attention: [],
@@ -751,7 +750,7 @@ test('paceStatus: unknown usage, global count, ahead/on_pace tooltips', () => {
   const base: PanelSnapshot = {
     connected: true,
     at: 1,
-    focusedRepo: null,
+    focusedWorkspace: null,
     planner: null,
     pause: null,
     repos: [],
@@ -767,7 +766,7 @@ test('paceStatus: unknown usage, global count, ahead/on_pace tooltips', () => {
   )
   const onPace = {
     ...base,
-    focusedRepo: { key: 'k1', label: 'jawfish', path: '/repo' },
+    focusedWorkspace: { path: '/repo', name: 'jawfish' },
     planner: {
       agent: 'Claude',
       usedPct: 14,
@@ -881,8 +880,7 @@ test('L1: focused worktree resolves via project.list in pacer.snapshot', async (
     })
     const worker = await mountWorker(main, { host })
     const snapshot = (await worker.request('pacer.snapshot')) as PanelSnapshot
-    assert.equal(snapshot.focusedRepo?.key, 'k1')
-    assert.equal(snapshot.focusedRepo?.path, '/main/checkout')
+    assert.equal(snapshot.focusedWorkspace?.path, '/orca-ws/jawfish')
     await worker.deactivate()
   } finally {
     resetGitCommonDir()
@@ -905,7 +903,7 @@ test('L1: focused worktree resolves via injected git common dir when projectId a
     const host = hostWithFocusedWorkspace('/orca-ws/jawfish')
     const worker = await mountWorker(main, { host })
     const snapshot = (await worker.request('pacer.snapshot')) as PanelSnapshot
-    assert.equal(snapshot.focusedRepo?.key, 'k1')
+    assert.equal(snapshot.focusedWorkspace?.path, '/orca-ws/jawfish')
     await worker.deactivate()
   } finally {
     resetGitCommonDir()

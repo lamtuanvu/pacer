@@ -25,7 +25,6 @@ const NOT_CONNECTED: PanelSnapshot = {
   connected: false,
   at: 0,
   focusedWorkspace: null,
-  focusedRepo: null,
   planner: null,
   pause: null,
   repos: [],
@@ -259,7 +258,7 @@ function trimTask(task: PacerTask, orcaByPath: Map<string, string>): PanelTask {
   }
 }
 
-type WorkspaceRow = { id: string; path: string; projectId?: string | null }
+type WorkspaceRow = { id: string; name?: string; path: string; projectId?: string | null }
 type ProjectRow = { id: string; path: string }
 
 async function listWorkspaces(orca: OrcaWorkerApi): Promise<WorkspaceRow[]> {
@@ -267,6 +266,7 @@ async function listWorkspaces(orca: OrcaWorkerApi): Promise<WorkspaceRow[]> {
     const list = await orca.host.call('workspace.list')
     return list.workspaces.map((w) => ({
       id: w.id,
+      name: w.name,
       path: w.path,
       projectId: w.projectId ?? null,
     }))
@@ -345,13 +345,14 @@ async function buildPanelSnapshot(
   projects: ProjectRow[],
 ): Promise<PanelSnapshot> {
   const orcaByPath = new Map(workspaces.map((w) => [normalizeRepoPath(w.path), w.id]))
-  const focusedRepo = await resolveFocusedRepo(snapshot.repos, focusedPath, workspaces, projects)
   const focusedWorkspace = focusedPath
     ? {
         path: focusedPath,
-        name: (workspaces.find((w) => normalizeRepoPath(w.path) === normalizeRepoPath(focusedPath))?.id ??
+        name:
+          workspaces.find((w) => normalizeRepoPath(w.path) === normalizeRepoPath(focusedPath))?.name ??
+          workspaces.find((w) => normalizeRepoPath(w.path) === normalizeRepoPath(focusedPath))?.id ??
           focusedPath.split('/').filter(Boolean).pop() ??
-          focusedPath),
+          focusedPath,
       }
     : null
 
@@ -426,7 +427,6 @@ async function buildPanelSnapshot(
     connected: true,
     at: snapshot.at,
     focusedWorkspace,
-    focusedRepo,
     planner,
     pause: snapshot.pause,
     repos: [],
@@ -477,7 +477,7 @@ export function paceStatus(snapshot: PanelSnapshot): {
       tooltip: 'pacer is not running · open the pacer app to start it',
     }
   }
-  const hasFocus = !!snapshot.focusedWorkspace || !!snapshot.focusedRepo
+  const hasFocus = !!snapshot.focusedWorkspace
   if (!hasFocus) {
     const planner = snapshot.planner
     if (!planner || typeof planner.usedPct !== 'number') {

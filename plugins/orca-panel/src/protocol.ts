@@ -56,8 +56,6 @@ export type PanelSnapshot = {
   at: number
   /** Focused Orca workspace (path + name) the panel is scoped to. */
   focusedWorkspace?: { path: string; name: string } | null
-  /** Compatibility alias for older panel code. */
-  focusedRepo?: RepoRef | null
   planner: PanelPlanner | null
   pause: PacerPause | null
   repos: PanelRepo[]
