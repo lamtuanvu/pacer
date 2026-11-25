@@ -1461,11 +1461,145 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-bundled"
+version = "0.0.0"
+dependencies = [
+ "pacer-bundled-agent-session",
+ "pacer-bundled-assistant",
+ "pacer-bundled-assistant-executor",
+ "pacer-bundled-classify",
+ "pacer-bundled-endpoints",
+ "pacer-bundled-exec-direct",
+ "pacer-bundled-exec-orca",
+ "pacer-bundled-notify",
+ "pacer-bundled-remote-caller",
+ "pacer-bundled-ssh",
+ "pacer-bundled-usage",
+ "pacer-plugin",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "pacer-bundled-agent-session"
+version = "0.0.0"
+dependencies = [
+ "pacer-plugin",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "pacer-bundled-assistant"
+version = "0.0.0"
+dependencies = [
+ "pacer-plugin",
+ "reqwest",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "pacer-bundled-assistant-executor"
+version = "0.0.0"
+dependencies = [
+ "pacer-plugin",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "pacer-bundled-classify"
+version = "0.0.0"
+dependencies = [
+ "pacer-plugin",
+ "regex",
+ "serde_json",
+ "tokio",
+ "url",
+]
+
+[[package]]
+name = "pacer-bundled-endpoints"
+version = "0.0.0"
+dependencies = [
+ "pacer-plugin",
+ "serde",
+ "serde_json",
+ "tokio",
+ "url",
+]
+
+[[package]]
+name = "pacer-bundled-exec-direct"
+version = "0.0.0"
+dependencies = [
+ "pacer-plugin",
+ "regex",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "pacer-bundled-exec-orca"
+version = "0.0.0"
+dependencies = [
+ "pacer-plugin",
+ "regex",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "pacer-bundled-notify"
+version = "0.0.0"
+dependencies = [
+ "pacer-plugin",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "pacer-bundled-remote-caller"
+version = "0.0.0"
+dependencies = [
+ "pacer-plugin",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "pacer-bundled-ssh"
+version = "0.0.0"
+dependencies = [
+ "base64 0.22.1",
+ "pacer-plugin",
+ "regex",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "pacer-bundled-usage"
+version = "0.0.0"
+dependencies = [
+ "jiff",
+ "pacer-plugin",
+ "regex",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "pacer-cli"
 version = "0.2.3"
 dependencies = [
  "flate2",
  "jiff",
+ "pacer-bundled",
  "pacer-foundation",
  "pacer-server",
  "serde_json",
@@ -1809,8 +1943,10 @@ dependencies = [
 
 [[package]]
 name = "pacer-plugin"
-version = "0.5.0"
+version = "0.8.0"
 dependencies = [
+ "icu_collator",
+ "jiff",
  "pacer-plugin-agent-session-protocol",
  "pacer-plugin-assistant-protocol",
  "pacer-plugin-decision-protocol",
@@ -1818,11 +1954,14 @@ dependencies = [
  "pacer-plugin-hosts-protocol",
  "pacer-plugin-install-protocol",
  "pacer-plugin-protocol",
+ "ryu-js",
  "pacer-plugin-workflow-protocol",
  "serde",
  "serde_json",
+ "sha2",
  "tokio",
  "tokio-util",
+ "toml",
 ]
 
 [[package]]

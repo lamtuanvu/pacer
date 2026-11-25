@@ -1,6 +1,6 @@
 [package]
 name = "pacer-plugin"
-version = "0.5.0"
+version = "0.8.0"
 publish = true
 description = "The Rust plugin SDK for pacer, implementing the @pacer/plugin wire contract."
 readme = "README.md"
@@ -13,6 +13,8 @@ rust-version.workspace = true
 
 [features]
 testing = []
+usage = []
+install = ["dep:sha2", "dep:jiff", "dep:toml", "dep:icu_collator"]
 
 [dependencies]
 pacer-plugin-agent-session-protocol = { path = "../plugin-agent-session-protocol", version = "0.4.0" }
@@ -27,6 +29,11 @@ serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 tokio-util = { workspace = true, features = ["rt"] }
+ryu-js = "1"
+sha2 = { version = "0.10", optional = true }
+jiff = { version = "0.2", optional = true }
+toml = { version = "0.8", optional = true }
+icu_collator = { version = "=2.4.0", features = ["unstable"], optional = true }
 
 [lints]
 workspace = true
@@ -34,3 +41,70 @@ workspace = true
 [[test]]
 name = "harness"
 required-features = ["testing"]
+
+[[test]]
+name = "http"
+required-features = ["testing"]
+
+[[test]]
+name = "stream"
+required-features = ["testing"]
+
+[[test]]
+name = "fs"
+required-features = ["testing"]
+
+[[test]]
+name = "wire_parity"
+required-features = ["testing"]
+
+[[test]]
+name = "usage"
+required-features = ["usage", "testing"]
+
+[[test]]
+name = "js"
+
+[[test]]
+name = "install_blocks"
+required-features = ["install", "testing"]
+
+[[test]]
+name = "install_helpers"
+required-features = ["install", "testing"]
+
+[[test]]
+name = "install_jsonc"
+required-features = ["install", "testing"]
+
+[[test]]
+name = "install_hookjson"
+required-features = ["install", "testing"]
+
+[[test]]
+name = "install_undo"
+required-features = ["install", "testing"]
+
+[[test]]
+name = "install_managed_content"
+required-features = ["install", "testing"]
+
+[[test]]
+name = "install_plan"
+required-features = ["install", "testing"]
+
+[[test]]
+name = "install_prepared"
+required-features = ["install", "testing"]
+
+[[test]]
+name = "install_transport"
+required-features = ["install", "testing"]
+
+[[test]]
+name = "install_uninstall"
+required-features = ["install", "testing"]
+
+[[test]]
+name = "install_policy"
+required-features = ["install", "testing"]

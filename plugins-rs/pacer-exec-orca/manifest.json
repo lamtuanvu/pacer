@@ -1,0 +1,23 @@
+{
+  "id": "pacer-exec-orca",
+  "version": "0.1.0",
+  "publisher": "pacer",
+  "host": ">=1.10.0",
+  "contributes": {
+    "executor": {
+      "backends": [
+        "orca"
+      ]
+    }
+  },
+  "capabilities": [
+    {
+      "name": "orca",
+      "scopes": [
+        "task-owned"
+      ]
+    }
+  ],
+  "reentrant": true,
+  "tier": "free"
+}

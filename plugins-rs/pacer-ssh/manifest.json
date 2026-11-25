@@ -1,0 +1,23 @@
+{
+  "id": "pacer-ssh",
+  "version": "0.1.0",
+  "publisher": "pacer",
+  "host": "^1.7",
+  "contributes": {
+    "hostRunner": {
+      "kinds": [
+        "ssh"
+      ]
+    }
+  },
+  "capabilities": [
+    {
+      "name": "process.spawn",
+      "scopes": [
+        "ssh"
+      ]
+    }
+  ],
+  "reentrant": true,
+  "tier": "free"
+}

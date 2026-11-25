@@ -624,11 +624,17 @@ jobs:
           desktop/scripts/stage-cli.sh "$stub/pacer" "$stub/pacer-core" "$stub/pacer-assistant-pacer"
           cargo test --locked --bin pacer --manifest-path desktop/src-tauri/Cargo.toml
       - name: Test Rust plugin SDK harness feature
-        run: cargo test -p pacer-plugin --features testing --locked
+        run: cargo test -p pacer-plugin --all-features --locked
+      - name: Test Rust plugin SDK install feature
+        run: cargo test -p pacer-plugin --features install,testing --locked
       - name: Plugin conformance through the Rust front door
         run: |
           cargo build -p pacer -p pacer-fixtures --locked
           PACER_CORE_ARGV="[\"$(command -v bun)\",\"$PWD/src/cli.ts\"]" bun conformance/run.ts --host target/debug/pacer
+      - name: Plugin parity (TypeScript vs Rust)
+        run: |
+          PACER_TEST_FRONT_DOOR="$PWD/target/debug/pacer" PACER_REQUIRE_PARITY=1 \
+          PACER_CORE_ARGV="[\"$(command -v bun)\",\"$PWD/src/cli.ts\"]" bun test test/plugin-parity
       - name: Build timings (CRATE-9)
         if: matrix.os == 'ubuntu-latest' && needs.changes.outputs.timings == 'true'
         run: |

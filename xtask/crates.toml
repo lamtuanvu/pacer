@@ -122,6 +122,40 @@ layer = "sdk"
 layer = "plugin"
 heavy = ["reqwest"]
 
+[crates.pacer-bundled-agent-session]
+layer = "plugin"
+
+[crates.pacer-bundled-classify]
+layer = "plugin"
+
+[crates.pacer-bundled-notify]
+layer = "plugin"
+
+[crates.pacer-bundled-usage]
+layer = "plugin"
+
+[crates.pacer-bundled-endpoints]
+layer = "plugin"
+
+[crates.pacer-bundled-remote-caller]
+layer = "plugin"
+
+[crates.pacer-bundled-assistant]
+layer = "plugin"
+heavy = ["reqwest"]
+
+[crates.pacer-bundled-assistant-executor]
+layer = "plugin"
+
+[crates.pacer-bundled-exec-orca]
+layer = "plugin"
+
+[crates.pacer-bundled-exec-direct]
+layer = "plugin"
+
+[crates.pacer-bundled-ssh]
+layer = "plugin"
+
 [crates.xtask]
 layer = "tool"
 heavy = ["typify", "syn"]
@@ -152,6 +186,8 @@ layer = 7
 [crates.pacer-issues]
 layer = 7
 [crates.pacer-task-ops]
+layer = 8
+[crates.pacer-bundled]
 layer = 8
 [crates.pacer-assistant-ops]
 layer = 8
