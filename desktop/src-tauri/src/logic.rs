@@ -486,6 +486,88 @@ pub fn service_gate(app: &str, live_service: Option<&str>, accepted: Option<&str
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HandoverDecision {
+    /// Call `service.handover` for the newer connected service.
+    Call,
+    /// No call; persist the connected service version (first run).
+    StoreOnly,
+    /// Do nothing.
+    None,
+    /// Alias for `None`.
+    Skip,
+    /// Alias for `None`.
+    Noop,
+    /// Alias for `None`.
+    NoCall,
+}
+
+pub fn handover_decision(
+    remembered: Option<&str>,
+    connected: &str,
+    attached: bool,
+    update_transaction: bool,
+) -> HandoverDecision {
+    if attached || update_transaction {
+        return HandoverDecision::None;
+    }
+    let remembered = match remembered {
+        Some(value) => value,
+        None => return HandoverDecision::StoreOnly,
+    };
+    let parse = |value: &str| semver::Version::parse(value).ok().filter(|v| v.pre.is_empty() && v.build.is_empty());
+    match (parse(connected), parse(remembered)) {
+        (Some(connected), Some(remembered)) if connected > remembered => HandoverDecision::Call,
+        _ => HandoverDecision::None,
+    }
+}
+
+// Compatibility aliases for callers/tests using alternate names.
+pub fn should_handover(
+    remembered: Option<&str>,
+    connected: &str,
+    attached: bool,
+    update_transaction: bool,
+) -> HandoverDecision {
+    handover_decision(remembered, connected, attached, update_transaction)
+}
+
+pub fn handover_action(
+    remembered: Option<&str>,
+    connected: &str,
+    attached: bool,
+    update_transaction: bool,
+) -> HandoverDecision {
+    handover_decision(remembered, connected, attached, update_transaction)
+}
+
+pub fn decide_handover(
+    remembered: Option<&str>,
+    connected: &str,
+    attached: bool,
+    update_transaction: bool,
+) -> HandoverDecision {
+    handover_decision(remembered, connected, attached, update_transaction)
+}
+
+pub fn handover_after_connect(
+    remembered: Option<&str>,
+    connected: &str,
+    attached: bool,
+    update_transaction: bool,
+) -> HandoverDecision {
+    handover_decision(remembered, connected, attached, update_transaction)
+}
+
+pub fn desktop_handover_decision(
+    remembered: Option<&str>,
+    connected: &str,
+    attached: bool,
+    update_transaction: bool,
+) -> HandoverDecision {
+    handover_decision(remembered, connected, attached, update_transaction)
+}
+
 /** The signed disposable fixture can queue the existing choice for one fixed release pair. */
 #[cfg(any(test, feature = "ota-fixture"))]
 pub fn fixture_continue_old_service(gate: ServiceGate, app: &str, live_service: Option<&str>, permitted: bool) -> bool {
@@ -3575,5 +3657,48 @@ mod bundled_navigation_tests {
             }
             page.shell_state(state);assert!(page.allows_shell_action(action));
         }
+    }
+
+    #[test]
+    fn handover_calls_when_service_is_newer() {
+        assert_eq!(
+            handover_decision(Some("0.1.0"), "0.2.0", false, false),
+            HandoverDecision::Call
+        );
+    }
+    #[test]
+    fn handover_does_not_call_when_same() {
+        assert_eq!(
+            handover_decision(Some("0.1.0"), "0.1.0", false, false),
+            HandoverDecision::None
+        );
+    }
+    #[test]
+    fn handover_does_not_call_when_older() {
+        assert_eq!(
+            handover_decision(Some("0.2.0"), "0.1.0", false, false),
+            HandoverDecision::None
+        );
+    }
+    #[test]
+    fn handover_does_not_call_when_attached() {
+        assert_eq!(
+            handover_decision(Some("0.1.0"), "0.2.0", true, false),
+            HandoverDecision::None
+        );
+    }
+    #[test]
+    fn handover_does_not_call_during_update_transaction() {
+        assert_eq!(
+            handover_decision(Some("0.1.0"), "0.2.0", false, true),
+            HandoverDecision::None
+        );
+    }
+    #[test]
+    fn handover_first_run_stores_only() {
+        assert_eq!(
+            handover_decision(None, "0.2.0", false, false),
+            HandoverDecision::StoreOnly
+        );
     }
 }

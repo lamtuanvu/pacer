@@ -824,6 +824,50 @@ fn required_home(home: Option<&std::ffi::OsStr>) -> Result<PathBuf, String> {
         .ok_or_else(|| "HOME is not set".into())
 }
 
+fn remembered_service_version(config_dir: &Path) -> Option<String> {
+    let contents = std::fs::read(config_dir.join("service-version.json")).ok()?;
+    let value: Value = serde_json::from_slice(&contents).ok()?;
+    value.get("version").and_then(Value::as_str).map(str::to_owned)
+}
+
+fn remember_service_version(config_dir: &Path, version: &str) -> Result<(), String> {
+    use std::fs::{DirBuilder, OpenOptions};
+    use std::io::Write;
+    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+    DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(config_dir)
+        .map_err(|error| error.to_string())?;
+    let contents = serde_json::to_vec(&serde_json::json!({"version": version}))
+        .map_err(|error| error.to_string())?;
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let temp = config_dir.join(format!(
+        ".pacer-service-version-{}-{}-{}.tmp",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos(),
+        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&temp)
+        .map_err(|error| error.to_string())?;
+    let result = (|| {
+        file.write_all(&contents)?;
+        file.sync_all()?;
+        std::fs::rename(&temp, config_dir.join("service-version.json"))
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temp);
+    }
+    result.map_err(|error: std::io::Error| error.to_string())
+}
+
 fn editable_rc(home: &Path, shell: &str) -> Option<PathBuf> {
     let rc = profile::rc_file(home, shell)?;
     match std::fs::symlink_metadata(&rc) {
@@ -1402,6 +1446,49 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
     desktop_log!("pacer lifecycle: exchanging local service session");
     let session = Session::connect(cli, &web_auth).await?;
     first_run.signed_in = true;
+    // Manual installs: hand running work to a newer owned service once.
+    let update_transaction = app.state::<Shell>().update_transaction.load(Ordering::SeqCst);
+    let (job_state, _) = job_state(&cli.pacer_home, service_port()).await;
+    let attached = matches!(job_state, logic::JobState::Foreign)
+        || app.state::<Shell>().adoption.lock().unwrap().is_some()
+        || app.state::<Shell>().maintenance.load(Ordering::SeqCst);
+    let config_dir = app.path().app_config_dir().ok();
+    let remembered = config_dir.as_ref().and_then(|dir| remembered_service_version(dir));
+    let decision = logic::handover_decision(
+        remembered.as_deref(),
+        session.service_version().unwrap_or(""),
+        attached,
+        update_transaction,
+    );
+    match decision {
+        logic::HandoverDecision::Call => {
+            let new_version = session.service_version().unwrap_or("").to_owned();
+            let session = session.clone();
+            let config_dir = config_dir.clone();
+            tokio::spawn(async move {
+                match session
+                    .op("service.handover", &serde_json::json!({"wait_s": 60}))
+                    .await
+                {
+                    Ok(summary) => {
+                        desktop_log!("pacer lifecycle: service handover: {}", summary);
+                        if let Some(config_dir) = config_dir.as_ref() {
+                            let _ = remember_service_version(config_dir, &new_version);
+                        }
+                    }
+                    Err(error) => {
+                        desktop_log!("pacer lifecycle: service handover failed: {}", error);
+                    }
+                }
+            });
+        }
+        logic::HandoverDecision::StoreOnly => {
+            if let (Some(config_dir), Some(version)) = (config_dir.as_ref(), session.service_version()) {
+                let _ = remember_service_version(config_dir, version);
+            }
+        }
+        _ => {}
+    }
     if !app.state::<Shell>().maintenance.load(Ordering::SeqCst)
         && app.state::<Shell>().adoption.lock().unwrap().is_none()
         && std::env::var_os("PACER_BIN").is_none()
