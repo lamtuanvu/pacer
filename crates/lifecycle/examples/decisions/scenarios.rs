@@ -157,8 +157,8 @@ pub fn notify(c: &Value) -> notify::Report {
     let level = s(&c["level"]);
     let time = now(c);
     let mut state = retain(&c["raw"], time);
-    let original = candidates(&items, level, &c["raw"]);
-    let mut pending = candidates(&items, level, &state);
+    let original = candidates(&items, level, &c["raw"], time);
+    let mut pending = candidates(&items, level, &state, time);
     transitions(&mut pending, &items, level, a(&c["events"]));
     let mut report = Report {
         candidates: original,
@@ -217,7 +217,13 @@ pub fn notify(c: &Value) -> notify::Report {
             }
             delivered
         };
-        record_delivery(&mut state, &candidate.key, time, delivered);
+        record_delivery(
+            &mut state,
+            &candidate.key,
+            time,
+            delivered,
+            candidate.ack_keys.as_deref(),
+        );
     }
     report.state = state;
     report

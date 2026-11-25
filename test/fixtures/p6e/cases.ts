@@ -552,6 +552,143 @@ export function p6eCases(): any[] {
       { raw: { "failed:t:1": 100 } },
     ])
       cases.push({ op: "notify", level: "all", items: [item], ...patch });
+    // Cooldown matches the exact id or any `${id}:${since}` key, and is off
+    // without a positive now clock (a new since then still fires).
+    const flapping = {
+      ...item,
+      id: "failed:cooldown",
+      taskId: "cooldown",
+      since: 200,
+      title: "Flapping",
+      detail: "Flapping",
+    };
+    const cooldownNow = 10_000;
+    cases.push({
+      op: "notify",
+      now: cooldownNow,
+      level: "important",
+      items: [flapping],
+      raw: { "failed:cooldown:100": cooldownNow - 60 },
+      deliveries: { a: true },
+    });
+    cases.push({
+      op: "notify",
+      now: cooldownNow,
+      level: "important",
+      items: [flapping],
+      raw: { "failed:cooldown:100": cooldownNow - 30 * 60 - 1 },
+      deliveries: { a: true },
+    });
+    cases.push({
+      op: "notify",
+      now: 0,
+      level: "important",
+      items: [flapping],
+      raw: { "failed:cooldown:100": 100 },
+      deliveries: { a: true },
+    });
+    // Important stalled items group by caller; the group is skipped while in
+    // cooldown, and its members still stay out of one-per-task.
+    const caller = "external:claude-code:sess";
+    const stalled = (
+      id: string,
+      since: number,
+      notify: "important" | "all" = "important",
+    ) => ({
+      ...item,
+      id: `stalled:${id}`,
+      kind: "stalled",
+      severity: "blocked",
+      title: id,
+      detail: "Waiting",
+      taskId: id,
+      since,
+      raisedAt: since,
+      notify,
+      waitingOn: caller,
+      actions: [
+        {
+          label: "Open messages",
+          op: "ui.open",
+          params: { view: "task", id, tab: "messages" },
+        },
+      ],
+    });
+    const goneAt = 100 + 30 * 60;
+    cases.push({
+      op: "notify",
+      now: goneAt,
+      level: "important",
+      items: [stalled("a", 100), stalled("b", 110), stalled("c", 120)],
+      raw: {},
+      deliveries: { a: true },
+    });
+    cases.push({
+      op: "notify",
+      now: goneAt,
+      level: "important",
+      items: [stalled("a", 100, "all"), stalled("b", 110, "all")],
+      raw: {},
+      deliveries: { a: true },
+    });
+    const goneLedger = {
+      [`caller_gone:${caller}`]: goneAt,
+      "stalled:a:100": goneAt,
+    };
+    cases.push({
+      op: "notify",
+      now: goneAt + 60,
+      level: "important",
+      items: [stalled("a", 100), stalled("b", 200)],
+      raw: goneLedger,
+      deliveries: { a: true },
+    });
+    cases.push({
+      op: "notify",
+      now: goneAt + 30 * 60,
+      level: "important",
+      items: [stalled("a", 100), stalled("b", 200)],
+      raw: goneLedger,
+      deliveries: { a: true },
+    });
+    // Same-task siblings are acked with the winner's delivery; a previously
+    // stamped ack key suppresses its sibling on the next pass.
+    const acked = [
+      {
+        ...item,
+        id: "stuck:t-ack",
+        kind: "stuck",
+        severity: "blocked",
+        taskId: "t-ack",
+        since: 50,
+        title: "Ack",
+        detail: "Ack",
+      },
+      {
+        ...item,
+        id: "failed:t-ack",
+        taskId: "t-ack",
+        since: 100,
+        title: "Ack",
+        detail: "Ack",
+      },
+    ];
+    cases.push({
+      op: "notify",
+      now: 1000,
+      level: "important",
+      items: acked,
+      raw: {},
+      deliveries: { a: true },
+    });
+    cases.push({
+      op: "notify",
+      now: 1000,
+      level: "important",
+      items: acked,
+      raw: { "failed:t-ack:100": 1000 },
+      deliveries: { a: true },
+    });
     const host = {
       session: "recording",
       repos: { "github.com/acme/api": "~/repo" },

@@ -176,8 +176,9 @@ export async function pluginNativeRequest(ctx: Ctx, raw: unknown, o: { stdio?: b
       case "changed":
         // Parity with TypeScript registry.enable / disable / remove: native mutations
         // edit config then notify Core via changed. Enable always sets reset; sync
-        // plugin-contributed workflows. When the plugin is no longer live, disable
-        // its origin definitions (disable/remove; harmless for settings/visibility).
+        // plugin-contributed workflows. When the plugin no longer authorizes
+        // workflows (disable/remove/refusal/grant gap), disable its origin
+        // definitions. A crash only refuses starts; it keeps definitions listed.
         if (p.reset) {
           reg.nativeReset(ctx, p.id);
           const manifest = reg.manifestOf(ctx, p.id);
@@ -191,8 +192,17 @@ export async function pluginNativeRequest(ctx: Ctx, raw: unknown, o: { stdio?: b
         if (p.invalidate) reg.invalidatePlugin(ctx, p.id);
         if (!p.reset) {
           const info = reg.list(ctx).find(entry => entry.id === p.id);
-          const { disablePluginWorkflows, pluginWorkflowsAreLive } = await import("../workflow/plugin-sync");
-          if (!pluginWorkflowsAreLive(info, reg.manifestOf(ctx, p.id))) disablePluginWorkflows(ctx, p.id);
+          const { disablePluginWorkflows, pluginWorkflowsShouldBeDisabled } = await import("../workflow/plugin-sync");
+          if (pluginWorkflowsShouldBeDisabled(info, reg.manifestOf(ctx, p.id))) {
+            try {
+              disablePluginWorkflows(ctx, p.id);
+            } catch (error) {
+              // The config change already landed: a failed flag write must not
+              // fail the op that triggered it. Log it like the sync path does.
+              const message = error instanceof Error ? error.message : String(error);
+              appendPluginLog(ctx, p.id, "workflow", `workflow disable failed: ${message}`);
+            }
+          }
         }
         break;
       case "publish":

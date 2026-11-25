@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { join } from "node:path";
 import { applyStore, dismissItem, snoozeItem } from "../src/attention/store";
+import type { AttentionItem } from "../src/attention/types";
 import { deriveItems } from "../src/attention/rules";
 import { fakeCtx } from "./helpers";
 import { capacityFixture } from "./read-model-helpers";
@@ -39,4 +40,55 @@ test("concurrent dismissals converge and unknown ids fail",async()=>{
 test("condition item timestamps remain stable between pump evaluations",()=>{
  const {ctx,items}=fixture(),first=applyStore(ctx,items);
  expect(applyStore({...ctx,now:ctx.now+10},items.map(i=>({...i,raisedAt:ctx.now+10,since:ctx.now+10})))).toEqual(first);
+});
+
+test("a partial apply leaves unrelated entries (and their since) intact until a full prune",()=>{
+ const {ctx}=fixture();
+ // Two independent failed-task items sharing the store.
+ const a: AttentionItem = {id:"failed:a",kind:"failed",severity:"problem",title:"A",detail:"a",repo:null,raisedAt:ctx.now,since:ctx.now,actions:[],notify:"all",taskId:"a"};
+ const b: AttentionItem = {id:"failed:b",kind:"failed",severity:"problem",title:"B",detail:"b",repo:null,raisedAt:ctx.now,since:ctx.now,actions:[],notify:"all",taskId:"b"};
+ // Full pass prunes and records both.
+ expect(applyStore(ctx,[a,b])).toHaveLength(2);
+ // Dismiss a, then a partial read covering only task b re-derives b.
+ dismissItem(ctx,a.id,[a,b]);
+ const partial=applyStore({...ctx,now:ctx.now+10},[b],new Set(["b"]));
+ // The partial read must not resurrect a nor reset b's since.
+ expect(partial.some(i=>i.id===a.id)).toBe(false);
+ expect(partial).toHaveLength(1);
+ // a stays dismissed in the store throughout; b keeps its original since until a full pass
+ // covering every task can authoritatively decide whether a still applies.
+ const full=applyStore({...ctx,now:ctx.now+20},[a,b]);
+ expect(full.find(i=>i.id===b.id)!.since).toBe(ctx.now);
+ expect(full.some(i=>i.id===a.id)).toBe(false);
+});
+
+test("a dismiss on an unrelated entry survives a partial apply scoped to another task",()=>{
+ const {ctx}=fixture();
+ const a: AttentionItem = {id:"failed:a",kind:"failed",severity:"problem",title:"A",detail:"a",repo:null,raisedAt:ctx.now,since:ctx.now,actions:[],notify:"all",taskId:"a"};
+ const b: AttentionItem = {id:"failed:b",kind:"failed",severity:"problem",title:"B",detail:"b",repo:null,raisedAt:ctx.now,since:ctx.now,actions:[],notify:"all",taskId:"b"};
+ applyStore(ctx,[a,b]);
+ dismissItem(ctx,a.id,[a,b]); // user dismisses a
+ // A partial pass only touches b and must leave a's dismissal intact in the store.
+ applyStore({...ctx,now:ctx.now+10},[b],new Set(["b"]));
+ const partialAgain=applyStore({...ctx,now:ctx.now+11},[b],new Set(["b"]));
+ expect(partialAgain.some(i=>i.id===a.id)).toBe(false);
+ // The same materialized via buildReadModel-style full input: a still hidden after full pass.
+ const full=applyStore({...ctx,now:ctx.now+20},[a,b]);
+ expect(full.some(i=>i.id===a.id)).toBe(false);
+});
+
+test("a covered task's stale dismissal is pruned on a partial apply so a follow-up is visible",()=>{
+ const {ctx}=fixture();
+ const q: AttentionItem = {id:"question:t",kind:"question",severity:"blocked",title:"Question",detail:"q",repo:null,raisedAt:ctx.now,since:ctx.now,actions:[],notify:"important",taskId:"t"};
+ applyStore(ctx,[q]);
+ dismissItem(ctx,q.id,[q]);
+ // The task is answered: a partial read that covers t derives no question item.
+ expect(applyStore({...ctx,now:ctx.now+10},[],new Set(["t"]))).toEqual([]);
+ const store=readJson<Record<string,unknown>>(join(ctx.pacerHome,"state","attention.json"))!;
+ expect(store[q.id]).toBeUndefined(); // stale dismissal is gone, not carried forward
+ // A follow-up question gets a fresh entry instead of being hidden by the old dismissal.
+ const followUp:AttentionItem={...q,title:"Follow-up",raisedAt:ctx.now+11,since:ctx.now+11};
+ const out=applyStore({...ctx,now:ctx.now+11},[followUp],new Set(["t"]));
+ expect(out).toHaveLength(1);
+ expect(out[0]!.since).toBe(ctx.now+11);
 });

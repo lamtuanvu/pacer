@@ -1,7 +1,7 @@
 //! Notification candidates and delivery acknowledgement decisions.
 use crate::{
     a,
-    attention::Item,
+    attention::{self, Item},
     js::{self, Text},
     n, s, truth,
 };
@@ -59,6 +59,48 @@ fn item_key(item: &Item) -> String {
     format!("{}:{}", s(item.get("id")), js::number(n(item.get("since"))))
 }
 
+/// Latest delivery time for an attention id: exact key or any `${id}:${since}` entry.
+fn last_notified_at(ledger: &Value, id: &str) -> Option<f64> {
+    let prefix = format!("{id}:");
+    let mut latest: Option<f64> = None;
+    if let Some(entries) = ledger.as_object() {
+        for (key, at) in entries {
+            if key != id && !key.starts_with(&prefix) {
+                continue;
+            }
+            let at = n(at);
+            if latest.is_none_or(|prev| at > prev) {
+                latest = Some(at);
+            }
+        }
+    }
+    latest
+}
+
+/// True when `now` is set and this attention id was delivered within the cooldown window.
+fn in_cooldown(ledger: &Value, id: &str, now: f64) -> bool {
+    if now <= 0.0 {
+        return false;
+    }
+    last_notified_at(ledger, id).is_some_and(|last| now - last < attention::NOTIFY_COOLDOWN_S)
+}
+
+/// The planner kind in a caller participant (`external:claude-code:<session>` → `claude-code`).
+fn caller_label(caller: &str) -> &str {
+    let Some(rest) = caller.strip_prefix("external:") else {
+        return "the caller";
+    };
+    let end = rest
+        .find(|c: char| !(c.is_ascii_lowercase() || c == '-'))
+        .unwrap_or(rest.len());
+    let label = &rest[..end];
+    if label.is_empty() {
+        "the caller"
+    } else {
+        label
+    }
+}
+
 fn candidate_from_item(item: &Item) -> Candidate {
     let key = item_key(item);
     Candidate {
@@ -111,23 +153,97 @@ fn one_per_task(items: &[&Item]) -> Vec<Candidate> {
     out
 }
 
-pub fn candidates(items: &[Item], level: &str, ledger: &Value) -> Vec<Candidate> {
+/// Group important stalled items by waitingOn into one banner per caller.
+fn caller_gone_candidates(items: &[&Item], ledger: &Value, now: f64) -> Vec<Candidate> {
+    // A Vec keeps the JS Map's first-seen caller order without a new dependency.
+    let mut by_caller: Vec<(String, Vec<&Item>)> = vec![];
+    for &item in items {
+        if item.get("kind") != "stalled"
+            || item.get("notify") != "important"
+            || !truth(item.get("waitingOn"))
+        {
+            continue;
+        }
+        let caller = s(item.get("waitingOn"));
+        if let Some((_, members)) = by_caller.iter_mut().find(|(key, _)| key == caller) {
+            members.push(item);
+        } else {
+            by_caller.push((caller.to_owned(), vec![item]));
+        }
+    }
+    let mut grouped = vec![];
+    for (caller, members) in by_caller {
+        // Caller-only key: cooldown (not a permanent since-keyed id) lets a newly
+        // joining member re-banner after NOTIFY_COOLDOWN_S.
+        let key = format!("caller_gone:{caller}");
+        let skipped = if now > 0.0 {
+            in_cooldown(ledger, &key, now)
+        } else {
+            ledger.get(&key).is_some()
+        };
+        if skipped {
+            continue;
+        }
+        let head = members[0];
+        let count = members.len();
+        grouped.push(Candidate {
+            key: key.clone(),
+            data: Data {
+                key,
+                title: Text::new(&format!("{} has not responded", caller_label(&caller))),
+                body: Text::new(&format!(
+                    "{} delegated task{} waiting",
+                    count,
+                    if count == 1 { "" } else { "s" }
+                )),
+                actions: a(head.get("actions")).iter().take(2).cloned().collect(),
+                url: format!("/app/#/{}", view(head)),
+                recipients: None,
+                client_id: None,
+            },
+            ack_keys: Some(members.iter().map(|item| item_key(item)).collect()),
+        });
+    }
+    grouped
+}
+
+/// Level filter, per-id cooldown, one-per-task and grouped caller-gone banners.
+/// `ack_keys` on a candidate are ledger-acked with the sent key so suppressed
+/// siblings do not fire on the next pass.
+pub fn candidates(items: &[Item], level: &str, ledger: &Value, now: f64) -> Vec<Candidate> {
     if level == "off" {
         return vec![];
     }
-    let ledger_keys: HashSet<_> = ledger
-        .as_object()
-        .map(|o| o.keys().cloned().collect())
-        .unwrap_or_default();
-    let mut eligible = vec![];
-    for item in items {
-        let key = item_key(item);
-        if ledger_keys.contains(&key) || level == "important" && item.get("notify") != "important" {
+    let mut sorted = items.to_vec();
+    attention::sort(&mut sorted);
+    let mut eligible: Vec<&Item> = vec![];
+    for item in &sorted {
+        if ledger.get(item_key(item)).is_some()
+            || level == "important" && item.get("notify") != "important"
+            || in_cooldown(ledger, s(item.get("id")), now)
+        {
             continue;
         }
         eligible.push(item);
     }
-    one_per_task(&eligible)
+    let grouped = caller_gone_candidates(&eligible, ledger, now);
+    // Caller-gone members stay out of per-task even when the group was skipped.
+    let caller_gone: HashSet<&str> = eligible
+        .iter()
+        .filter(|item| {
+            item.get("kind") == "stalled"
+                && item.get("notify") == "important"
+                && truth(item.get("waitingOn"))
+        })
+        .map(|item| s(item.get("id")))
+        .collect();
+    let mut out = grouped;
+    let remaining: Vec<&Item> = eligible
+        .into_iter()
+        .filter(|item| !caller_gone.contains(s(item.get("id"))))
+        .collect();
+    out.extend(one_per_task(&remaining));
+    out
 }
 pub fn retain(ledger: &Value, time: f64) -> Value {
     json!(
@@ -254,8 +370,18 @@ pub fn provider_order(ids: &[String]) -> Vec<String> {
     ids
 }
 /// Failed delivery remains retryable. This updates only the supplied snapshot.
-pub fn record_delivery(ledger: &mut Value, key: &str, time: f64, delivered: bool) {
+/// A successful send also stamps the candidate's ack keys (siblings/group members).
+pub fn record_delivery(
+    ledger: &mut Value,
+    key: &str,
+    time: f64,
+    delivered: bool,
+    ack_keys: Option<&[String]>,
+) {
     if delivered {
         ledger[key] = json!(time);
+        for ack in ack_keys.unwrap_or_default() {
+            ledger[ack.as_str()] = json!(time);
+        }
     }
 }

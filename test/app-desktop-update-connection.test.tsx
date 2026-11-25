@@ -72,3 +72,20 @@ test("native pending, available and unsupported states preserve explicit null re
 test("older native shells report unknown-command failures instead of inventing update readiness", async () => {
   await expect(readDesktopUpdateConnection({ __TAURI__: { core: { invoke: async () => { throw new Error("unknown command"); } } } })).rejects.toThrow("unknown command");
 });
+
+test("handshake and future reasons or error kinds degrade without losing the view", async () => {
+  const read = (value: unknown) => readDesktopUpdateConnection({ __TAURI__: { core: { invoke: async () => value } } });
+  const handshake = await read({ state: "unavailable", reason: "handshake" });
+  expect(handshake).toEqual({ state: "unavailable", reason: "handshake" });
+  expect(renderToString(<DesktopUpdateConnection connection={handshake}/>)).toContain("during handshake");
+  const future = await read({ state: "unavailable", reason: "from-the-future" });
+  expect(future).toEqual({ state: "unavailable", reason: "connection" });
+  const unknownError = await read({ state: "unavailable", reason: "connection", error: "new-kind" });
+  expect(unknownError).toEqual({ state: "unavailable", reason: "connection" });
+  expect(renderToString(<DesktopUpdateConnection connection={unknownError}/>)).toContain("verified desktop update connection");
+  expect(await read({ state: "unavailable", reason: "connection", error: "busy" })).toEqual({ state: "unavailable", reason: "connection", error: "busy" });
+  expect(await read({ state: "unavailable", reason: "from-the-future", error: "busy" })).toEqual({ state: "unavailable", reason: "connection" });
+  expect(await read({ state: "unavailable", reason: "handshake", error: "busy" })).toEqual({ state: "unavailable", reason: "handshake" });
+  for (const reason of [5, {}, true]) await expect(read({ state: "unavailable", reason })).rejects.toThrow("update connection");
+  await expect(read({ state: "bogus", reason: "handshake" })).rejects.toThrow("update connection");
+});

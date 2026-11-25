@@ -122,7 +122,17 @@ export function updateNotice(updates: UpdateStatus[] = [], dismissed: ReadonlySe
   return updates.find(status => status.phase === "ready" && !!status.target && status.actions.includes("restart") && !dismissed.has(updateNoticeKey(status))) ?? null;
 }
 
-export function desktopConnectionView(connection: { state: string; reason: string | null; terminalCommandDifferent?: boolean } | null) {
+const CONNECTION_ERROR_DETAIL: Record<string, string> = {
+  busy: "Another update or service change is still in progress. Your service continues running.",
+  timeout: "The update service did not answer in time. pacer will retry.",
+  unavailable: "pacer could not reach the service's update connection. pacer will retry.",
+  io: "The update connection to the service failed. pacer will retry.",
+  invalid: "The service sent an update message pacer could not read. Your service continues running; no update has been installed.",
+  interrupted: "The update connection was interrupted. pacer will retry.",
+  "recovery-failed": "An earlier update did not finish and pacer could not restore the previous version on its own. Your service continues running; keep the files in your pacer folder as they are.",
+};
+
+export function desktopConnectionView(connection: { state: string; reason: string | null; error?: string; terminalCommandDifferent?: boolean } | null) {
   const takeover = connection?.reason === "service-takeover";
   const notes = {
     terminalNote: connection?.terminalCommandDifferent ? "The terminal command and the service run different builds." : null,
@@ -145,6 +155,8 @@ export function desktopConnectionView(connection: { state: string; reason: strin
       ? "The desktop update service closed the connection during handshake. Your service continues running; pacer will retry."
       : connection?.state === "unsupported"
         ? "This desktop build does not support automatic updates. Your service continues running."
+        : connection?.reason === "connection" && connection.error && CONNECTION_ERROR_DETAIL[connection.error]
+        ? CONNECTION_ERROR_DETAIL[connection.error]!
         : "pacer could not establish a verified desktop update connection. Your service continues running; no update has been installed.",
     ...notes,
   };

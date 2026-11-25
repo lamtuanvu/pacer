@@ -2,7 +2,7 @@
 
 Date: 2026-10-29
 
-Status: Proposed outline. This is part C of the [service upgrade with running work design](2026-10-29-service-upgrade-with-running-work-design.md). It needs its own ADR as a scoped exception to [ADR 0001](../decisions/0001-desktop-ota.md), written before implementation.
+Status: Decided in [the desktop update with running work ADR](../decisions/2026-11-25-desktop-update-with-running-work.md). This is part C of the [service upgrade with running work design](2026-10-29-service-upgrade-with-running-work-design.md). It needs its own ADR as a scoped exception to [ADR 0001](../decisions/0001-desktop-ota.md), written before implementation.
 
 ## Problem
 

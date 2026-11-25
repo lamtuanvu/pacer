@@ -399,6 +399,53 @@ test("native changed without reset disables workflows when the plugin is not liv
   expect(isDefinitionDisabled(ctx, "fx-ndis/feature@1")).toBe(true);
 }, 30000);
 
+test("native changed without reset keeps a failing plugin's workflows enabled; starts stay refused", async () => {
+  const ctx = home();
+  const repo = gitRepo();
+  installWorkflowPlugin(ctx, "fx-fail", [{
+    name: "feature", version: 1, source: MINIMAL("fx-fail/feature"), prompts: {},
+  }]);
+  await enable(ctx, "fx-fail");
+  expect(isDefinitionDisabled(ctx, "fx-fail/feature@1")).toBe(false);
+
+  // Three crashes put the still-enabled, granted plugin into `failing`.
+  const reg = pluginRegistry(ctx);
+  for (let i = 0; i < 3; i++) reg.nativeCrash(ctx, "fx-fail", "exited on SIGKILL");
+  expect(reg.list(ctx).find(p => p.id === "fx-fail")).toMatchObject({ state: "failing", enabled: true });
+
+  const out = await pluginNativeRequest(ctx, { kind: "changed", id: "fx-fail", reset: false, invalidate: false });
+  expect(out.error).toBeUndefined();
+  expect(getDefinition(ctx, "fx-fail/feature@1")).not.toBeNull();
+  expect(isDefinitionDisabled(ctx, "fx-fail/feature@1")).toBe(false);
+  // Start-up reconcile must not disable the definition either.
+  reconcilePluginWorkflowFlags(ctx);
+  expect(isDefinitionDisabled(ctx, "fx-fail/feature@1")).toBe(false);
+  // A crashed plugin keeps its definition listed but cannot start new runs.
+  expect(await codeOf(callOp(ctx, "run.start", { workflow: "fx-fail/feature@1", repo, brief: "nope" }))).toBe("not_allowed");
+}, 30000);
+
+test("native changed without reset logs a failing store write instead of failing the request", async () => {
+  const ctx = home();
+  installWorkflowPlugin(ctx, "fx-werr", [{
+    name: "feature", version: 1, source: MINIMAL("fx-werr/feature"), prompts: {},
+  }]);
+  await enable(ctx, "fx-werr");
+  expect(isDefinitionDisabled(ctx, "fx-werr/feature@1")).toBe(false);
+  await setPluginDisabled(ctx, "fx-werr", true);
+
+  const { taskDatabase } = await import("../src/tasks/store");
+  const db = taskDatabase(ctx);
+  db.exec("PRAGMA query_only = ON");
+  let out;
+  try {
+    out = await pluginNativeRequest(ctx, { kind: "changed", id: "fx-werr", reset: false, invalidate: false });
+  } finally {
+    db.exec("PRAGMA query_only = OFF");
+  }
+  expect(out.error).toBeUndefined();
+  expect(readFileSync(pluginLogPath(ctx, "fx-werr"), "utf8")).toMatch(/\[workflow\] workflow disable failed:/);
+}, 30000);
+
 test("uninstall leaves definitions disabled; new runs are refused", async () => {
   const ctx = home();
   const repo = gitRepo();
