@@ -8,6 +8,7 @@
 #![allow(clippy::result_large_err)] // CoreError is the shared public operation ABI.
 
 pub mod apply;
+pub mod channel;
 mod check;
 pub mod desktop_reconcile_ops;
 mod feed;
@@ -18,7 +19,9 @@ mod service;
 #[cfg(test)]
 mod tests;
 
+pub use channel::{UPDATE_CACHE_S, checks_enabled, compare_versions, is_version, update_channel};
 pub use check::update_check;
+pub use feed::Channel;
 pub use handover::{service_handover, service_work};
 pub use service::service_status;
 

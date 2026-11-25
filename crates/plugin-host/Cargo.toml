@@ -28,6 +28,7 @@ ryu-js = "1"
 rusqlite = { version = "0.41", features = ["bundled"] }
 pacer-store = { path = "../store" }
 pacer-js-json = { path = "../js-json" }
+pacer-desktop-admission = { path = "../desktop-admission" }
 
 [dev-dependencies]
 pacer-plugin-policy-protocol = { path = "../plugin-policy-protocol" }
