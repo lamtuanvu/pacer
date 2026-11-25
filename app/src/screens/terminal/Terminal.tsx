@@ -84,8 +84,10 @@ export function TerminalScreen({ id: routeId, query, embedded = false, folder, c
       } catch (failure) { opened.current = true; if (active) { setLoadError(failure); setLoading(false); } }
     };
     void refresh(true);
-    const timer = setInterval(() => void refresh(), 2000);
-    return () => { active = false; clearInterval(timer); };
+    const timer = setInterval(() => { if (typeof document !== "undefined" && document.visibilityState !== "visible") return; void refresh(); }, 2000);
+    const onVisibility = () => { if (document.visibilityState === "visible") void refresh(); };
+    if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVisibility);
+    return () => { active = false; clearInterval(timer); if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisibility); };
   }, [api, available, state.connected]);
 
   useEffect(() => { if (splitId && !tabs.some(tab => tab.id === splitId)) setSplitId(null); }, [tabs, splitId]);

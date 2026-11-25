@@ -160,7 +160,7 @@ function pinnedExecutables(ctx: Ctx, resources: CallResources): CallResources {
   return { ...resources, commands };
 }
 
-export interface RegistryDeps { bundled: BundledPlugin[]; spawnBundled: (ctx: Ctx, id: string) => SpawnSpec; spawn?: typeof nodeSpawn; sleep?: (ms: number) => Promise<void>; eventPumpMs?:number }
+export interface RegistryDeps { bundled: BundledPlugin[]; spawnBundled: (ctx: Ctx, id: string) => SpawnSpec; spawn?: typeof nodeSpawn; sleep?: (ms: number) => Promise<void>; eventPumpMs?:number; /** Whether this registry is the long-lived serve process's registry. Only it publishes runtime plugin state transitions and UI invalidations. Defaults to false; the serve startup path opts in explicitly (never through inherited env or argv). */ publishRuntimeState?: boolean }
 export interface PluginInfo { ui: Record<SurfaceKind, number>; surfaces: SurfaceKind[]; id: string; version: string; publisher: string; tier: "free" | "commercial"; bundled: boolean; enabled: boolean; state: PluginState; contributes: string[]; capabilities: { name: string; scopes?: string[] }[]; grant: PluginGrant | null; error: string | null; pid: number | null }
 export interface DoctorReport { id: string; ok: boolean; state: PluginState; served: string[]; protocol: { host: string; plugin: string | null }; pid: number | null; restarts: number; error: string | null; needs: string | null }
 
@@ -1673,11 +1673,27 @@ export class PluginRegistry {
     });
   }
 
+  /** Whether this registry was explicitly marked as the serve process's registry. */
+  private publishesRuntimeState(): boolean {
+    return this.deps.publishRuntimeState === true;
+  }
+  /** Explicit opt-in used by the serve startup path; never inferred from env or argv. */
+  setPublishRuntimeState(value: boolean): void {
+    this.deps.publishRuntimeState = value;
+  }
   private setState(ctx: Ctx, e: Entry, state: PluginState, error: string | null = null): void {
     if (e.state === state && e.error === error) return;
     e.state = state; e.error = error;
     if (state === "disabled" || state === "needs_grant" || state === "refused" || state === "failing") { e.cache.clear(); e.nativeUiRevision++; }
     if (ctx.readOnly) return; // Passive usage must not create durable plugin event storage.
+    // A transient `starting` is never published: it is immediately followed by `ready`,
+    // and clients cannot act on it. Keep `ready` (and other visible changes) published.
+    if (state === "starting") return;
+    // Only the serve process's registry publishes plugin runtime state transitions
+    // (starting/ready/idle). Short-lived processes that start plugins to read usage
+    // must not flood the shared outbox with lifecycle events.
+    const runtimeState = state === "ready" || state === "idle";
+    if (runtimeState && !this.publishesRuntimeState()) return;
     // Startup workflow sync starts plugins only to page definitions; keep the outbox quiet
     // so SSE/config tests (and clients) do not see bookkeeping as user-visible changes.
     if (this.statePublishMute > 0) return;
@@ -2252,6 +2268,10 @@ export class PluginRegistry {
     e.invalidatePending = e.invalidatePending === undefined ? id : (e.invalidatePending === id ? id : null);
     const fire = () => {
       const target = e.invalidatePending; e.invalidatePending = undefined; e.invalidatedAt = Date.now();
+      // UI invalidations are published only by the serve registry; passive processes
+      // must not write them into the shared outbox.
+      if (!this.publishesRuntimeState()) return;
+      if (ctx.readOnly) return;
       this.published = this.published.then(() => publish(ctx, [{ type: "entity", data: { kind: "plugin", id: e.id, value: { id: e.id, state: e.state, error: e.error, ui: target === null || target === undefined ? {} : { id: target } } } }])).catch(() => {});
     };
     const wait = 1000 - (Date.now() - e.invalidatedAt);

@@ -153,6 +153,7 @@ function LegacyUpdatesSection({initialData, initialConfig}: {initialData?: Updat
     if (!native) return;
     let active = true, reading = false;
     const refresh = async () => {
+      if (!active || (typeof document !== "undefined" && document.visibilityState !== "visible")) return;
       if (reading) return;
       reading = true;
       try { const value = await readDesktopUpdateConnection(); if (active) setConnection(value); }
@@ -161,7 +162,9 @@ function LegacyUpdatesSection({initialData, initialConfig}: {initialData?: Updat
     };
     void refresh();
     const timer = setInterval(() => void refresh(), 5000);
-    return () => { active = false; clearInterval(timer); };
+    const onVisibility = () => { if (document.visibilityState === "visible") void refresh(); };
+    if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVisibility);
+    return () => { active = false; clearInterval(timer); if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisibility); };
   }, [native]);
   const service = updateModel(query.data, false);
   return <section id="updates" className="pc-preferences-section" aria-labelledby="updates-h"><h2 id="updates-h" className="pc-settings-board__label">Updates</h2>
