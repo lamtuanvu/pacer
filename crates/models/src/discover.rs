@@ -20,7 +20,7 @@ use std::{
 };
 use tokio::{io::AsyncReadExt, task::JoinHandle};
 
-/// `ctx.run(["opencode", "models"], 90000)`.
+/// `ctx.run(["opencode", "models", "--standalone"], 90000)`.
 pub const TIMEOUT: Duration = Duration::from_secs(90);
 /// After a timeout kill, `execProcess` waits this long for the streams.
 const GRACE: Duration = Duration::from_secs(2);
@@ -113,7 +113,7 @@ pub(crate) async fn run_capped(
     use std::os::unix::process::CommandExt as _;
     let mut command = std::process::Command::new("opencode");
     command
-        .arg("models")
+        .args(["models", "--standalone"])
         .env_clear()
         .envs(process.env.iter().map(|(k, v)| (k, v)))
         // Tools that resolve paths from $PWD (OpenCode does) must see the child's directory.
@@ -220,7 +220,7 @@ pub async fn discover(home: &Path, discovery: Discovery, process: &CoreProcess) 
     // An empty listing means sign-in dropped or the provider was renamed: unknown, never "no models".
     if ids.is_empty() {
         base.note = Some(format!(
-            "opencode lists no models for {provider}; check opencode auth list"
+            "opencode lists no models for {provider}; check opencode auth list --standalone"
         ));
         return Listing::Known(base);
     }

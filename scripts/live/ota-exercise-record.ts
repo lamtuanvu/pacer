@@ -6,7 +6,7 @@ export const MANAGED_SCENARIOS = ["upgrade", "startup-failure", "helper-crash", 
 export const ATTACHED_SCENARIOS = ["adopt", "adopt-failure", "attached"] as const;
 export const TAKEOVER_SCENARIOS = ["takeover", "takeover-relink", "takeover-dismiss", "takeover-failure", "takeover-crash"] as const;
 /** First-run Existing/UseApp paths that move a CLI service through ADR 0011. */
-export const CONSENT_SCENARIOS = ["consent-use-app", "consent-plain-existing", "consent-use-app-busy", "consent-use-app-dismiss", "consent-use-app-restart"] as const;
+export const CONSENT_SCENARIOS = ["consent-use-app", "consent-plain-existing", "consent-use-app-busy", "consent-use-app-dismiss", "consent-use-app-restart", "consent-gone-formula"] as const;
 /** Desktop-owned registration that still names the app's own terminal link. */
 export const OWN_LINK_SCENARIOS = ["own-link-repair", "own-link-repair-failure"] as const;
 /** Paired-layout scenarios that attach an external CLI and exercise desktop service moves. */
@@ -18,6 +18,7 @@ const points = {
   adopt: [], "adopt-failure": ["adoption-startup"], attached: [],
   takeover: [], "takeover-relink": [], "takeover-dismiss": [], "takeover-failure": ["takeover-startup"], "takeover-crash": ["takeover-switch"],
   "consent-use-app": [], "consent-plain-existing": [], "consent-use-app-busy": [], "consent-use-app-dismiss": [], "consent-use-app-restart": [],
+  "consent-gone-formula": [],
   "own-link-repair": [], "own-link-repair-failure": ["own-link-bootstrap"],
 } as const;
 const transaction = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);

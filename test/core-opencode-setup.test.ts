@@ -36,7 +36,7 @@ test("adds a provider account with no key, a runner and a routing entry, then te
 
 test("refuses a provider OpenCode is not signed in to", async () => {
   const {ctx} = setup([]);
-  await expect(addOpencodeAccount(ctx, {provider: "deepseek", model: "deepseek-chat", test: false}, {catalog})).rejects.toThrow("run opencode auth login deepseek");
+  await expect(addOpencodeAccount(ctx, {provider: "deepseek", model: "deepseek-chat", test: false}, {catalog})).rejects.toThrow("run opencode auth login --standalone deepseek");
 });
 
 // The only CoreError with a hint that addOpencodeAccount's callees can produce (applyEdit's
@@ -66,7 +66,7 @@ test("the test reports Key missing once the provider is signed out", async () =>
   const {ctx, state} = setup();
   await addOpencodeAccount(ctx, {provider: "openrouter", model: "z-ai/glm-5.3", test: false}, {catalog});
   state.signed = [];
-  expect(await testEndpoint(ctx, "openrouter")).toEqual({state: "key_missing", detail: "Run opencode auth login openrouter"});
+  expect(await testEndpoint(ctx, "openrouter")).toEqual({state: "key_missing", detail: "Run opencode auth login --standalone openrouter"});
 });
 
 test("setupModels recommends from the catalog", async () => {
@@ -85,7 +85,7 @@ test("setupModels reports a note when OpenCode cannot list models", async () => 
 test("connectProvider reports success only when the provider then appears", async () => {
   const {ctx, state} = setup([]);
   expect(await connectProvider(ctx, "deepseek", {login: async () => 0})).toBe(false);
-  expect(await connectProvider(ctx, "deepseek", {login: async argv => { expect(argv).toEqual(["opencode", "auth", "login", "deepseek"]); state.signed = ["deepseek"]; return 0; }})).toBe(true);
+  expect(await connectProvider(ctx, "deepseek", {login: async argv => { expect(argv).toEqual(["opencode", "auth", "login", "--standalone", "deepseek"]); state.signed = ["deepseek"]; return 0; }})).toBe(true);
 });
 
 test("a dollar cap on a quota or unmetered account is refused instead of being dropped", async () => {
@@ -130,7 +130,7 @@ test("an account with a live executor is still refused", async () => {
 
 test("catalog models OpenCode does not serve are not offered", async () => {
   const listing = "openrouter/qwen/qwen3-coder\n";
-  const ctx = fakeCtx({run: async argv => argv.join(" ") === "opencode models" ? {code: 0, stdout: listing, stderr: ""} : {code: 1, stdout: "", stderr: ""}});
+  const ctx = fakeCtx({run: async argv => argv.join(" ") === "opencode models --standalone" ? {code: 0, stdout: listing, stderr: ""} : {code: 1, stdout: "", stderr: ""}});
   const r = await setupModels(ctx, {provider: "openrouter", group: "signed_in"}, {catalog});
   expect([r.pick, ...r.rest].filter(Boolean).map(m => m!.id)).toEqual(["qwen/qwen3-coder"]);
 });

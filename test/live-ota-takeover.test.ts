@@ -1,8 +1,10 @@
 import { expect, test } from "bun:test";
 import { readyControl, retryForeground, settingsReady } from "../scripts/live/ota-takeover";
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { tmpDir } from "./helpers";
 import { assertFixtureLayoutScenario, initialFixtureVersion } from "../scripts/live/ota";
+import { assertGoneFormulaManagedRegistration, seedCliOwnerRecord } from "../scripts/live/ota-consent-gone";
 import { SERVICE_MOVE_SCENARIOS, TAKEOVER_SCENARIOS } from "../scripts/live/ota-exercise-record";
 
 const button = (disabled?: boolean) => ({ ref: "e1", role: "button", name: "Use the app's service", actions: ["click"], disabled });
@@ -59,6 +61,22 @@ test("consent and own-link drivers sit beside the installed app like takeover", 
     expect(source).toContain("snapshotRealApp(enumerateNativeProcesses())");
     expect(source).toContain("assertRealAppUnchanged(realApp,");
   }
+});
+
+test("gone-formula driver seeds a cli owner and requires the managed registration rewrite", () => {
+  const home = tmpDir();
+  mkdirSync(home, { recursive: true });
+  seedCliOwnerRecord(home, "/opt/homebrew/bin/pacer", 1_700_000_000);
+  expect(JSON.parse(readFileSync(join(home, "owner.json"), "utf8"))).toEqual({
+    schema: 1, owner: "cli", executable: "/opt/homebrew/bin/pacer", at: 1_700_000_000,
+  });
+  expect(() => seedCliOwnerRecord(home, "/opt/homebrew/bin/pacer", 2)).toThrow();
+  const bundled = "/tmp/fixture.app/Contents/Resources/pacer";
+  const plist = `<?xml version="1.0"?><plist version="1.0"><dict><key>Label</key><string>com.pacer.live.test.service</string><key>ProgramArguments</key><array><string>${bundled}</string><string>serve</string></array><key>EnvironmentVariables</key><dict><key>HOME</key><string>${home}</string><key>PACER_HOME</key><string>${home}</string><key>PACER_PORT</key><string>54321</string><key>PATH</key><string>/usr/bin:/bin</string></dict><key>KeepAlive</key><true/><key>RunAtLoad</key><true/></dict></plist>`;
+  expect(() => assertGoneFormulaManagedRegistration(plist, bundled, home, 54321)).not.toThrow();
+  expect(() => assertGoneFormulaManagedRegistration(plist, bundled, home, 9)).toThrow(/HOME\/PACER_HOME\/PACER_PORT/);
+  expect(() => assertGoneFormulaManagedRegistration(plist, "/other/pacer", home, 54321)).toThrow(/bundled CLI/);
+  rmSync(home, { recursive: true, force: true });
 });
 
 test("native takeover inspector stops accessibility parent-child cycles before descending", () => {

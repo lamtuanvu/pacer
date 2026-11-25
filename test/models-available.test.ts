@@ -76,7 +76,7 @@ test("an empty opencode listing is unknown, points at the auth state, and is not
   const r = await availableModels(ctx, "opencode#acme");
   expect(r.source).toBe("opencode");
   expect(r.models).toBeNull();
-  expect(r.note).toBe("opencode lists no models for acme; check opencode auth list");
+  expect(r.note).toBe("opencode lists no models for acme; check opencode auth list --standalone");
   const again = await availableModels(ctx, "opencode#acme");
   expect(again.models).toBeNull();
   expect(calls()).toBe(2);

@@ -12,7 +12,7 @@ import { ownProcessIdentity, sameProcess } from "../../src/update/desktop/proces
 
 /** Scripts-only coordinates; none are production runtime/env options. */
 export interface OtaOptions { base?: string; sourceRoot?: string; realHome?: string; platform?: "darwin" | "linux" }
-export const OTA_SCENARIOS = ["upgrade", "startup-failure", "helper-crash", "interrupted-install", "restore-failure", "adopt", "adopt-failure", "attached", "takeover", "takeover-relink", "takeover-dismiss", "takeover-failure", "takeover-crash", "consent-use-app", "consent-plain-existing", "consent-use-app-busy", "consent-use-app-dismiss", "consent-use-app-restart", "own-link-repair", "own-link-repair-failure", "wrong-service", "watcher-race", "active-work", "invalid-signature", "corrupt-archive", "wrong-architecture", "incompatible", "offline"] as const;
+export const OTA_SCENARIOS = ["upgrade", "startup-failure", "helper-crash", "interrupted-install", "restore-failure", "adopt", "adopt-failure", "attached", "takeover", "takeover-relink", "takeover-dismiss", "takeover-failure", "takeover-crash", "consent-use-app", "consent-plain-existing", "consent-use-app-busy", "consent-use-app-dismiss", "consent-use-app-restart", "consent-gone-formula", "own-link-repair", "own-link-repair-failure", "wrong-service", "watcher-race", "active-work", "invalid-signature", "corrupt-archive", "wrong-architecture", "incompatible", "offline"] as const;
 export const initialLayoutSchema = z.enum(["bridge", "paired"]);
 export type InitialLayout = z.infer<typeof initialLayoutSchema>;
 export const baselineProcessTypeSchema = z.enum(["Background", "Standard"]);
@@ -270,14 +270,27 @@ function registrationProgram(state: OtaRecord, label: string, text: string): str
       env.PACER_PORT !== undefined && env.PACER_PORT !== String(state.innerPort) || typeof value.KeepAlive !== "boolean" || typeof value.RunAtLoad !== "boolean" ||
       Object.keys(value).some(key => !["Label", "ProgramArguments", "EnvironmentVariables", "KeepAlive", "RunAtLoad", "ThrottleInterval", "ProcessType", "StandardOutPath", "StandardErrorPath"].includes(key))) throw Error("Fixture registration is not owned by this lease");
   const registered = resolve(args[0] as string);
+  const takeoverCli = resolve(join(state.pacerHome, ".local/bin/pacer"));
+  const formulaCellar = resolve(join(state.pacerHome, "Cellar/pacer/bin/pacer"));
+  // consent-gone-formula moves the service to a Cellar-like path, then deletes it while KeepAlive stays listed.
+  if (
+    state.exercise?.scenario === "consent-gone-formula"
+    && label === state.serviceLabel
+    && (registered === formulaCellar || registered === takeoverCli)
+    && !present(registered)
+  ) {
+    if (!state.external.length) throw Error("Gone-formula registration requires the takeover external ledger");
+    return registered;
+  }
   const ownLink = isLeaseOwnLinkProgram(state, registered);
   // Own-link keeps the registered symlink path; every other program must be canonical.
   const program = ownLink ? registered : canonical(args[0] as string);
   const external = state.external.length && label === state.serviceLabel && (program === join(state.root, "external/pacer") || program === join(state.pacerHome, ".local/bin/pacer"));
+  const formulaPresent = state.exercise?.scenario === "consent-gone-formula" && label === state.serviceLabel && program === formulaCellar;
   // A takeover's recovery job runs its helper copy from the takeover journal directory.
   const takeoverFamily = !!state.exercise?.scenario && (state.exercise.scenario.startsWith("takeover") || state.exercise.scenario.startsWith("consent-"));
   const takeoverRecovery = label === state.recoveryLabel && takeoverFamily && inside(join(state.pacerHome, "desktop-updates/native/takeover"), program);
-  if (!ownLink && !external && !takeoverRecovery && !inside(state.currentApp, program) && !inside(state.candidateApp, program) && !inside(join(state.pacerHome, "desktop-updates/native", state.exercise?.installationId ?? state.installationId), program)) throw Error("Fixture registration executable escapes the lease");
+  if (!ownLink && !external && !formulaPresent && !takeoverRecovery && !inside(state.currentApp, program) && !inside(state.candidateApp, program) && !inside(join(state.pacerHome, "desktop-updates/native", state.exercise?.installationId ?? state.installationId), program)) throw Error("Fixture registration executable escapes the lease");
   if (ownLink) {
     const bundled = resolve(join(state.currentApp, "Contents/Resources/pacer"));
     canonical(bundled);

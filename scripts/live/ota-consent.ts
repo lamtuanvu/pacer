@@ -1,6 +1,6 @@
 /** Fixed first-run consent / UseApp scenarios over an attached CLI service. */
 import { createHash } from "node:crypto";
-import { constants, closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, readlinkSync, writeFileSync } from "node:fs";
+import { constants, closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, readlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { HttpClient } from "../../src/api/http-client";
 import { enumerateNativeProcesses } from "../../src/update/desktop/native-os";
@@ -8,6 +8,7 @@ import { ownProcessIdentity, processIdentity, sameProcess, type ProcessIdentity 
 import { healthy, loadSession, record } from "./core";
 import { createTask, updateTask } from "../../src/tasks/store";
 import { exactFixtureExternal, initialFixtureVersion, readOtaRecord, updateOtaDriverRecord, type OtaOptions } from "./ota";
+import { assertGoneFormulaManagedRegistration, seedCliOwnerRecord } from "./ota-consent-gone";
 import { CONSENT_SCENARIOS, newExercise } from "./ota-exercise-record";
 import { incarnationExited, privateFixtureBytes } from "./ota-exercise";
 import { attachFixtureTakeover, fixtureEnvironment, fixtureInstallation, fixtureTakeoverCli, inspectFixtureJobs, verifyFixtureBundle } from "./ota-native";
@@ -107,7 +108,8 @@ export async function runConsentExercise(id: string, scenario: string, options: 
     return waitFor(async () => {
       const seen = await ui.controls();
       last = seen.elements.map(e => ({ role: e.role, name: e.name }));
-      return seen.elements.some(e => e.name === button && e.role === "button") ? seen : null;
+      // Welcome's primary CTA is sometimes exposed as AXLink instead of AXButton.
+      return seen.elements.some(e => e.name === button && (e.role === "button" || e.role === "link") && e.actions.includes("click")) ? seen : null;
     }, 60000, `${label} page did not appear`).catch(error => { throw Error(`${String(error)}: ${JSON.stringify(last.slice(0, 50))}`); });
   }
   async function settings(ui: Controls, name: string, takeover: boolean) {
@@ -136,9 +138,31 @@ export async function runConsentExercise(id: string, scenario: string, options: 
   }
   state = updateOtaDriverRecord(id, readOtaRecord(id, options), { exercise: { ...newExercise(scenario, driver, installationId), state: "running" }, runtime: { ...state.runtime!, state: "managed" } }, options);
   await waitFor(async () => {
-    const response = await fetch(`http://127.0.0.1:${state.innerPort}/health`, { signal: AbortSignal.timeout(1000) });
+    // First attach can stall briefly on Keychain/security under host load; keep probes longer than 1s.
+    const response = await fetch(`http://127.0.0.1:${state.innerPort}/health`, { signal: AbortSignal.timeout(5000) });
     return response.ok && (await response.json()).pid === originalProcess.pid ? true : null;
-  }, 30000, "Consent service did not become healthy");
+  }, 120000, "Consent service did not become healthy");
+  if (scenario === "consent-gone-formula") {
+    // Formula → cask: owner still names the CLI, the program is gone, the KeepAlive job stays listed.
+    // Do not call inspectFixtureJobs here: it lstats the registered program and throws ENOENT once deleted.
+    seedCliOwnerRecord(state.pacerHome, file);
+    unlinkSync(file);
+    if (existsSync(file)) throw Error("Gone-formula CLI was not deleted");
+    process.kill(originalProcess.pid, "SIGTERM");
+    await waitFor(async () => incarnationExited(originalProcess) ? true : null, 30000, "Gone-formula CLI process did not exit");
+    const uid = process.getuid?.();
+    if (uid === undefined) throw Error("Gone-formula listing check requires a user id");
+    const domain = `gui/${uid}/${state.serviceLabel}`;
+    await waitFor(async () => {
+      try {
+        const printed = await shell(state, ["/bin/launchctl", "print", domain]);
+        return /state\s*=\s*/.test(printed) && !existsSync(file) ? true : null;
+      } catch {
+        return null;
+      }
+    }, 60000, "Gone-formula job did not stay listed after the program was removed");
+    observed.goneFormula = { owner: "cli", registration: originalRegistration, programMissing: true, listed: true };
+  }
   let desktop: ProcessIdentity | null = launch("native-desktop.log", theme);
   state = updateOtaDriverRecord(id, readOtaRecord(id, options), { exercise: state.exercise, runtime: { ...state.runtime!, desktop } }, options);
   const ui = await desktopControls(desktop.pid);
@@ -148,6 +172,43 @@ export async function runConsentExercise(id: string, scenario: string, options: 
   await pageShown(ui, "Agree and continue", "Consent");
   await capture(ui, `consent-consent-${theme}.png`, `Consent (${theme})`);
   await ui.click("Agree and continue");
+
+  if (scenario === "consent-gone-formula") {
+    const bundled = join(state.currentApp, "Contents/Resources/pacer");
+    const jobs = await waitFor(async () => {
+      const seen = await inspectFixtureJobs(readOtaRecord(id, options));
+      const job = seen.jobs[0];
+      if (!job?.loaded || !job.process || !job.registrationText || job.executable !== bundled || job.registrationSha256 === originalRegistration) return null;
+      assertGoneFormulaManagedRegistration(job.registrationText, bundled, state.pacerHome, state.innerPort);
+      return seen;
+    }, 180000, "Gone-formula managed install did not rewrite and load the bundled CLI");
+    const owner = JSON.parse(readFileSync(join(state.pacerHome, "owner.json"), "utf8"));
+    if (owner.owner !== "desktop") throw Error("owner.json was not desktop after gone-formula consent");
+    assertNoManagedInstallLoop(evidence("native-desktop.log"));
+    const token = privateFixtureBytes(join(state.pacerHome, "token"), 4096).toString("utf8").trim();
+    const client = new HttpClient(`http://127.0.0.1:${session.port}`, token, { protocol: 3, timeoutMs: 10000 });
+    try {
+      await waitFor(async () => {
+        try {
+          const snapshot = await client.snapshot();
+          return (snapshot.snapshot as any).desktopUpdates?.some((item: any) => item.ownership === "managed") ? true : null;
+        } catch { return null; }
+      }, 60000, "Gone-formula managed service did not answer through the public proxy");
+    } finally { client.close(); }
+    // First-run setup checks can cover the shell before Settings → Updates is reachable.
+    await waitFor(async () => {
+      const seen = await ui.texts();
+      if (hasAccessibilityText(seen, "Continue anyway")) {
+        await ui.click("Continue anyway").catch(() => {});
+        return null;
+      }
+      return hasAccessibilityText(seen, "Settings") ? true : null;
+    }, 60000, "Gone-formula shell did not leave setup checks");
+    await settings(ui, `settings-after-${theme}.png`, false);
+    observed.owner = "desktop";
+    observed.service = { executable: jobs.jobs[0].executable, registrationSha256: jobs.jobs[0].registrationSha256, ownership: "managed" };
+    record(session, { kind: "note", behavior: `OTA ${scenario}`, surface: "native desktop / service", verdict: "PASS", text: `Welcome → Consent replaced a gone formula registration. Observed: ${JSON.stringify(observed)}` });
+  } else {
   await pageShown(ui, "Use this app's pacer", "Existing");
   await capture(ui, `consent-existing-${theme}.png`, `Existing (${theme})`);
   record(session, { kind: "note", behavior: `OTA ${scenario} Existing page`, surface: "native desktop", verdict: "PASS", text: "Welcome → Consent → Existing reached with no consent seeded and the CLI still registered." });
@@ -261,6 +322,7 @@ export async function runConsentExercise(id: string, scenario: string, options: 
       assertNoManagedInstallLoop(evidence("native-desktop.log"));
       record(session, { kind: "note", behavior: `OTA ${scenario}`, surface: "native desktop / service / journal", verdict: "PASS", text: `UseApp committed with relink-after-commit. Observed: ${JSON.stringify(observed)}` });
     }
+  }
   }
 
   if (scenario !== "consent-use-app" && scenario !== "consent-use-app-busy") {

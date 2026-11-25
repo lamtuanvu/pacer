@@ -74,11 +74,21 @@ fn plugin_dispatch_and_messaging_sections_normalize_and_reject_unknown_keys() {
     let path = std::path::Path::new("strategy.yaml");
     let base = json!({"planner":"codex","providers":{"codex":{}}});
     let mut raw = base.clone();
-    raw["plugins"] = json!({"policy":{"mode":"closed"},"disabled":["pacer-usage"],"installed":{"acme":{"version":"1.2.0","capabilities":["tasks.read"],"policy":true}},"config":{"acme":{"region":"eu"}}});
+    raw["plugins"] = json!({"policy":{"mode":"closed"},"disabled":["pacer-usage"],"installed":{"acme":{"version":"1.2.0","capabilities":["tasks.read"],"policy":true,"workflows":["demo"],"surfaces":[]}},"config":{"acme":{"region":"eu"}}});
     raw["dispatch"] = json!({});
     raw["messaging"] = json!({"rules":[{"effect":"deny","from_kind":"external"}]});
     let parsed = validate_strategy(&raw, path, "default").unwrap();
     assert_eq!(parsed["plugins"]["policy"]["mode"], "closed");
+    // Workflows are kept; empty surfaces are omitted (parity with TypeScript setPluginGrant).
+    assert_eq!(
+        parsed["plugins"]["installed"]["acme"]["workflows"],
+        json!(["demo"])
+    );
+    assert!(
+        parsed["plugins"]["installed"]["acme"]
+            .get("surfaces")
+            .is_none()
+    );
     assert_eq!(parsed["dispatch"]["steps"][0]["capacity"], "comfortable");
     assert_eq!(parsed["messaging"]["message"]["max_bytes"], 65536);
     raw["dispatch"] = json!({"engine":"remote","hidden":true});

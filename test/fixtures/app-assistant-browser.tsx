@@ -32,9 +32,9 @@ const api = { async call(op: string, params: any) {
     if (!withExecutors) return { accounts: [{ account: "localmodel", models: [{ id: "qwen", name: "Qwen" }] }, { account: "cloud", models: [{ id: "cloud-model", name: "Cloud model" }] }] };
     return { accounts: [
       { account: "localmodel", backend: "pacer", available: true, liveTools: true, models: [{ id: "qwen", name: "Qwen" }], runners: [{ id: "opencode#localmodel" }] },
-      { account: "oc", backend: "executor", available: true, liveTools: true, models: [{ id: "glm", name: "GLM" }], runners: [{ id: "opencode#oc" }] },
-      { account: "claude-digest", backend: "executor", available: true, liveTools: false, models: [{ id: "sonnet", name: "Sonnet" }], runners: [{ id: "claude#claude-digest" }] },
-      { account: "oc-bad", backend: "executor", available: false, liveTools: false, reason: "oc-bad has not passed the ask-mode check yet.", models: [{ id: "glm", name: "GLM" }], runners: [{ id: "opencode#oc-bad" }] },
+      { account: "oc", backend: "executor", cli: "opencode", available: true, liveTools: true, models: [{ id: "glm", name: "GLM" }], runners: [{ id: "opencode#oc" }] },
+      { account: "claude-digest", backend: "executor", cli: "claude-code", available: true, liveTools: false, models: [{ id: "sonnet", name: "Sonnet" }], runners: [{ id: "claude#claude-digest" }] },
+      { account: "oc-bad", backend: "executor", cli: "opencode", available: false, liveTools: false, reason: "oc-bad has not passed the ask-mode check yet.", models: [{ id: "glm", name: "GLM" }], runners: [{ id: "opencode#oc-bad" }] },
     ] };
   }
   if (op === "assistant.selftest") {

@@ -1,5 +1,6 @@
 #!/bin/sh
-# Test stand-in for `opencode models`. State lives in $PACER_FAKE_OPENCODE_DIR (default $HOME/.fake-opencode):
+# Test stand-in for `opencode models --standalone`. Like OpenCode 2.2, `models` without `--standalone` fails: it
+# needs the background service, which cannot start here. State lives in $PACER_FAKE_OPENCODE_DIR (default $HOME/.fake-opencode):
 #   mode    list (default) | empty | fail | hang | env | flood
 #   models  stdout for `list`
 #   flood   byte count `flood` writes (then it sleeps if a `hang` file exists)
@@ -8,6 +9,7 @@ state=${PACER_FAKE_OPENCODE_DIR:-$HOME/.fake-opencode}
 mkdir -p "$state"
 printf 'args=%s pwd=%s cwd=%s probe=%s\n' "$*" "$PWD" "$(pwd -P)" "$PACER_FAKE_OPENCODE_PROBE" >> "$state/calls.log"
 [ "$1" = models ] || { echo "fake opencode: unsupported command: $*" >&2; exit 2; }
+[ "$2" = --standalone ] || { echo "Background service failed to start" >&2; exit 1; }
 mode=list
 [ -f "$state/mode" ] && mode=$(cat "$state/mode")
 case "$mode" in

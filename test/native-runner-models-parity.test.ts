@@ -194,7 +194,7 @@ test.skipIf(!front)("runner.set model checks over stdio match forced forwarding,
     expect(native.replies).toEqual(forwarded.replies);
     checkReplies(native.replies);
     expect(state(dirs[0]!)).toEqual(state(dirs[1]!));
-    expect(state(dirs[0]!).opencode).toBe("models\nmodels\n");
+    expect(state(dirs[0]!).opencode).toBe("models --standalone\nmodels --standalone\n");
     expect(state(dirs[0]!).strategy).toContain("opencode#oc-stale: {model: acme/c}");
     expect(state(dirs[0]!).strategy).toContain("codex: {model: gpt-x}");
     expect(native.markers).toEqual(CASES.flatMap(([, served], i) => served ? [`native runner.set ${i + 2}`] : []));
@@ -211,7 +211,7 @@ test.skipIf(!front)("runner.set model checks over HTTP match forced forwarding, 
     checkReplies(native.replies);
     expect(native.replies.map(r => r.status)).toEqual([200, 200, 400, 400, 400, 400, 403, 400, 400, 200, 400, 200, 200, 500, 400]);
     expect(state(dirs[0]!)).toEqual(state(dirs[1]!));
-    expect(state(dirs[0]!).opencode).toBe("models\nmodels\n");
+    expect(state(dirs[0]!).opencode).toBe("models --standalone\nmodels --standalone\n");
     expect(markers(await native.stderr)).toEqual(CASES.flatMap(([, served]) => served ? ["native runner.set"] : []));
     expect(markers(await forwarded.stderr)).toEqual([]);
   } finally { for (const dir of dirs) rmSync(dir, { recursive: true, force: true }); }

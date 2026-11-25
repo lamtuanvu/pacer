@@ -15,7 +15,7 @@ import { DensityContext } from "../../ds/Density";
 import { useDialogs } from "../../ds/useDialogs";
 import { useTaskContext, TaskContext } from "../../screens/task-shared";
 import { AgentMark } from "../../ds/AgentMark";
-import { askModeCheckCopy, executorSetupToolsCopy, isAskModeCheckReason } from "../../../../src/view-model/copy";
+import { askModeCheckCopy, assistantCliName, executorSetupToolsCopy, isAskModeCheckReason, type AssistantCli } from "../../../../src/view-model/copy";
 import { usageView } from "../../../../src/view-model/usage";
 import { assistantPreferences, watchAssistantPreferences, assistantEntry } from "../assistant-entry";
 import { ComposerMenu } from "./ComposerMenu";
@@ -217,7 +217,7 @@ function TurnRows({ turn, call, onNewTask, reload }: { turn: TurnView; call: <T>
   </>;
 }
 
-interface Candidate { runners?: { id: string }[]; account: string; backend?: "pacer" | "executor"; available?: boolean; liveTools?: boolean; reason?: string; models: { id: string; name: string }[] }
+interface Candidate { runners?: { id: string }[]; account: string; backend?: "pacer" | "executor"; available?: boolean; liveTools?: boolean; cli?: AssistantCli; reason?: string; models: { id: string; name: string }[] }
 interface AccountDetail { name: string; label?: string; usage?: string; connection?: { base_url_host: string }; usageState?: import("../../../../src/types").UsageState }
 function AssistantSetup({ api, refresh }: { api: { call: <T>(op: string, params: unknown) => Promise<T> }; refresh: () => Promise<void> }) {
   const dialogs = useDialogs();
@@ -249,7 +249,7 @@ function AssistantSetup({ api, refresh }: { api: { call: <T>(op: string, params:
     try {
       const settings = await api.call<{ rev: number; backend?: string }>("assistant.settings.get", {});
       // Same trust confirmation as Settings when switching onto an agent CLI.
-      if (row.backend === "executor" && settings.backend !== "executor" && !(await confirmExecutorTrust(dialogs.confirm, row.liveTools === true))) return;
+      if (row.backend === "executor" && settings.backend !== "executor" && !(await confirmExecutorTrust(dialogs.confirm, row.liveTools === true, row.cli))) return;
       await api.call("assistant.settings.set", { account: row.account, backend: row.backend ?? "pacer", runner: null, expect_rev: settings.rev });
       await refresh();
     } catch (error) { setError(error instanceof Error ? error.message : "Could not save the assistant account."); }
@@ -271,16 +271,18 @@ function AssistantSetup({ api, refresh }: { api: { call: <T>(op: string, params:
   };
   const primary = accounts?.find(account => account.local && account.backend !== "executor");
   return <section className="pc-assistant-setup" data-assistant-setup tabIndex={-1} aria-labelledby="assistant-setup-heading">
-    <div className="pc-assistant-setup__intro"><AuroraAvatar /><div><h2 id="assistant-setup-heading">Choose where the assistant runs</h2><p>It answers on one account and never moves to another. Through pacer's agent it calls the account's model directly; through an agent CLI it runs on this Mac after a one-time check, reaching pacer only through pacer's tools when that check proved them. Your question and what pacer reads for it go to that account's model.</p></div></div>
+    <div className="pc-assistant-setup__intro"><AuroraAvatar /><div><h2 id="assistant-setup-heading">Choose where the assistant runs</h2><p>It answers on one account and never moves to another. Through pacer's agent it calls the account's model directly; through an agent CLI (Claude Code, Codex or OpenCode) it runs on this Mac after a one-time check, reaching pacer only through pacer's tools when that check proved them. Your question and what pacer reads for it go to that account's model.</p></div></div>
     {!!accounts?.length && <div className="pc-assistant-setup__accounts">{accounts.map(account => {
       const executor = account.backend === "executor", ready = !executor || account.available !== false;
+      const cli = account.cli ?? "opencode";
       const plain = askModeCheckCopy(account.reason);
-      const tools = executorSetupToolsCopy(account.liveTools);
-      const note = executor ? (ready ? tools.note : `via agent CLI · ${plain}`) : account.note;
+      const tools = executorSetupToolsCopy(account.liveTools, cli);
+      // Strong line owns `via {CLI}` once (shared product name); the note is status only (UI-15).
+      const note = executor ? (ready ? tools.note : plain) : account.note;
       const noteTitle = executor && ready ? tools.title : note;
       return <div className="pc-assistant-setup__account" key={rowKey(account)}>
-        <AgentMark agent={executor ? "opencode" : agentKey(markAgent(account.runners?.[0]?.id ?? account.account)) ?? "opencode"} size={16} labelled={false} />
-        <div className="pc-assistant-setup__name"><strong>{account.name}{executor ? " · via agent CLI" : ""}</strong><span title={noteTitle}>{note}</span></div>
+        <AgentMark agent={executor ? (agentKey(cli) ?? "opencode") : agentKey(markAgent(account.runners?.[0]?.id ?? account.account)) ?? "opencode"} size={16} labelled={false} />
+        <div className="pc-assistant-setup__name"><strong>{executor ? `${account.name} · via ${assistantCliName(cli)}` : account.name}</strong><span title={noteTitle}>{note}</span></div>
         {ready
           ? <Button size="sm" variant={account === primary ? "primary" : "secondary"} busy={busy === rowKey(account)} disabled={!!busy} onClick={() => void choose(account)}>Use {account.name}</Button>
           : <Button size="sm" busy={busy === rowKey(account)} disabled={!!busy} onClick={() => void check(account)}>Check {account.name}</Button>}

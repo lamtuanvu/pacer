@@ -4,6 +4,8 @@ import { TaskContext } from "../app/src/screens/task-shared";
 import { initialState } from "../app/src/data/store";
 import { AddExecutor } from "../app/src/screens/settings/AddExecutor";
 import { OpencodeSetup } from "../app/src/screens/settings/OpencodeSetup";
+import { settingsText } from "../app/src/screens/settings/presentation";
+import { freeAccountName } from "../app/src/model/opencode-setup";
 import type { Candidate, Detection } from "../src/endpoints/detect";
 
 const api = { call: async () => ({}), hello: async () => ({}), snapshot: async () => ({}) } as never;
@@ -55,7 +57,7 @@ test("a local server needs no cap; unknown usage asks for it", () => {
 
 test("a catalog provider shows the OpenCode sign-in command and asks for no key", () => {
   const html = render(<OpencodeSetup onCreated={() => {}} onUseUrl={() => {}} initialDetection={detection} initialChoice={detection.candidates[2]} />);
-  expect(html).toContain("<code>opencode auth login deepseek</code>");
+  expect(html).toContain("<code>opencode auth login --standalone deepseek</code>");
   expect(html).toContain("Refresh");
   expect(html).not.toMatch(/type="password"/);
   expect(html).toContain("Once it is signed in, DeepSeek appears under");
@@ -94,9 +96,50 @@ test("an added signed-in provider can change its executor's model and flags one 
   const list = render(<OpencodeSetup onCreated={() => {}} onUseUrl={() => {}} initialDetection={{ ...detection, candidates: [added] }} />);
   expect(list).toContain("Added as or · gone/model");
   expect(list).not.toMatch(/<button[^>]*disabled[^>]*>(?:(?!<\/button>)[\s\S])*OpenRouter/);
-  const html = render(<OpencodeSetup onCreated={() => {}} onUseUrl={() => {}} initialDetection={{ ...detection, candidates: [added] }} initialChoice={added} initialModels={models} />);
+  const html = render(<OpencodeSetup onCreated={() => {}} onUseUrl={() => {}} initialDetection={{ ...detection, candidates: [added] }} initialChoice={added} initialModels={models} initialMode="change" />);
   expect(html).toContain("Save model");
   expect(html).toContain("model gone/model is not offered by OpenRouter");
   expect(html).not.toContain("Weekly spend cap");
   expect(html).not.toContain(">Name</label>");
+});
+
+test("an added signed-in provider offers another executor first, with its own name and spend cap", () => {
+  const added: Candidate = { ...openrouter, added: "or", model: "qwen/qwen3-coder" };
+  const html = render(<OpencodeSetup onCreated={() => {}} onUseUrl={() => {}} initialDetection={{ ...detection, candidates: [added] }} initialChoice={added} initialModels={models} />);
+  expect(html).toContain("Add another executor");
+  expect(html).toContain("Change or’s model");
+  expect(html).toContain("Add executor");
+  expect(html).not.toContain("Save model");
+  expect(html).toContain('value="openrouter"');
+  expect(html).toContain("Weekly spend cap");
+});
+
+test("step 4 for an OpenCode provider account lists that provider's models and needs one before the test task", () => {
+  const accounts = [{ name: "oc-glm", kind: "endpoint", source: "opencode", provider: "opencode-go" }];
+  const html = render(<AddExecutor initialDraft={{ agent: "opencode", account: "oc-glm", step: "4", maxTasks: "1" }} initialAccounts={accounts} initialDetection={[{ agent: "opencode", found: true }] as never} />);
+  expect(html).not.toContain("Agent default");
+  expect(html).toContain("Choose a model.");
+  expect(html).toMatch(/<button[^>]*disabled[^>]*>(?:(?!<\/button>)[\s\S])*Add agent and run test task/);
+});
+
+test("executor labels never rewrite file names or model ids", () => {
+  expect(settingsText('invalid strategy ~/.pacer/strategies/codex-byteplus.yaml: - runner opencode#oc-glm: model must start with "opencode-go/"'))
+    .toBe('invalid strategy ~/.pacer/strategies/codex-byteplus.yaml: - runner OpenCode · oc-glm: model must start with "opencode-go/"');
+  expect(settingsText("Uses codex.")).toBe("Uses Codex.");
+  expect(settingsText("opencode#oc-glm.")).toBe("OpenCode · oc-glm.");
+});
+
+test("step 4 enables the test task once a provider model is chosen, and an account's own model needs no choice", () => {
+  const detected = [{ agent: "opencode", found: true }] as never;
+  const chosen = render(<AddExecutor initialDraft={{ agent: "opencode", account: "oc-glm", step: "4", maxTasks: "1", model: "opencode-go/glm-5.3" }} initialAccounts={[{ name: "oc-glm", kind: "endpoint", source: "opencode", provider: "opencode-go" }]} initialDetection={detected} />);
+  expect(chosen).not.toContain("Choose a model.");
+  expect(chosen).not.toMatch(/<button[^>]*disabled[^>]*>(?:(?!<\/button>)[\s\S])*Add agent and run test task/);
+  const own = render(<AddExecutor initialDraft={{ agent: "opencode", account: "go", step: "4", maxTasks: "1" }} initialAccounts={[{ name: "go", kind: "endpoint", source: "opencode", provider: "opencode-go", model: "opencode-go/kimi-k3" }]} initialDetection={detected} />);
+  expect(own).not.toContain("Choose a model.");
+});
+
+test("a new executor's suggested name is the provider's first free account name", () => {
+  expect(freeAccountName("opencode-go", [])).toBe("opencode-go");
+  expect(freeAccountName("opencode-go", ["opencode-go", "opencode-go-2"])).toBe("opencode-go-3");
+  expect(freeAccountName("OpenAI.Compat", ["openai-compat"])).toBe("openai-compat-2");
 });

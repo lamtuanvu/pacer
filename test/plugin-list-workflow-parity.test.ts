@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { callOp } from "../src/api/ops";
 import { shutdownPlugins } from "../src/plugins";
@@ -42,6 +42,9 @@ test("plugin.list JSON for a workflow plugin matches the Rust listing shape", as
     now: Date.now() / 1000,
   });
   contexts.push(ctx);
+  // The fixture plugin imports @pacer/plugin; without this link it cannot resolve the SDK outside the repo,
+  // exits at start-up and the listing carries "plugin stdout closed" (seen on CI runners).
+  symlinkSync(join(import.meta.dir, "..", "node_modules"), join(dir, "node_modules"), "dir");
   mkdirSync(join(ctx.pacerHome, "plugins", "fx-workflow"), { recursive: true });
   writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders:\n  claude-code: {}\n");
   writeFileSync(join(ctx.pacerHome, "plugins", "fx-workflow", "pacer-plugin.json"), JSON.stringify({

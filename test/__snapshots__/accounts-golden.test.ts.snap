@@ -587,7 +587,7 @@ exports[`OpenCode provider setup and endpoint broker requests 1`] = `
     "opencode": true,
   },
   "connect": {
-    "command": "opencode auth login deepseek",
+    "command": "opencode auth login --standalone deepseek",
     "connected": false,
   },
   "discovered": {

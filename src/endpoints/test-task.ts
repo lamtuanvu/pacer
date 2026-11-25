@@ -61,7 +61,7 @@ export async function testEndpoint(ctx: Ctx, name: string, deps: TestTaskDeps = 
     const signed = await signedInProviders(ctx);
     const configured = configProviders(ctx).some(p => p.id === account.provider);
     if (signed !== null && !configured && !signed.some(p => p.id === account.provider)) {
-      const missing: EndpointState = {state: "key_missing", detail: `Run opencode auth login ${account.provider}`};
+      const missing: EndpointState = {state: "key_missing", detail: `Run opencode auth login --standalone ${account.provider}`};
       writeEndpointState(ctx, name, missing);
       return missing;
     }

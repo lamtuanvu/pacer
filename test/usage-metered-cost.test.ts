@@ -18,7 +18,7 @@ function ctx() {
 test("a dollar cap paces on the model's cost across variants", async () => {
   const {ctx: c, argvs} = ctx();
   const r = await readMetered(c, cfg({weeklyUsd: 100}));
-  expect(argvs[0]).toEqual(["opencode", "stats", "--models", "--cost", "--json", "--days", "7"]);
+  expect(argvs[0]).toEqual(["opencode", "stats", "--standalone", "--models", "--cost", "--json", "--days", "7"]);
   expect(r.spendUsd).toBeCloseTo(46);
   expect(r.windows).toEqual([{name: "7d $", usedPct: expect.closeTo(46, 5), resetsAt: null, lengthS: 7 * 86400, paced: false}]);
 });

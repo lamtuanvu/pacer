@@ -23,6 +23,8 @@ async function change(ctx: Ctx, verb: "add" | "rm", reference: string, options: 
     const id=formatRunnerId({...parsed,account:a.name},defaults);
     if(verb==='add') {
       if(s.runners[id]) throw Error(`runner ${id} already exists`);
+      const providerModel=missingProviderModel(a,options.model);
+      if(providerModel) throw new CoreError("invalid_input",`${id} needs a model: ${providerModel}`,"Choose a model, then add the agent again.");
       const diff=await edit(doc=>{
         const settings = {...(options.model ? {model:options.model} : {}), ...(options.max_tasks !== undefined ? {max_tasks:options.max_tasks}:{}), ...(options.test !== undefined ? {test:options.test}:{})};
         if(Object.keys(settings).length) doc.addMappingEntry('runners',id,settings);
@@ -89,6 +91,13 @@ async function change(ctx: Ctx, verb: "add" | "rm", reference: string, options: 
     const error = toCoreError(e);
     throw new CoreError(error.code, error.message, error.hint ?? "Check the runner id, account and host configuration.");
   }
+}
+/** An OpenCode provider account runs one of its provider's models; without one the edit would fail validation
+ * with a message about the whole strategy. Matches `missing_provider_model` in `crates/config-ops/src/runner_ops.rs`. */
+export function missingProviderModel(account: {source?: string; provider?: string | null; model?: string | null}, model?: string): string | null {
+  if (account.source !== "opencode" || !account.provider) return null;
+  const chosen = model ?? account.model;
+  return chosen?.startsWith(`${account.provider}/`) ? null : `choose one of ${account.provider}'s models (${account.provider}/<model>)`;
 }
 export interface AddOptions {agent?: AgentId; account?: string; host?: string; model?: string; rank?: number; kinds?: string[]; max_tasks?: number; test?: boolean}
 export function add(ctx: Ctx, options: AddOptions & {agent:AgentId}) {
