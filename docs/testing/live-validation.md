@@ -111,6 +111,12 @@ It accepts no operation, path or
 environment override. The normal guarded `live pacer -- api --stdio` remains
 refused. Report native stdio as PASS only when this fixture passes.
 
+The service runs its plugin owner natively by default (M3 B0b): an unset
+`PACER_NATIVE_PLUGIN_HOST` starts the Rust owner on `run/host.sock`. `live up` keeps
+`--native-plugin-host` as an accepted no-op alias for that default, and adds
+`--ts-plugin-host`, which starts the service with `PACER_NATIVE_PLUGIN_HOST=0` so the
+TypeScript owner runs (the escape hatch until D2).
+
 Stdio plugin operations have their own fixed fixture, `bun run live native-plugin-stdio
 --id <id>`, for any Rust front-door sandbox without forwarding or the real Keychain; it
 does not need `--native-test-ops`. It installs the conformance `fx-ui` plugin in the
@@ -120,22 +126,23 @@ must reach TypeScript, then `hello` (protocol 3), `plugin.list`, `plugin.enable`
 `plugin.doctor`, `plugin.ui.render`, `plugin.settings.get`, `plugin.disable`,
 `plugin.enable` and `plugin.doctor`. Every protocol-3 plugin request needs exactly one
 native trace, and the flag-on connection must print its owner decision
-([ADR 0027](../decisions/0027-one-native-plugin-owner-per-home.md)). On a sandbox started
-with `--native-plugin-host` the flag-on connection must attach to the service's
+([ADR 0027](../decisions/0027-one-native-plugin-owner-per-home.md)). On a sandbox running
+the native owner (the default) the flag-on connection must attach to the service's
 `run/host.sock`, and the service's `plugin.doctor` must report the same plugin process.
 Otherwise it must own its children on `run/s<12-hex>.sock`, or, when the sandbox home is so
 deep that this path exceeds 103 bytes, in the private per-user `pacer-<hash>/` directory
 ([ADR 0027](../decisions/0027-one-native-plugin-owner-per-home.md)); both the socket and the
 plugin process must be gone after the connection ends. On a running sandbox the fixture
 then checks `plugin.list` and `plugin.doctor` over HTTP. Run it again after
-`live down --keep` for a home without a service. `--stop-service` (only with
-`--native-plugin-host`) runs only the attached connection, keeps it open, stops the sandbox as
+`live down --keep` for a home without a service. `--stop-service` (only with the
+native owner) runs only the attached connection, keeps it open, stops the sandbox as
 `live down --keep` does, and requires `plugin_unavailable` with a restart hint from the next
-render. A sandbox started with `--native-plugin-host` binds `run/host.sock`, whose path must
+render. A sandbox running the native owner binds `run/host.sock`, whose path must
 fit in 103 bytes, so run attach checks from a checkout with a short path.
 
 The service's own plugin lifecycle has a fixed fixture, `bun run live native-plugin-owner
---id <id>`, for a healthy `--front-door rust --native-plugin-host` sandbox. Over the guarded
+--id <id>`, for a healthy Rust front-door sandbox that runs the native plugin owner (the
+default; start it with `--ts-plugin-host` to exercise the TypeScript escape). Over the guarded
 proxy it requires one SSE `config` event for the plugins area after each of `plugin.enable`,
 `plugin.disable` and `plugin.enable`. It then kills the service's `fx-ui` process three times:
 the `plugin.list` states must follow the TypeScript registry (`ready`, `idle` with the exit

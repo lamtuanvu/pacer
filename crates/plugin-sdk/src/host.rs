@@ -1,13 +1,14 @@
-use crate::{PluginError, wire};
+use crate::{PluginError, js, serve, wire};
 use serde_json::{Map, Value, json};
 use std::{
     collections::HashMap,
     sync::{
-        Arc,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        Arc, RwLock,
+        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
     },
 };
 use tokio::sync::{Mutex, mpsc, oneshot};
+use tokio_util::sync::CancellationToken;
 
 /// The result of [`Host::identity_sign`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -27,38 +28,123 @@ pub struct Host {
     next: Arc<AtomicU64>,
     closed: Arc<AtomicBool>,
     /// Token from the owning host call's `_meta.capabilityCall`, echoed on capability requests.
-    capability_call: Option<String>,
+    pub(crate) capability_call: Option<String>,
+    /// The owning host call's cancellation token. When it fires, every call made
+    /// by this owner rejects with "owning plugin call ended" (index.ts:131-158).
+    pub(crate) cancel: Option<CancellationToken>,
+    /// Serialises `capability.net.http` transactions so only one runs at a time
+    /// per caller (index.ts: http latch).
+    pub(crate) queue: Arc<Mutex<()>>,
+    /// Serialises `capability.fs.*` transactions so only one runs at a time
+    /// per caller (index.ts: createFileSystem tail). Created fresh per call so
+    /// concurrent owning calls each have their own queue, as the TS `hostFor`
+    /// builds a fresh `createFileSystem` per request.
+    pub(crate) fs_queue: Arc<Mutex<()>>,
+    /// Negotiated features and protocol of the owning plugin, so `Host::http`
+    /// can test whether `httpBodyChunks` was negotiated.
+    pub(crate) state: Arc<RwLock<serve::FeatureState>>,
+    /// The per-frame limit in bytes for `Host::fits`, overridable for tests.
+    pub(crate) frame_limit: Arc<AtomicUsize>,
+    /// Whether this host belongs to a `hostRunner.stream` owner, which applies
+    /// the duplex deadlines (packages/plugin-sdk/src/index.ts:81-90).
+    pub(crate) owner_is_stream: bool,
 }
 
 fn unavailable() -> PluginError {
     PluginError::new("plugin_unavailable", "host closed the connection")
 }
 
+pub(crate) fn owning_ended() -> PluginError {
+    PluginError::new("plugin_unavailable", "owning plugin call ended")
+}
+
 impl Host {
-    pub(crate) fn new(out: mpsc::UnboundedSender<String>) -> Self {
+    pub(crate) fn new(
+        out: mpsc::UnboundedSender<String>,
+        state: Arc<RwLock<serve::FeatureState>>,
+    ) -> Self {
         Self {
             out,
             pending: Arc::new(Mutex::new(HashMap::new())),
             next: Arc::new(AtomicU64::new(1)),
             closed: Arc::new(AtomicBool::new(false)),
             capability_call: None,
+            cancel: None,
+            queue: Arc::new(Mutex::new(())),
+            fs_queue: Arc::new(Mutex::new(())),
+            state,
+            frame_limit: Arc::new(AtomicUsize::new(1048576)),
+            owner_is_stream: false,
         }
     }
 
-    /// Host scoped to one inbound plugin call, echoing that call's capability token.
-    pub(crate) fn for_call(&self, capability_call: Option<String>) -> Self {
+    /// Host scoped to one inbound plugin call, echoing that call's capability
+    /// token and carrying its cancellation token. `owner_is_stream` marks a
+    /// `hostRunner.stream` owner so duplex calls get the stream deadlines.
+    pub(crate) fn for_call(
+        &self,
+        capability_call: Option<String>,
+        cancel: CancellationToken,
+        owner_is_stream: bool,
+    ) -> Self {
         Self {
             out: self.out.clone(),
             pending: self.pending.clone(),
             next: self.next.clone(),
             closed: self.closed.clone(),
             capability_call,
+            cancel: Some(cancel),
+            queue: self.queue.clone(),
+            fs_queue: Arc::new(Mutex::new(())),
+            state: self.state.clone(),
+            frame_limit: self.frame_limit.clone(),
+            owner_is_stream,
         }
     }
 
     pub async fn call(&self, method: &str, params: Value) -> Result<Value, PluginError> {
+        self.call_inner(method, params, true).await
+    }
+
+    /// Make a capability call that ignores the owning call's cancellation
+    /// (matches the TypeScript `cleanupCall`, e.g. for `fs.write`).
+    pub async fn call_cleanup(&self, method: &str, params: Value) -> Result<Value, PluginError> {
+        self.call_inner(method, params, false).await
+    }
+
+    /// The duplex deadline for a stream-owned call (index.ts:81-90): open is
+    /// fixed at 10 s, close at 5 s, and read/write at `min(timeoutMs+5000, 65000)`.
+    fn duplex_deadline(&self, method: &str, params: &Value) -> Option<std::time::Duration> {
+        if !self.owner_is_stream {
+            return None;
+        }
+        let ms = match method {
+            "capability.process.duplex.open" => 10_000,
+            "capability.process.duplex.close" => 5_000,
+            "capability.process.duplex.read" | "capability.process.duplex.write" => {
+                let requested = params
+                    .get("timeoutMs")
+                    .and_then(Value::as_i64)
+                    .filter(|v| *v > 0);
+                requested.map_or(65_000, |v| (v + 5_000).min(65_000))
+            }
+            _ => return None,
+        };
+        Some(std::time::Duration::from_millis(ms as u64))
+    }
+
+    async fn call_inner(
+        &self,
+        method: &str,
+        params: Value,
+        honour_cancel: bool,
+    ) -> Result<Value, PluginError> {
+        if honour_cancel && self.cancel.as_ref().is_some_and(|c| c.is_cancelled()) {
+            return Err(owning_ended());
+        }
         let (tx, rx) = oneshot::channel();
         let id = format!("p{}", self.next.fetch_add(1, Ordering::Relaxed));
+        let deadline = self.duplex_deadline(method, &params);
         let meta = self
             .capability_call
             .as_ref()
@@ -78,7 +164,40 @@ impl Host {
                 return Err(unavailable());
             }
         }
-        rx.await.unwrap_or_else(|_| Err(unavailable()))
+        if honour_cancel && let Some(token) = &self.cancel {
+            if token.is_cancelled() {
+                self.pending.lock().await.remove(&id);
+                return Err(owning_ended());
+            }
+            let pending = self.pending.clone();
+            let id = id.clone();
+            let token = token.clone();
+            tokio::spawn(async move {
+                token.cancelled().await;
+                if let Some(tx) = pending.lock().await.remove(&id) {
+                    let _ = tx.send(Err(owning_ended()));
+                }
+            });
+        }
+        let mut rx = rx;
+        if let Some(deadline) = deadline {
+            match tokio::time::timeout(deadline, &mut rx).await {
+                Ok(Ok(result)) => Ok(result?),
+                Ok(Err(_)) => Err(unavailable()),
+                Err(_) => {
+                    self.pending.lock().await.remove(&id);
+                    Err(PluginError::new(
+                        "plugin_timeout",
+                        format!(
+                            "{method} response passed its {} ms deadline",
+                            deadline.as_millis()
+                        ),
+                    ))
+                }
+            }
+        } else {
+            rx.await.unwrap_or_else(|_| Err(unavailable()))
+        }
     }
 
     pub async fn log(&self, level: &str, message: &str) -> Result<(), PluginError> {
@@ -90,6 +209,12 @@ impl Host {
         Ok(())
     }
 
+    /// Send a plugin → host notification (for example `$/progress` for an
+    /// owned stream) without waiting for a reply.
+    pub(crate) fn emit(&self, method: &str, params: Value) {
+        let _ = self.out.send(wire::notification(method, params));
+    }
+
     pub async fn config(&self) -> Result<Map<String, Value>, PluginError> {
         let result = self.call("capability.config.get", json!({})).await?;
         Ok(result
@@ -97,6 +222,18 @@ impl Host {
             .and_then(Value::as_object)
             .cloned()
             .unwrap_or_default())
+    }
+
+    /// Whether a secret reference is present (host >= 1.4.0), via
+    /// `capability.secrets.check {ref}` (index.ts:224).
+    pub async fn secrets_present(&self, reference: &str) -> Result<bool, PluginError> {
+        let result = self
+            .call("capability.secrets.check", json!({ "ref": reference }))
+            .await?;
+        Ok(result
+            .get("present")
+            .and_then(Value::as_bool)
+            .unwrap_or(false))
     }
 
     /// Sign `payload` with the machine key for a purpose declared in the manifest's `identity.sign` scopes.
@@ -109,7 +246,7 @@ impl Host {
         let result = self
             .call(
                 "capability.identity.sign",
-                json!({ "purpose": purpose, "payload": base64::encode(payload) }),
+                json!({ "purpose": purpose, "payload": js::base64::encode(payload) }),
             )
             .await?;
         let invalid =
@@ -117,7 +254,7 @@ impl Host {
         let signature = result
             .get("signature")
             .and_then(Value::as_str)
-            .and_then(base64::decode)
+            .and_then(js::base64::decode)
             .ok_or_else(invalid)?;
         let machine_id = result
             .get("machineId")
@@ -130,11 +267,16 @@ impl Host {
         })
     }
 
+    pub(crate) fn next_id(&self) -> u64 {
+        self.next.load(Ordering::Relaxed)
+    }
+
     pub(crate) async fn respond(&self, id: String, result: Result<Value, wire::WireError>) {
         if let Some(tx) = self.pending.lock().await.remove(&id) {
             let _ = tx.send(result.map_err(|e| PluginError {
                 code: e.code().to_owned(),
                 hint: e.hint().map(str::to_owned),
+                reason: e.reason().map(str::to_owned),
                 message: e.message,
             }));
         }
@@ -146,55 +288,5 @@ impl Host {
         for (_, tx) in pending.drain() {
             let _ = tx.send(Err(unavailable()));
         }
-    }
-}
-
-/// Standard padded base64, as the plugin protocol carries bytes.
-mod base64 {
-    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-    pub fn encode(bytes: &[u8]) -> String {
-        let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
-        for chunk in bytes.chunks(3) {
-            let b = [
-                chunk.first().copied().unwrap_or(0),
-                chunk.get(1).copied().unwrap_or(0),
-                chunk.get(2).copied().unwrap_or(0),
-            ];
-            let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
-            for i in 0..4 {
-                if i <= chunk.len() {
-                    out.push(char::from(ALPHABET[((n >> (18 - 6 * i)) & 63) as usize]));
-                } else {
-                    out.push('=');
-                }
-            }
-        }
-        out
-    }
-
-    /// Canonical padded base64 only; anything else is None.
-    pub fn decode(text: &str) -> Option<Vec<u8>> {
-        if !text.len().is_multiple_of(4) {
-            return None;
-        }
-        let pad = text.bytes().rev().take_while(|&c| c == b'=').count();
-        if pad > 2 {
-            return None;
-        }
-        let mut bits: u32 = 0;
-        let mut count = 0;
-        let mut out = Vec::with_capacity(text.len() / 4 * 3);
-        for c in text.bytes().take(text.len() - pad) {
-            let v = ALPHABET.iter().position(|&a| a == c)?;
-            bits = (bits << 6) | v as u32;
-            count += 6;
-            if count >= 8 {
-                count -= 8;
-                out.push((bits >> count) as u8);
-                bits &= (1 << count) - 1;
-            }
-        }
-        (bits == 0).then_some(out)
     }
 }

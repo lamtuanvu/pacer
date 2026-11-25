@@ -7,10 +7,10 @@
 //! Stub (no-owner) call/find stay in reverse_bridge::fixture_dial_plugin_call_and_find_stubs.
 
 use pacer_plugin_runtime::{
-    HOST_SOCKET_ENV, METHOD_PLUGIN_CALL, METHOD_PLUGIN_FIND, METHOD_PLUGIN_SPAWN,
-    METHOD_PLUGIN_STOP, NativeHostSession, OwnerError, OwnerKey, SpawnSpec, StartFailure,
-    TERMINATE_GRACE, authenticate, native_plugin_host_enabled,
-    serve_starts_reverse_bridge_by_default, start_lane,
+    BridgeError, HOST_SOCKET_ENV, METHOD_PLUGIN_CALL, METHOD_PLUGIN_FIND, METHOD_PLUGIN_SPAWN,
+    METHOD_PLUGIN_STOP, NativeHostError, NativeHostSession, OwnerError, OwnerKey, SOCKET_PATH_MAX,
+    SpawnSpec, StartFailure, TERMINATE_GRACE, authenticate, native_plugin_host_enabled,
+    read_owner_pid, serve_starts_reverse_bridge_by_default, start_lane,
 };
 use serde_json::{Value, json};
 use std::{
@@ -133,9 +133,9 @@ async fn shutdown_stops_children_while_a_caller_holds_the_owner() {
 }
 
 #[test]
-fn flag_off_leaves_default_serve_dark() {
-    assert!(!serve_starts_reverse_bridge_by_default());
-    assert!(!native_plugin_host_enabled(None, None));
+fn explicit_zero_leaves_serve_dark() {
+    assert!(serve_starts_reverse_bridge_by_default());
+    assert!(!native_plugin_host_enabled(Some("0"), None));
     assert!(env::var_os(HOST_SOCKET_ENV).is_none());
 }
 
@@ -1851,4 +1851,56 @@ async fn owned_children_append_stderr_to_the_home_plugin_log() {
         assert_eq!(fs::metadata(&log).unwrap().mode() & 0o777, 0o600);
         session.shutdown().await;
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn fallback_binds_a_deep_home_owner_socket_in_the_private_per_user_directory() {
+    let root = temp_home();
+    let deep = root.path().join("d".repeat(SOCKET_PATH_MAX));
+    let (session, core_env) = NativeHostSession::start_with_fallback(&deep, true).unwrap();
+    assert!(session.used_fallback());
+    let socket = session.socket_path().to_path_buf();
+    assert!(socket.as_os_str().len() <= SOCKET_PATH_MAX);
+    assert!(socket.exists());
+    assert!(
+        !deep.join("run").exists() || socket.parent() != Some(deep.join("run").as_path()),
+        "a deep home serves out of the private directory, not run/"
+    );
+    assert_eq!(
+        core_env,
+        vec![(HOST_SOCKET_ENV.to_string(), socket.display().to_string())]
+    );
+    // The lease sidecars and read_owner_pid follow the actual socket location.
+    assert_eq!(read_owner_pid(&deep), Some(std::process::id()));
+    assert_ne!(socket.parent().unwrap(), deep.join("run"));
+    session.shutdown().await;
+    assert!(!socket.exists(), "shutdown unlinks the fallback socket");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn fallback_is_a_noop_when_the_run_path_fits() {
+    let home = temp_home();
+    let (session, _) = NativeHostSession::start_with_fallback(home.path(), true).unwrap();
+    assert!(!session.used_fallback());
+    assert_eq!(
+        session.socket_path(),
+        home.path()
+            .join("run")
+            .join(pacer_plugin_runtime::HOST_SOCKET_NAME)
+    );
+    session.shutdown().await;
+}
+
+#[test]
+fn strict_start_still_refuses_a_deep_home_with_path_too_long() {
+    let root = temp_home();
+    let deep = root.path().join("d".repeat(SOCKET_PATH_MAX));
+    let Err(error) = NativeHostSession::start_with_fallback(&deep, false) else {
+        panic!("expected PathTooLong for a deep home");
+    };
+    assert!(
+        matches!(error, NativeHostError::Bridge(BridgeError::PathTooLong(_))),
+        "unexpected error: {error}"
+    );
+    assert!(!deep.exists());
 }

@@ -1,12 +1,11 @@
-//! Flag-gated native plugin-host session for serve (P4d-1 … P4d-5).
+//! Native plugin-host session for serve (P4d-1 … P4d-5).
 //!
-//! Default serve stays TypeScript-owned until
-//! [`crate::serve_starts_reverse_bridge_by_default`] flips. Truthy
-//! [`NATIVE_PLUGIN_HOST_ENABLE_ENV`] / [`crate::HOST_BRIDGE_ENABLE_ENV`] opt in
-//! today; falsy values (`0` / `false` / `no`) are the documented escape hatch
-//! for the future default-on cutover. When enabled, serve claims a
-//! [`ProcessOwner`], binds the reverse bridge with live call/find/spawn/stop,
-//! and exports [`crate::HOST_SOCKET_ENV`] for the Core child. A stdio
+//! Serve owns plugins natively by default (B0b). Falsy
+//! [`NATIVE_PLUGIN_HOST_ENABLE_ENV`] / [`crate::HOST_BRIDGE_ENABLE_ENV`] opt
+//! out to the TypeScript owner; truthy values are the escape for that path.
+//! When the native host is active, serve claims a [`ProcessOwner`], binds the
+//! reverse bridge with live call/find/spawn/stop, and exports
+//! [`crate::HOST_SOCKET_ENV`] for the Core child. A stdio
 //! connection with no live serve owner starts the same session on its own
 //! connection socket ([`NativeHostSession::start_connection`]).
 //!
@@ -28,6 +27,7 @@
 use crate::{
     BridgeError, BridgeHandle, DoorRequest, HOST_BRIDGE_ENABLE_ENV, HOST_KEY_NAME, HOST_SOCKET_ENV,
     HOST_SOCKET_NAME, OwnerError, OwnerKey, PeerAuth, ProcessOwner, ReverseBridge, SharedOwner,
+    connection_dir::find_socket_dir,
     connection_socket_name,
     crash::{CrashBook, CrashReport},
     dark_bridge_disabled, dark_bridge_enabled,
@@ -47,9 +47,13 @@ use tokio::sync::{Mutex, mpsc};
 /// The serve owner's pid, beside `host.sock` in `run/`.
 pub const HOST_SOCKET_PID_NAME: &str = "host.sock.pid";
 
-/// The pid `run/host.sock.pid` names, when it holds one.
+/// The pid the serve owner's pid sidecar names, when it holds one. Reads the
+/// sidecar beside `host.sock` wherever that socket actually lives: `run/` on a
+/// normal home, the private per-user directory of ADR 0027 item 5 on a deep
+/// one (the exact socket location the running serve chose).
 pub fn read_owner_pid(pacer_home: &Path) -> Option<u32> {
-    fs::read_to_string(pacer_home.join("run").join(HOST_SOCKET_PID_NAME))
+    let dir = find_socket_dir(pacer_home, HOST_SOCKET_NAME)?;
+    fs::read_to_string(dir.join(HOST_SOCKET_PID_NAME))
         .ok()?
         .trim()
         .parse()
@@ -83,8 +87,8 @@ fn remove_if_holds(path: &Path, text: &str) {
 
 /// Enable / escape env for serve-owned native plugin supervision (P4d-1 / P4d-5).
 ///
-/// Truthy values opt in while the default const is still off. `0` / `false` /
-/// `no` disable the path (escape hatch once default-on lands).
+/// The native owner runs by default; `0` / `false` / `no` disable the path
+/// (escape hatch) and return supervise to the TypeScript owner.
 pub const NATIVE_PLUGIN_HOST_ENABLE_ENV: &str = "PACER_NATIVE_PLUGIN_HOST";
 
 #[derive(Debug, Error)]
@@ -138,6 +142,11 @@ pub struct NativeHostSession {
     pid_file: Option<PathBuf>,
     /// Serve's `run/host.key`; a connection's key never touches disk.
     key_file: Option<PathBuf>,
+    /// Whether `host.sock` was bound in the private per-user directory of
+    /// ADR 0027 item 5 because `run/host.sock` was too long to fit in
+    /// `sockaddr_un` (a deep home). Serve logs this once so an operator can
+    /// tell the fallback from the normal `run/` layout.
+    used_fallback: bool,
 }
 
 impl NativeHostSession {
@@ -145,12 +154,40 @@ impl NativeHostSession {
     /// spawn the accept loop with live owner dispatch, and return Core env
     /// pairs (`PACER_HOST_SOCKET`). A live socket fails with
     /// [`BridgeError::LiveSocket`]. Does not mutate process env.
+    ///
+    /// The owner socket binds in `run/`; when `run/host.sock` is too long for
+    /// `sockaddr_un` on this home, serve's default path binds it in the private
+    /// per-user directory of ADR 0027 item 5 — unless the explicit
+    /// `PACER_NATIVE_PLUGIN_HOST=1` path is taken, which stays strict and
+    /// refuses with [`BridgeError::PathTooLong`] (see
+    /// [`Self::start_with_fallback`]).
     pub fn start(pacer_home: &Path) -> Result<(Self, Vec<(String, String)>), NativeHostError> {
+        Self::start_with_fallback(pacer_home, serve_starts_reverse_bridge_by_default())
+    }
+
+    /// [`Self::start`] with the ADR 0027 item 5 fallback made explicit. With
+    /// `use_fallback` false it is exactly [`Self::start`]; with `use_fallback`
+    /// true the owner socket binds in `run/` when it fits and in the private
+    /// per-user directory when `run/host.sock` would be too long. Serve's
+    /// production wiring passes `serve_starts_reverse_bridge_by_default()`, so a
+    /// default-on serve uses the fallback while an explicit
+    /// `PACER_NATIVE_PLUGIN_HOST=1` opt-in keeps the strict `PathTooLong`.
+    pub fn start_with_fallback(
+        pacer_home: &Path,
+        use_fallback: bool,
+    ) -> Result<(Self, Vec<(String, String)>), NativeHostError> {
         let key = OwnerKey::generate().map_err(BridgeError::from)?;
         let key_text = key.to_hex();
         let (mut session, env) = Self::start_with(pacer_home, key.clone(), || {
-            let bridge =
-                ReverseBridge::bind_at(pacer_home, HOST_SOCKET_NAME, PeerAuth::same_uid(key))?;
+            let bridge = if use_fallback {
+                ReverseBridge::bind_owner(pacer_home, PeerAuth::same_uid(key.clone()))?
+            } else {
+                ReverseBridge::bind_at(
+                    pacer_home,
+                    HOST_SOCKET_NAME,
+                    PeerAuth::same_uid(key.clone()),
+                )?
+            };
             // The socket is the lease and is bound first, so a refused second
             // serve never overwrites the live owner's key.
             if let Err(error) =
@@ -201,6 +238,7 @@ impl NativeHostSession {
         let owner = Arc::new(Mutex::new(owner));
         let bridge = bind()?.with_live_owner(Arc::clone(&owner));
         let socket = bridge.path().to_path_buf();
+        let used_fallback = socket.parent() != Some(pacer_home.join("run").as_path());
         let core_env = vec![(HOST_SOCKET_ENV.to_string(), socket.display().to_string())];
         let bridge = bridge.spawn();
         Ok((
@@ -213,6 +251,7 @@ impl NativeHostSession {
                 key,
                 pid_file: None,
                 key_file: None,
+                used_fallback,
             },
             core_env,
         ))
@@ -224,6 +263,14 @@ impl NativeHostSession {
 
     pub fn socket_path(&self) -> &Path {
         &self.socket
+    }
+
+    /// True when `host.sock` was bound in the private per-user directory of
+    /// ADR 0027 item 5 because `run/host.sock` was too long to fit in
+    /// `sockaddr_un`. Serve logs this once so an operator can tell the
+    /// fallback from the normal `run/` layout.
+    pub fn used_fallback(&self) -> bool {
+        self.used_fallback
     }
 
     /// This start's credential. Hand it to the owner's own Core child only, in
@@ -277,14 +324,13 @@ mod tests {
     use std::collections::HashMap;
 
     #[test]
-    fn flags_default_off_with_zero_escape() {
-        assert!(!serve_starts_reverse_bridge_by_default());
-        assert!(!native_plugin_host_enabled(None, None));
+    fn flags_default_on_with_zero_escape() {
+        assert!(serve_starts_reverse_bridge_by_default());
+        assert!(native_plugin_host_enabled(None, None));
         assert!(!native_plugin_host_enabled(Some("0"), None));
         assert!(!native_plugin_host_enabled(None, Some("false")));
-        assert!(!native_plugin_host_enabled(Some("0"), Some("false")));
-        // Explicit disable wins over a conflicting truthy companion flag.
         assert!(!native_plugin_host_enabled(Some("true"), Some("0")));
+        assert!(!native_plugin_host_enabled(Some("0"), Some("false")));
         assert!(!native_plugin_host_enabled(Some("0"), Some("1")));
         assert!(native_plugin_host_enabled(Some("1"), None));
         assert!(native_plugin_host_enabled(None, Some("1")));
@@ -295,11 +341,15 @@ mod tests {
     #[test]
     fn env_map_reads_either_flag_and_honors_zero() {
         let mut env = HashMap::new();
-        assert!(!native_plugin_host_enabled_from_env(&env));
+        assert!(native_plugin_host_enabled_from_env(&env));
         env.insert(NATIVE_PLUGIN_HOST_ENABLE_ENV.into(), "1".into());
         assert!(native_plugin_host_enabled_from_env(&env));
         env.insert(NATIVE_PLUGIN_HOST_ENABLE_ENV.into(), "0".into());
         assert!(!native_plugin_host_enabled_from_env(&env));
+        // The inherited-process fallback would mask the empty-env ("unset") case,
+        // so call the gate directly instead of removing the variable (unsafe in
+        // edition 2024).
+        assert!(native_plugin_host_enabled(None, None));
         env.clear();
         env.insert(HOST_BRIDGE_ENABLE_ENV.into(), "yes".into());
         assert!(native_plugin_host_enabled_from_env(&env));

@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
-import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { fakeCtx, fakeSshEnv, realRun, tmpDir } from "./helpers";
-import { createTask, readTask, updateTask } from "../src/tasks/store";
+import { realRun } from "./helpers";
+import { readTask, updateTask } from "../src/tasks/store";
 import { loadStrategy } from "../src/config/strategy";
+import { remoteDirectFixture } from "./fixtures/remote-direct";
 import { issueConfiguredHostPrepareRecover, consumeConfiguredHostPrepareRecover } from "../src/plugins/host-prepare-recover-issuer";
 import { issueConfiguredHostPrepare } from "../src/plugins/host-prepare-issuer";
 import { pluginRegistry } from "../src/plugins";
@@ -23,52 +23,8 @@ import { defaultHooks } from "../src/classify/hooks";
 import { eligibility } from "./fixtures/eligibility";
 import * as tasks from "../src/core/tasks";
 
-async function fixture() {
-  const root = tmpDir(), repo = join(root, "repo"), home = join(root, "home"),
-    hostHome = join(root, "host"), bin = join(root, "bin");
-  mkdirSync(repo); mkdirSync(home); mkdirSync(hostHome); mkdirSync(bin);
-  const git = async (...args: string[]) => {
-    const result = await realRun(["git", "-C", repo, ...args], 10_000);
-    if (result.code) throw new Error(result.stderr);
-    return result.stdout.trim();
-  };
-  await git("init", "-q"); await git("checkout", "-qb", "main");
-  await git("config", "user.name", "Fixture"); await git("config", "user.email", "fixture@example.invalid");
-  await git("commit", "--allow-empty", "-qm", "base");
-  const clone = await realRun(["git", "clone", "-q", repo, join(hostHome, "repo")], 10_000);
-  if (clone.code) throw new Error(clone.stderr);
-  await realRun(["git", "-C", join(hostHome, "repo"), "config", "user.name", "Fixture"], 10_000);
-  await realRun(["git", "-C", join(hostHome, "repo"), "config", "user.email", "fixture@example.invalid"], 10_000);
-  const origin = "https://example.invalid/o/r";
-  await git("remote", "add", "origin", origin);
-  const baseSha = await git("rev-parse", "HEAD");
-  const sshEnv = fakeSshEnv(hostHome, join(root, "ssh.log"));
-  const env = { ...process.env, ...sshEnv, PATH: `${bin}:${sshEnv.PATH}` };
-  const ctx = fakeCtx({ home, pacerHome: join(home, ".pacer"), env,
-    which: name => name === "ssh" ? join(import.meta.dir, "fixtures", "bin", "ssh") : Bun.which(name),
-    run: (argv, ms, options) => realRun(argv, ms, { ...options, env: { ...env, ...options?.env } }) });
-  mkdirSync(ctx.pacerHome, { recursive: true, mode: 0o700 });
-  const host = { ssh: "box-ssh", repos: { "example.invalid/o/r": "~/repo",
-    "example.invalid/o/s": "~/other" }, accounts: {}, max_tasks: 1 };
-  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), JSON.stringify({ execution: { launch_mode: "headless" }, accounts: { codex: { kind: "codex" } },
-    planner: "codex", hosts: { box: host }, routing: [{ default: ["codex@box"] }] }));
-  const parsedHost = loadStrategy(ctx).hosts.box;
-  const task = createTask(ctx, { brief: { goal: "fixture", repo, base: "main" },
-    kind: null, requestedExecutor: "codex@box", timeoutS: 30 });
-  const tag = `r-${createHash("sha1").update("example.invalid/o/r").digest("hex").slice(0, 8)}`;
-  updateTask(ctx, task.id, current => {
-    current.state = "running"; current.executor = "codex@box";
-    current.executorProvider = "pacer-exec-direct";
-    current.remotePrepareIntent = { attempt: 1, providerId: "pacer-exec-direct",
-      executor: "codex@box", alias: "box", hostFingerprint: JSON.stringify(parsedHost),
-      repoTop: realpathSync(repo), originHash: createHash("sha256").update(origin).digest("hex"),
-      checkout: "~/repo", tag, baseSha, base: "main" };
-  });
-  return { ctx, task, host, repo, baseSha, tag, hostHome, bin };
-}
-
 test("PREPARE recovery is issued only from the exact persisted unreceipted intent", async () => {
-  const f = await fixture();
+  const f = await remoteDirectFixture();
   const grant = await issueConfiguredHostPrepareRecover(f.ctx, f.task.id);
   expect(grant.resource).toMatchObject({ alias: "box", script: "PREPARE_RECOVER",
     args: ["~/repo", f.tag, f.task.id, f.baseSha, "main", "1"] });
@@ -80,7 +36,7 @@ test("PREPARE recovery is issued only from the exact persisted unreceipted inten
 });
 
 test("PREPARE recovery refuses missing intent and direct public provider calls", async () => {
-  const f = await fixture();
+  const f = await remoteDirectFixture();
   updateTask(f.ctx, f.task.id, current => { delete current.remotePrepareIntent; });
   await expect(issueConfiguredHostPrepareRecover(f.ctx, f.task.id)).rejects.toMatchObject({ code: "capability_denied" });
   await expect(pluginRegistry(f.ctx).call(f.ctx, "pacer-ssh", "hostRunner.run", {
@@ -91,7 +47,7 @@ test("PREPARE recovery refuses missing intent and direct public provider calls",
 });
 
 test("issued PREPARE recovery observes the same remote worktree through bundled SSH", async () => {
-  const f = await fixture(), registry = pluginRegistry(f.ctx);
+  const f = await remoteDirectFixture(), registry = pluginRegistry(f.ctx);
   const first = await registry.prepareConfiguredHost(f.ctx,
     await issueConfiguredHostPrepare(f.ctx, "box", f.task.id, f.baseSha, "main", new Uint8Array()));
   expect(first.code).toBe(0);
@@ -102,7 +58,7 @@ test("issued PREPARE recovery observes the same remote worktree through bundled 
 }, 30_000);
 
 test("owned remote admission persists first PREPARE and later permits only recovery", async () => {
-  const f = await fixture();
+  const f = await remoteDirectFixture();
   updateTask(f.ctx, f.task.id, current => { delete current.remotePrepareIntent; });
   const first = await admitOwnedRemotePrepare(f.ctx, f.task.id, "pacer-exec-direct",
     "codex@box", "box", "main", f.baseSha);
@@ -118,7 +74,7 @@ test("owned remote admission persists first PREPARE and later permits only recov
 });
 
 test("owned remote recovery refuses a changed provider, host mapping or base", async () => {
-  const f = await fixture();
+  const f = await remoteDirectFixture();
   updateTask(f.ctx, f.task.id, current => { delete current.remotePrepareIntent; });
   await admitOwnedRemotePrepare(f.ctx, f.task.id, "pacer-exec-direct", "codex@box", "box", "main", f.baseSha);
   await expect(admitOwnedRemotePrepare(f.ctx, f.task.id, "other", "codex@box", "box", "main", f.baseSha))
@@ -135,7 +91,7 @@ test("owned remote recovery refuses a changed provider, host mapping or base", a
 });
 
 test("origin drift after durable admission cannot redirect first PREPARE to another valid checkout", async () => {
-  const f = await fixture();
+  const f = await remoteDirectFixture();
   updateTask(f.ctx, f.task.id, current => { delete current.remotePrepareIntent; });
   const admitted = await admitOwnedRemotePrepare(f.ctx, f.task.id, "pacer-exec-direct",
     "codex@box", "box", "main", f.baseSha);
@@ -158,7 +114,7 @@ test("origin drift after durable admission cannot redirect first PREPARE to anot
 });
 
 test("one-use owned host method publishes the exact remote run before START", async () => {
-  const f = await fixture();
+  const f = await remoteDirectFixture();
   updateTask(f.ctx, f.task.id, current => { delete current.remotePrepareIntent; });
   const first = await admitOwnedRemotePrepare(f.ctx, f.task.id, "pacer-exec-direct",
     "codex@box", "box", "main", f.baseSha);
@@ -196,7 +152,7 @@ test("one-use owned host method publishes the exact remote run before START", as
 });
 
 test("lost PREPARE reply can only enter read-only recovery", async () => {
-  const f = await fixture();
+  const f = await remoteDirectFixture();
   updateTask(f.ctx, f.task.id, current => { delete current.remotePrepareIntent; });
   const first = await admitOwnedRemotePrepare(f.ctx, f.task.id, "pacer-exec-direct",
     "codex@box", "box", "main", f.baseSha);
@@ -228,7 +184,7 @@ test("lost PREPARE reply can only enter read-only recovery", async () => {
 });
 
 test("a definite missing-base receipt permits one journaled bundle retry", async () => {
-  const f = await fixture();
+  const f = await remoteDirectFixture();
   updateTask(f.ctx, f.task.id, current => { delete current.remotePrepareIntent; });
   const first = await admitOwnedRemotePrepare(f.ctx, f.task.id, "pacer-exec-direct",
     "codex@box", "box", "main", f.baseSha);
@@ -253,7 +209,7 @@ test("a definite missing-base receipt permits one journaled bundle retry", async
 });
 
 test("extra stderr cannot authorize a second remote PREPARE", async () => {
-  const f = await fixture();
+  const f = await remoteDirectFixture();
   updateTask(f.ctx, f.task.id, current => { delete current.remotePrepareIntent; });
   const first = await admitOwnedRemotePrepare(f.ctx, f.task.id, "pacer-exec-direct",
     "codex@box", "box", "main", f.baseSha);
@@ -273,7 +229,7 @@ test("extra stderr cannot authorize a second remote PREPARE", async () => {
 });
 
 test("lost bundle retry receipt never authorizes a third PREPARE", async () => {
-  const f = await fixture();
+  const f = await remoteDirectFixture();
   updateTask(f.ctx, f.task.id, current => { delete current.remotePrepareIntent; });
   const first = await admitOwnedRemotePrepare(f.ctx, f.task.id, "pacer-exec-direct",
     "codex@box", "box", "main", f.baseSha);
@@ -294,7 +250,7 @@ test("lost bundle retry receipt never authorizes a third PREPARE", async () => {
 });
 
 test("direct executor cannot use the general SSH broker despite its scoped hosts consent", async () => {
-  const f = await fixture(), registry = pluginRegistry(f.ctx);
+  const f = await remoteDirectFixture(), registry = pluginRegistry(f.ctx);
   const authority = createCallAuthority(f.ctx, { reads: [], commands: [], stores: [] },
     { deadlineMs: Date.now() + 5000, grants: ["hosts"] });
   const invoke = registry as unknown as { answerHosts: (...args: unknown[]) => Promise<unknown> };
@@ -311,7 +267,7 @@ test("direct executor cannot use the general SSH broker despite its scoped hosts
 });
 
 test("owned remote pipe starts once and settles only on the exact completion receipt", async () => {
-  const f = await fixture();
+  const f = await remoteDirectFixture();
   writeFileSync(join(f.bin, "codex"), "#!/bin/sh\ncat > PROMPT.txt\necho owned-remote-started\n" +
     "git add PROMPT.txt\ngit commit -q -m fixture\necho owned-remote-done\n", { mode: 0o755 });
   if (!Bun.which("setsid")) writeFileSync(join(f.bin, "setsid"),
@@ -340,7 +296,7 @@ test("owned remote pipe starts once and settles only on the exact completion rec
 }, 60_000);
 
 test("remote stop remains pending until fixed STOP and REPORT verify the exact exit", async () => {
-  const f = await fixture();
+  const f = await remoteDirectFixture();
   writeFileSync(join(f.bin, "codex"), "#!/bin/sh\ncat >/dev/null\nwhile :; do sleep 0.2; done\n", { mode: 0o755 });
   if (!Bun.which("setsid")) writeFileSync(join(f.bin, "setsid"),
     `#!${Bun.which("python3")}\nimport os,sys\nos.setsid()\nos.execvp(sys.argv[1],sys.argv[1:])\n`, { mode: 0o755 });
@@ -378,7 +334,7 @@ test("remote stop remains pending until fixed STOP and REPORT verify the exact e
 }, 60_000);
 
 test("production remote owner publishes placement, starts once and verifies its exit", async () => {
-  const f = await fixture();
+  const f = await remoteDirectFixture();
   writeFileSync(join(f.bin, "codex"), "#!/bin/sh\ncat >/dev/null\necho production-remote-done > DONE.txt\n" +
     "git add DONE.txt\ngit commit -q -m fixture\necho production-remote-done\n", { mode: 0o755 });
   if (!Bun.which("setsid")) writeFileSync(join(f.bin, "setsid"),
@@ -400,7 +356,7 @@ test("production remote owner publishes placement, starts once and verifies its 
 }, 60_000);
 
 test("lost provider transfer reply reuses the same admitted branch and remote run", async () => {
-  const f = await fixture();
+  const f = await remoteDirectFixture();
   writeFileSync(join(f.bin, "codex"), "#!/bin/sh\ncat >/dev/null\necho once > ONCE.txt\n" +
     "git add ONCE.txt\ngit commit -q -m fixture\necho transferred\n", { mode: 0o755 });
   if (!Bun.which("setsid")) writeFileSync(join(f.bin, "setsid"),
@@ -447,7 +403,7 @@ test("lost provider transfer reply reuses the same admitted branch and remote ru
 }, 60_000);
 
 test("failed remote exit with no commits requires host-recorded no-work preflight", async () => {
-  const f = await fixture();
+  const f = await remoteDirectFixture();
   writeFileSync(join(f.bin, "codex"), "#!/bin/sh\ncat >/dev/null\necho failed >&2\nexit 2\n", { mode: 0o755 });
   if (!Bun.which("setsid")) writeFileSync(join(f.bin, "setsid"),
     `#!${Bun.which("python3")}\nimport os,sys\nos.setsid()\nos.execvp(sys.argv[1],sys.argv[1:])\n`, { mode: 0o755 });
@@ -461,7 +417,7 @@ test("failed remote exit with no commits requires host-recorded no-work prefligh
 }, 60_000);
 
 test("task runner selects provider-owned remote pipe without built-in SSH fallback", async () => {
-  const f = await fixture();
+  const f = await remoteDirectFixture();
   writeFileSync(join(f.ctx.pacerHome, "strategy.yaml"), JSON.stringify({ execution: { launch_mode: "headless" },
     accounts: { codex: { kind: "codex" }, "claude-code": { kind: "claude" } },
     planner: "claude-code", hosts: { box: f.host }, routing: [{ default: ["codex@box"] }] }));

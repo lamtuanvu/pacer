@@ -29,6 +29,12 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - Publish the workflow protocol crate before the SDK (#1281) (release).
 - Remove Workspace list page; onboarding gates first run only (#1263) (app).
 
+### Added
+
+- **Native `pacer-classify` plugin and the Rust SDK's `Host::http`.** `pacer-classify` now runs as a native Rust bundled plugin (the same `classifier.adapters` and `classifier.ask` behavior as the TypeScript plugin), served through the native plugin owner; `capability.net.http` and the pipelined `httpBodyChunks` transfer are exposed on the plugin SDK as `pacer-plugin` 0.5.0 (`Host::http`). `pacer-plugin-assistant-protocol` is at 0.4.0; the other generated protocol crates stay at 0.3.0.
+- **Native `pacer-usage` plugin and the Rust SDK's `usage` feature.** `pacer-usage` now runs as a native Rust bundled plugin serving `usage.read` (the Claude, Codex, live-Codex, BytePlus and metered readers) through the native plugin owner, byte-identical to the TypeScript plugin; the plugin SDK exposes `pacer-plugin` 0.6.0's `usage` feature with the `usage.state` reader lifecycle (begin, readChunk, stageChunk, commit, release) over `capability.fs.read`, plus its cursor and cached-fetch leases.
+- **Rust plugin SDK `install` feature (M3 C12a).** `pacer-plugin` exposes the planner-install preparation, editing and transport helpers used by the bundled planners plugin.
+
 ## [0.18.1] - 2026-11-25
 
 ### Changed
@@ -86,12 +92,15 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- **The service runs plugins in its native owner by default.** `PACER_NATIVE_PLUGIN_HOST=0` restores the TypeScript owner.
+
 - **`assistant.respond` is deprecated.** Prefer `assistant.reply` on the native `assistant-pacer` (or `assistant-executor`) plugin. The host still falls back to the legacy TypeScript `pacer-assistant` / `assistant.respond` loop for openai-compatible accounts when `pacer-assistant-pacer` is missing or outdated, and logs one Activity warning naming that cause. Removal is planned for one pacer release after the native-plugin updater ships ([ADR 0028](docs/decisions/0028-assistant-backends.md), [assistant backends design](docs/specs/2026-11-17-assistant-backends-design.md) phase 4 step 2).
 - **Rust plugin crates: `pacer-plugin` and `pacer-plugin-assistant-protocol` 0.4.0.** `AssistantReplyParamsEndpoint.base_url` is now optional and the endpoint gains an `api` field, so plugins that read `base_url` must handle `None`. The other generated protocol crates stay at 0.3.0. 0.17.8 did not publish crates, because the changed protocol crate kept its 0.3.0 version.
 
 ### Fixed
 
 - **Automatic desktop updates no longer stay broken after the native control socket file is deleted.** The service notices the missing path, logs `pacer: native control socket missing; rebinding`, and restarts with backoff instead of listening forever on an orphaned fd. Failed native hellos now log a rate-limited reason to `serve.log`, and the desktop distinguishes a handshake close from storage I/O.
+- **Keyless `classifier.ask` now runs through the native plugin owner.** With the owner flag on, a classifier that needs no credential now crosses the owner with the HTTP scope its configuration already projects, answering as it does with the owner off; a keyed classifier and keyless endpoint discovery still keep their flag-on refusal.
 - **Desktop updates stay connected while pacer is busy.** Connecting and read-only native update status no longer require every pacer process to be covered. Install still waits for running work to drain, treats the service's own process tree and enrolled lease trees as covered, ignores short-lived same-path CLI clients, prunes local leases that cannot survive the current boot (including unfinished `runDir` evidence from a previous boot or a missing `runDir`), and still refuses a foreign-path pacer binary. Settings shows that the update will install when running tasks finish instead of "Automatic desktop updates are unavailable".
 
 ## [0.17.8] - 2026-11-22

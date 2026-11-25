@@ -1,0 +1,20 @@
+[package]
+name = "pacer-bundled-exec-direct"
+version = "0.0.0"
+publish = false
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+pacer-plugin = { path = "../../crates/plugin-sdk" }
+regex = "1"
+serde_json.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+pacer-plugin = { path = "../../crates/plugin-sdk", features = ["testing"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time"] }
+
+[lints]
+workspace = true

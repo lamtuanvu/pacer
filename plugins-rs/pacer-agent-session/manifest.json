@@ -1,0 +1,12 @@
+{
+  "id": "pacer-agent-session",
+  "version": "1.0.0",
+  "publisher": "pacer",
+  "host": "^1",
+  "contributes": {
+    "agentSession": {}
+  },
+  "capabilities": [],
+  "reentrant": true,
+  "tier": "free"
+}
