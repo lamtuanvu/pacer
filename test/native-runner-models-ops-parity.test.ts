@@ -317,6 +317,7 @@ const refusals: Step[] = [
   ["dispatch.tierTargets.get", { ignored: true }],
   ["dispatch.tierTargets.get", "x"],
   ["runner.models.set", set("codex", "gpt-6", [], "stale")],
+  // The planner runner's models are editable (planner tier fallback): this step now saves on both front doors.
   ["runner.models.set", set("claude-code", "x")],
   ["runner.models.set", set("zzz", "x")],
   ["runner.models.set", set("opencode#acme", "pacer-acme/nope")],
