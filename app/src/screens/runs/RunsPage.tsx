@@ -81,7 +81,7 @@ function mapQuestionGet(raw: unknown, fallbackRunId: string): RunQuestionView | 
 export function RunsPage({ query, runId }: { query: RouteQuery; runId?: string }) {
   // Both views share the page header styles, so a direct link to a run adopts them too.
   useRunsStyles();
-  return runId ? <RunView runId={runId} query={query} /> : <RunsList query={query} />;
+  return runId ? <RunView key={runId} runId={runId} query={query} /> : <RunsList query={query} />;
 }
 
 function RunsList({ query }: { query: RouteQuery }) {

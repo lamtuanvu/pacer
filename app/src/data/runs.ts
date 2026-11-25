@@ -95,6 +95,8 @@ export interface RunDetailState {
   pendingApproval?: unknown;
   /** Orchestrator thread, when `msg.log` is offered and the run has an orchestrator task. */
   messages?: RunMessageView[];
+  /** The last msg.log read failed; `messages` is what was loaded earlier. */
+  messagesError?: boolean;
   /** Generated child runs keyed by id (Phase 3 `work_node` plans). */
   children?: Record<string, RunChildDetail>;
   loading: boolean;
@@ -360,7 +362,14 @@ export function mergeListRefresh(current: RunsStoreState, next: RunsStoreState):
 /** Apply a finished detail refresh for one run onto the latest state; the list is left alone. */
 export function mergeDetailRefresh(current: RunsStoreState, next: RunsStoreState, id: string): RunsStoreState {
   const detail = next.details[id];
-  return detail ? { ...current, details: { ...current.details, [id]: detail } } : current;
+  if (!detail) return current;
+  const held = current.details[id];
+  // A failed read carries the data it started from, which may be older than what is shown now.
+  const merged = held?.run && detail.error === RUN_DETAIL_ERROR
+    ? { ...held, loading: false, error: detail.error }
+    // Loads can overlap: each applied one gets its own stamp, so artifact text is read again.
+    : { ...detail, stamp: Math.max(detail.stamp, (held?.stamp ?? 0) + 1) };
+  return { ...current, details: { ...current.details, [id]: merged } };
 }
 
 function normalizeListRow(row: RunSummaryRow | Record<string, unknown>): RunSummaryRow {
@@ -453,6 +462,7 @@ export async function refreshRunDetail(
     }
     const taskId = typeof got.run?.orchestratorTaskId === "string" ? got.run.orchestratorTaskId : "";
     let messages: RunMessageView[] | undefined;
+    let messagesError = false;
     if (taskId && (ops === undefined || ops.has("msg.log"))) {
       try {
         const log = await api.call<{ messages?: unknown[] }>("msg.log", { task: taskId });
@@ -460,6 +470,7 @@ export async function refreshRunDetail(
       } catch (error) {
         console.warn("runs: message log failed", error);
         messages = prev.messages;
+        messagesError = true;
       }
     }
     const children = await loadChildren(api, state, id);
@@ -478,6 +489,7 @@ export async function refreshRunDetail(
           definition: got.definition,
           pendingApproval: got.pendingApproval,
           ...(messages ? { messages } : {}),
+          ...(messagesError ? { messagesError } : {}),
           children,
           loading: false,
           error: questionsError,

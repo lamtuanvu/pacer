@@ -495,3 +495,183 @@ test("ArtifactText reads the file again when the revision changes, even at the s
     expect(pre.getAttribute!("aria-label")).toBe("Spec");
   } finally { await unmount(dom); dom.restore(); }
 });
+
+// ---- Phase 9b review findings
+
+const focused = (dom: Awaited<ReturnType<typeof open>>["dom"]) => (dom.doc as unknown as { activeElement: Node | null }).activeElement;
+const heading = (root: unknown) => text(control(root, "h1", () => true)!);
+const occurrences = (s: string, part: string) => s.split(part).length - 1;
+async function withWarnings(body: (warned: () => string) => Promise<void>) {
+  const original = console.warn;
+  const seen: unknown[][] = [];
+  console.warn = (...args: unknown[]) => { seen.push(args); };
+  try { await body(() => seen.map(a => a.map(v => v instanceof Error ? v.message : String(v)).join(" ")).join("\n")); }
+  finally { console.warn = original; }
+}
+async function sendMessage(root: unknown, body: string) {
+  const box = control(root, "textarea", () => true)!;
+  box.value = body; fire(box, "input"); await tick();
+  formOf(box).submit();
+  return box;
+}
+
+test("a failed send shows plain words, logs the raw error and keeps focus in the message box", async () => {
+  await withWarnings(async warned => {
+    const { dom } = await open(plain, ALL_OPS, { "msg.send": () => { throw new ApiError("internal", "boom SQLITE_BUSY"); } });
+    try {
+      const box = await sendMessage(dom.container, "hi");
+      await until(() => domText(dom.container).includes("Couldn't send your message"), 2000);
+      expect(domText(dom.container)).not.toContain("SQLITE_BUSY");
+      expect(warned()).toContain("boom SQLITE_BUSY");
+      expect(focused(dom)).toBe(box);
+    } finally { await done(dom); }
+  });
+});
+
+test("a sent message is announced once and focus stays in the message box", async () => {
+  const { dom } = await open(plain, ALL_OPS, { "msg.send": () => ({}) });
+  try {
+    const box = await sendMessage(dom.container, "hi");
+    await until(() => domText(dom.container).includes("Message sent to the planner"), 2000);
+    await act(async () => { await tick(); });
+    expect(occurrences(domText(dom.container), "Message sent to the planner")).toBe(1);
+    expect(focused(dom)).toBe(box);
+  } finally { await done(dom); }
+});
+
+test("a failed artifact read shows plain words and logs the raw error", async () => {
+  await withWarnings(async warned => {
+    const dom = installDom();
+    try {
+      const art = { id: "art_aaaaaaaaaa", label: "Spec", name: "spec.md", mime: "text/markdown", size: 4, stepId: "s" };
+      await mount(dom, <ArtifactText runId="run_1" artifact={art} fetchText={async () => { throw new TypeError("NetworkError ECONNRESET"); }} />);
+      await until(() => domText(dom.container).includes("Couldn't open the file"), 2000);
+      expect(domText(dom.container)).toContain("The file could not be read.");
+      expect(domText(dom.container)).not.toContain("ECONNRESET");
+      expect(warned()).toContain("NetworkError ECONNRESET");
+    } finally { await unmount(dom); dom.restore(); }
+  });
+});
+
+test("the title is never the raw run id: snapshot title when known, plain words otherwise", async () => {
+  for (const [runs, want] of [[[{ id: "run_1", title: "Snapshot title", status: "running", letter: "Q" }], "Snapshot title"], [[], "Run "]] as const) {
+    const dom = installDom();
+    try {
+      const calls: Calls = { ops: [] };
+      let release: () => void = () => {};
+      const gate = new Promise<void>(r => { release = r; });
+      const api = apiFor(plain, calls, { "run.get": async () => { await gate; throw new ApiError("internal", "boom"); } });
+      const base = stateFor(plain, ALL_OPS);
+      const state = { ...base, snapshot: { ...base.snapshot!, runs: runs as never } };
+      await mount(dom, <TaskContext.Provider value={{ state, api }}><RunView runId="run_1" query={query} /></TaskContext.Provider>);
+      expect(domText(dom.container)).toContain("Loading run");
+      expect(heading(dom.container)).toStartWith(want);
+      expect(heading(dom.container)).not.toContain("run_1");
+      release();
+      await until(() => domText(dom.container).includes("Couldn't load this run"), 3000);
+      expect(heading(dom.container)).toStartWith(want);
+      expect(heading(dom.container)).not.toContain("run_1");
+    } finally { await done(dom); }
+  }
+});
+
+test("a slow answer to a send on one run cannot supersede the load of the next run", async () => {
+  const dom = installDom();
+  try {
+    const calls: Calls = { ops: [] };
+    let releaseSend: () => void = () => {};
+    let releaseSecond: () => void = () => {};
+    const sendGate = new Promise<void>(r => { releaseSend = r; });
+    const secondGate = new Promise<void>(r => { releaseSecond = r; });
+    const api = apiFor(plain, calls, {
+      "run.get": async p => {
+        if ((p as { id: string }).id !== "run_2") return plain.get;
+        await secondGate;
+        return { ...plain.get, run: { ...plain.get.run, id: "run_2", title: "Second run" } };
+      },
+      "msg.send": async () => { await sendGate; return {}; },
+    });
+    const state = stateFor(plain, ALL_OPS);
+    const render = (id: string) => mount(dom, <TaskContext.Provider value={{ state, api }}><RunsPage query={query} runId={id} /></TaskContext.Provider>);
+    await render("run_1");
+    await until(() => domText(dom.container).includes("Ship the board"), 3000);
+    await act(async () => { await new Promise(r => setTimeout(r, 130)); });
+    await sendMessage(dom.container, "hi");
+    await until(() => calls.ops.some(c => c.op === "msg.send"), 2000);
+    await render("run_2");
+    await until(() => calls.ops.some(c => c.op === "run.get" && (c.params as { id: string }).id === "run_2"), 2000);
+    releaseSend();
+    await new Promise(r => setTimeout(r, 80));
+    releaseSecond();
+    await until(() => domText(dom.container).includes("Second run"), 2000);
+  } finally { await done(dom); }
+});
+
+test("invalidations faster than a load still update the view, and a later failure keeps the newer data", async () => {
+  const gates: Array<{ ok: () => void; fail: () => void }> = [];
+  let n = 0;
+  const { dom, render } = await mountWith(plain, {
+    "run.get": () => {
+      const mine = ++n;
+      if (mine === 1) return plain.get;
+      return new Promise((resolve, reject) => {
+        gates.push({ ok: () => resolve({ ...plain.get, run: { ...plain.get.run, title: `Title ${mine}` } }), fail: () => reject(new ApiError("internal", "boom")) });
+      });
+    },
+  });
+  try {
+    await render(1);
+    await until(() => gates.length === 1, 2000);
+    await render(2);
+    await until(() => gates.length === 2, 2000);
+    gates[0]!.ok(); // superseded, but the newer load has not answered yet
+    await until(() => domText(dom.container).includes("Title 2"), 2000);
+    gates[1]!.fail(); // started before "Title 2" arrived
+    await until(() => domText(dom.container).includes("may be out of date"), 2000);
+    expect(domText(dom.container)).toContain("Title 2");
+  } finally { await done(dom); }
+});
+
+test("Try again on a failed load moves focus to the run title", async () => {
+  let fail = true;
+  const { dom } = await open(plain, ALL_OPS, { "run.get": () => { if (fail) throw new ApiError("internal", "boom"); return plain.get; } });
+  try {
+    fail = false;
+    clickText(dom.container, "Try again");
+    await until(() => domText(dom.container).includes("Ship the board"), 3000);
+    expect(String(focused(dom)?.tagName).toLowerCase()).toBe("h1");
+  } finally { await done(dom); }
+});
+
+test("a failed run.seen can be retried from its alert", async () => {
+  await withWarnings(async () => {
+    let fail = true;
+    const { dom, calls } = await open(plain, ALL_OPS, { "run.seen": () => { if (fail) throw new ApiError("internal", "boom"); return {}; } });
+    try {
+      await until(() => domText(dom.container).includes("Couldn't mark this run as seen"), 2000);
+      fail = false;
+      clickText(dom.container, "Mark as seen");
+      await until(() => !domText(dom.container).includes("Couldn't mark this run as seen"), 2000);
+      expect(calls.ops.filter(c => c.op === "run.seen")).toHaveLength(2);
+      expect(String(focused(dom)?.tagName).toLowerCase()).toBe("h1");
+    } finally { await done(dom); }
+  });
+});
+
+test("a failed message log is said plainly and earlier messages stay", async () => {
+  await withWarnings(async () => {
+    let fail = false;
+    const { dom, render } = await mountWith(plain, { "msg.log": () => { if (fail) throw new ApiError("internal", "boom"); return { messages: plain.messages }; } });
+    try {
+      expect(domText(dom.container)).not.toContain("Couldn't load the latest messages");
+      fail = true;
+      await render(1);
+      await until(() => domText(dom.container).includes("Couldn't load the latest messages"), 3000);
+      expect(domText(dom.container)).toContain("Keep it small.");
+      expect(domText(dom.container)).not.toContain("boom");
+      fail = false;
+      await render(2);
+      await until(() => !domText(dom.container).includes("Couldn't load the latest messages"), 3000);
+    } finally { await done(dom); }
+  });
+});

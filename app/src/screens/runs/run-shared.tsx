@@ -8,7 +8,7 @@ import { QuestionForm, type QuestionFormQuestion } from "../../ds/QuestionForm";
 import { useActions } from "../../data/action-context";
 import type { BrowserApi } from "../../data/api";
 import type { RunQuestionView } from "../../data/runs";
-import { runStatus, stepMarkerGlyph, type StepMarker } from "../../../../src/view-model/runs";
+import { runStatus, stepMarkerGlyph, RUN_ARTIFACT_ERROR, type StepMarker } from "../../../../src/view-model/runs";
 import type { ArtifactMeta } from "../../../../src/view-model/run-board";
 
 const styled = new WeakSet<Document>();
@@ -53,7 +53,7 @@ const INLINE_MAX = 256 * 1024;
 
 /** The forming spec (or any text artifact) shown as text; other types fall back to the link. */
 export function ArtifactText({ runId, artifact, revision, fetchText = defaultFetchText }: { runId: string; artifact: ArtifactMeta; fetchText?: FetchText; revision?: number }) {
-  const [state, setState] = useState<{ id?: string; text?: string; error?: string }>({});
+  const [state, setState] = useState<{ id?: string; text?: string; error?: boolean }>({});
   const inline = TEXT_MIME.test(artifact.mime) && artifact.size <= INLINE_MAX;
   useEffect(() => {
     if (!inline) return;
@@ -62,12 +62,15 @@ export function ArtifactText({ runId, artifact, revision, fetchText = defaultFet
     setState(prev => prev.id === artifact.id ? prev : { id: artifact.id });
     fetchText(artifactUrl(runId, artifact.id)).then(
       text => { if (active) setState({ id: artifact.id, text }); },
-      (e: unknown) => { if (active) setState({ id: artifact.id, error: e instanceof Error ? e.message : "The file could not be read." }); },
+      (e: unknown) => {
+        console.warn("runs: artifact read failed", e);
+        if (active) setState({ id: artifact.id, error: true });
+      },
     );
     return () => { active = false; };
   }, [runId, artifact.id, artifact.size, revision, inline]);
   if (!inline) return <p className="rv-cap">This file is not shown here. <ArtifactLink runId={runId} artifact={artifact} /></p>;
-  if (state.error) return <Alert tone="error" title="Couldn't open the file"><p>{state.error}</p></Alert>;
+  if (state.error) return <Alert tone="error" title="Couldn't open the file"><p>{RUN_ARTIFACT_ERROR}</p></Alert>;
   if (state.text === undefined || state.id !== artifact.id) return <p className="rv-cap" role="status">Loading {artifact.label}…</p>;
   return <pre className="rv-spec" tabIndex={0} aria-label={artifact.label}>{state.text}</pre>;
 }

@@ -62,13 +62,18 @@ export function RunView({ runId, query, fetchText }: { runId: string; query: Rou
 
   const mounted = useRef(true);
   const loadSeq = useRef(0);
+  const appliedSeq = useRef(0);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
-  /** Latest load wins: a response that arrives after a newer load started (or after unmount) is dropped. */
+  /**
+   * A response is dropped after unmount, or once a newer load has been applied. One that is merely
+   * superseded still applies, so frequent invalidations cannot keep the view from ever updating.
+   */
   const load = async () => {
     const mine = ++loadSeq.current;
     const listed = await refreshRunsList(api, storeRef.current, ops);
     const next = await refreshRunDetail(api, listed, runId, ops);
-    if (mounted.current && mine === loadSeq.current) {
+    if (mounted.current && mine > appliedSeq.current) {
+      appliedSeq.current = mine;
       setStore(current => mergeDetailRefresh(mergeListRefresh(current, listed), next, runId));
     }
   };
@@ -77,17 +82,21 @@ export function RunView({ runId, query, fetchText }: { runId: string; query: Rou
     setBoard("overview");
     setAnnounce("");
   }, [runId]);
+  const markSeen = () => {
+    seen.current = runId;
+    setSeenFailed(null);
+    void markRunSeen(api, runId, ops).then(result => {
+      if (result !== "failed" || seen.current !== runId) return;
+      // A failed call is retried by the next refresh, or by the alert's button.
+      seen.current = null;
+      if (mounted.current) setSeenFailed(runId);
+    });
+  };
+  /** A retry button leaves the page when it works; move keyboard focus to the run title first. */
+  const focusHeading = () => headingRef.current?.focus({ preventScroll: true });
+  const retryLoad = () => { focusHeading(); void load(); };
   useEffect(() => {
-    if (seen.current !== runId) {
-      seen.current = runId;
-      setSeenFailed(null);
-      void markRunSeen(api, runId, ops).then(result => {
-        if (result !== "failed" || seen.current !== runId) return;
-        // A failed call is retried by the next refresh.
-        seen.current = null;
-        if (mounted.current) setSeenFailed(runId);
-      });
-    }
+    if (seen.current !== runId) markSeen();
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- load reads the latest store through a ref
   }, [api, ops, runId, state.connectionRevision, state.invalidations.runs, state.invalidations.attention]);
@@ -131,14 +140,13 @@ export function RunView({ runId, query, fetchText }: { runId: string; query: Rou
   const answered = () => {
     setAnnounce("Answer submitted");
     // The answered form leaves the page; keep keyboard focus on the run title instead of dropping it.
-    queueMicrotask(() => headingRef.current?.focus({ preventScroll: true }));
+    queueMicrotask(focusHeading);
     void load();
   };
   const reloadQuestion = () => { setAnnounce("This question changed. Showing the latest version."); void load(); };
   const send = async (body: string) => {
     const call = runner ? <T,>(op: string, params?: unknown) => runner.call<T>(op, params) : api.call.bind(api);
     await call("msg.send", { to: `task:${orchTaskId}`, body });
-    setAnnounce("Message sent to the planner");
     await load();
   };
 
@@ -148,7 +156,7 @@ export function RunView({ runId, query, fetchText }: { runId: string; query: Rou
   const letter = letters.get(runId) ?? displayRunLetter({ id: runId, letter: snapRun?.letter });
   const pausedReason = typeof run?.pausedReason === "string" ? run.pausedReason : typeof snapRun?.paused_reason === "string" ? snapRun.paused_reason : undefined;
   const status = runStatus(pausedReason ? "paused" : String(run?.status ?? "running"));
-  const title = typeof run?.title === "string" && run.title ? run.title : typeof run?.workflow === "string" ? run.workflow : runId;
+  const title = (typeof run?.title === "string" && run.title) || (typeof run?.workflow === "string" && run.workflow) || snapRun?.title || `Run ${letter}`;
   const openQuestions = (view?.questions ?? []).filter(isOpenForPerson);
   const waits = snapRun?.waits_on ?? (openQuestions.length ? "you" : status.label === "Waiting" ? "orchestrator" : "-");
   const orch = isObj(run?.orchestrator) ? run!.orchestrator as { state?: string; planner?: string; reason?: string; next_wake_at?: number } : undefined;
@@ -159,7 +167,7 @@ export function RunView({ runId, query, fetchText }: { runId: string; query: Rou
   const backHref = withQuery("#/runs", query);
 
   const rail = view ? (
-    <ConversationRail entries={conversationRail({ ...view.input, questions: (view.input.questions ?? []).filter(q => !openQuestions.some(o => o.id === q.id)) }, orchTaskId || undefined)} now={now} canMessage={canMessage} onSend={send} />
+    <ConversationRail entries={conversationRail({ ...view.input, questions: (view.input.questions ?? []).filter(q => !openQuestions.some(o => o.id === q.id)) }, orchTaskId || undefined)} now={now} canMessage={canMessage} onSend={send} messagesError={detailState?.messagesError} />
   ) : null;
   const railNode = frame ? <><FrameSlot name="right">{rail}</FrameSlot>{frame.inline ? rail : null}</> : rail;
 
@@ -181,16 +189,20 @@ export function RunView({ runId, query, fetchText }: { runId: string; query: Rou
       {detailState?.error && !raw && (
         <Alert tone="error" title="Couldn't load this run">
           <p>{detailState.error}</p>
-          <Button size="sm" onClick={() => { void load(); }}>Try again</Button>
+          <Button size="sm" onClick={retryLoad}>Try again</Button>
         </Alert>
       )}
-      {seenFailed === runId ? <Alert tone="error" title={RUN_SEEN_ERROR} /> : null}
+      {seenFailed === runId ? (
+        <Alert tone="error" title={RUN_SEEN_ERROR}>
+          <Button size="sm" onClick={() => { focusHeading(); markSeen(); }}>Mark as seen</Button>
+        </Alert>
+      ) : null}
       {detailState?.error && raw && (
         <Alert tone="warning" title={detailState.error === RUN_QUESTIONS_ERROR ? RUN_QUESTIONS_ERROR : "This run may be out of date"}>
           <p>{detailState.error === RUN_QUESTIONS_ERROR
             ? "The rest of the run is shown without them."
             : "The last refresh failed, so you are seeing the version loaded earlier."}</p>
-          <Button size="sm" onClick={() => { void load(); }}>Try again</Button>
+          <Button size="sm" onClick={retryLoad}>Try again</Button>
         </Alert>
       )}
       {!unavailable && !raw && !detailState?.error && <p className="rv-cap" role="status">Loading run…</p>}
