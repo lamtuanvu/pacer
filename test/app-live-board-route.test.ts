@@ -44,3 +44,21 @@ test("titles, parents and the highlighted rail entry", () => {
   expect(parentFor(route("#/live"))).toMatchObject({ name: "runs" });
   for (const hash of ["#/live", "#/live/run_1", "#/live/run_1/journey"]) expect(primaryFor(route(hash))).toBe("runs");
 });
+
+test("the command palette offers Several runs, found by 'live board', and it opens #/live (g l does the same)", async () => {
+  const { createKeyRegistry } = await import("../app/src/keys/registry");
+  const { createCommandRegistry } = await import("../app/src/keys/commands");
+  const { registerShellCommands } = await import("../app/src/shell/shell-commands");
+  const keys = createKeyRegistry({ controlActive: () => false, mac: true });
+  const commands = createCommandRegistry(keys);
+  const went: string[] = [];
+  registerShellCommands(commands, keys, { go: h => went.push(h), back() {}, forward() {}, openNewTask() {}, showHelp() {}, apple: true, desktop: false });
+  const cmd = commands.list().find(c => c.id === "go.live")!;
+  expect(cmd.title).toBe("Go to Several runs");
+  expect(cmd.keywords).toContain("live board");
+  expect(cmd.keys).toBe("g l");
+  cmd.run();
+  expect(went).toEqual(["#/live"]);
+  // no other command already uses the same chord
+  expect(commands.list().filter(c => c.keys === "g l")).toHaveLength(1);
+});
