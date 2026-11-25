@@ -12,7 +12,7 @@ import type { RouteQuery } from "../../router";
 import { BoardCanvas } from "./BoardCanvas";
 import { BoardViewport } from "./BoardViewport";
 import { agentPlace, layoutLiveBoard } from "./live-board-layout";
-import { executorOf, layoutInputFromDetail, nodeLabel } from "./live-board-model";
+import { executorName, executorOf, layoutInputFromDetail, nodeLabel } from "./live-board-model";
 import { buildJourney, frameAt } from "./journey";
 import { liveHref, runViewHref } from "./live-links";
 import { useRunDetail } from "./run-data";
@@ -38,7 +38,7 @@ export function JourneyPlayback({ runId, query, stepMs = STEP_MS }: { runId: str
     const def = isObj(detail?.definition) && isObj((detail!.definition as Record<string, unknown>).steps) ? (detail!.definition as { steps: Record<string, { type: string }> }).steps : undefined;
     return buildJourney({
       run: { createdAt: typeof run.createdAt === "number" ? run.createdAt : undefined, updatedAt: typeof run.updatedAt === "number" ? run.updatedAt : undefined, status: String(run.status ?? ""), title: typeof run.title === "string" ? run.title : undefined },
-      layout, decisions: detail?.decisions, stepTypes: def, executorOf: id => executorOf(id, tasks),
+      layout, decisions: detail?.decisions, stepTypes: def, executorOf: id => executorOf(id, tasks), executorName,
     });
   }, [layout, run, detail?.decisions, detail?.definition, tasks]);
   const last = (journey?.events.length ?? 0) - 1;
@@ -58,7 +58,7 @@ export function JourneyPlayback({ runId, query, stepMs = STEP_MS }: { runId: str
   const frame = layout && journey ? frameAt(journey, layout, index) : null;
   const agents = useMemo(() => (frame?.working ?? []).map(w => {
     const node = layout!.nodes.find(n => n.id === w.nodeId)!;
-    return { taskId: w.taskId, nodeId: w.nodeId, executor: w.executor, label: nodeLabel(node), ...agentPlace(node) };
+    return { taskId: w.taskId, nodeId: w.nodeId, executor: w.executor, name: executorName(w.executor), label: nodeLabel(node), ...agentPlace(node) };
   }), [frame, layout]);
 
   const title = typeof run?.title === "string" && run.title ? run.title : typeof run?.workflow === "string" ? run.workflow : runId;

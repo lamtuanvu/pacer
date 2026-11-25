@@ -5,7 +5,8 @@ import { Creature, PersonFigure, creatureHeight } from "./MascotArt";
 import { FIGURE, GAP_X, STATION_H, STATION_W, type BoardNode, type BoardZone, type LiveBoardLayout } from "./live-board-layout";
 import { graphStatusLabel, nodeLabel, shortLabel } from "./live-board-model";
 
-export interface CanvasAgent { taskId: string; nodeId: string; x: number; y: number; executor: string; label: string }
+/** `executor` is the identity that seeds the creature; `name` is what the screen says. */
+export interface CanvasAgent { taskId: string; nodeId: string; x: number; y: number; executor: string; name: string; label: string }
 
 /** The words a desk shows: a glyph and a status word, never colour alone (UI-2, UI-10). */
 export function deskWords(n: { status: string; waitsOnYou: boolean }): { glyph: string; label: string; cls: string } {
@@ -120,7 +121,7 @@ export function BoardCanvas(p: CanvasProps) {
           role="button"
           tabindex={0}
           aria-pressed={p.selectedTaskId === a.taskId}
-          aria-label={`${a.executor} working on ${a.label}. Open live output`}
+          aria-label={`${a.name} working on ${a.label}. Open live output`}
           onClick={() => p.onOpenAgent!(a.taskId)}
           onKeyDown={(e: KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); p.onOpenAgent!(a.taskId); } }}
         >

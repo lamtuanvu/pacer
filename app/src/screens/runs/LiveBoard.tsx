@@ -22,7 +22,7 @@ import { AgentOutput } from "./AgentOutput";
 import { BoardCanvas, deskWords, plannerNoteFor, zoneSummary } from "./BoardCanvas";
 import { BoardViewport } from "./BoardViewport";
 import { layoutLiveBoard } from "./live-board-layout";
-import { executorOf, layoutInputFromDetail, nodeLabel } from "./live-board-model";
+import { executorName, executorOf, layoutInputFromDetail, nodeLabel } from "./live-board-model";
 import { CHANNEL_HINTS, CHANNEL_LABELS, messageTargets, sendToTargets, type MessageChannel } from "./live-board-messages";
 import { liveHref, runViewHref, sessionHref } from "./live-links";
 import { useRunDetail } from "./run-data";
@@ -83,7 +83,7 @@ export function LiveBoard({ runId, query, outputPollMs }: { runId: string; query
   const agents = useMemo(() => (layout?.agents ?? []).map(a => {
     const node = layout!.nodes.find(n => n.id === a.nodeId)!;
     const executor = executorOf(a.taskId, tasks);
-    return { ...a, node, executor, label: nodeLabel(node) };
+    return { ...a, node, executor, name: executorName(executor), label: nodeLabel(node) };
   }), [layout, tasks]);
   const selectedAgent = agents.find(a => a.taskId === selected) ?? null;
   // An agent that stops working leaves the board; its output panel goes with it.
@@ -100,7 +100,7 @@ export function LiveBoard({ runId, query, outputPollMs }: { runId: string; query
     setSelected(taskId);
     setWhisper(taskId);
     const a = agents.find(x => x.taskId === taskId);
-    setAnnounce(a ? `Showing live output of ${a.executor} on ${a.label}` : "");
+    setAnnounce(a ? `Showing live output of ${a.name} on ${a.label}` : "");
   };
   const closeOutput = () => {
     const id = selected;
@@ -187,14 +187,14 @@ export function LiveBoard({ runId, query, outputPollMs }: { runId: string; query
         <section className="lb-section" aria-label="Live board">
           <BoardViewport content={layout} resetKey={runId} markerId={markerId}
             ariaLabel={`Run graph, ${nodes.length} ${nodes.length === 1 ? "step" : "steps"}, ${agents.length} ${agents.length === 1 ? "agent" : "agents"} working`}>
-            <BoardCanvas layout={layout} markerId={markerId} agents={agents.map(a => ({ taskId: a.taskId, nodeId: a.nodeId, x: a.x, y: a.y, executor: a.executor, label: a.label }))}
+            <BoardCanvas layout={layout} markerId={markerId} agents={agents.map(a => ({ taskId: a.taskId, nodeId: a.nodeId, x: a.x, y: a.y, executor: a.executor, name: a.name, label: a.label }))}
               plannerIdentity={plannerName} plannerNote={plannerNoteFor(orch?.state)} selectedTaskId={selected} onOpenAgent={openAgent}
               agentRef={(id, el) => { if (el) agentEls.current.set(id, el); else agentEls.current.delete(id); }} />
           </BoardViewport>
         </section>
 
         {selectedAgent ? (
-          <AgentOutput api={api} taskId={selectedAgent.taskId} executor={selectedAgent.executor} stepLabel={selectedAgent.label}
+          <AgentOutput api={api} taskId={selectedAgent.taskId} executor={selectedAgent.name} stepLabel={selectedAgent.label}
             sessionHref={sessionHref(selectedAgent.taskId, query)} onClose={closeOutput} {...(outputPollMs ? { pollMs: outputPollMs } : {})} />
         ) : null}
 
@@ -207,7 +207,7 @@ export function LiveBoard({ runId, query, outputPollMs }: { runId: string; query
                   <Button size="sm" variant={selected === a.taskId ? "secondary" : "quiet"} aria-pressed={selected === a.taskId} onClick={() => openAgent(a.taskId)}>
                     Open live output
                   </Button>
-                  <span className="lb-item-name">{a.executor}</span>
+                  <span className="lb-item-name">{a.name}</span>
                   <span className="lb-cap">working on {a.label}</span>
                 </li>
               ))}
@@ -235,7 +235,7 @@ export function LiveBoard({ runId, query, outputPollMs }: { runId: string; query
               <p className="lb-cap">{CHANNEL_HINTS[channel]}</p>
               {channel === "whisper" && agents.length > 0 ? (
                 <RadioChoices label="Agent" name={`${markerId}-agent`} value={whisperTask} onChange={setWhisper}
-                  options={agents.map(a => ({ value: a.taskId, label: `${a.executor} · ${a.label}` }))} />
+                  options={agents.map(a => ({ value: a.taskId, label: `${a.name} · ${a.label}` }))} />
               ) : null}
               <Field label="Message">
                 <TextArea value={body} rows={3} maxLength={4000} onInput={e => setBody((e.currentTarget as HTMLTextAreaElement).value)} />
@@ -263,7 +263,7 @@ export function LiveBoard({ runId, query, outputPollMs }: { runId: string; query
                   <li key={n.id} className="lb-item" data-step-item={n.id}>
                     <span className="lb-item-name">{nodeLabel(n)}</span>
                     <Pill tone={n.waitsOnYou ? "warn" : runStatus(n.status).tone}><span aria-hidden="true">{w.glyph} </span>{w.label}</Pill>
-                    {agent ? <span className="lb-cap">{agent.executor} is on it</span> : null}
+                    {agent ? <span className="lb-cap">{agent.name} is on it</span> : null}
                   </li>
                 );
               })}
