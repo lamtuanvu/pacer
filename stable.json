@@ -1,13 +1,13 @@
 {
   "schema": 1,
-  "version": "0.18.0",
-  "notes": "### Changed\n\n- **`messaging.liveness.nudge_in_modes` defaults to all four modes** (`relaxed`, `normal`, `strict`, `emergency`). Executor nudges (idle, silent prompt, no-progress, cycle, undelivered retry) now run in strict and emergency too; those modes still save the planner's budget. Planner wakes use the new `messaging.liveness.caller_wake_in_modes` (default `relaxed`, `normal`), so planners are still not woken in strict or emergency unless you opt in.\n\n### Fixed\n\n- **`pacer retry` of a task that ran with placement `current` no longer fails with `local new placement is not selected`.** The owned local runner now classifies a reused checkout the same way as the legacy direct path: `current` when the path is the brief repo itself, `new` otherwise. This also covers retries of in-place tasks with `auto` placement, which, like the legacy path, are not refused for a dirty checkout (the changes are usually the earlier attempt's own work). When the reused checkout is a separate worktree, the retry's requested placement is recorded as `new`.\n- **Interactive resume turns no longer tell the agent both \"do not run pacer report\" and \"completion requires running pacer report\".** Interactive runners get a live turn prompt so the session can finish with `pacer report`.\n- **A delegated interactive session stuck in phase `needs-input` with no open pacer question is detected as a `silent_prompt` stall** after `execution.idle_after_min` and nudged to finish with `pacer report` or ask a question, instead of waiting forever while active time is paused. Human conversation tasks waiting at their prompt stay exempt.",
-  "pub_date": "2026-11-24T12:21:52.000Z",
+  "version": "0.18.1",
+  "notes": "### Changed\n\n- Release 0.18.0 (#1262).\n- Allow ten minutes for the host release compile (#1275) (release).\n\n### Fixed\n\n- Bump plugin crates changed since their last publish (#1264) (crates).\n- Settle a pending stop whose attempt is already recorded (#1261) (tasks).",
+  "pub_date": "2026-11-25T03:39:08.000Z",
   "platforms": {
     "darwin-aarch64": {
-      "url": "https://github.com/lamtuanvu/pacer/releases/download/v0.18.0/desktop-pacer-0.18.0-darwin-aarch64.app.tar.gz",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRWkZsUWI2SWt6Z1kvV0NDbWNwZEo3RHpQeVFCaGxzOTlTUmFTMjdyajh3RC9WODRYcnVZMG9sT3kyR0xDYXRFbElyZlBuVTgzczVPMWdEdmkwMTY3b3hOVGZ0YUU0YWdnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1NTIzODQzCWZpbGU6ZGVza3RvcC1wYWNlci0wLjE4LjAtZGFyd2luLWFhcmNoNjQuYXBwLnRhci5negl2ZXJzaW9uOjAuMTguMApmMzVYTmRrYWxPQm1Bbi9KS2ZMRlQxcThMN25Ib2NvcEVUekZiQ0NTeDhwOVpWcXA0aTlxN08wRE5Id1FVemZqZHlGbE5lcTJqZnMvdzkyUVlPdFRCZz09Cg==",
-      "sha256": "3c9db34933063f183094debec790e8b614ca67b8ec1563561619f1c70dd262fe",
+      "url": "https://github.com/lamtuanvu/pacer/releases/download/v0.18.1/desktop-pacer-0.18.1-darwin-aarch64.app.tar.gz",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRWkZsUWI2SWt6Z2VOb0lYb3VTUXpUam9OUnRubndFK2ZlRmlRMHVuem1CSTNxV3VLMWtmQ0V6aEw3ZytrVDMrUzJSNit0ZTNDYXE1cTk0aHlueDlqUHJOclVEd3g2MndVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1NTc5MjIzCWZpbGU6ZGVza3RvcC1wYWNlci0wLjE4LjEtZGFyd2luLWFhcmNoNjQuYXBwLnRhci5negl2ZXJzaW9uOjAuMTguMQoweUlXNTNZR2Jockh5dklCTUZDYkQ1TkY1Rzdub3JxQlhUZG9oV2V5a2IxWkJwS3l4TzFGaFhUYloxclRlUHU5WlIzRUFxTkYrVWJSVkIvRUF4MGFBdz09Cg==",
+      "sha256": "a2debce6100b7eaa06b11ec11128a318907c56dc12d58f6310f7f4814befb27e",
       "bundleId": "dev.pacer.desktop",
       "protocolMajors": [
         3
@@ -16,9 +16,9 @@
       "rollbackCompatible": true
     },
     "darwin-x86_64": {
-      "url": "https://github.com/lamtuanvu/pacer/releases/download/v0.18.0/desktop-pacer-0.18.0-darwin-x86_64.app.tar.gz",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRWkZsUWI2SWt6Z1FFalJINU1kZlN5UnArd2dXeDUyTmpSODJCM09ROW9NeEJ6RXp5MTBhcXpoc1BjZ0s5SWFzRFVwV3RSd2RSbm9JNWh0dFBuaUN1a3hhM0tPRTdNend3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1NTIzOTM5CWZpbGU6ZGVza3RvcC1wYWNlci0wLjE4LjAtZGFyd2luLXg4Nl82NC5hcHAudGFyLmd6CXZlcnNpb246MC4xOC4wCmpQbW9XOUUwWndQRVV2UWRUQ3VsSzlUS00wcGRIWTJIemdESVVSbkhNRGZQby9MOW9LVjBKTUd4YTl2K1A1OTREVkkvczdTUUlrcFA1WG9NbHFjUkNBPT0K",
-      "sha256": "28358a53a6799f581688763fdfdc2bf2f1048fd45059ec71b1e65eea30f53763",
+      "url": "https://github.com/lamtuanvu/pacer/releases/download/v0.18.1/desktop-pacer-0.18.1-darwin-x86_64.app.tar.gz",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRWkZsUWI2SWt6Z2JhSjZnaFBVY2M1bTFjQkYxQUFmR1hrMzBZM3JZMUFlU3c2ZmRERUg1TENDZGNIVVJJVzd0RE5NbHlMcDhuYVozYnlQMGZrTDdyVHloRm9hZ0cxeWc0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1NTc5NDU3CWZpbGU6ZGVza3RvcC1wYWNlci0wLjE4LjEtZGFyd2luLXg4Nl82NC5hcHAudGFyLmd6CXZlcnNpb246MC4xOC4xCkI4Mk5SUlVpaEVqOEM1L0dCcjJhSEoyWVkzK2taTDdYV1pkSWlhTHVsbXE3WktxcVN4SC80VVJQNjUyb0pGck11UUJYVUM5eTV3dFdOMmVDczVTM0JBPT0K",
+      "sha256": "5fa5e488b85808c8ee5b67a3ea50caddd80d4505acccedeb5ecc6d8337cc67c2",
       "bundleId": "dev.pacer.desktop",
       "protocolMajors": [
         3
