@@ -69,7 +69,7 @@ export async function addOpencodeAccount(ctx: Ctx, input: OpencodeAccountInput, 
     const orphan = !!existing && existing.source === "opencode" && existing.provider === input.provider
       && !Object.values(s.runners).some(r => r.agent === "opencode" && r.account === name);
     if (existing && !orphan) throw Error(`account ${name} already exists; use pacer account edit ${name}`);
-    if (await knownProvider(ctx, input.provider) === false) throw Error(`OpenCode is not signed in to ${input.provider}; run opencode auth login ${input.provider}`);
+    if (await knownProvider(ctx, input.provider) === false) throw Error(`OpenCode is not signed in to ${input.provider}; run opencode auth login --standalone ${input.provider}`);
     if (input.cap_usd !== undefined && !(Number.isFinite(input.cap_usd) && input.cap_usd > 0)) throw Error("cap_usd must be a positive number");
     const usage = classify({ id: input.provider }, (deps.catalog ?? readCachedCatalog(ctx))?.providers[input.provider]);
     const kind = input.usage ?? usage.usage;
@@ -103,7 +103,7 @@ async function defaultLogin(ctx: Ctx, argv: string[]): Promise<number> {
 export async function connectProvider(ctx: Ctx, provider: string, deps: SetupDeps = {}): Promise<boolean> {
   // Same rule as the API: a catalog id must never reach argv as an option or anything but a plain id.
   if (!/^[a-z0-9][a-z0-9._-]*$/.test(provider)) throw new CoreError("invalid_input", `${JSON.stringify(provider)} is not a valid OpenCode provider id`);
-  const code = await (deps.login ?? (argv => defaultLogin(ctx, argv)))(["opencode", "auth", "login", provider]);
+  const code = await (deps.login ?? (argv => defaultLogin(ctx, argv)))(["opencode", "auth", "login", "--standalone", provider]);
   if (code !== 0) return false;
   return (await signedInProviders(ctx))?.some(p => p.id === provider) ?? false;
 }
@@ -113,5 +113,5 @@ export async function connectProvider(ctx: Ctx, provider: string, deps: SetupDep
  * from stdin could not be confirmed without changing a real OpenCode login. So nothing runs here: the caller shows
  * the command, and the user signs in through OpenCode in a terminal. */
 export async function connectWithKey(_ctx: Ctx, provider: string): Promise<{ connected: boolean; command: string }> {
-  return { connected: false, command: `opencode auth login ${provider}` };
+  return { connected: false, command: `opencode auth login --standalone ${provider}` };
 }

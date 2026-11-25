@@ -29,7 +29,7 @@ export function loginIndicator(ctx: Ctx, id: string, folder?: string): { loggedI
     }
     case "opencode": {
       const file = join(ctx.env.XDG_DATA_HOME ?? join(ctx.home, ".local/share"), "opencode/auth.json");
-      return { loggedIn: existsSync(file), fix: "opencode auth login", file };
+      return { loggedIn: existsSync(file), fix: "opencode auth login --standalone", file };
     }
     default:
       return null;

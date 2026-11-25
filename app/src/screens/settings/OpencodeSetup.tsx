@@ -22,6 +22,7 @@ import {
 import {
   Feedback,
   Field,
+  Segment,
   ResourceState,
   useOperation,
   useResource,
@@ -29,7 +30,7 @@ import {
 
 const modelCount = (n: number) => `${n} ${n === 1 ? "model" : "models"}`;
 
-interface ModelsResult {
+export interface ModelsResult {
   pick: ModelChoice | null;
   rest: ModelChoice[];
   usage: UsageClass;
@@ -43,6 +44,8 @@ export interface OpencodeSetupProps {
   initialDetection?: Detection;
   initialChoice?: Candidate;
   initialModels?: ModelsResult;
+  /** For an already added provider: add another executor (default) or change its executor's model. */
+  initialMode?: "add" | "change";
 }
 
 export function OpencodeSetup({
@@ -51,6 +54,7 @@ export function OpencodeSetup({
   initialDetection,
   initialChoice,
   initialModels,
+  initialMode,
 }: OpencodeSetupProps) {
   const detection = useResource<Detection>(
     "executor.setup.candidates",
@@ -141,6 +145,7 @@ export function OpencodeSetup({
           key={`${choice.group}:${choice.provider}`}
           candidate={choice}
           initialModels={initialModels}
+          initialMode={initialMode}
           onCreated={onCreated}
         />
       )}
@@ -191,7 +196,7 @@ function ConnectProvider({
   name: string;
   onRefresh: () => void;
 }) {
-  const command = `opencode auth login ${provider}`;
+  const command = `opencode auth login --standalone ${provider}`;
   return (
     <div className="u3-section">
       <p>Run this in a terminal, then refresh:</p>
@@ -208,10 +213,12 @@ function ConnectProvider({
 function ModelStep({
   candidate,
   initialModels,
+  initialMode = "add",
   onCreated,
 }: {
   candidate: Candidate;
   initialModels?: ModelsResult;
+  initialMode?: "add" | "change";
   onCreated: (name: string) => void;
 }) {
   const models = useResource<ModelsResult>(
@@ -224,14 +231,16 @@ function ModelStep({
     initialModels,
   );
   const action = useOperation();
-  // An added provider changes its executor's model; nothing else about the account is edited here.
-  const changing = candidate.group !== "local" ? candidate.added ?? null : null;
+  // An added provider can get another executor (a new account on the same provider, so another model can run
+  // beside it) or change its executor's model; nothing else about the existing account is edited here.
+  const added = candidate.group !== "local" ? candidate.added ?? null : null;
+  const [mode, setMode] = useState(initialMode);
+  const changing = added && mode === "change" ? added : null;
   const [modelId, setModelId] = useState(changing ? candidate.model ?? "" : "");
   const [usage, setUsage] = useState<UsageClass["usage"] | "">("");
   const [cap, setCap] = useState("");
-  const [name, setName] = useState(
-    candidate.provider.replace(/[^a-z0-9-]/g, "-"),
-  );
+  const base = candidate.provider.replace(/[^a-z0-9-]/g, "-");
+  const [name, setName] = useState(added ? `${base}-2` : base);
   const [error, setError] = useState("");
 
   const list = models.data
@@ -279,6 +288,21 @@ function ModelStep({
 
   return (
     <form className="u3-section" onSubmit={submit}>
+      {added && (
+        <Segment
+          label={`${candidate.name} is already added as ${added}`}
+          value={mode}
+          options={[
+            { value: "add", label: "Add another executor" },
+            { value: "change", label: `Change ${added}’s model` },
+          ]}
+          onChange={(value) => {
+            setMode(value as "add" | "change");
+            setModelId(value === "change" ? candidate.model ?? "" : "");
+            setError("");
+          }}
+        />
+      )}
       <ResourceState resource={models}>
         {models.data?.note && <p className="u3-muted">{models.data.note}</p>}
         {manual && !models.data?.note && (
@@ -360,5 +384,59 @@ function ModelStep({
       </ResourceState>
       <Feedback action={action} />
     </form>
+  );
+}
+
+/** Model step for an OpenCode provider account that has no executor yet: the provider's own models, one required. */
+export function ProviderModelPicker({
+  provider,
+  value,
+  disabled,
+  onChange,
+  initialModels,
+}: {
+  provider: string;
+  value: string;
+  disabled?: boolean;
+  onChange: (model: string) => void;
+  initialModels?: ModelsResult;
+}) {
+  const models = useResource<ModelsResult>(
+    "executor.setup.models",
+    { provider, group: "signed_in" },
+    initialModels,
+  );
+  const list = models.data
+    ? [...(models.data.pick ? [models.data.pick] : []), ...models.data.rest]
+    : [];
+  const prefix = `${provider}/`;
+  const options = list.map((m, i) => ({
+    value: `${prefix}${m.id}`,
+    label: `${m.id}${i === 0 && models.data?.pick ? " (recommended)" : ""}`,
+  }));
+  if (value && !options.some((o) => o.value === value))
+    options.push({ value, label: value.slice(prefix.length) || value });
+  const chosen = list.find((m) => `${prefix}${m.id}` === value);
+  return (
+    <ResourceState resource={models}>
+      {models.data?.note && <p className="u3-muted">{models.data.note}</p>}
+      {options.length ? (
+        <ChoicePicker
+          className="u3-model-picker"
+          searchable
+          disabled={disabled}
+          value={value}
+          placeholder="Choose a model"
+          options={options}
+          onValueChange={onChange}
+        />
+      ) : (
+        <p role="alert">
+          OpenCode lists no models for {provider} that can run an executor.
+          Check its sign-in with <code>opencode auth list --standalone</code>.
+        </p>
+      )}
+      {chosen && <p className="u3-muted">{modelFacts(chosen)}</p>}
+    </ResourceState>
   );
 }

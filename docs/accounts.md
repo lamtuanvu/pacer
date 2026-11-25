@@ -65,16 +65,26 @@ attestation, so a caller's Orca context is not used as pacer's identity.
 Run `pacer account add` and choose **Model endpoint (OpenCode)**. pacer first
 looks for models you can already use and lists them:
 
-- **Already signed in to OpenCode**: providers from `opencode auth list` and
-  your `opencode.json`. pacer refers to the provider and never reads or copies
+- **Already signed in to OpenCode**: providers from `opencode auth list
+  --standalone` and your `opencode.json`. pacer refers to the provider and never reads or copies
   its key, so rotating the key in OpenCode just works.
 - **Running on this machine**: Ollama (`localhost:11434`) and LM Studio
   (`localhost:1234`), when they answer within a second.
 - **Connect a provider**: search the models.dev catalog (the data OpenCode
   uses, cached for 24 hours in `~/.pacer/cache/models.json`). pacer runs
-  `opencode auth login <provider>` in the same terminal; OpenCode asks for the
+  `opencode auth login --standalone <provider>` in the same terminal; OpenCode asks for the
   key and stores it. pacer never sees it.
 - **Enter a URL yourself**: the pacer-managed connection described below.
+
+pacer runs OpenCode's listings and sign-in with `--standalone`, as it runs
+`opencode run`: OpenCode 2.2 fails any command that needs its background service
+when that service cannot start, and a private server avoids it.
+
+A provider that already has an executor can get another one, for a second model
+beside the first: choose **Add another executor** and give it a new name. **Change
+its model** edits the existing executor instead. An OpenCode provider account
+always needs one of its provider's models (`<provider>/<model>`), so the app's
+**Model and test** step lists that provider's models and asks for one.
 
 For a detected provider, pacer recommends one model that can call tools and
 produce text (`/` searches the others), sets the usage type from the catalog and
@@ -106,7 +116,7 @@ accounts:
 Its runner model is `<provider>/<model>`. OpenCode merges pacer's generated
 config with yours and resolves the key itself. If the provider is later signed
 out of OpenCode, the next check reports **Key missing — run `opencode auth login
-<provider>`**. Spend is read in dollars from `opencode stats --cost` and is always
+--standalone <provider>`**. Spend is read in dollars from `opencode stats --cost` and is always
 shown in `pacer account list` and Settings › Accounts ("$3.20 this week", or
 "$3.20 of $5 this week" with a cap, plus "cap reached" once it is reached). With a cap, the reading has a `7d $` window whose used
 percent is spend divided by the cap, and pacing treats a reached cap like any full

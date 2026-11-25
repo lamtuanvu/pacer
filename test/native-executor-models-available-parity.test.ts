@@ -219,7 +219,7 @@ for (const transport of ["stdio", "http"] as const) {
       const state = disk(homes[0]);
       // stale, refresh, fail and runner.set, empty and runner.set, two acme listings, nullcat
       // (TypeScript), runner.set's discovery once cached.
-      expect(state.opencode.split("\n").filter(Boolean)).toEqual(Array(10).fill("args=models pwd=$HOME/work cwd=$HOME/work probe=door-env"));
+      expect(state.opencode.split("\n").filter(Boolean)).toEqual(Array(10).fill("args=models --standalone pwd=$HOME/work cwd=$HOME/work probe=door-env"));
       expect(state.dirMode).toBe("700");
       expect(state.caches.every(line => / 600 /.test(line))).toBe(true);
       expect(readFileSync(cachePath(homes[0], "opencode#oc-stale"), "utf8")).toMatch(

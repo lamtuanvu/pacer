@@ -80,3 +80,22 @@ test("runner.set model null clears without a listing", async () => {
   expect(result.warnings).toEqual([]);
   expect(loadStrategy(ctx).runners.codex.model).toBeNull();
 });
+test("runner add refuses an OpenCode provider account without one of its provider's models, and writes nothing", async () => {
+  const ctx = fakeCtx();
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  const text = `planner: claude-code
+accounts:
+  claude: {kind: claude}
+  go: {kind: endpoint, source: opencode, provider: opencode-go, usage: metered}
+runners:
+  claude-code: {}
+`;
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), text);
+  for (const model of [undefined, "glm-5.3"]) {
+    const error = await runners.add(ctx, { agent: "opencode", account: "go", test: false, ...(model ? { model } : {}) }).catch(e => e);
+    expect(error.message).toBe("opencode#go needs a model: choose one of opencode-go's models (opencode-go/<model>)");
+    expect(error.hint).toBe("Choose a model, then add the agent again.");
+  }
+  expect(await Bun.file(join(ctx.pacerHome, "strategy.yaml")).text()).toBe(text);
+  expect((await runners.add(ctx, { agent: "opencode", account: "go", test: false, model: "opencode-go/glm-5.3" })).id).toBe("opencode#go");
+});

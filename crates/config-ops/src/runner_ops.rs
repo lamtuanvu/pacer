@@ -532,6 +532,9 @@ fn add_error(error: StrategyError) -> CoreError {
     if message == "Your settings changed while they were being updated. Try again." {
         return CoreError::new(Code::Conflict, message).hint(RUNNER_HINT);
     }
+    if message.contains(" needs a model: ") {
+        return invalid(&message).hint("Choose a model, then add the agent again.");
+    }
     let strategy = message.starts_with("invalid strategy ")
         || message.starts_with("bad YAML:")
         || message.contains(" at line ")
@@ -541,6 +544,19 @@ fn add_error(error: StrategyError) -> CoreError {
     } else {
         RUNNER_HINT
     })
+}
+
+/// `missingProviderModel` (`src/core/runners-config.ts`): an OpenCode provider
+/// account runs one of its provider's models; without one the edit would fail
+/// validation with a message about the whole strategy.
+fn missing_provider_model(account: &Value, model: Option<&str>) -> Option<String> {
+    let provider = account["provider"].as_str().filter(|p| !p.is_empty())?;
+    if account["source"] != "opencode" {
+        return None;
+    }
+    let chosen = model.or_else(|| account["model"].as_str());
+    (!chosen.is_some_and(|m| m.starts_with(&format!("{provider}/"))))
+        .then(|| format!("choose one of {provider}'s models ({provider}/<model>)"))
 }
 
 fn refuse(message: impl Into<String>) -> StrategyError {
@@ -599,6 +615,11 @@ fn add_runner(ctx: &Ctx, p: &Map<String, Value>) -> Result<Value, StrategyError>
     );
     if strategy["runners"].get(&id).is_some() {
         return Err(refuse(format!("runner {id} already exists")));
+    }
+    if let Some(problem) = missing_provider_model(&strategy["accounts"][account], text("model")) {
+        return Err(StrategyError::Other(format!(
+            "{id} needs a model: {problem}"
+        )));
     }
     let mut settings = Map::new();
     for key in ["model", "max_tasks", "test"] {

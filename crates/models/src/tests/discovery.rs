@@ -97,7 +97,7 @@ async fn runs_opencode_models_with_the_core_env_and_cwd() {
     let cwd = process.cwd.display();
     assert_eq!(
         fake.calls(),
-        format!("args=models pwd={cwd} cwd={cwd} probe=core-env\n")
+        format!("args=models --standalone pwd={cwd} cwd={cwd} probe=core-env\n")
     );
 }
 

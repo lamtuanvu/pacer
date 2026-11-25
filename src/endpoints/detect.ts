@@ -29,7 +29,7 @@ export function localServers(ctx: Ctx) {
 
 /** Only provider ids and names are read; connection ids and methods are ignored. */
 export async function signedInProviders(ctx: Ctx): Promise<{ id: string; name: string }[] | null> {
-  const r = await ctx.run(["opencode", "auth", "list", "--format", "json"], 15000);
+  const r = await ctx.run(["opencode", "auth", "list", "--standalone", "--format", "json"], 15000);
   if (r.code !== 0) return null;
   try {
     const list = JSON.parse(r.stdout);
@@ -48,8 +48,9 @@ export function configProviders(ctx: Ctx): { id: string; name: string }[] {
 /** null means OpenCode could not list models (not installed, failed or timed out), not "no models". */
 export async function opencodeModelIds(ctx: Ctx, provider: string): Promise<string[] | null> {
   // "opencode models <provider>" rejects a positional provider argument (verified against the real CLI),
-  // so all models are listed and filtered by the "<provider>/" prefix.
-  const r = await ctx.run(["opencode", "models"], 90000);
+  // so all models are listed and filtered by the "<provider>/" prefix. Like `opencode run`, the listings use a private
+  // server: OpenCode 2.2 fails every command that reaches a background service that cannot start.
+  const r = await ctx.run(["opencode", "models", "--standalone"], 90000);
   if (r.code !== 0 || (r as any).timedOut) return null;
   const prefix = `${provider}/`;
   return r.stdout.split(/\r?\n/).map(l => l.trim()).filter(l => l.startsWith(prefix)).map(l => l.slice(prefix.length));
