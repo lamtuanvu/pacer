@@ -39,7 +39,7 @@ export async function crateContentHash(bytes: Uint8Array): Promise<string> {
 
 /** Publication order: the independent generated protocol crates (CRATE-3 split), then the
  * SDK that depends on and re-exports all of them. */
-export const pluginCrateFolders = ["plugin-decision-protocol", "plugin-agent-session-protocol", "plugin-install-protocol", "plugin-hosts-protocol", "plugin-exec-protocol", "plugin-assistant-protocol", "plugin-protocol", "plugin-sdk"];
+export const pluginCrateFolders = ["plugin-decision-protocol", "plugin-agent-session-protocol", "plugin-install-protocol", "plugin-hosts-protocol", "plugin-exec-protocol", "plugin-assistant-protocol", "plugin-workflow-protocol", "plugin-protocol", "plugin-sdk"];
 
 /** Sequential publication is required for the SDK's registry dependency. */
 export async function publishPluginCrates(options: Publishing): Promise<void> {

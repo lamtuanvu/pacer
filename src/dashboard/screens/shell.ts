@@ -46,10 +46,11 @@ const CHROME = 6;
 export function tabs(s: ClientSnapshot): ScreenId[] {
   return ["home", "review", "sessions", "runs", "settings", ...(s.setup && s.setup.ready === false ? ["setup" as const] : [])];
 }
-/** While setup is incomplete, work screens show Setup, as the app redirects them to #/setup. */
+/** While setup is incomplete and the install is not yet onboarded, work screens show Setup, as the app redirects them to #/setup. */
 export function effectiveScreen(s: ClientSnapshot, screen: ScreenId, ops?: readonly string[]): ScreenId {
   if (screen === "sessions" && ops?.includes("session.create")) return screen;
-  return s.setup && s.setup.complete === false && ["home", "review", "sessions", "runs"].includes(screen) ? "setup" : screen;
+  const open = s.setup && !(s.setup.onboarded || s.setup.complete);
+  return open && ["home", "review", "sessions", "runs"].includes(screen) ? "setup" : screen;
 }
 
 export function screenContext(input: FrameInput): ScreenCtx {

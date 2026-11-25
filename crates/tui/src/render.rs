@@ -490,7 +490,9 @@ pub(crate) fn rows(input: &V, case: &V) -> Vec<Line> {
         wide: w >= 110,
         now: case["now"].as_f64().unwrap_or(num(&s["at"])),
     };
-    if s["setup"]["complete"] == false
+    let setup_open = s["setup"].is_object()
+        && !(s["setup"]["onboarded"] == true || s["setup"]["complete"] == true);
+    if setup_open
         && matches!(screen, "home" | "review" | "sessions" | "runs")
         && !(screen == "sessions"
             && arr(&case["ops"])

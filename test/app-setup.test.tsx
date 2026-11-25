@@ -12,7 +12,7 @@ import { bannerKey, nextOptional, performSetupAction, primaryItem, readDismissal
 const service: SetupItem = { id: 'service', title: 'Background service', required: true, status: 'pending', action: 'service.install' };
 const agent: SetupItem = { id: 'connect', title: 'Connect planner', required: true, status: 'pending', action: 'agent.connect', agent: 'codex' };
 const first: SetupItem = { id: 'first', title: 'First delegation', required: false, status: 'pending', action: 'onboarding.try' };
-const check: SetupChecklist = { checkedAt: 1, complete: false, ready: false, items: [service, agent, first] };
+const check: SetupChecklist = { checkedAt: 1, complete: false, onboarded: false, ready: false, items: [service, agent, first] };
 const query = { repo: null, scope: null };
 const api = { call: async <T,>() => ({} as T) } as unknown as BrowserApi;
 const inlineFrame = { inline: true, title: null, actions: null, header: null, left: null, right: null, heading() {} };
@@ -134,7 +134,7 @@ test('the Setup rail entry stays until ready and its status dot only marks requi
 });
 
 test("first delegation waits for required setup", () => {
-  const checklist = { checkedAt: 0, complete: false, ready: false, items: [
+  const checklist = { checkedAt: 0, complete: false, onboarded: false, ready: false, items: [
     { id: "service", title: "Background service", status: "pending" as const, required: true, action: "service.install" },
     { id: "first", title: "First delegation", status: "pending" as const, required: false, action: "onboarding.try" },
   ] };
@@ -264,7 +264,7 @@ test('signed-out accounts of the planner vendor remain visible below executors',
 });
 
 test('without a planner the connect step names no planner', () => {
-  const html = view({ checkedAt: 0, complete: false, ready: false, items: [
+  const html = view({ checkedAt: 0, complete: false, onboarded: false, ready: false, items: [
     { id: 'planner', title: 'Planner', status: 'pending', required: true, detail: 'Choose which agent plans your work', action: 'setup.init', options: ['claude-code', 'codex'] },
     { id: 'connect', title: 'Connect planner', status: 'pending', required: true },
   ] });

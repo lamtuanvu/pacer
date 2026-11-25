@@ -1,6 +1,6 @@
 # Built-in terminal
 
-Open **Terminal** from Pacer's side rail, or press `g` then `t`. Choose a workspace or enter an absolute working folder, then select **New terminal**. The shell opens in a tab and keeps running when you leave the page or close the app window. You can rename and close tabs, split the view between two tabs, and search terminal output. Closing a running tab asks for confirmation and stops its process.
+Open a shell from a task's workbench (`#/workspace?task=<id>`), reached from Dispatch or Tasks — there is no Workspace rail entry. Choose a repository or enter an absolute working folder, then select **New terminal**. The shell opens in a tab and keeps running when you leave the page or close the app window. You can rename and close tabs, split the view between two tabs, and search terminal output. Closing a running tab asks for confirmation and stops its process.
 
 Pacer settings actions that need an interactive shell open their own terminal tab in the app. The same terminal record reconnects after a reload. Task sessions remain on their task page, where their live viewer and control actions are available.
 
