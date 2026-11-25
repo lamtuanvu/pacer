@@ -1,6 +1,6 @@
 //! Golden tests for the desktop adoption store (mirror of the store-relevant
-//! `desktop-update-adoption.test.ts` cases). Byte parity with the
-//! TypeScript writer is proven cross-process by `adoption-worker.ts`.
+//! `desktop-update-adoption.test.ts` cases). The TypeScript writer and its
+//! cross-process fixture were retired with the TS desktop stack.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 use pacer_desktop_update::adoption_store::UpdateRequest;
 use pacer_desktop_update::{
@@ -12,28 +12,13 @@ use serde_json::{Value, json};
 use std::{
     fs,
     os::unix::fs::PermissionsExt,
-    path::{Path, PathBuf},
-    process::Command,
+    path::Path,
 };
 use tempfile::TempDir;
-
-fn repo_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..")
-}
 
 /// Identifiers accepted by `assertIdentifier`.
 const INSTALLATION_ID: &str = "attached";
 const REQUEST_ID: &str = "adopt-one";
-
-fn find_bun() -> Option<String> {
-    std::env::var("BUN")
-        .ok()
-        .filter(|p| Path::new(p).exists())
-        .or_else(|| ["bun"].iter().find(|c| which(c)).map(|s| s.to_string()))
-}
-fn which(c: &str) -> bool {
-    Command::new(c).arg("--version").output().is_ok()
-}
 
 /// A valid `AdoptionAuthority` mirroring the TypeScript test fixture.
 fn authority(home: &Path) -> Value {
@@ -457,61 +442,3 @@ fn reconnected_request_replays_original_authority() {
     assert_eq!(replay["authority"]["nativeSessionId"], json!("native"));
 }
 
-#[test]
-fn worker_written_adoption_reads_and_is_reread_by_typescript() {
-    let Some(bun) = find_bun() else {
-        eprintln!("bun unavailable; skipping cross-process golden test");
-        return;
-    };
-    let home = TempDir::new().unwrap();
-    let home_str = home.path().to_str().unwrap();
-
-    // TypeScript begins an adoption; it prints the persisted record.
-    let begin = Command::new(&bun)
-        .args([
-            "test/fixtures/desktop-update/adoption-worker.ts",
-            home_str,
-            "begin",
-        ])
-        .current_dir(repo_root())
-        .output()
-        .expect("begin worker");
-    assert!(begin.status.success(), "begin worker failed");
-    let worker_record: Value = serde_json::from_slice(&begin.stdout).unwrap();
-
-    // Native read sees the same row the TypeScript writer persisted.
-    let native = read_adoption(home.path(), INSTALLATION_ID)
-        .unwrap()
-        .unwrap();
-    assert_eq!(
-        native, worker_record,
-        "native read must match TS-written row"
-    );
-
-    // Native transition rewrites the row; TypeScript must re-read it.
-    transition_adoption(
-        home.path(),
-        INSTALLATION_ID,
-        native["revision"].as_u64().unwrap(),
-        "reserved",
-        None,
-    )
-    .unwrap();
-    let read = Command::new(&bun)
-        .args([
-            "test/fixtures/desktop-update/adoption-worker.ts",
-            home_str,
-            "read",
-        ])
-        .current_dir(repo_root())
-        .output()
-        .expect("read worker");
-    assert!(read.status.success(), "read worker failed");
-    let re_read: Value = serde_json::from_slice(&read.stdout).unwrap();
-    assert_eq!(
-        re_read["phase"],
-        json!("reserved"),
-        "TS must read native-written phase"
-    );
-    assert_eq!(re_read["installationId"], json!(INSTALLATION_ID));
-}
