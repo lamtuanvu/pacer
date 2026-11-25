@@ -7,13 +7,12 @@ use pacer_foundation::{
     api::{Code, CoreError},
 };
 use pacer_store::read_only::open_read_only;
-use regex::Regex;
 use serde_json::{Map, Value, json};
 use std::{
     cmp::Ordering,
     collections::{HashMap, HashSet},
     path::Path,
-    sync::{Arc, LazyLock},
+    sync::Arc,
     time::Duration,
 };
 
@@ -22,6 +21,7 @@ mod matching;
 
 pub use matching::{Scored, match_path, safe_repo_path};
 pub use pacer_repos::{RepoRef, list_repos_read_only};
+pub use pacer_store::role::{executor_session, orca_worktree_name};
 
 pub struct Limits {
     pub repos: usize,
@@ -186,57 +186,6 @@ pub fn parse_params(params: &Value) -> Result<FilesSearchInput, CoreError> {
         repo: map.get("repo").and_then(Value::as_str).map(str::to_owned),
         limit: map.get("limit").and_then(Value::as_f64).map(|n| n as usize),
     })
-}
-
-static ORCA_CWD: LazyLock<Option<Regex>> = LazyLock::new(|| {
-    Regex::new(r"/orca/workspaces/[^/]+/pacer-(t-[0-9]{8}-[0-9]{6}-[0-9a-f]{4})-([^/]+)(?:/|$)")
-        .ok()
-});
-
-/// `orcaWorktreeName` from `src/exec/orca/names.ts`.
-pub fn orca_worktree_name(name: &str) -> String {
-    static STEPS: LazyLock<Option<[Regex; 4]>> = LazyLock::new(|| {
-        Some([
-            Regex::new(r"[^\p{L}\p{N}._-]+").ok()?,
-            Regex::new(r"-+").ok()?,
-            Regex::new(r"\.{2,}").ok()?,
-            Regex::new(r"^[.-]+|[.-]+$").ok()?,
-        ])
-    });
-    let Some([other, dashes, dots, edges]) = STEPS.as_ref() else {
-        return name.to_owned();
-    };
-    let name = other.replace_all(name, "-");
-    let name = dashes.replace_all(&name, "-");
-    let name = dots.replace_all(&name, ".");
-    edges.replace_all(&name, "").into_owned()
-}
-
-/// `isExecutorSession(ctx)` for the serving process's working directory. `providers` is read
-/// only for an Orca workspace path and may return nothing when the strategy cannot load.
-pub fn executor_session(ctx: &Ctx, cwd: &Path, providers: impl FnOnce() -> Vec<String>) -> bool {
-    if ctx.env.get("PACER_ROLE").map(String::as_str) == Some("executor") {
-        return true;
-    }
-    let cwd = cwd.to_string_lossy();
-    let own = format!("{}/", ctx.pacer_home.join("worktrees").display());
-    if cwd
-        .strip_prefix(&own)
-        .and_then(|rest| rest.split('/').nth(1))
-        .is_some_and(pacer_store::is_task_id)
-    {
-        return true;
-    }
-    let Some(found) = ORCA_CWD.as_ref().and_then(|re| re.captures(&cwd)) else {
-        return false;
-    };
-    let (Some(id), Some(name)) = (found.get(1), found.get(2)) else {
-        return false;
-    };
-    pacer_store::is_task_id(id.as_str())
-        && providers()
-            .iter()
-            .any(|p| orca_worktree_name(p) == name.as_str())
 }
 
 fn js_truthy(value: Option<&Value>) -> bool {
