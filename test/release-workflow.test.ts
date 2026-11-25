@@ -527,6 +527,11 @@ test("the compiled-host shard gets its own Rust cache key; other shards share th
   const detect = steps.find(s => s.name === "Determine shard Rust cache scope")!;
   expect(detect.run).toContain("python3 scripts/ci/shard-tests.py");
   expect(detect.run).toContain("test/update-release-compiled.test.ts");
+  // The scope step must partition the suite exactly like the sharded test step.
+  const sharded = steps.find(s => s.name === "Test (full suite, sharded)")!;
+  for (const name of ["SHARD_INDEX", "SHARD_COUNT", "SHARD_EXCLUDE_MACOS"]) {
+    expect(String(detect.env?.[name])).toBe(String(sharded.env?.[name]));
+  }
   const cache = steps.find(s => s.uses?.startsWith("Swatinem/rust-cache@"))!;
   expect(String(cache.with?.["key"])).toBe("${{ steps.rust-cache-scope.outputs.musl == 'true' && 'compiled-host' || '' }}");
   expect(cache.with?.["workspaces"]).toBeUndefined();
