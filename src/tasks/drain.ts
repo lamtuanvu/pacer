@@ -1,3 +1,5 @@
+import { fallbackTier } from "../dispatch/tier-fallback";
+import { dispatchConfigSchema } from "../dispatch/types";
 import { authorizeRoute } from "./policy-route";
 import { policySummary } from "../plugins/policy";
 import { CoreError } from "../core/errors";
@@ -141,7 +143,8 @@ export async function drainQueue(ctx: Ctx, spawn: SpawnRunner = spawnRunner, dep
         ...(broken[p.id] ? {brokenReason: broken[p.id].reason} : {}),
       }]));
       const kind = await Promise.resolve().then(() => hooks.taskKind(ctx, task)).catch(() => task.kind);
-      const ranking = rankExecutors(kind, s, statuses, selection && { executors: selection.executors, order: "configured" }, {includePlanner:getWork(ctx,task.id)?.options.allowDelegation});
+      const ranking = rankExecutors(kind, s, statuses, selection && { executors: selection.executors, order: "configured" }, {includePlanner:getWork(ctx,task.id)?.options.allowDelegation,
+        targetTier: fallbackTier(task.difficulty, (s.dispatch ?? dispatchConfigSchema.parse({})).tierTargets)});
       let candidates = ranking.ranked.map(e => e.id);
       if (req) candidates = candidates.filter(id => id === req);
       else {
@@ -206,8 +209,13 @@ export async function drainQueue(ctx: Ctx, spawn: SpawnRunner = spawnRunner, dep
           }
           slotCandidates = [...balanceByLoad(rankedPermitted, s, use, statuses).map(e => e.id), ...rest];
         } else slotCandidates = permitted;
+        // A planner tier fallback pick waits for its own slot instead of falling to an executor below the tier.
+        // Managed work is ranked by its dispatch engine, which the runner follows instead.
+        const head = ranking.ranked[0];
+        const tierHead = !req && !getWork(ctx, task.id) && head?.tierFallback && slotCandidates.includes(head.id) && !executorExclusion(ctx, s, head.id) ? head.id : undefined;
+        if (tierHead) slotCandidates = [tierHead];
         const executor = slotCandidates.find(id => !executorExclusion(ctx, s, id) && !slotBlock(s, id, use, {guard: true}));
-        if (!executor) { refreshCapacityWait(ctx, task.id, s, permitted.find(id => !executorExclusion(ctx, s, id)), use); return; }
+        if (!executor) { refreshCapacityWait(ctx, task.id, s, tierHead ?? permitted.find(id => !executorExclusion(ctx, s, id)), use); return; }
         // A running reservation is claimed by the spawned process before its first attempt.
         const selected=updateTask(ctx, task.id, t => {routeAdmission.revalidate();t.state = "running"; t.executor = executor; delete t.queue; delete t.runnerPid;});
         routeAdmission.checkpoint(selected);

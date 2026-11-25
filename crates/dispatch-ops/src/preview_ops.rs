@@ -13,7 +13,7 @@ use pacer_config::{
 use pacer_dispatch::{
     Explain, LadderPreview, Ranked, ReadOnlyStore, apply_learned_fit, build_candidates,
     build_explanation, decision_hash, exclusion_reason, explain_ranked, model_inventory, reason,
-    run_ladder, status_observations, stored_observations,
+    run_ladder, status_observations, stored_observations, target_tier,
 };
 use pacer_engine::{balance::balance_by_load, pause::read_pause, rank_executors, usage_broker};
 use pacer_foundation::{
@@ -361,9 +361,15 @@ impl Request<'_> {
             .ok_or_else(|| invalid_reply("dispatch parts"))
     }
 
-    /// `rankExecutors(kind, strategy, byId, selection && {...}, {includePlanner})`.
-    fn rank(&self, status: &Value, selection: Option<&Value>, include_planner: bool) -> Value {
-        rank_executors(&json!({
+    /// `rankExecutors(kind, strategy, byId, selection && {...}, {includePlanner, targetTier})`.
+    fn rank(
+        &self,
+        status: &Value,
+        selection: Option<&Value>,
+        include_planner: bool,
+        target_tier: Option<&str>,
+    ) -> Value {
+        let mut input = json!({
             "strategy": self.strategy,
             "statuses": by_id(status),
             "selection": selection.map_or(Value::Null, |s| {
@@ -371,7 +377,11 @@ impl Request<'_> {
             }),
             "kind": self.input.get("kind").cloned().unwrap_or(Value::Null),
             "includePlanner": include_planner,
-        }))
+        });
+        if let Some(tier) = target_tier {
+            input["targetTier"] = json!(tier);
+        }
+        rank_executors(&input)
     }
 }
 
@@ -393,6 +403,20 @@ fn slot_block(strategy: &Value, id: &str, use_: &Value) -> Option<String> {
         .local
         .filter(|max| local >= *max)
         .map(|max| format!("this machine busy ({local}/{max})"))
+}
+
+/// `fallbackTier` in `src/dispatch/tier-select.ts`: the planner tier fallback guards
+/// only complex tasks or an explicit `minTier`.
+fn fallback_tier<'a>(
+    difficulty: &str,
+    targets: &'a Value,
+    min_tier: Option<&'a str>,
+) -> Option<&'a str> {
+    if difficulty == "complex" || min_tier.is_some() {
+        target_tier(difficulty, targets, min_tier)
+    } else {
+        None
+    }
 }
 
 /// `previewDispatch`'s read-only outputs (`ReadOnlyDispatch`).
@@ -428,7 +452,12 @@ async fn preview(
     let key = repo["key"].as_str().unwrap_or_default();
     let selection = project_selection(strategy, key, &projects);
     let status = r.status(ctx, bridge).await?;
-    let ranking = r.rank(&status, selection.as_ref(), include_planner);
+    let min_tier = input
+        .get("requirements")
+        .and_then(|r| r.get("minTier"))
+        .and_then(Value::as_str);
+    let tier = fallback_tier(difficulty, &config["tierTargets"], min_tier);
+    let ranking = r.rank(&status, selection.as_ref(), include_planner, tier);
     let mut excluded: Vec<Value> = ranking["excluded"]
         .as_array()
         .into_iter()
@@ -728,7 +757,13 @@ async fn explain_delegate(
         &projects,
     );
     let status = r.status(ctx, bridge).await?;
-    let ranking = r.rank(&status, selection.as_ref(), false);
+    let difficulty = text(r.input, "difficulty").unwrap_or("standard");
+    let config = match &strategy["dispatch"] {
+        Value::Null => default_dispatch_config(),
+        config => config.clone(),
+    };
+    let tier = fallback_tier(difficulty, &config["tierTargets"], None);
+    let ranking = r.rank(&status, selection.as_ref(), false, tier);
     let use_ = slot_use(&ro.store.slot_tasks()?);
     let ranked: Vec<Value> = ranking["ranked"].as_array().cloned().unwrap_or_default();
     let (guards, hooks) = r.guards(&ids(&ranking["ranked"]), bridge).await?;

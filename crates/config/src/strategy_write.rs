@@ -184,6 +184,7 @@ fn schema_keys(prefix: &[&str]) -> Option<&'static [&'static str]> {
             "planner_probe",
             "ahead_threshold",
             "behind_threshold",
+            "planner_tier_fallback",
         ]),
         ["execution"] => Some(&["backend", "worktree", "base_branch"]),
         ["classifier"] => Some(&[

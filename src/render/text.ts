@@ -58,6 +58,7 @@ export function renderText(st: Status, policy: PolicySummary | undefined = st.po
   lines.push(ex.ranked.length
     ? `Executor preference: ${ex.ranked.map((e) => `${e.id}${e.fallback ? " (uncertain fallback)" : ""}`).join(" > ")}${excluded.length ? ` (excluded: ${excluded.join(", ")})` : ""}`
     : `No executor available${excluded.length ? ` (${excluded.join(", ")})` : ""}. ${planner} does the work; keep it lean.`);
+  if (ex.tierFallback) lines.push(`Tier fallback: complex tasks route to ${ex.tierFallback.runner} (no other ${ex.tierFallback.targetTier} executor available).`);
   lines.push(`Pace clock: ${st.calendarPace ? "calendar (not enough activity history yet)" : "learned activity"}`);
   return lines.join("\n");
 }

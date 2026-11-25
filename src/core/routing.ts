@@ -8,6 +8,9 @@ import { KINDS } from "../config/strategy";
 import { resolvePolicyRepoInput } from "./project-policy";
 import { type Strategy, loadStrategy } from "../config/strategy";
 import { rankExecutors } from "../engine/rank";
+import { type Difficulty } from "../dispatch/tier-select";
+import { fallbackTier } from "../dispatch/tier-fallback";
+import { dispatchConfigSchema } from "../dispatch/types";
 import { balanceByLoad } from "../engine/balance";
 import { SLOT_STATES, slotUse } from "../engine/slots";
 import { listTasksWhere } from "../tasks/store";
@@ -19,7 +22,7 @@ export function status(ctx: Ctx, s: Strategy = loadStrategy(ctx)): Promise<Statu
   return computeStatus(ctx, s);
 }
 
-export async function route(ctx: Ctx, kind: string | null, s: Strategy = loadStrategy(ctx), o: {goal?:string;repo?:string;conversation?:boolean} = {}) {
+export async function route(ctx: Ctx, kind: string | null, s: Strategy = loadStrategy(ctx), o: {goal?:string;repo?:string;conversation?:boolean;difficulty?:Difficulty} = {}) {
   const repo=o.repo===undefined?undefined:await resolvePolicyRepoInput(ctx,o.repo);
   if(kind===null && o.goal!==undefined) {
     const cfg=classifierConfig(s);
@@ -40,7 +43,7 @@ export async function route(ctx: Ctx, kind: string | null, s: Strategy = loadStr
   const conversationRanked = s.pacing.balance === "least-loaded" && o.conversation && !selection;
   // With balance on, a conversation ranks like the runner (policy bands), not as a curated selection.
   const r = rankExecutors(kind, s, Object.fromEntries(st.providers.map((p) => [p.id, p])),
-    conversationRanked ? undefined : candidates, {includePlanner: o.conversation});
+    conversationRanked ? undefined : candidates, {includePlanner: o.conversation, targetTier: fallbackTier(o.difficulty, (s.dispatch ?? dispatchConfigSchema.parse({})).tierTargets)});
   const ranked = s.pacing.balance === "least-loaded"
     ? balanceByLoad(r.ranked, s, slotUse(listTasksWhere(ctx, { states: SLOT_STATES }), ctx), Object.fromEntries(st.providers.map((p) => [p.id, p])))
     : r.ranked;

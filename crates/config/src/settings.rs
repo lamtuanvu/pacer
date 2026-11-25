@@ -46,6 +46,7 @@ pub const CONFIG_KEYS: &[&str] = &[
     "pacing.accounts",
     "pacing.fill_threshold",
     "pacing.balance",
+    "pacing.planner_tier_fallback",
     "update_check",
     "update_channel",
     "terminal.app",
@@ -314,6 +315,7 @@ fn effective(s: &Value, raw: &Value) -> Map<String, Value> {
         ("accounts", "accounts"),
         ("fill_threshold", "fillThreshold"),
         ("balance", "balance"),
+        ("planner_tier_fallback", "plannerTierFallback"),
     ] {
         out.insert(format!("pacing.{key}"), s["pacing"][field].clone());
     }

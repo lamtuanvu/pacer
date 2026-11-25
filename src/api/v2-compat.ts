@@ -131,6 +131,11 @@ export function v2Params(name:string,params:unknown):unknown {
  // `update_channel` is a protocol 3 addition; the frozen 2.x config.set keys stay as documented.
  if(name==='config.set'&&params&&typeof params==='object'&&!Array.isArray(params)&&(params as {key?:unknown}).key==='update_channel')
   throw new CoreError('invalid_input','key: "update_channel" requires protocol 3');
+ // The planner tier fallback is a protocol 3 addition (setting and route difficulty).
+ if(name==='config.set'&&params&&typeof params==='object'&&!Array.isArray(params)&&(params as {key?:unknown}).key==='pacing.planner_tier_fallback')
+  throw new CoreError('invalid_input','key: "pacing.planner_tier_fallback" requires protocol 3');
+ if(name==='routing.route'&&params&&typeof params==='object'&&!Array.isArray(params)&&'difficulty' in params)
+  throw new CoreError('invalid_input','params: Unrecognized key: "difficulty"');
  if(name!=='task.review'||!params||typeof params!=='object'||Array.isArray(params))return params;
  const p=params as Record<string,unknown>;
  if(p.accepted!==undefined&&typeof p.accepted!=='boolean')throw new CoreError('invalid_input','accepted: expected boolean');
@@ -188,7 +193,9 @@ export function v2OpJsonSchemas():ReturnType<typeof opJsonSchemas> {
  schemas['notifications.set'].params={...openNotifications,required:['level'],additionalProperties:closed} as typeof schemas['notifications.set']['params'];
  // `update_channel` is a protocol 3 addition; 2.x keeps its frozen config.set keys.
  const configKey=(schemas['config.set'].params as unknown as {properties:{key:{enum:string[]}}}).properties.key;
- configKey.enum=configKey.enum.filter(key=>key!=='update_channel');
+ configKey.enum=configKey.enum.filter(key=>key!=='update_channel'&&key!=='pacing.planner_tier_fallback');
+ // The route difficulty (planner tier fallback) is a protocol 3 addition.
+ delete (schemas['routing.route'].params as {properties:Record<string,unknown>}).properties.difficulty;
  // v3 describes the additive per-file changes and undo flag; v2 keeps its frozen text.
  schemas['agent.preview'].description="Preview agent integration files and the undo command before consenting.";
  schemas['agent.connect'].description="Connect an agent after explicit consent to write its integration files.";

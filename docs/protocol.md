@@ -145,7 +145,7 @@ Task retention defaults to 14 days (`task_retention_days`, zero disables). Defau
 `task.request_review` adds a human handoff note (1–2000 trimmed characters) to an unresolved done or partial task. It accepts optional `expect_rev`, returns `{ task }`, and never records an acceptance. Repeating the same note is a no-op after revision validation. Task reads/events expose additive `reviewRequest` and `acceptanceState` fields. Ordinary completion without a verdict does not generate review attention.
 Task mutations `task.stop`, `task.retry`, `task.answer`, `task.review` and `task.dismiss` accept optional `expect_rev`. A revision mismatch returns `conflict` with `data.task` containing the current task; omitting expect_rev preserves unconditional behavior. Task revisions increase on persisted changes.
 
-`task.delegate` accepts optional `request_id` (1–128 characters, deduplicated for 600 seconds), `base` (branch/ref or 7–40 hex SHA) and `source` (`planner`, `ui`, `cli`). A repo may be an absolute path or RepoRef key. HTTP client labels starting with app, desktop, orca, tui or tray default source to ui; others default to planner. `routing.route { kind?, goal?, repo? }` classifies goal when kind is absent.
+`task.delegate` accepts optional `request_id` (1–128 characters, deduplicated for 600 seconds), `base` (branch/ref or 7–40 hex SHA) and `source` (`planner`, `ui`, `cli`). A repo may be an absolute path or RepoRef key. HTTP client labels starting with app, desktop, orca, tui or tray default source to ui; others default to planner. `routing.route { kind?, goal?, repo?, difficulty? }` classifies goal when kind is absent; `difficulty` `complex` enables the planner tier fallback (`pacing.planner_tier_fallback`).
 
 `task.list { limit?, before?, repo?, states?, executor?, since? }` always returns `{ tasks, next }`. Calls with only limit or no parameters also return a page. `since` is a Unix time and filters to tasks **created** at or after it (creation time, not update time). RepoRef optionally carries `unreachable: true` when a folder probe fails or times out; cached task repo identities are retained and a later successful probe clears the flag. `repo.list` returns RepoRefs with branches (current first, at most 50); `repo.add { path }` registers a git repository and returns its RepoRef; `repo.remove { key }` returns `{ removed: true }`.
 
@@ -2169,6 +2169,7 @@ Params JSON Schema:
         "pacing.accounts",
         "pacing.fill_threshold",
         "pacing.balance",
+        "pacing.planner_tier_fallback",
         "update_check",
         "update_channel",
         "terminal.app",
@@ -6828,6 +6829,14 @@ Params JSON Schema:
     "repo": {
       "type": "string",
       "minLength": 1
+    },
+    "difficulty": {
+      "type": "string",
+      "enum": [
+        "simple",
+        "standard",
+        "complex"
+      ]
     }
   },
   "additionalProperties": false

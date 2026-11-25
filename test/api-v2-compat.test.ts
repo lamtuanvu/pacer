@@ -519,3 +519,15 @@ test('v2 task events strip promptWait on the real eventsSince path', async () =>
     expect(JSON.stringify(e)).not.toContain('promptWait');
   }
 });
+
+test('the planner tier fallback stays out of the frozen 2.x surface',async()=>{
+ const {callV2Op,v2OpJsonSchemas}=await import('../src/api/v2-compat');
+ const {opJsonSchemas}=await import('../src/api/ops');
+ const {fakeCtx}=await import('./helpers');
+ const keys=(schemas:Record<string,{params:unknown}>)=>(schemas['config.set']!.params as {properties:{key:{enum:string[]}}}).properties.key.enum;
+ expect(keys(opJsonSchemas())).toContain('pacing.planner_tier_fallback');
+ expect(keys(v2OpJsonSchemas())).not.toContain('pacing.planner_tier_fallback');
+ expect((v2OpJsonSchemas()['routing.route']!.params as {properties:Record<string,unknown>}).properties.difficulty).toBeUndefined();
+ await expect(callV2Op(fakeCtx(),'config.set',{key:'pacing.planner_tier_fallback',value:'off'})).rejects.toMatchObject({code:'invalid_input',message:'key: "pacing.planner_tier_fallback" requires protocol 3'});
+ await expect(callV2Op(fakeCtx(),'routing.route',{kind:'feature',difficulty:'complex'})).rejects.toMatchObject({code:'invalid_input',message:'params: Unrecognized key: "difficulty"'});
+});

@@ -37,8 +37,9 @@ non-negative sequence number), replies with `{ "subscribed": true, "last": N }`,
 and streams `event` notifications. A `reset` event means re-fetch the snapshot.
 Closing stdin stops subscription polling and drains outstanding requests.
 
-Read `pacer status --json`, choose an executor with `pacer route <kind> --json`, then
-write a brief JSON file:
+Read `pacer status --json`, choose an executor with `pacer route <kind> --json`
+(add `--difficulty complex` for a large task, so the planner tier fallback below is
+considered), then write a brief JSON file:
 
 ```json
 {"goal":"Fix the flaky test","repo":"/absolute/repo","kind":"debug","difficulty":"standard","scope":"test/","acceptance":"bun test","worktree":"current","worktree_reason":"Follow-up on uncommitted work"}
@@ -539,6 +540,7 @@ command. Account and runner list JSON are arrays (see the accounts guide).
 | pacing.accounts | `spread` or `fill` (default `spread`) |
 | pacing.fill_threshold | Percent, 50–100 (default 90) |
 | pacing.balance | `off` (default) or `least-loaded`; spread work across equally acceptable executors by current load |
+| pacing.planner_tier_fallback | `on` (default) or `off`; send a complex task to the planner's own account, even when it is ahead of pace, when no other executor declares a model at the complex-task tier |
 | update_check | `true` or `false` (default `true`) |
 | update_channel | `stable` (default) or `nightly`; which releases `pacer update`, update checks and Settings › Updates offer (see [Update checks](#update-checks)) |
 
