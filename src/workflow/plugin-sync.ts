@@ -178,6 +178,19 @@ export function pluginWorkflowsAreLive(info: PluginInfo | undefined, manifest: P
 }
 
 /**
+ * Whether the plugin's stored definitions should be marked disabled: the plugin
+ * is gone, switched off, refused, ungranted, or its grant no longer covers the
+ * workflows. A live-but-broken plugin (`failing`, like `starting`/`idle`/`ready`)
+ * keeps its definitions listed — only new starts are refused by the live gate.
+ */
+export function pluginWorkflowsShouldBeDisabled(info: PluginInfo | undefined, manifest: PluginManifest | null): boolean {
+  if (!info) return true;
+  if (info.state === "disabled" || info.state === "refused" || info.state === "needs_grant") return true;
+  if (!info.enabled) return true;
+  return !grantCoversWorkflows(info, manifest);
+}
+
+/**
  * Refuse starting a plugin-origin definition when the contributing plugin is not
  * live (disabled, removed, failing/refused, needs_grant, or grant misses the name).
  * Bundled plugins are trusted. Manual origins are unrestricted here.
@@ -246,8 +259,7 @@ export function reconcilePluginWorkflowFlags(ctx: Ctx): void {
   for (const pluginId of pluginIds) {
     const info = byId.get(pluginId);
     const manifest = reg.manifestOf(ctx, pluginId);
-    const live = pluginWorkflowsAreLive(info, manifest);
-    setPluginDefinitionsDisabled(ctx, pluginId, !live);
+    setPluginDefinitionsDisabled(ctx, pluginId, pluginWorkflowsShouldBeDisabled(info, manifest));
   }
 }
 
