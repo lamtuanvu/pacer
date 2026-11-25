@@ -9,9 +9,9 @@ import { publish } from "../src/link/publish";
 import { startServer } from "../src/serve/http";
 import { HttpClient } from "../src/api/http-client";
 import { helloBody } from "../src/api/protocol";
-import { createDesktopUpdateRuntime, bindDesktopUpdateRuntime, HELPER_INTEGRITY_DETAIL, NIGHTLY_HELPER_TOO_OLD, type NativeAuthorityProvider, type VerifiedNativeSession } from "../src/update/desktop/service";
+import { createDesktopUpdateRuntime, bindDesktopUpdateRuntime, HELPER_DATA_FOLDER_DETAIL, HELPER_INTEGRITY_DETAIL, NIGHTLY_HELPER_TOO_OLD, STORAGE_FAILURE_DETAIL, type NativeAuthorityProvider, type VerifiedNativeSession } from "../src/update/desktop/service";
 import { FrameDecoder, encodeFrame, parseAdapterCommand, type VerifiedPipeFactory, type AdapterCommand } from "../src/update/desktop/adapter";
-import { helperIntegrity, helperRetired } from "../src/update/desktop/native-helper-errors";
+import { helperDataFolder, helperIntegrity, helperRetired, helperStorage } from "../src/update/desktop/native-helper-errors";
 import { desktopUpdateIndicator } from "../src/view-model/updates";
 import { requestRestart } from "../src/update/desktop/policy";
 import { readUpdate, writeUpdate } from "../src/update/desktop/store";
@@ -433,6 +433,49 @@ test("a helper integrity refusal stays a ranked update failure, never a transien
   const indicator=desktopUpdateIndicator([status]);
   expect(indicator?.label).toBe("Update needs attention");
   expect(indicator?.tone).toBe("bad");
+});
+
+test("a staging storage failure stays a ranked update failure, never a neutral check", async()=>{
+  const f=fixture({autoDownload:false});
+  // The real adapter maps this error; only factory.open is faked.
+  f.factory.open=async()=>{throw helperStorage();};
+  await f.runtime.start();
+  await f.runtime.check(f.request("storage-check")); await f.runtime.settled();
+  const status=f.runtime.status("desktop");
+  expect(status.error?.code).toBe("update_failed");
+  expect(status.error?.code).not.toBe("check_unavailable");
+  expect(status.error?.message).toBe(STORAGE_FAILURE_DETAIL);
+  expect(status.error?.message).toContain("free disk space");
+  expect(JSON.stringify(status)).not.toContain("local storage failure");
+  expect(f.commands).toEqual([]);
+  const indicator=desktopUpdateIndicator([status]);
+  expect(indicator?.label).toBe("Update needs attention");
+  expect(indicator?.tone).toBe("bad");
+});
+
+test("a data-folder integrity refusal names the folder remedy, not reinstalling pacer", async()=>{
+  const f=fixture({autoDownload:false});
+  f.factory.open=async()=>{throw helperDataFolder();};
+  await f.runtime.start();
+  await f.runtime.check(f.request("data-folder-check")); await f.runtime.settled();
+  const status=f.runtime.status("desktop");
+  expect(status.error?.code).toBe("update_failed");
+  expect(status.error?.message).toBe(HELPER_DATA_FOLDER_DETAIL);
+  expect(status.error?.message).not.toContain("Reinstall");
+  expect(desktopUpdateIndicator([status])?.tone).toBe("bad");
+});
+
+test("an integrity refusal during install keeps its reinstall remedy", async()=>{
+  const f=fixture();
+  await f.ready();
+  f.factory.open=async()=>{throw helperIntegrity();};
+  await f.runtime.restart({...f.request("restart-install"),version:candidate.version,clientId:"native-desktop"});
+  await f.runtime.tick(); await f.runtime.settled();
+  const status=f.runtime.status("desktop");
+  expect(status.phase).toBe("error");
+  expect(status.error?.code).toBe("pre_handoff");
+  expect(status.error?.message).toBe(HELPER_INTEGRITY_DETAIL);
+  expect(desktopUpdateIndicator([status])?.tone).toBe("bad");
 });
 
 test("an interrupted download persists plain copy that names the retry button", async()=>{

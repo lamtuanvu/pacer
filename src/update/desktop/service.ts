@@ -73,6 +73,10 @@ export const CHECK_INTERRUPTED = "check_interrupted";
 export const DOWNLOAD_FAILED = "download_failed";
 /** A helper that fails local verification is a real failure with an actionable, plain-language remedy. */
 export const HELPER_INTEGRITY_DETAIL = "pacer couldn't verify its update helper. Reinstall pacer from the website, then check again.";
+/** A staging refusal caused by the pacer data folder itself, not by the signed app: reinstalling cannot fix it. */
+export const HELPER_DATA_FOLDER_DETAIL = "pacer's data folder has unexpected permissions. Check its owner and permissions, then check again.";
+/** A local storage failure while preparing the helper: plain, red copy, never a neutral check. */
+export const STORAGE_FAILURE_DETAIL = "pacer couldn't prepare the update because there isn't enough free disk space or its data folder isn't writable. Free some space, then check again.";
 const TRANSIENT_CHECK_DETAIL = "Couldn't check for updates. Check your connection, then try again.";
 const DOWNLOAD_FAILED_DETAIL = "The update couldn't be downloaded. Check your connection, then choose Download update to try again.";
 const DOWNLOAD_INTERRUPTED_DETAIL = "The download was interrupted. Choose Download update to try again.";
@@ -260,23 +264,28 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
           const adapterError = error instanceof AdapterError ? error : undefined;
           const reason = adapterError?.reason;
           const integrity = reason === "integrity";
+          const storage = reason === "storage";
+          const dataFolder = integrity && adapterError?.integrityDetail === "data-folder";
           const retired = reason === "channel-retired";
           // A helper that predates channels closes on the nightly `channel` key without sending a frame.
           const tooOld = request.command === "check" && request.channel === "nightly" && reason === "closed" && !!adapterError?.beforeFrames;
-          const transient = !tooOld && !integrity && !retired && transientCheckFailure(request.command, error);
+          const transient = !tooOld && !integrity && !storage && !retired && transientCheckFailure(request.command, error);
           const download = request.command === "download";
           const diagnostic = tooOld ? NIGHTLY_HELPER_TOO_OLD : adapterError?.message ?? "Desktop update could not be verified";
-          // Adapter wording is a diagnostic, never user-facing copy. Integrity and a
-          // retired channel each keep their one working recovery step.
-          const detail = integrity ? HELPER_INTEGRITY_DETAIL
+          // Adapter wording is a diagnostic, never user-facing copy. Integrity, a data
+          // folder refusal, storage exhaustion and a retired channel each keep their
+          // one working recovery step.
+          const detail = storage ? STORAGE_FAILURE_DETAIL
+            : dataFolder ? HELPER_DATA_FOLDER_DETAIL
+            : integrity ? HELPER_INTEGRITY_DETAIL
             : retired ? RETIRED_CHANNEL_DETAIL
             : transient ? TRANSIENT_CHECK_DETAIL
             : download ? (reason && NON_TRANSIENT_DOWNLOAD_REASONS.has(reason) ? GENERIC_DOWNLOAD_DETAIL : DOWNLOAD_FAILED_DETAIL)
             : diagnostic;
           persist({ ...restored, phase: restored.phase === "ready" ? "ready" : "error", error: {
             // A failed download keeps its own code so it stays a ranked, red failure.
-            // An adapter close/timeout is only a transient CHECK; an integrity refusal
-            // is a real update_failed and must stay red and ranked.
+            // An adapter close/timeout is only a transient CHECK; an integrity or
+            // storage refusal is a real update_failed and must stay red and ranked.
             code: transient ? CHECK_UNAVAILABLE : download ? DOWNLOAD_FAILED : "update_failed",
             message: detail,
           } });
@@ -379,8 +388,14 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
       // Only a fresh install can prove no authorization was sent. A failed
       // recovery connection says nothing about the original durable handoff.
       if (!recovery && error instanceof AdapterError && error.handoff === "none") {
+        // Keep the same plain, actionable copy on install as on check. The raw
+        // adapter message is internal and would render as generic "couldn't finish".
+        const detail = error.reason === "storage" ? STORAGE_FAILURE_DETAIL
+          : error.reason === "integrity"
+          ? error.integrityDetail === "data-folder" ? HELPER_DATA_FOLDER_DETAIL : HELPER_INTEGRITY_DETAIL
+          : error.message;
         persist({ ...value, phase: "error", requestId: null, requestedBy: null, requesterBootId: null,
-          error: { code: "pre_handoff", message: error.message } });
+          error: { code: "pre_handoff", message: detail } });
         await release(id, transactionId);
       } else {
         persist({ ...value, phase: "recovery-failed", error: { code: "handoff_uncertain", message: "Desktop update requires transaction recovery" } });

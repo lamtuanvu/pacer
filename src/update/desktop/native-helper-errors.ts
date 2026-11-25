@@ -29,3 +29,27 @@ export class NativeHelperIntegrityError extends Error {
 }
 export const helperIntegrity = (message?: string, cause?: unknown) =>
   new NativeHelperIntegrityError(message, cause);
+
+/** A local storage/permission failure while staging the helper under PACER_HOME
+ *  (disk full, read-only or unwritable data folder, I/O error). Fail closed, but
+ *  never report it as a tampered helper or as a transient network check. */
+export class NativeHelperStorageError extends Error {
+  constructor(message = "Desktop update helper could not be staged because of a local storage failure", cause?: unknown) {
+    super(message, cause === undefined ? undefined : { cause });
+    this.name = "NativeHelperStorageError";
+  }
+}
+export const helperStorage = (message?: string, cause?: unknown) =>
+  new NativeHelperStorageError(message, cause);
+
+/** A post-mkdir staging refusal: the pacer data folder, not the signed app, has
+ *  unexpected ownership or permissions. Still integrity (fail closed), but the
+ *  remedy is to fix the folder rather than reinstall pacer. */
+export class NativeHelperDataFolderError extends NativeHelperIntegrityError {
+  constructor(message = "pacer's data folder has unexpected permissions", cause?: unknown) {
+    super(message, cause);
+    this.name = "NativeHelperDataFolderError";
+  }
+}
+export const helperDataFolder = (message?: string, cause?: unknown) =>
+  new NativeHelperDataFolderError(message, cause);

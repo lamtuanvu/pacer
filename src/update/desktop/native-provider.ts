@@ -18,7 +18,7 @@ import {
 /** Private service composition. Public client registration cannot reach this channel. */
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import type { ParentHelperSpawner } from "./native-parent-helper";
-import { helperRefused, NativeHelperIntegrityError } from "./native-helper-errors";
+import { helperRefused, NativeHelperDataFolderError, NativeHelperIntegrityError, NativeHelperStorageError } from "./native-helper-errors";
 import {
   closeSync,
   chmodSync,
@@ -85,6 +85,7 @@ import {
 import {
   parseAdapterCommand,
   type PreparedFrame,
+  type VerifiedPipe,
   type VerifiedPipeFactory,
   encodeFrame,
 } from "./adapter";
@@ -2083,6 +2084,13 @@ export function nativeRecoveryHelper(
   };
 }
 
+/** The node:fs operations used while staging a helper under PACER_HOME. Production
+ *  uses the real module; tests override one operation to simulate a deterministic
+ *  disk/permission failure (Linux CI runs as root, so chmod-based fixtures are unreliable). */
+export type NativeStageFs = Pick<typeof import("node:fs"),
+  "realpathSync" | "mkdirSync" | "lstatSync" | "copyFileSync" | "chmodSync" |
+  "openSync" | "fsyncSync" | "closeSync" | "fstatSync" | "readSync" | "rmSync">;
+
 /** Acquire only a copied, independently verified helper from a live native bundle. */
 export function createNativePipeFactory(
   getCtx: () => Ctx,
@@ -2090,7 +2098,21 @@ export function createNativePipeFactory(
   authority: DarwinAuthority,
   owner?: NativeServiceOwner,
   parentHelpers?: Pick<ParentHelperSpawner, "spawn">,
+  stageFs?: Partial<NativeStageFs>,
 ): VerifiedPipeFactory {
+  const fsOps: NativeStageFs = {
+    realpathSync: stageFs?.realpathSync ?? realpathSync,
+    mkdirSync: stageFs?.mkdirSync ?? mkdirSync,
+    lstatSync: stageFs?.lstatSync ?? lstatSync,
+    copyFileSync: stageFs?.copyFileSync ?? copyFileSync,
+    chmodSync: stageFs?.chmodSync ?? chmodSync,
+    openSync: stageFs?.openSync ?? openSync,
+    fsyncSync: stageFs?.fsyncSync ?? fsyncSync,
+    closeSync: stageFs?.closeSync ?? closeSync,
+    fstatSync: stageFs?.fstatSync ?? fstatSync,
+    readSync: stageFs?.readSync ?? readSync,
+    rmSync: stageFs?.rmSync ?? rmSync,
+  };
   return {
     capabilities: new Set(["check", "download", "install", "recover", "adopt", "recover-adoption"]),
     async open(installationId, signal) {
@@ -2150,59 +2172,81 @@ export function createNativePipeFactory(
       // Check launch capability before staging anything: no command directory
       // or helper copy is created when Root cannot hand off a helper.
       if (owner && (!parentHelpers || signal.aborted)) throw helperRefused();
-      let directory = realpathSync(ctx.pacerHome);
-      let staged: string | undefined;
-      for (const part of recovery
+      // Environmental errno from staging under PACER_HOME is a storage failure,
+      // never a damaged helper or a transient check. Keep the fail-closed behaviour:
+      // every path below throws before a helper is spawned or a frame is written.
+      const storageErrnos = new Set(["ENOSPC", "EDQUOT", "EROFS", "EACCES", "EPERM", "EIO"]);
+      const storageFailure = (error: unknown, message: string) => {
+        const code = (error as NodeJS.ErrnoException | undefined)?.code;
+        return code && storageErrnos.has(code) ? new NativeHelperStorageError(message, error) : undefined;
+      };
+      const stageWrite = <T>(operation: () => T, message: string): T => {
+        try { return operation(); }
+        catch (error) { throw storageFailure(error, message) ?? error; }
+      };
+      let directory = fsOps.realpathSync(ctx.pacerHome);
+      const parts = recovery
         ? []
-        : [
-            "desktop-updates",
-            "native",
-            installationId,
-            "commands",
-            randomUUID(),
-          ]) {
-        directory = join(directory, part);
-        try {
-          mkdirSync(directory, { mode: 0o700 });
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== "EEXIST")
-            throw new NativeHelperIntegrityError("Desktop update helper staging directory could not be created", error);
-        }
-        const stat = lstatSync(directory);
-        if (
-          !stat.isDirectory() ||
-          stat.isSymbolicLink() ||
-          stat.uid !== process.getuid?.() ||
-          stat.mode & 0o077 ||
-          realpathSync(directory) !== directory
-        )
-          throw new NativeHelperIntegrityError("Desktop update helper staging directory failed integrity verification");
-      }
-      if (!recovery) staged = directory;
-      const helperIdentity =
-        recovery?.identity ??
-        (await nativeHelperIdentity(ctx, session.installation));
-      const source =
-          recovery?.source ??
-          join(session.installation.appPath, BUNDLED_HELPER_PATH),
-        helper = recovery?.source ?? join(directory, "pacer-update-helper");
-      helperIntegrityCheck(() => authority.verifyStatic(source, "helper"));
-      if (!recovery) {
-        copyFileSync(source, helper, constants.COPYFILE_EXCL);
-        chmodSync(helper, 0o700);
-      }
-      helperIntegrityCheck(() => authority.verifyStatic(helper, "helper"));
-      const fd = openSync(helper, constants.O_RDONLY | constants.O_NOFOLLOW);
+        : ["desktop-updates", "native", installationId, "commands", randomUUID()];
+      // Set the command path before any mkdir: a failure partway through staging
+      // (including an lstat refusal) can then clear its own directory best effort.
+      let staged: string | undefined = recovery
+        ? undefined
+        : parts.reduce((path, part) => join(path, part), directory);
+      let helperIdentity!: VerifiedPipe["identity"];
+      let source!: string;
+      let helper!: string;
+      const cleanupStaged = () => {
+        if (!staged) return;
+        try { fsOps.rmSync(staged, { recursive: true, force: true }); } catch { /* best effort */ }
+      };
       try {
-        fsyncSync(fd);
-      } finally {
-        closeSync(fd);
+        for (const part of parts) {
+          directory = join(directory, part);
+          try {
+            fsOps.mkdirSync(directory, { mode: 0o700 });
+          } catch (error) {
+            const storage = storageFailure(error, "Desktop update helper staging directory could not be created");
+            if (storage) throw storage;
+            if ((error as NodeJS.ErrnoException).code !== "EEXIST")
+              throw new NativeHelperIntegrityError("Desktop update helper staging directory could not be created", error);
+          }
+          const stat = fsOps.lstatSync(directory);
+          if (
+            !stat.isDirectory() ||
+            stat.isSymbolicLink() ||
+            stat.uid !== process.getuid?.() ||
+            stat.mode & 0o077 ||
+            fsOps.realpathSync(directory) !== directory
+          )
+            throw new NativeHelperDataFolderError();
+        }
+        helperIdentity = recovery?.identity ?? (await nativeHelperIdentity(ctx, session.installation));
+        source = recovery?.source ?? join(session.installation.appPath, BUNDLED_HELPER_PATH);
+        helper = recovery?.source ?? join(directory, "pacer-update-helper");
+        helperIntegrityCheck(() => authority.verifyStatic(source, "helper"));
+        if (!recovery) {
+          stageWrite(() => fsOps.copyFileSync(source, helper, constants.COPYFILE_EXCL), "Desktop update helper could not be copied into pacer's data folder");
+          stageWrite(() => fsOps.chmodSync(helper, 0o700), "Desktop update helper permissions could not be set");
+        }
+        helperIntegrityCheck(() => authority.verifyStatic(helper, "helper"));
+        const fd = stageWrite(() => fsOps.openSync(helper, constants.O_RDONLY | constants.O_NOFOLLOW), "Desktop update helper could not be opened");
+        try {
+          stageWrite(() => fsOps.fsyncSync(fd), "Desktop update helper could not be written to disk");
+        } finally {
+          fsOps.closeSync(fd);
+        }
+      } catch (error) {
+        // A failed staging attempt must not leave a commands/<uuid> directory behind,
+        // especially when the disk is full and retries would accumulate one per attempt.
+        cleanupStaged();
+        throw error;
       }
       if (owner) {
         // Immutable bridge helpers require the logical service to be their real
         // kernel parent. The authenticated Root supplies the fixed bootstrap.
         if (signal.aborted) {
-          if (staged) rmSync(staged, { recursive: true, force: true });
+          if (staged) fsOps.rmSync(staged, { recursive: true, force: true });
           throw helperRefused();
         }
         const hashFd = openSync(helper, constants.O_RDONLY | constants.O_NOFOLLOW);
@@ -2224,7 +2268,7 @@ export function createNativePipeFactory(
         // Defence in depth for the narrowing above: the early capability check
         // already refuses, but never spawn without a channel even if it changes.
         if (!parentHelpers) {
-          if (staged) rmSync(staged, { recursive: true, force: true });
+          if (staged) fsOps.rmSync(staged, { recursive: true, force: true });
           throw helperRefused();
         }
         let child: ReturnType<ParentHelperSpawner["spawn"]>;
@@ -2235,7 +2279,7 @@ export function createNativePipeFactory(
           // including a retired channel after rights were handed over. Its pipes
           // are closed and recovery helpers are never staged, so no live helper
           // needs this copy and a later check cannot trip over the directory.
-          if (staged) rmSync(staged, { recursive: true, force: true });
+          if (staged) fsOps.rmSync(staged, { recursive: true, force: true });
           throw error;
         }
         let accepted = false;

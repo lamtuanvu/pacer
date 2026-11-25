@@ -7,7 +7,7 @@ import {
   type VerifiedPipeFactory,
 } from "../src/update/desktop/adapter";
 import type { Candidate, Installation } from "../src/update/desktop/types";
-import { helperIntegrity, helperRefused, helperRetired } from "../src/update/desktop/native-helper-errors";
+import { helperDataFolder, helperIntegrity, helperRefused, helperRetired, helperStorage } from "../src/update/desktop/native-helper-errors";
 
 const identity = { version: "1.0.0", bundleId: "dev.pacer.desktop", arch: "aarch64" as const };
 const candidate: Candidate = { version: "1.1.0", arch: "aarch64", sha256: "a".repeat(64), signature: "test-signature", url: "https://example.invalid/1.1.0.tar.gz", protocolMajors: [3], rollbackCompatible: true, notes: "Release" };
@@ -331,11 +331,12 @@ test("a bound helper error before hello is a remote refusal, not a protocol reje
   }
 });
 
-test("a refused launch, a retired channel and an integrity refusal are distinct adapter failures", async () => {
+test("a refused launch, a retired channel, storage and an integrity refusal are distinct adapter failures", async () => {
   for (const [error, reason, message] of [
     [helperRefused(), "helper-denied", "helper launch was refused"],
     [helperRetired(), "channel-retired", "channel is retired"],
     [helperIntegrity(), "integrity", "failed integrity verification"],
+    [helperStorage(), "storage", "local storage failure"],
   ] as const) {
     const factory: VerifiedPipeFactory = {
       capabilities: new Set(["check"]),
@@ -348,6 +349,15 @@ test("a refused launch, a retired channel and an integrity refusal are distinct 
       expect(caught).toMatchObject({ reason, handoff: "none" });
       expect((caught as AdapterError).message).toContain(message);
     }
+  }
+});
+
+test("a data-folder refusal keeps the integrity reason but names its detail", async () => {
+  const factory: VerifiedPipeFactory = { capabilities: new Set(["check"]), open: async () => { throw helperDataFolder(); } };
+  try { await runAdapterCommand(factory, check); throw Error("expected adapter failure"); }
+  catch (caught) {
+    expect(caught).toBeInstanceOf(AdapterError);
+    expect(caught).toMatchObject({ reason: "integrity", handoff: "none", integrityDetail: "data-folder" });
   }
 });
 

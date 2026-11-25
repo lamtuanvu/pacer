@@ -3,13 +3,13 @@ import { z } from "zod";
 import { CoreError } from "../../core/errors";
 import { isVersion } from "../version";
 import { DESKTOP_IDENTIFIERS } from "./bundle-identity";
-import { NativeHelperError, NativeHelperIntegrityError } from "./native-helper-errors";
+import { NativeHelperDataFolderError, NativeHelperError, NativeHelperIntegrityError, NativeHelperStorageError } from "./native-helper-errors";
 import type { Candidate, Installation } from "./types";
 import type { UpdateChannel } from "../channel";
 
 export const MAX_FRAME_BYTES = 256 * 1024;
 export type HandoffState = "none" | "uncertain" | "acknowledged";
-export type AdapterFailure = "unavailable" | "protocol" | "closed" | "cancelled" | "timeout" | "remote" | "helper-denied" | "channel-retired" | "integrity";
+export type AdapterFailure = "unavailable" | "protocol" | "closed" | "cancelled" | "timeout" | "remote" | "helper-denied" | "channel-retired" | "integrity" | "storage";
 const messages: Record<AdapterFailure, string> = {
   unavailable: "Verified desktop update adapter is unavailable",
   protocol: "Desktop update adapter protocol was rejected",
@@ -20,6 +20,7 @@ const messages: Record<AdapterFailure, string> = {
   "helper-denied": "Desktop update helper launch was refused by the parent channel",
   "channel-retired": "Native parent helper channel is retired; restart the service to recover",
   integrity: "Desktop update helper failed integrity verification",
+  storage: "Desktop update helper could not be staged because of a local storage failure",
 };
 /** The check that rejected a helper stream. Only enumerated values and integers, never frame payloads. */
 export type AdapterRejection = {
@@ -29,8 +30,9 @@ export type AdapterRejection = {
 };
 /** Private handoff classification MUST survive core error handling; uncertainty never permits releasing admission. */
 export class AdapterError extends CoreError {
-  /** `beforeFrames`: the helper ended before sending any frame (for example a build that rejects an unknown request key). */
-  constructor(public readonly reason: AdapterFailure, public readonly handoff: HandoffState = "none", public readonly rejection?: AdapterRejection, public readonly beforeFrames = false) {
+  /** `beforeFrames`: the helper ended before sending any frame (for example a build that rejects an unknown request key).
+   *  `integrityDetail`: distinguishes a pacer-data-folder refusal from a signed-helper verification refusal. */
+  constructor(public readonly reason: AdapterFailure, public readonly handoff: HandoffState = "none", public readonly rejection?: AdapterRejection, public readonly beforeFrames = false, public readonly integrityDetail?: "data-folder") {
     super("not_allowed", messages[reason], handoff === "none"
       ? "Reconnect the verified desktop and retry."
       : "Retain the reservation and reconcile the private transaction journal before retrying.");
@@ -216,12 +218,12 @@ export async function runAdapterCommand(factory: VerifiedPipeFactory | undefined
     void reader?.cancel().catch(() => {});
     void writer?.close().catch(() => {});
   };
-  const fail = (reason: AdapterFailure, detail?: AdapterRejection) => {
+  const fail = (reason: AdapterFailure, detail?: AdapterRejection, integrityDetail?: "data-folder") => {
     if (stopped) return;
     stopped = true;
     // A partial authorization write may have reached the helper. Only recovery can resolve that uncertainty.
     if (handoff === "none" && pipe) void Promise.resolve().then(() => pipe!.abort()).catch(() => {});
-    cleanup(); reject(new AdapterError(reason, handoff, detail, sequence === 0));
+    cleanup(); reject(new AdapterError(reason, handoff, detail, sequence === 0, integrityDetail));
   };
   const cancel = () => fail("cancelled");
   const finish = () => {
@@ -334,10 +336,14 @@ export async function runAdapterCommand(factory: VerifiedPipeFactory | undefined
       await writer.write(bytes);
       if (!stopped) progressDeadline();
     } catch (error) {
-      if (error instanceof NativeHelperIntegrityError) {
+      if (error instanceof NativeHelperStorageError) {
+        // A full/read-only/unwritable pacer data folder is a real, non-transient
+        // failure. It is not a damaged helper and not a network check.
+        fail("storage");
+      } else if (error instanceof NativeHelperIntegrityError) {
         // A failed signature/hash/process check is a real failure, not a transient
         // "closed" pipe: keep it red and ranked instead of persisting check_unavailable.
-        fail("integrity");
+        fail("integrity", undefined, error instanceof NativeHelperDataFolderError ? "data-folder" : undefined);
       } else if (error instanceof NativeHelperError) {
         fail(error.kind === "refused" ? "helper-denied" : "channel-retired");
       } else {
