@@ -21,6 +21,7 @@ import { EmptyState } from "../../ds/Patterns";
 import { Pill } from "../../ds/Pill";
 import { FrameSlot, PageHead, useFrame } from "../../shell/slots";
 import { withQuery, type RouteQuery } from "../../router";
+import { liveHref } from "./live-links";
 import { useTaskContext } from "../task-shared";
 import { BoardButton, RunQuestionCard, useRunViewStyles, ArtifactLink, ArtifactText, type FetchText } from "./run-shared";
 import { RunStrip } from "./RunStrip";
@@ -162,7 +163,10 @@ export function RunView({ runId, query, fetchText }: { runId: string; query: Rou
         <div className="runs-heading">
           <h1 ref={headingRef} tabIndex={-1}>{title}</h1>
         </div>
-        <ButtonLink typography="board" size="sm" href={backHref}>All runs</ButtonLink>
+        <div className="runs-heading-links">
+          <ButtonLink typography="board" size="sm" href={liveHref(runId, undefined, query)}>Live board</ButtonLink>
+          <ButtonLink typography="board" size="sm" href={backHref}>All runs</ButtonLink>
+        </div>
       </header>
     </PageHead>
     <p className="sr-only" role="status" aria-live="polite">{announce}</p>

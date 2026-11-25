@@ -94,6 +94,16 @@ test("opening the run from the Runs route renders the run view, not the list", a
   } finally { await done(dom); }
 });
 
+test("the run header links to this run's Live board", async () => {
+  const { dom } = await open(plain, ALL_OPS, {}, false);
+  try {
+    const link = control(dom.container, "a", n => text(n).trim() === "Live board");
+    expect(link).toBeDefined();
+    expect(link?.getAttribute?.("href") ?? "").toMatch(/^#\/live\/[^/?]+/);
+    expect(link?.getAttribute?.("href") ?? "").not.toContain("journey");
+  } finally { await done(dom); }
+});
+
 test("the open question is drawn by the shared form and answering sends expect_rev, then refetches", async () => {
   const { dom, calls } = await open(plain);
   try {
