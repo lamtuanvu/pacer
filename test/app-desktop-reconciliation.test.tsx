@@ -4,8 +4,8 @@ import { ServiceBuildGuidance } from '../app/src/screens/settings/ServiceBuildGu
 import { initialState, reduceStore } from '../app/src/data/store';
 
 const hello = (diagnostic: unknown) => ({ protocol: '3.0.0', pacer: '1.0.0', ops: [], events: [], desktopBuildDiagnostic: diagnostic });
-test('desktop build claims are bounded, unverified and have no mutation action', () => {
-  for (const [status, copy] of [['unverified', 'core descriptor claims match'], ['mismatch', 'core descriptor claims differ'], ['unknown', 'could not compare'], ['legacy', 'predates this build check']] as const) {
+test('different, legacy and unknown build claims are bounded and have no mutation action', () => {
+  for (const [status, copy] of [['mismatch', 'core descriptor claims differ'], ['unknown', 'could not compare'], ['legacy', 'predates this build check']] as const) {
     const html = renderToString(<ServiceBuildGuidance diagnostic={status} connected />);
     expect(html).toContain(copy);
     expect(html).toContain('not verified');
@@ -17,6 +17,13 @@ test('desktop build claims are bounded, unverified and have no mutation action',
     expect(html).not.toContain('npm install');
     expect(html).not.toContain('<button');
   }
+});
+test('a matching build check while connected adds no descriptor or ownership warning', () => {
+  expect(renderToString(<ServiceBuildGuidance diagnostic="unverified" connected />)).toBe('');
+  // A stale/unconnected reading still needs the reconnect notice, not a clean bill of health.
+  const stale = renderToString(<ServiceBuildGuidance diagnostic="unverified" connected={false}/>);
+  expect(stale).toContain('Reconnecting');
+  expect(stale).toContain('Service reconciliation is unavailable');
 });
 test('missing, hostile and stale diagnostics fail closed and reconnect replaces them', () => {
   let state = reduceStore(initialState(), {type:'hello', hello:hello({status:'mismatch', proof:'unverified'})});

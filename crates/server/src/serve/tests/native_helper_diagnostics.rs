@@ -6,6 +6,41 @@ fn home() -> tempfile::TempDir {
     fs::set_permissions(home.path(), fs::Permissions::from_mode(0o700)).unwrap();
     home
 }
+fn log_path(home: &std::path::Path) -> std::path::PathBuf {
+    home.join("logs/native-helper/native-helper.log")
+}
+fn private_dir(home: &std::path::Path) -> std::path::PathBuf {
+    home.join("logs/native-helper")
+}
+#[test]
+fn normal_install_logs_at_0755_records_in_a_private_0700_subdirectory() {
+    let home = home();
+    let logs = home.path().join("logs");
+    fs::create_dir(&logs).unwrap();
+    // Real installs keep logs at 0755 so launchd can write serve.log there.
+    fs::set_permissions(&logs, fs::Permissions::from_mode(0o755)).unwrap();
+    let serve_log = logs.join("serve.log");
+    fs::write(&serve_log, b"launchd output").unwrap();
+    fs::set_permissions(&serve_log, fs::Permissions::from_mode(0o644)).unwrap();
+    let diagnostics = Diagnostics::new(home.path(), 123, 456);
+    diagnostics.record(Stage::Handoff, Event::Failed);
+    let path = log_path(home.path());
+    let bytes = fs::read(&path).unwrap();
+    assert!(!bytes.is_empty());
+    assert_eq!(
+        fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    assert_eq!(
+        fs::metadata(private_dir(home.path()))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o700
+    );
+    assert_eq!(fs::read(&serve_log).unwrap(), b"launchd output");
+}
 #[test]
 fn appends_only_fixed_stage_numeric_identity_records_in_private_file() {
     let home = home();
@@ -15,7 +50,7 @@ fn appends_only_fixed_stage_numeric_identity_records_in_private_file() {
         core: 456,
     };
     diagnostics.record(Stage::Asset, Event::Failed);
-    let path = home.path().join("logs/native-helper.log");
+    let path = log_path(home.path());
     let bytes = fs::read(&path).unwrap();
     assert_eq!(
         fs::metadata(&path).unwrap().permissions().mode() & 0o777,
@@ -38,11 +73,15 @@ fn refuses_redirected_broad_hardlinked_and_nonregular_log_targets() {
         let home = home();
         let logs = home.path().join("logs");
         fs::create_dir(&logs).unwrap();
-        fs::set_permissions(&logs, fs::Permissions::from_mode(0o700)).unwrap();
+        // A regular 0755 logs container is normal on real installs.
+        fs::set_permissions(&logs, fs::Permissions::from_mode(0o755)).unwrap();
+        let nested = private_dir(home.path());
+        fs::create_dir(&nested).unwrap();
+        fs::set_permissions(&nested, fs::Permissions::from_mode(0o700)).unwrap();
         let external = home.path().join("untouched");
         fs::write(&external, b"untouched").unwrap();
         fs::set_permissions(&external, fs::Permissions::from_mode(0o600)).unwrap();
-        let path = logs.join("native-helper.log");
+        let path = nested.join("native-helper.log");
         match kind {
             "symlink" => symlink(&external, &path).unwrap(),
             "hardlink" => fs::hard_link(&external, &path).unwrap(),
@@ -77,14 +116,14 @@ fn held_parent_and_file_replacement_stop_writes_without_redirect_cleanup() {
         let home = home();
         let diagnostics = Diagnostics::new(home.path(), 123, 456);
         diagnostics.record(Stage::Asset, Event::Enter);
-        let logs = home.path().join("logs");
-        let path = logs.join("native-helper.log");
+        let nested = private_dir(home.path());
+        let path = log_path(home.path());
         if replace_parent {
-            fs::rename(&logs, home.path().join("old-logs")).unwrap();
-            fs::create_dir(&logs).unwrap();
-            fs::set_permissions(&logs, fs::Permissions::from_mode(0o700)).unwrap();
+            fs::rename(&nested, home.path().join("old-private")).unwrap();
+            fs::create_dir(&nested).unwrap();
+            fs::set_permissions(&nested, fs::Permissions::from_mode(0o700)).unwrap();
         } else {
-            fs::rename(&path, logs.join("old.log")).unwrap();
+            fs::rename(&path, nested.join("old.log")).unwrap();
         }
         fs::write(&path, b"replacement").unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
@@ -96,7 +135,7 @@ fn held_parent_and_file_replacement_stop_writes_without_redirect_cleanup() {
 fn external_nonblocking_flock_skips_append_and_releases_without_wait() {
     let home = home();
     let diagnostics = Diagnostics::new(home.path(), 123, 456);
-    let path = home.path().join("logs/native-helper.log");
+    let path = log_path(home.path());
     let file = fs::OpenOptions::new().append(true).open(&path).unwrap();
     let lock = Flock::lock(file, FlockArg::LockExclusiveNonblock).unwrap();
     let now = std::time::Instant::now();
@@ -114,7 +153,7 @@ fn hard_cap_keeps_whole_records_without_rotating_or_truncating() {
     for _ in 0..1000 {
         diagnostics.record(Stage::DynamicImage, Event::Enter);
     }
-    let path = home.path().join("logs/native-helper.log");
+    let path = log_path(home.path());
     let before = fs::read(&path).unwrap();
     assert!(before.len() as u64 <= CAP);
     assert!(before.len() > CAP as usize - 256);
@@ -141,7 +180,7 @@ fn cap_and_private_file_hold_across_separate_root_processes() {
     for child in &mut children {
         assert!(child.wait().unwrap().success());
     }
-    let bytes = fs::read(home.path().join("logs/native-helper.log")).unwrap();
+    let bytes = fs::read(log_path(home.path())).unwrap();
     assert!(!bytes.is_empty());
     assert!(bytes.len() as u64 <= CAP);
     for line in bytes.split(|b| *b == b'\n').filter(|v| !v.is_empty()) {
@@ -162,9 +201,9 @@ async fn real_broker_denial_records_failed_stage_and_logging_cannot_grant_author
         if !logger_available {
             let logs = home.path().join("logs");
             fs::create_dir(&logs).unwrap();
-            fs::set_permissions(&logs, fs::Permissions::from_mode(0o700)).unwrap();
+            fs::set_permissions(&logs, fs::Permissions::from_mode(0o755)).unwrap();
             fs::write(&outside, b"untouched").unwrap();
-            std::os::unix::fs::symlink(&outside, logs.join("native-helper.log")).unwrap();
+            std::os::unix::fs::symlink(&outside, logs.join("native-helper")).unwrap();
         }
         let identity = ProcessIdentity {
             pid: std::process::id(),
@@ -196,9 +235,11 @@ async fn real_broker_denial_records_failed_stage_and_logging_cannot_grant_author
         let mut reply = [0; 5];
         remote.read_exact(&mut reply).await.unwrap();
         assert_eq!(reply, [b'E', 0, 0, 0, 0]);
+        // A clean refusal keeps serving; dropping the peer is what retires it.
+        drop(remote);
         task.await.unwrap();
         if logger_available {
-            let lines = fs::read_to_string(home.path().join("logs/native-helper.log")).unwrap();
+            let lines = fs::read_to_string(log_path(home.path())).unwrap();
             let records = lines
                 .lines()
                 .map(|l| serde_json::from_str::<serde_json::Value>(l).unwrap())
@@ -250,7 +291,7 @@ fn request_timing_and_write_failures_reveal_only_fixed_numeric_or_enum_evidence(
             "private path or secret must never be serialized",
         )),
     );
-    let bytes = fs::read_to_string(home.path().join("logs/native-helper.log")).unwrap();
+    let bytes = fs::read_to_string(log_path(home.path())).unwrap();
     assert!(!bytes.contains("secret"));
     let records = bytes
         .lines()

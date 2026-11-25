@@ -2,6 +2,7 @@
 import { closeSync, createReadStream, createWriteStream, readSync, writeSync } from "node:fs";
 import { Readable, Writable } from "node:stream";
 import { requestParentHelper } from "./native-socket";
+import { helperRetired, NativeHelperError } from "./native-helper-errors";
 
 export interface ParentHelperRequest { schema: 1; path: string; sha256: string; version: string }
 export interface ParentHelperProcess {
@@ -21,10 +22,17 @@ export class ParentHelperSpawner {
     closeSync(this.channel);
   }
   spawn(request: ParentHelperRequest): ParentHelperProcess {
-    if (this.closed) throw Error("Native parent helper channel is retired");
+    if (this.closed) throw helperRetired();
     let result: ReturnType<typeof requestParentHelper>;
     try { result = requestParentHelper(this.channel, request); }
-    catch (error) { this.close(); throw error; }
+    catch (error) {
+      // A clean E refusal is per-request. Any other failure desynchronises the
+      // channel, so retire it and surface a distinct, recoverable error instead
+      // of a generic adapter close. The original cause is retained for logs.
+      if (error instanceof NativeHelperError && error.kind === "refused") throw error;
+      this.close();
+      throw helperRetired(undefined, error);
+    }
     const remaining = new Set([result.stdin, result.stdout, result.control]);
     const streams: { destroy(): unknown }[] = [];
     try {
@@ -78,7 +86,7 @@ export class ParentHelperSpawner {
       for (const stream of streams) stream.destroy();
       for (const fd of remaining) closeSync(fd);
       this.close();
-      throw error;
+      throw helperRetired(undefined, error);
     }
   }
 }

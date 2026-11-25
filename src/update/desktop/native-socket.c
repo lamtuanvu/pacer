@@ -247,11 +247,13 @@ static int pacer_pipe(int fd, int access) {
         && (st.mode & 0170000) == 0010000 ? 0 : -1;
 }
 /* Returns the PID and transfers exactly three owned FDs through out[0..2].
- * On failure all received rights close, out stays -1, and the borrowed channel
- * is shut down (its owner closes it exactly once). No PID signals occur here. */
+ * On a clean E refusal returns -2 and leaves the borrowed channel usable (no
+ * diagnostic, no shutdown). On every other failure all received rights close,
+ * out stays -1, and the borrowed channel is shut down (its owner closes it
+ * exactly once). No PID signals occur here. */
 int pacer_request_helper(int channel, const unsigned char *json, unsigned int length, int *out) {
     unsigned char header[4], reply[5] = {0};
-    int fds[3], count = 0, i, yes = 1, report = 0;
+    int fds[3], count = 0, i, yes = 1, report = 0, refused = 0;
     int diagnostic[2] = {1, 1};
     unsigned int part, pid;
     long now = pacer_millis(), deadline = now + 10000;
@@ -283,6 +285,12 @@ int pacer_request_helper(int channel, const unsigned char *json, unsigned int le
         }
     }
     if (pacer_receive_rights(channel, reply, 5, fds, &count, 3, deadline, diagnostic) < 0) goto fail;
+    /* E with no rights is a per-request denial, not a broken channel. Do not
+     * emit a diagnostic or shut down: the same generation may retry on it. */
+    if (reply[0] == 'E' && count == 0) {
+        for (i = 1; i < 5; i++) if (reply[i]) break;
+        if (i == 5) { refused = 1; goto fail; }
+    }
     pid = ((unsigned int)reply[1] << 24) | ((unsigned int)reply[2] << 16)
         | ((unsigned int)reply[3] << 8) | reply[4];
     if (reply[0] != 'H' || pid <= 1 || pid > 2147483647u || count != 3) {
@@ -321,11 +329,11 @@ int pacer_request_helper(int channel, const unsigned char *json, unsigned int le
     return (int)pid;
 fail:
     while (count) close(fds[--count]);
-    if (report) {
+    if (report && !refused) {
         unsigned char failure[3] = {'D', (unsigned char)diagnostic[0], (unsigned char)diagnostic[1]};
         /* One best-effort nonblocking observation; never retry or grant authority. */
         (void)send(channel, failure, sizeof(failure), 0x80);
     }
-    shutdown(channel, 2);
-    return -1;
+    if (!refused) shutdown(channel, 2);
+    return refused ? -2 : -1;
 }

@@ -5,10 +5,45 @@ export type DesktopAction = Exclude<UpdateStatus["actions"][number], "retry">;
 const labels: Record<DesktopAction, string> = { check: "Check for updates", download: "Download update", restart: "Restart to update", cancel: "Cancel update", configure: "Download updates automatically", adopt: "Use the desktop service", adoptCancel: "Cancel service change" };
 export type DesktopUpdateView = Status & { detail: string; primary: string | null; action: DesktopAction | null; cancellable: boolean };
 
+/**
+ * An interrupted or transient CHECK is not a failed update. The service persists these codes;
+ * older builds left only raw adapter messages, which are treated as a check only when the
+ * record cannot be a download. Real failures — a failed download, verification, disk, a failed
+ * install, uncertain recovery — stay in the red state and never get neutralised.
+ */
+const interruptedCheckCodes = new Set(["check_unavailable", "check_interrupted"]);
+const interruptedAdapterMessages = new Set([
+  "Verified desktop update adapter is unavailable",
+  "Desktop update adapter closed before successful completion",
+  "Desktop update adapter operation was cancelled",
+  "Desktop update adapter operation timed out",
+]);
+/** A check that could not complete, as opposed to a real download/install/verification failure. */
+const failedCheckError = (error: UpdateStatus["error"]) => {
+  if (!error) return false;
+  if (interruptedCheckCodes.has(error.code)) return true;
+  return error.code === "update_failed" && interruptedAdapterMessages.has(error.message);
+};
+const interruptedCheck = (update: UpdateStatus) => {
+  const error = update.error;
+  // A failed download keeps its target (and, with it, an available update), so a
+  // record with a target must never be filtered, downgraded or hidden from the tray.
+  if (!error || update.target) return false;
+  // An adoption still in progress or failed needs attention even when the update
+  // record carries a self-retrying check error. Never hide it from the tray.
+  if (update.adoption && !["available", "cancelled", "committed"].includes(update.adoption.phase)) return false;
+  return failedCheckError(error);
+};
+/** Adapter internals are diagnostics, never user-facing copy. Service-authored hints stay visible. */
+const internalAdapterMessage = (message: string) => /^(Verified )?desktop update adapter |^Desktop update helper launch was refused( by the parent channel)?|^Desktop update helper failed integrity verification$|^Native parent helper (launch was refused|channel is retired)|^desktop update could not be verified$/i.test(message);
+/** A retired helper channel only recovers when the service restarts; keep that step in the copy. */
+const retiredChannel = (error: UpdateStatus["error"]) => !!error && /^Native parent helper channel is retired/i.test(error.message);
+const RETIRED_CHANNEL_DETAIL = "Updates stopped working until pacer's service restarts. Restart pacer, then check again.";
+
 /** Presentation never grants authority: every control still needs an advertised action. */
 export function desktopUpdateView(update: UpdateStatus): DesktopUpdateView {
   const states: Record<UpdateStatus["phase"], [string, Status["tone"], string, string]> = {
-    idle: [update.target ? "Update available" : update.checkedAt === null ? "Not checked" : "Up to date", update.target ? "info" : "neutral", update.target ? "↓" : update.checkedAt === null ? "…" : "✓", update.target ? "An update is available to download." : "Check for a newer version of pacer."],
+    idle: [update.target ? "Update available" : update.checkedAt === null ? "Not checked yet" : "Up to date", update.target ? "info" : "neutral", update.target ? "↓" : update.checkedAt === null ? "…" : "✓", update.target ? "An update is available to download." : "Check for a newer version of pacer."],
     checking: ["Checking for updates", "info", "…", "Looking for a new version."],
     downloading: ["Downloading update", "info", "↓", update.totalBytes && update.totalBytes > 0 ? `${Math.min(100, Math.max(0, Math.floor(update.downloadedBytes / update.totalBytes * 100)))}% downloaded. You can keep working.` : "Downloading the update. You can keep working."],
     ready: ["Update ready", "info", "↑", "The update is downloaded. Restart when you're ready."],
@@ -21,10 +56,26 @@ export function desktopUpdateView(update: UpdateStatus): DesktopUpdateView {
     complete: ["Updated", "good", "✓", "The updated app is ready."],
     "rolling-back": ["Restoring the previous version", "warn", "…", "The update couldn't start. Restoring your previous version."],
     restored: ["Previous version restored", "warn", "!", "The update couldn't start. Your previous version has been restored."],
-    error: ["Update needs attention", "bad", "!", update.error?.message || "The update couldn't finish. Check again when you're ready."],
+    error: ["Update needs attention", "bad", "!", update.error?.message && !internalAdapterMessage(update.error.message)
+      ? update.error.message : "The update couldn't finish. Check again when you're ready."],
     "recovery-failed": ["Recovery needs attention", "bad", "!", "An update didn't finish, and pacer couldn't put the previous version back on its own. Your tasks and settings are safe. Keep this app installed and leave the files in your pacer folder as they are: pacer needs them to recover. Quit pacer, then report the problem at github.com/lamtuanvu/pacer/issues."],
   };
   let [label, tone, glyph, detail] = states[update.phase] ?? ["Update status unavailable", "neutral", "?", "Refresh the status or use a compatible desktop app."];
+  // Never render the persisted adapter message: it is internal detail, not an update failure.
+  // `?` is the neutral "not done, not failed" glyph; `…` would read as still working.
+  // Copy names the advertised button and stays true when automatic checks are off or
+  // the retry budget is spent.
+  if (update.phase === "error" && interruptedCheck(update)) {
+    [label, tone, glyph, detail] = ["Couldn't check for updates", "neutral", "?", "pacer couldn't check for updates. Check your connection, then choose Check for updates to try again."];
+  } else if (update.phase === "error" && update.target && !!update.error && interruptedCheckCodes.has(update.error.code)) {
+    // A failed re-check must not replace an update the person can still download.
+    // Only explicit check codes qualify: a legacy adapter message with a target may
+    // have been a failed download, which stays red and ranked.
+    [label, tone, glyph, detail] = ["Update available", "info", "↓", "An update is available to download. The latest check couldn't complete."];
+  } else if (update.phase === "error" && retiredChannel(update.error)) {
+    // UI-12 keeps the raw refusal internal, but the one working recovery step survives.
+    detail = RETIRED_CHANNEL_DETAIL;
+  }
   if (update.ownership === "attached" && update.phase === "idle" && update.actions.length === 0) detail = "This desktop is connected to an externally managed service. Update that service separately.";
   const adoption = update.adoption;
   if (update.ownership === "attached" && adoption && ["available", "cancelled"].includes(adoption.phase) && update.actions.includes("adopt")) {
@@ -75,7 +126,11 @@ export function updateIntent(makeId: () => string = () => `ui_${crypto.randomUUI
 }
 
 export function desktopUpdateIndicator(updates: UpdateStatus[] = []) {
-  const update = updates.find(item => ["recovery-failed", "error", "restored"].includes(item.phase) || item.adoption?.phase === "recovery-failed") ?? updates.find(item => !["idle", "complete"].includes(item.phase) || item.target || (item.adoption && !["available", "cancelled", "committed"].includes(item.adoption.phase)));
+  // A check that could not complete but retries on its own is neutral: rank it like
+  // idle, never as the top attention item across the app. A record with a target —
+  // a failed download or an available update — is always kept and ranked.
+  const ranked = updates.filter(item => item.phase !== "error" || !interruptedCheck(item));
+  const update = ranked.find(item => ["recovery-failed", "error", "restored"].includes(item.phase) || item.adoption?.phase === "recovery-failed") ?? ranked.find(item => !["idle", "complete"].includes(item.phase) || item.target || (item.adoption && !["available", "cancelled", "committed"].includes(item.adoption.phase)));
   return update ? { ...desktopUpdateView(update), route: "/settings/updates" } : null;
 }
 
