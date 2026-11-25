@@ -257,7 +257,11 @@ pub fn edit_claude_settings(
         }
     }
     let text = match old {
-        Some(text) if original == next => text.to_string(),
+        Some(text)
+            if serde_json::to_string(&original).ok() == serde_json::to_string(&next).ok() =>
+        {
+            text.to_string()
+        }
         _ => format!(
             "{}\n",
             serde_json::to_string_pretty(&next).map_err(|error| error.to_string())?
@@ -335,7 +339,10 @@ where
     F: FnMut(Vec<String>) -> Fut,
     Fut: Future<Output = Result<PlannerCommandResult, String>>,
 {
-    let get = vec![argv[0].clone(), "mcp".to_string(), "get".to_string(), "pacer".to_string()];
+    let Some(cli) = argv.first() else {
+        return Ok(false);
+    };
+    let get = vec![cli.clone(), "mcp".to_string(), "get".to_string(), "pacer".to_string()];
     let registered = run_raw(get).await.is_ok_and(|result| result.code == 0);
     let result = run_raw(argv.to_vec()).await;
     Ok(mcp_remove_notes(registered, &result, argv, notes))
@@ -343,7 +350,10 @@ where
 
 /// `removeClaudeMcp` over the transaction builder (used by `installClaude`).
 async fn remove_claude_mcp_tx(tx: &mut PlannerBuilder<'_>, argv: &[String]) -> Result<bool, String> {
-    let get = vec![argv[0].clone(), "mcp".to_string(), "get".to_string(), "pacer".to_string()];
+    let Some(cli) = argv.first().cloned() else {
+        return Ok(false);
+    };
+    let get = vec![cli, "mcp".to_string(), "get".to_string(), "pacer".to_string()];
     let registered = tx
         .run_raw(&get, None)
         .await

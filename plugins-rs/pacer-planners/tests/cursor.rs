@@ -6,7 +6,7 @@ mod support {
     pub mod fake_home;
 }
 
-use serde_json::Value;
+use serde_json::{Value, json};
 use support::fake_home::{FakeHome, params};
 
 const DIR: &str = "/home/test/.cursor";
@@ -27,6 +27,17 @@ async fn inline_config_preserved_idempotent_exact_uninstall() {
         result.uninstall_report.restored.len() >= 1
             || result.uninstall_report.reverted.len() >= 1
     );
+}
+
+#[tokio::test]
+async fn mcp_server_args_exclude_the_executable() {
+    let home = FakeHome::new();
+    home.install(params("cursor", DIR, "/home/test", Some(true)))
+        .await;
+    let mcp: Value = serde_json::from_str(&home.get(MCP).unwrap()).unwrap();
+    let server = &mcp["mcpServers"]["pacer"];
+    assert_eq!(server["command"], "/usr/local/bin/pacer");
+    assert_eq!(server["args"], json!(["mcp"]));
 }
 
 #[tokio::test]

@@ -39,7 +39,10 @@ async fn record_from(
     params: Value,
     host: pacer_plugin::install::HostCall,
 ) -> Result<Option<PlannerRecord>, PluginError> {
-    if let Some(reference) = params.get("priorRange") {
+    if let Some(reference) = params
+        .get("priorRange")
+        .filter(|value| !value.is_null())
+    {
         let reference: PriorReference = parse(Some(reference.clone()), "prior reference")?;
         let value = read_planner_prior(host, reference)
             .await
@@ -149,8 +152,10 @@ pub async fn detect(params: Value, ctx: &Ctx) -> Result<Value, PluginError> {
         .get("binary")
         .and_then(|binary| binary.get("name"))
         .and_then(Value::as_str);
-    let version = if path.is_some() && name != Some("cursor") && params.get("probe").is_some() {
-        let probe = params.get("probe").cloned().unwrap_or(Value::Null);
+    let probe = params.get("probe").filter(|value| !value.is_null());
+    let found = path.is_some_and(|path| !path.is_empty());
+    let version = if found && name != Some("cursor") && probe.is_some() {
+        let probe = probe.cloned().unwrap_or(Value::Null);
         match ctx.host.call("capability.process.spawn", probe).await {
             Ok(result) if result.get("code").and_then(Value::as_i64) == Some(0) => {
                 let stdout = result.get("stdout").and_then(Value::as_str).unwrap_or_default();
@@ -166,7 +171,7 @@ pub async fn detect(params: Value, ctx: &Ctx) -> Result<Value, PluginError> {
     };
     let mut out = json!({
         "agent": agent,
-        "found": path.is_some(),
+        "found": found,
         "version": version,
         "path": path,
     });
@@ -228,7 +233,7 @@ pub async fn preview(params: Value, ctx: &Ctx) -> Result<Value, PluginError> {
         }
         "cursor" => files.push(join(&root, "hooks.json")),
         "opencode" => files.push(join(&root, "AGENTS.md")),
-        _ => {}
+        other => return Err(internal(format!("unsupported planner: {other}"))),
     }
     let kept: Vec<String> = if agent == "claude-code" {
         vec![join(&root, "CLAUDE.md")]

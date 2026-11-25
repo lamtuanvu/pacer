@@ -27,9 +27,11 @@ pub async fn install_cursor(tx: &mut PlannerBuilder<'_>) -> Result<(), String> {
         .folder
         .clone()
         .unwrap_or_else(|| join(&tx.context.home, ".cursor"));
+    // `cursor.ts:15`: command is argv[0], args are argv.slice(1) + "mcp".
+    let tail: Vec<String> = argv.iter().skip(1).cloned().collect();
     let server = json!({
         "command": argv.first().cloned().unwrap_or_default(),
-        "args": with(&argv, &["mcp"]),
+        "args": with(&tail, &["mcp"]),
     });
     let path = vec!["mcpServers".to_string(), "pacer".to_string()];
     let mcp_path = join(&dir, "mcp.json");
