@@ -448,8 +448,19 @@ pub fn runner_models_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> boo
         resolve(&strategy, &entry.id).is_some_and(|runner| {
             let id = runner["id"].as_str().unwrap_or(&entry.id);
             listing_needs_core(&ctx.pacer_home, ctx.now, &strategy, id)
+                || resets_endpoint_state(&strategy, runner, &entry.default)
         })
     })
+}
+
+/// A new default for an OpenCode or connection account's runner makes its saved
+/// endpoint test result stale. TypeScript resets `endpoints/state.json` with the
+/// save, so such a save forwards whole and the state keeps one writer.
+fn resets_endpoint_state(strategy: &Value, runner: &Value, default: &str) -> bool {
+    let account = &strategy["accounts"][runner["account"].as_str().unwrap_or_default()];
+    let endpoint =
+        account["source"] == "opencode" || account.get("connection").is_some_and(|c| !c.is_null());
+    endpoint && runner["model"].as_str() != Some(default)
 }
 
 #[cfg(test)]

@@ -10,9 +10,10 @@ import {fakeCtx} from "./helpers";
 
 const catalog = {providers: parseCatalog(JSON.parse(readFileSync(join(import.meta.dir, "fixtures", "models-dev-sample.json"), "utf8"))), fetchedAt: 0, stale: false};
 const authJson = (ids: string[]) => JSON.stringify(ids.map(id => ({id, name: id, connections: []})));
-function setup(signed = ["openrouter"]) {
+function setup(signed = ["openrouter"], models: string[] | null = null) {
   const state = {signed};
-  const ctx = fakeCtx({run: async argv => argv.slice(0, 3).join(" ") === "opencode auth list" ? {code: 0, stdout: authJson(state.signed), stderr: ""} : {code: 1, stdout: "", stderr: ""}});
+  const ctx = fakeCtx({run: async argv => argv.slice(0, 3).join(" ") === "opencode auth list" ? {code: 0, stdout: authJson(state.signed), stderr: ""}
+    : argv.slice(0, 2).join(" ") === "opencode models" && models ? {code: 0, stdout: models.join("\n"), stderr: ""} : {code: 1, stdout: "", stderr: ""}});
   mkdirSync(ctx.pacerHome, {recursive: true});
   writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "accounts:\n  personal: {kind: claude}\nplanner: claude-code\nrouting:\n  - default: [claude-code]\n");
   const spawn = async (spec: {cwd: string; argv: string[]}) => { writeFileSync(join(spec.cwd, "hello.txt"), "ok"); return {code: 0, stdout: "", stderr: "", timedOut: false}; };
@@ -39,6 +40,18 @@ test("does not double-prefix an already qualified model id", async () => {
   const result = await addOpencodeAccount(ctx, {provider: "openrouter", model: "openrouter/qwen/qwen3-coder", test: false}, {catalog, spawn: async spec => ({code: 0, stdout: "", stderr: "", timedOut: false})});
   const s = loadStrategy(ctx);
   expect(s.runners["opencode#openrouter"].model).toBe("openrouter/qwen/qwen3-coder");
+});
+
+test("keeps a bare model id that starts with the provider name", async () => {
+  const {ctx} = setup(["groq"], ["groq/groq/compound", "groq/llama-3.3-70b"]);
+  await addOpencodeAccount(ctx, {provider: "groq", model: "groq/compound", test: false}, {catalog});
+  expect(loadStrategy(ctx).runners["opencode#groq"].model).toBe("groq/groq/compound");
+});
+
+test("does not double-prefix a qualified id OpenCode lists", async () => {
+  const {ctx} = setup(["groq"], ["groq/groq/compound", "groq/llama-3.3-70b"]);
+  await addOpencodeAccount(ctx, {provider: "groq", model: "groq/llama-3.3-70b", test: false}, {catalog});
+  expect(loadStrategy(ctx).runners["opencode#groq"].model).toBe("groq/llama-3.3-70b");
 });
 
 test("refuses a provider OpenCode is not signed in to", async () => {

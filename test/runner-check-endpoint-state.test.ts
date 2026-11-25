@@ -49,3 +49,10 @@ test("a failure before the test task leaves the endpoint state alone", async () 
   expect(job.state).toBe("failed");
   expect(readEndpointState(ctx, "oc")).toMatchObject({state: "not_working", detail: expect.stringContaining("prov/prov/main")});
 });
+
+test("a failing test task keeps a key_missing state", async () => {
+  const ctx = setup();
+  writeEndpointState(ctx, "oc", {state: "key_missing", detail: "Run opencode auth login --standalone prov"});
+  await checkRunner(ctx, "opencode#oc", deps({runTestTask: async () => { throw Error("test task failed: unauthorized"); }}));
+  expect(readEndpointState(ctx, "oc")).toMatchObject({state: "key_missing"});
+});

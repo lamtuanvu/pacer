@@ -294,3 +294,24 @@ async fn get_refuses_a_strategy_that_changes_between_its_reads() {
     }
     assert_eq!(conflicts, 1);
 }
+
+#[test]
+fn a_new_endpoint_default_forwards_so_typescript_resets_its_test_state() {
+    let (_dir, c) = seeded(STRATEGY);
+    let set = |default: &str| json!({"id": "opencode#ep", "expectedRevision": "x", "default": default, "models": []});
+    assert!(runner_models_stays_forwarded(
+        &c,
+        "runner.models.set",
+        &set("pacer-ep/m2")
+    ));
+    assert!(!runner_models_stays_forwarded(
+        &c,
+        "runner.models.set",
+        &set("pacer-ep/m1")
+    ));
+    assert!(runner_models_stays_forwarded(
+        &c,
+        "runner.models.set_many",
+        &json!({"expectedRevision": "x", "runners": [{"id": "codex", "default": "gpt-5", "models": []}, set("pacer-ep/m2")]})
+    ));
+}
