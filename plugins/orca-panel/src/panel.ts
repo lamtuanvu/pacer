@@ -190,12 +190,24 @@ function renderNeedsRow(item: AttentionRow, model: Extract<ReturnType<typeof pan
         void runRequest({ kind: 'act', op: a.op, params: { ...a.params }, pendingKey }, a.label)
       } }))
     }
+    if (item.taskId && !(item.actions ?? []).some((a) => a.op === 'ui.open')) actions.append(openInPacerButton(item.taskId))
     detail.append(actions)
     const confirmBox = renderConfirm(`att:${item.id}:`)
     if (confirmBox) detail.append(confirmBox)
     row.append(detail)
   }
   return row
+}
+
+/** Opens the task's page in the pacer app (pacer://tasks/<id>). */
+function openInPacer(taskId: string): void {
+  const pendingKey = `open-app:${taskId}`
+  dispatch({ type: 'begin', pendingKey })
+  void runRequest({ kind: 'act', op: 'ui.open', params: { view: 'task', id: taskId }, pendingKey })
+}
+
+function openInPacerButton(taskId: string): HTMLButtonElement {
+  return button('Open in pacer', { size: 'sm', variant: 'ghost', onClick: () => openInPacer(taskId) })
 }
 
 /** The in-row confirm (Stop, Reject) for the pending action whose key starts with `prefix`. */
@@ -313,6 +325,7 @@ function renderTaskRow(task: PanelTask, model: Extract<ReturnType<typeof panelMo
       actions.append(button('Stop', { size: 'sm', variant: 'ghost', disabled: busy, onClick: () => {
         dispatch({ type: 'ask-confirm', confirm: { key: `run:${task.id}:stop`, text: 'Stop this task?', confirmLabel: 'Stop it', cancelLabel: 'Keep it', successText: 'Stopped', run: { kind: 'act', op: 'task.stop', params: { id: task.id, expect_rev: task.rev }, pendingKey: `run:${task.id}:stop` } } })
       } }))
+      actions.append(openInPacerButton(task.id))
       detail.append(actions)
     } else if (cl === 'running') {
       const actions = el('div')
@@ -333,6 +346,7 @@ function renderTaskRow(task: PanelTask, model: Extract<ReturnType<typeof panelMo
       actions.append(button('Stop', { size: 'sm', variant: 'ghost', disabled: busy, onClick: () => {
         dispatch({ type: 'ask-confirm', confirm: { key: `run:${task.id}:stop`, text: 'Stop this task?', confirmLabel: 'Stop it', cancelLabel: 'Keep it', successText: 'Stopped', run: { kind: 'act', op: 'task.stop', params: { id: task.id, expect_rev: task.rev }, pendingKey: `run:${task.id}:stop` } } })
       } }))
+      actions.append(openInPacerButton(task.id))
       detail.append(actions)
     } else if (cl === 'queued') {
       const actions = el('div')
@@ -340,6 +354,7 @@ function renderTaskRow(task: PanelTask, model: Extract<ReturnType<typeof panelMo
       actions.append(button('Stop', { size: 'sm', variant: 'ghost', onClick: () => {
         dispatch({ type: 'ask-confirm', confirm: { key: `run:${task.id}:stop`, text: 'Stop this task?', confirmLabel: 'Stop it', cancelLabel: 'Keep it', successText: 'Stopped', run: { kind: 'act', op: 'task.stop', params: { id: task.id, expect_rev: task.rev }, pendingKey: `run:${task.id}:stop` } } })
       } }))
+      actions.append(openInPacerButton(task.id))
       detail.append(actions)
     } else if (cl === 'failed') {
       const att = (model.snapshot.attention ?? []).find((a) => a.taskId === task.id && (a.kind === 'failed' || a.kind === 'limit'))
@@ -354,6 +369,12 @@ function renderTaskRow(task: PanelTask, model: Extract<ReturnType<typeof panelMo
           } }))
         }
       }
+      actions.append(openInPacerButton(task.id))
+      detail.append(actions)
+    } else {
+      const actions = el('div')
+      actions.style.cssText = 'display:flex;gap:4px;flex-wrap:wrap;margin-left:-12px;'
+      actions.append(openInPacerButton(task.id))
       detail.append(actions)
     }
 
@@ -462,8 +483,12 @@ function renderReady(model: Extract<ReturnType<typeof panelModel>, { kind: 'read
     const dbox = el('div')
     dbox.style.cssText = 'display:flex;flex-direction:column;border:1px solid var(--line);border-radius:10px;'
     for (const d of model.doneTasks) {
-      const drow = el('div')
-      drow.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 12px;border-top:1px solid var(--surface-lane);font-size:12px;line-height:16px;'
+      const drow = el('button', 'row')
+      drow.type = 'button'
+      drow.title = 'Open in pacer'
+      drow.dataset.focus = `done:${d.id}`
+      drow.addEventListener('click', () => openInPacer(d.id))
+      drow.style.cssText = 'min-height:28px;padding:6px 12px;border-top:1px solid var(--surface-lane);font-size:12px;line-height:16px;'
       const g = doneGlyph(d)
       const dg = el('span', undefined, g.glyph)
       dg.style.cssText = `flex:none;width:14px;text-align:center;color:${g.tone === 'good' ? 'var(--good-fg)' : g.tone === 'bad' ? 'var(--bad-fg)' : g.tone === 'warn' ? 'var(--warn-fg)' : 'var(--ink-muted)'};`
