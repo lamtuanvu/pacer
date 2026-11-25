@@ -490,16 +490,10 @@ pub fn service_gate(app: &str, live_service: Option<&str>, accepted: Option<&str
 pub enum HandoverDecision {
     /// Call `service.handover` for the newer connected service.
     Call,
-    /// No call; persist the connected service version (first run).
+    /// No call; persist the connected service version (first run or downgrade).
     StoreOnly,
     /// Do nothing.
     None,
-    /// Alias for `None`.
-    Skip,
-    /// Alias for `None`.
-    Noop,
-    /// Alias for `None`.
-    NoCall,
 }
 
 pub fn handover_decision(
@@ -518,54 +512,108 @@ pub fn handover_decision(
     let parse = |value: &str| semver::Version::parse(value).ok().filter(|v| v.pre.is_empty() && v.build.is_empty());
     match (parse(connected), parse(remembered)) {
         (Some(connected), Some(remembered)) if connected > remembered => HandoverDecision::Call,
+        // Downgrade (or older installed app): store the connected version so the
+        // next upgrade compares against it.
+        (Some(connected), Some(remembered)) if connected < remembered => HandoverDecision::StoreOnly,
         _ => HandoverDecision::None,
     }
 }
 
-// Compatibility aliases for callers/tests using alternate names.
-pub fn should_handover(
-    remembered: Option<&str>,
-    connected: &str,
-    attached: bool,
-    update_transaction: bool,
-) -> HandoverDecision {
-    handover_decision(remembered, connected, attached, update_transaction)
-}
+#[cfg(test)]
+mod handover_tests {
+    use super::*;
 
-pub fn handover_action(
-    remembered: Option<&str>,
-    connected: &str,
-    attached: bool,
-    update_transaction: bool,
-) -> HandoverDecision {
-    handover_decision(remembered, connected, attached, update_transaction)
-}
+    #[test]
+    fn handover_calls_when_service_is_newer() {
+        assert_eq!(
+            handover_decision(Some("0.1.0"), "0.2.0", false, false),
+            HandoverDecision::Call
+        );
+    }
 
-pub fn decide_handover(
-    remembered: Option<&str>,
-    connected: &str,
-    attached: bool,
-    update_transaction: bool,
-) -> HandoverDecision {
-    handover_decision(remembered, connected, attached, update_transaction)
-}
+    #[test]
+    fn handover_does_not_call_when_same() {
+        assert_eq!(
+            handover_decision(Some("0.1.0"), "0.1.0", false, false),
+            HandoverDecision::None
+        );
+    }
 
-pub fn handover_after_connect(
-    remembered: Option<&str>,
-    connected: &str,
-    attached: bool,
-    update_transaction: bool,
-) -> HandoverDecision {
-    handover_decision(remembered, connected, attached, update_transaction)
-}
+    #[test]
+    fn handover_does_not_call_when_older() {
+        // Downgrade: store the connected (older) version instead of calling.
+        assert_eq!(
+            handover_decision(Some("0.2.0"), "0.1.0", false, false),
+            HandoverDecision::StoreOnly
+        );
+    }
 
-pub fn desktop_handover_decision(
-    remembered: Option<&str>,
-    connected: &str,
-    attached: bool,
-    update_transaction: bool,
-) -> HandoverDecision {
-    handover_decision(remembered, connected, attached, update_transaction)
+    #[test]
+    fn handover_does_not_call_when_attached() {
+        assert_eq!(
+            handover_decision(Some("0.1.0"), "0.2.0", true, false),
+            HandoverDecision::None
+        );
+    }
+
+    #[test]
+    fn handover_does_not_call_during_update_transaction() {
+        assert_eq!(
+            handover_decision(Some("0.1.0"), "0.2.0", false, true),
+            HandoverDecision::None
+        );
+    }
+
+    #[test]
+    fn handover_first_run_stores_only() {
+        assert_eq!(
+            handover_decision(None, "0.2.0", false, false),
+            HandoverDecision::StoreOnly
+        );
+    }
+
+    #[test]
+    fn handover_first_run_none_remembered() {
+        assert_eq!(
+            handover_decision(None, "1.0.0", false, false),
+            HandoverDecision::StoreOnly
+        );
+    }
+
+    #[test]
+    fn handover_no_call_unparsable_or_prerelease() {
+        // Unparsable connected version.
+        assert_eq!(
+            handover_decision(Some("0.1.0"), "not-a-version", false, false),
+            HandoverDecision::None
+        );
+        // Prerelease connected version.
+        assert_eq!(
+            handover_decision(Some("0.1.0"), "0.2.0-rc.1", false, false),
+            HandoverDecision::None
+        );
+        // Prerelease remembered version.
+        assert_eq!(
+            handover_decision(Some("0.2.0-rc.1"), "0.3.0", false, false),
+            HandoverDecision::None
+        );
+    }
+
+    #[test]
+    fn handover_no_call_update_transaction_in_progress() {
+        assert_eq!(
+            handover_decision(Some("0.1.0"), "0.2.0", false, true),
+            HandoverDecision::None
+        );
+    }
+
+    #[test]
+    fn handover_downgrade_stores_connected() {
+        assert_eq!(
+            handover_decision(Some("1.2.0"), "1.1.0", false, false),
+            HandoverDecision::StoreOnly
+        );
+    }
 }
 
 /** The signed disposable fixture can queue the existing choice for one fixed release pair. */
@@ -3659,46 +3707,4 @@ mod bundled_navigation_tests {
         }
     }
 
-    #[test]
-    fn handover_calls_when_service_is_newer() {
-        assert_eq!(
-            handover_decision(Some("0.1.0"), "0.2.0", false, false),
-            HandoverDecision::Call
-        );
-    }
-    #[test]
-    fn handover_does_not_call_when_same() {
-        assert_eq!(
-            handover_decision(Some("0.1.0"), "0.1.0", false, false),
-            HandoverDecision::None
-        );
-    }
-    #[test]
-    fn handover_does_not_call_when_older() {
-        assert_eq!(
-            handover_decision(Some("0.2.0"), "0.1.0", false, false),
-            HandoverDecision::None
-        );
-    }
-    #[test]
-    fn handover_does_not_call_when_attached() {
-        assert_eq!(
-            handover_decision(Some("0.1.0"), "0.2.0", true, false),
-            HandoverDecision::None
-        );
-    }
-    #[test]
-    fn handover_does_not_call_during_update_transaction() {
-        assert_eq!(
-            handover_decision(Some("0.1.0"), "0.2.0", false, true),
-            HandoverDecision::None
-        );
-    }
-    #[test]
-    fn handover_first_run_stores_only() {
-        assert_eq!(
-            handover_decision(None, "0.2.0", false, false),
-            HandoverDecision::StoreOnly
-        );
-    }
 }

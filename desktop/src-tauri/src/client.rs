@@ -1467,7 +1467,7 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
             let config_dir = config_dir.clone();
             tokio::spawn(async move {
                 match session
-                    .op("service.handover", &serde_json::json!({"wait_s": 60}))
+                    .op_timeout("service.handover", &serde_json::json!({"wait_s": 60}), Duration::from_secs(75))
                     .await
                 {
                     Ok(summary) => {
