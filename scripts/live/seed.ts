@@ -72,6 +72,7 @@ export function seedUi(root: string): void {
     files: [{ path: join(home, "accounts/team/AGENTS.md"), action: "created", undo: [], afterHash: createHash("sha256").update(integration).digest("hex") }],
   } } });
   write("onboarding/skipped", "UI fixture\n");
+  write("onboarding/onboarded", "UI fixture\n");
   // Setup derives service readiness from a service file plus a manager status.
   // These sandbox-only stubs answer that read, and refuse every manager mutation.
   write("Library/LaunchAgents/com.pacer.serve.plist", "<!-- Managed by pacer service: UI fixture only -->\n");

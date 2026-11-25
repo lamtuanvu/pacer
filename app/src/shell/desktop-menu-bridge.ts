@@ -2,7 +2,7 @@ import type { CommandRegistry } from "../keys/commands";
 import { menuChannel, type MenuHost } from "../platform/menu";
 export type { MenuHost } from "../platform/menu";
 
-export const MENU_COMMANDS = ["go.dispatch", "go.needs-you", "go.tasks", "go.terminal", "go.settings", "go.back", "go.forward", "task.new", "view.close", "view.find", "help.shortcuts", "view.panel.left", "view.panel.terminal", "view.panel.right"] as const;
+export const MENU_COMMANDS = ["go.dispatch", "go.needs-you", "go.tasks", "go.settings", "go.back", "go.forward", "task.new", "view.close", "view.find", "help.shortcuts", "view.panel.left", "view.panel.terminal", "view.panel.right"] as const;
 /** Native events dispatch the same current registry entries as the palette. No browser IPC. */
 export function attachDesktopMenuBridge(commands: CommandRegistry, route: (hash: string) => void, host: MenuHost = globalThis as MenuHost): () => void {
   const { listen, invoke } = menuChannel(host);

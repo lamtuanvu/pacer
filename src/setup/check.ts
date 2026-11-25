@@ -1,7 +1,8 @@
 import { policySummary } from "../plugins/policy";
 import { claudeHookChecks } from "../install/doctor-hooks";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import { loadStrategy, type Strategy } from "../config/strategy";
 import { AGENT_BINS, agentPlans } from "../install/detection";
 import { serviceBackend } from "../service";
@@ -39,9 +40,26 @@ export function integrationIntact(file:FileChange):boolean {
 export function statusFacts(status:Status|undefined):Pick<SetupFacts,"executors"|"verdict"> {
  return {executors:status?.executors,verdict:status?.providers.find(p=>p.id===status.planner)?.verdict};
 }
+/** Sticky first-run marker under PACER_HOME; missing file derives from current complete. */
+export function stickyOnboarded(pacerHome:string, complete:boolean):boolean {
+ const dir=join(pacerHome,"onboarding"),path=join(dir,"onboarded");
+ if(existsSync(path))return true;
+ if(!complete)return false;
+ const tmp=join(dir,`.onboarded-${randomUUID()}`);
+ try {
+  mkdirSync(dir,{recursive:true,mode:0o700});
+  writeFileSync(tmp,"",{flag:"wx",mode:0o600});
+  renameSync(tmp,path);
+ }catch{/* Concurrent writers race to the same marker; either outcome leaves onboarded true. */}
+ finally{rmSync(tmp,{force:true});}
+ return true;
+}
 export function withStatus(checklist:SetupChecklist,status:Status,ctx?:Ctx,reviewed=false):SetupChecklist {
  if(ctx)statuses.set(ctx.pacerHome,{at:ctx.now,status});
- return updateChecklist(checklist,{...statusFacts(status),...(ctx?{skipped:existsSync(join(ctx.pacerHome,"onboarding","skipped")),reviewed}:{})});
+ const next=updateChecklist(checklist,{...statusFacts(status),...(ctx?{skipped:existsSync(join(ctx.pacerHome,"onboarding","skipped")),reviewed}:{})});
+ if(!ctx)return next;
+ const onboarded=stickyOnboarded(ctx.pacerHome,next.complete||!!next.onboarded);
+ return {...next,onboarded};
 }
 type CheckOptions={snapshotProbe?:boolean;status?:Status;deferStatus?:boolean};
 /** Everything the checklist rules read: probes, plugin readings and this process's status cache. */
@@ -86,16 +104,17 @@ export async function setupCheckFacts(ctx:Ctx, options:CheckOptions={}):Promise<
   ...statusFacts(status),reviewed:anyReviewed(ctx),skipped:existsSync(join(ctx.pacerHome,"onboarding","skipped")),agents,errors};
 }
 /** The `setup.check` reply for gathered facts; `crates/config-ops/src/setup_checklist.rs` is the native twin. */
-export function checklistReply(facts:SetupFacts&{connected:boolean},checkedAt:number,policy?:SetupChecklist["policy"]):SetupChecklist {
+export function checklistReply(facts:SetupFacts&{connected:boolean},checkedAt:number,policy?:SetupChecklist["policy"],pacerHome?:string):SetupChecklist {
  const {connected}=facts;
  const result = setupChecklist(facts,checkedAt);
  const connect = result.items.find(i=>i.id==="connect");
  if(connect && connected)connect.detail="Configured · runtime invocation unverified. Run Settings Diagnostics for checks.";
- return {...result,...(policy?{policy}:{}), integration:{configuration:connected?"configured" as const:"unverified" as const, invocation:"unverified" as const}};
+ const onboarded=pacerHome?stickyOnboarded(pacerHome,!!(result.complete||result.onboarded)):!!result.onboarded;
+ return {...result,onboarded,...(policy?{policy}:{}), integration:{configuration:connected?"configured" as const:"unverified" as const, invocation:"unverified" as const}};
 }
 export async function checkSetup(ctx:Ctx, options:CheckOptions={}):Promise<SetupChecklist> {
  const facts=await setupCheckFacts(ctx,options);
- return checklistReply(facts,ctx.now,!options.deferStatus?policySummary(ctx):undefined);
+ return checklistReply(facts,ctx.now,!options.deferStatus?policySummary(ctx):undefined,ctx.pacerHome);
 }
 export async function checkSetupCommand(ctx:Ctx):Promise<string> {
  const result=await checkSetup(ctx);

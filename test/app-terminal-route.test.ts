@@ -8,6 +8,6 @@ test("Workspace has a stable route and keeps the repository scope", () => {
   expect(route).toMatchObject({ name: "terminal", id: "tab-1", query });
   if ("redirect" in route) throw Error("Unexpected redirect");
   expect(titleFor(route)).toBe("Workspace");
-  expect(primaryFor(route)).toBe("terminal");
-  expect(parentFor(route)).toEqual(routes.terminal(query));
+  expect(primaryFor(route)).toBe("sessions");
+  expect(parentFor(route)).toEqual(routes.tasks(query));
 });

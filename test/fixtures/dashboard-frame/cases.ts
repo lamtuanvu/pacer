@@ -58,13 +58,21 @@ export function corpus() {
   add("dashboard-connecting", { screen: "home" }, { connection: "connecting" });
   const empty = { ...s, tasks: [], attention: [], executors: [], hosts: [], accounts: [], counts: undefined, planner: undefined, today: undefined };
   for (const screen of ["home", "review", "sessions", "setup"] as const) add(`empty-${screen}`, { screen }, { snapshot: empty });
-  const setup = { ...s, setup: { complete: false, ready: false, open: 2, items: [
+  const setupBody = { complete: false as const, ready: false as const, open: 2, items: [
     { id: "service", title: "Background service", required: true, status: "pending", action: "service.install", detail: "Runs at login" },
     { id: "executor", title: "Add an executor", required: true, status: "failed", detail: "Choose an account" },
     { id: "first", title: "Try a delegation", required: false, status: "pending" },
-  ] } } as unknown as ClientSnapshot;
+  ] };
+  const setup = { ...s, setup: setupBody } as unknown as ClientSnapshot;
   add("setup", { screen: "setup" }, { snapshot: setup });
   add("setup-redirect", { screen: "home" }, { snapshot: setup });
+  // CT-4: onboarded or absent setup keeps work screens; only first-run (complete+onboarded false) redirects.
+  const { setup: _omitSetup, ...noSetupSnapshot } = s;
+  for (const screen of ["home", "review", "sessions"] as const) {
+    add(`setup-gate-onboarded-${screen}`, { screen }, { snapshot: { ...s, setup: { ...setupBody, onboarded: true } } as unknown as ClientSnapshot });
+    add(`setup-gate-absent-${screen}`, { screen }, { snapshot: noSetupSnapshot as ClientSnapshot });
+    add(`setup-gate-open-${screen}`, { screen }, { snapshot: { ...s, setup: { ...setupBody, onboarded: false } } as unknown as ClientSnapshot });
+  }
   for (const section of SECTIONS) {
     const resource = section.needs[0];
     if (resource) for (const state of ["loading", "error"] as const) {
