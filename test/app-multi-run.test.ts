@@ -76,7 +76,10 @@ test("the shared executor bench lists each executor in the dispatcher's words wi
     ["codex", "Ready", "good", { used: 0, max: 2 }],
     ["claude-code", "Out of quota", "bad", { used: 0, max: 1 }],
   ]);
-  expect(buildMultiRun({ runs: [], queue: [], snapshotRuns: undefined, details: {}, executors: undefined, focusId: null, quiet: false }).bench).toEqual([]);
+  expect(m.capacity).toEqual({ used: 2, max: 6 });
+  const none = buildMultiRun({ runs: [], queue: [], snapshotRuns: undefined, details: {}, executors: undefined, focusId: null, quiet: false });
+  expect(none.bench).toEqual([]);
+  expect(none.capacity).toBeNull();
 });
 
 test("step counts for a run the snapshot no longer lists come from its own step rows: latest attempt per step and branch", () => {

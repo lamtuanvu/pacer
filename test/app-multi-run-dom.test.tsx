@@ -186,6 +186,7 @@ test("the shared executor bench shows each executor's state in words with its sl
     expect(glm).toContain("2 of 3 slots in use");
     expect(text(row(dom.container, "data-executor", "codex"))).toContain("Ready");
     expect(text(row(dom.container, "data-executor", "claude-code"))).toContain("Out of quota");
+    expect(domText(dom.container)).toContain("2 of 6 slots are in use.");
   } finally { await done(dom); }
 });
 
