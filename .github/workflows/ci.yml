@@ -13,14 +13,15 @@ permissions:
   contents: read
 
 concurrency:
-  # Include commit SHA for PR events to prevent duplicate-run cancellation race.
-  # Each (PR, commit) pair gets its own group.
+  # A pull request has one group, and a newer event cancels the run in progress, so a push to the
+  # branch stops the superseded commit's run instead of letting both use runners. No job uses always(),
+  # so a cancelled run schedules no more work and the newer run reports the required checks.
   # A dispatched run (the release and nightly CI gates) gets its own per-commit group, so a push to main cannot cancel it.
   # Every push to main gets its own per-commit group and is never cancelled: validation runs post-merge
   # (amendment 0.24.0), and Prepare release needs a completed run for the exact commit it pins, which a
   # later merge must not cancel.
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name == 'pull_request' && github.sha || github.event_name == 'workflow_dispatch' && format('dispatch-{0}', github.sha) || github.event_name == 'push' && github.ref == 'refs/heads/main' && format('push-{0}', github.sha) || '' }}
-  cancel-in-progress: ${{ github.event_name == 'push' && github.ref != 'refs/heads/main' }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name == 'workflow_dispatch' && format('dispatch-{0}', github.sha) || github.event_name == 'push' && github.ref == 'refs/heads/main' && format('push-{0}', github.sha) || '' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/main') }}
 
 jobs:
   changes:

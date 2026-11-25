@@ -24,6 +24,11 @@ on:
 permissions:
   contents: read
 
+# Only the newest main commit's caches matter; a later push cancels the warm-up in progress.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # Same Rust compilation as release.yml desktop-build (unsigned; public vars only).
   desktop-build:
