@@ -41,7 +41,7 @@ export async function readPluginUsage(ctx: Ctx, cfg: ProviderCfg, account?: Acco
     resources.commands.push({ argv: ["arkcli", "usage", "plan", "--product", "coding-plan"], timeoutMs: 8000 });
     resources.stores.push({ id: "arkcli-usage-plan", path: join(ctx.pacerHome, "cache", "arkcli-usage-plan.json"), kind: "cache" });
   } else if (cfg.usage === "metered" && cfg.model) {
-    resources.commands.push({ argv: ["opencode", "stats", "--models", "--cost", "--json", "--days", "7"], timeoutMs: 15000 });
+    resources.commands.push({ argv: ["opencode", "stats", "--standalone", "--models", "--cost", "--json", "--days", "7"], timeoutMs: 15000 });
     resources.stores.push({ id: "opencode-stats-7d-cost", path: join(ctx.pacerHome, "cache", "opencode-stats-7d-cost.json"), kind: "cache" });
   }
   return registry.call<UsageReading>(ctx, plugin, "usage.read", {

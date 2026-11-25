@@ -220,7 +220,7 @@ pub async fn discover(home: &Path, discovery: Discovery, process: &CoreProcess) 
     // An empty listing means sign-in dropped or the provider was renamed: unknown, never "no models".
     if ids.is_empty() {
         base.note = Some(format!(
-            "opencode lists no models for {provider}; check opencode auth list"
+            "opencode lists no models for {provider}; check opencode auth list --standalone"
         ));
         return Listing::Known(base);
     }

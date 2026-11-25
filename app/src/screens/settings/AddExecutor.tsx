@@ -66,7 +66,9 @@ export function AddExecutor({ host: prefillHost = "", initialDraft = {}, initial
   const accountModels = selectedAccount?.connection?.models ?? [];
   // An OpenCode provider account runs one of its provider's models; it has no agent default to fall back on.
   const provider = draft.agent === "opencode" && selectedAccount?.source === "opencode" ? selectedAccount.provider ?? "" : "";
-  const modelProblem = provider && !locked && !draft.model.startsWith(`${provider}/`) ? "Choose a model." : null;
+  // An account that already names one of its provider's models runs that model when none is chosen.
+  const accountModel = provider && selectedAccount?.model?.startsWith(`${provider}/`) ? selectedAccount.model : "";
+  const modelProblem = provider && !locked && !accountModel && !draft.model.startsWith(`${provider}/`) ? "Choose a model." : null;
   const modelOptions = [{ value: "", label: "Agent default" }, ...accountModels.map(m => ({ value: m.id, label: m.name ?? m.id }))];
   if (draft.model && !modelOptions.some(m => m.value === draft.model)) modelOptions.push({ value: draft.model, label: draft.model });
   const [detectionStatus, setDetectionStatus] = useState('');
@@ -150,7 +152,8 @@ export function AddExecutor({ host: prefillHost = "", initialDraft = {}, initial
         {step === 4 && <>
           <div className="u3-step-heading"><SectionHeading variant="headline" id="agent-step-heading" tabIndex={-1}>Model, then a test task</SectionHeading><p className="u3-muted">The agent is Ready only after a real task passes.</p></div>
           <SettingRow label="Model">{provider
-            ? <ProviderModelPicker provider={provider} disabled={locked} value={draft.model} onChange={model => patch({ model })} />
+            ? <ProviderModelPicker provider={provider} disabled={locked} value={draft.model} onChange={model => patch({ model })}
+              {...(accountModel ? { placeholder: `${accountModel.slice(provider.length + 1)} (account default)` } : {})} />
             : <ChoicePicker className="u3-model-picker" disabled={locked} value={draft.model} options={modelOptions} onValueChange={model => patch({ model })} />}</SettingRow>
           <SettingRow label="Good at" description={kinds.length ? "Added to these task kinds’ routing rules." : "Added to the rule for everything else."}>
             <div className="u3-actions" role="group" aria-label="Good at">{AGENT_KINDS.map(([kind, label]) => <FilterChip key={kind} disabled={locked} selected={kinds.includes(kind)}

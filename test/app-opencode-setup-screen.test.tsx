@@ -5,6 +5,7 @@ import { initialState } from "../app/src/data/store";
 import { AddExecutor } from "../app/src/screens/settings/AddExecutor";
 import { OpencodeSetup } from "../app/src/screens/settings/OpencodeSetup";
 import { settingsText } from "../app/src/screens/settings/presentation";
+import { freeAccountName } from "../app/src/model/opencode-setup";
 import type { Candidate, Detection } from "../src/endpoints/detect";
 
 const api = { call: async () => ({}), hello: async () => ({}), snapshot: async () => ({}) } as never;
@@ -109,7 +110,7 @@ test("an added signed-in provider offers another executor first, with its own na
   expect(html).toContain("Change or’s model");
   expect(html).toContain("Add executor");
   expect(html).not.toContain("Save model");
-  expect(html).toContain('value="openrouter-2"');
+  expect(html).toContain('value="openrouter"');
   expect(html).toContain("Weekly spend cap");
 });
 
@@ -126,4 +127,19 @@ test("executor labels never rewrite file names or model ids", () => {
     .toBe('invalid strategy ~/.pacer/strategies/codex-byteplus.yaml: - runner OpenCode · oc-glm: model must start with "opencode-go/"');
   expect(settingsText("Uses codex.")).toBe("Uses Codex.");
   expect(settingsText("opencode#oc-glm.")).toBe("OpenCode · oc-glm.");
+});
+
+test("step 4 enables the test task once a provider model is chosen, and an account's own model needs no choice", () => {
+  const detected = [{ agent: "opencode", found: true }] as never;
+  const chosen = render(<AddExecutor initialDraft={{ agent: "opencode", account: "oc-glm", step: "4", maxTasks: "1", model: "opencode-go/glm-5.3" }} initialAccounts={[{ name: "oc-glm", kind: "endpoint", source: "opencode", provider: "opencode-go" }]} initialDetection={detected} />);
+  expect(chosen).not.toContain("Choose a model.");
+  expect(chosen).not.toMatch(/<button[^>]*disabled[^>]*>(?:(?!<\/button>)[\s\S])*Add agent and run test task/);
+  const own = render(<AddExecutor initialDraft={{ agent: "opencode", account: "go", step: "4", maxTasks: "1" }} initialAccounts={[{ name: "go", kind: "endpoint", source: "opencode", provider: "opencode-go", model: "opencode-go/kimi-k3" }]} initialDetection={detected} />);
+  expect(own).not.toContain("Choose a model.");
+});
+
+test("a new executor's suggested name is the provider's first free account name", () => {
+  expect(freeAccountName("opencode-go", [])).toBe("opencode-go");
+  expect(freeAccountName("opencode-go", ["opencode-go", "opencode-go-2"])).toBe("opencode-go-3");
+  expect(freeAccountName("OpenAI.Compat", ["openai-compat"])).toBe("openai-compat-2");
 });

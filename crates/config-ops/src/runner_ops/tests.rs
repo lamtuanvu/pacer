@@ -429,3 +429,18 @@ async fn add_refuses_an_opencode_provider_account_without_its_model() {
     .unwrap();
     assert_eq!(out, json!({"id":"opencode#go"}));
 }
+
+#[tokio::test]
+async fn add_accepts_an_opencode_provider_account_with_its_own_model() {
+    let dir = tempfile::tempdir().unwrap();
+    let c = ctx(&dir, &[]);
+    fs::write(
+        dir.path().join("strategy.yaml"),
+        "planner: claude-code\naccounts:\n  claude: {kind: claude}\n  go: {kind: endpoint, source: opencode, provider: opencode-go, model: opencode-go/kimi-k3, usage: metered}\nrunners:\n  claude-code: {}\n",
+    )
+    .unwrap();
+    let out = runner_add(&c, json!({"agent":"opencode","account":"go","test":false}))
+        .await
+        .unwrap();
+    assert_eq!(out, json!({"id":"opencode#go"}));
+}

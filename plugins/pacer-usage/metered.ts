@@ -4,7 +4,7 @@ import { isObj, toNum } from "./util";
 export async function readMetered(ctx: ReaderContext, cfg: MeteredConfig, refresh = false): Promise<UsageReading> {
   if (!cfg.model) return { windows: [], capturedAt: null, stale: false, error: "metered usage needs a model" };
   const c = await ctx.io.cachedFetch( "opencode-stats-7d-cost", 300, 6 * 3600, async () => {
-    const r = await ctx.io.run(["opencode", "stats", "--models", "--cost", "--json", "--days", "7"], 15000);
+    const r = await ctx.io.run(["opencode", "stats", "--standalone", "--models", "--cost", "--json", "--days", "7"], 15000);
     if (r.code !== 0) throw new Error(`opencode stats exited ${r.code}: ${r.stderr.trim().slice(0, 200)}`);
     return JSON.parse(r.stdout) as unknown;
   }, { refresh, now: ctx.now, readOnly: ctx.readOnly });

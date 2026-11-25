@@ -184,7 +184,7 @@ const STEPS: Step[] = [
   // A listing that fails or is empty saves the model with a "could not be checked" warning.
   ["runner.set", { id: "opencode#oc-fail", model: "acme/zz" }, true, undefined, "acme/zz could not be checked: opencode could not list models for acme"],
   ["executor.models.available", available("opencode#oc-empty"), true, { mode: "empty" }],
-  ["runner.set", { id: "opencode#oc-empty", model: "acme/zz" }, true, undefined, "acme/zz could not be checked: opencode lists no models for acme; check opencode auth list"],
+  ["runner.set", { id: "opencode#oc-empty", model: "acme/zz" }, true, undefined, "acme/zz could not be checked: opencode lists no models for acme; check opencode auth list --standalone"],
   ["executor.models.available", available("opencode#oc-empty"), true, { mode: "list", models: "other/x\n" }],
   ["executor.models.available", available("opencode#oc-empty", { refresh: false }), true, { mode: "list", models: "\ufeffacme/x \r\nacme/a\n" }],
   ["executor.models.available", available("missing"), true],

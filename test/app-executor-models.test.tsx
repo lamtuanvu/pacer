@@ -19,7 +19,7 @@ const served: AvailableModels = { runner: "go", source: "opencode", fetchedAt: 1
   { id: "zhipu/glm-4.7-air", context: 131072, output: 8192 },
 ] };
 const servedLabeled: AvailableModels = { ...served, provider: "Zhipu" };
-const emptyListing: AvailableModels = { runner: "go", source: "opencode", fetchedAt: 1, models: null, note: "opencode lists no models for zhipu; check opencode auth list" };
+const emptyListing: AvailableModels = { runner: "go", source: "opencode", fetchedAt: 1, models: null, note: "opencode lists no models for zhipu; check opencode auth list --standalone" };
 const unknown: AvailableModels = { runner: "go", source: "opencode", fetchedAt: 1, models: null, note: "opencode could not list models for openrouter" };
 const saveButton = (html: string) => html.match(/<button[^>]*>[\s\S]*?Save model/)?.[0] ?? "";
 

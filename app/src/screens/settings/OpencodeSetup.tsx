@@ -13,6 +13,7 @@ import { Pill } from "../../ds/Pill";
 import { SectionHeading } from "../../ds/SectionHeading";
 import {
   addParams,
+  freeAccountName,
   GROUP_TITLES,
   groupCandidates,
   modelFacts,
@@ -239,8 +240,11 @@ function ModelStep({
   const [modelId, setModelId] = useState(changing ? candidate.model ?? "" : "");
   const [usage, setUsage] = useState<UsageClass["usage"] | "">("");
   const [cap, setCap] = useState("");
-  const base = candidate.provider.replace(/[^a-z0-9-]/g, "-");
-  const [name, setName] = useState(added ? `${base}-2` : base);
+  // The suggested name is the provider's first free account name, as the server picks it.
+  const accounts = useResource<{ name: string }[]>("account.list", {});
+  const taken = Array.isArray(accounts.data) ? accounts.data.map((a) => a.name) : added ? [added] : [];
+  const [typedName, setName] = useState<string | null>(null);
+  const name = typedName ?? freeAccountName(candidate.provider, taken);
   const [error, setError] = useState("");
 
   const list = models.data
@@ -394,9 +398,12 @@ export function ProviderModelPicker({
   disabled,
   onChange,
   initialModels,
+  placeholder = "Choose a model",
 }: {
   provider: string;
   value: string;
+  /** Shown while nothing is chosen, e.g. the account's own model. */
+  placeholder?: string;
   disabled?: boolean;
   onChange: (model: string) => void;
   initialModels?: ModelsResult;
@@ -420,21 +427,28 @@ export function ProviderModelPicker({
   return (
     <ResourceState resource={models}>
       {models.data?.note && <p className="u3-muted">{models.data.note}</p>}
-      {options.length ? (
+      {options.length || !models.data ? (
         <ChoicePicker
           className="u3-model-picker"
           searchable
           disabled={disabled}
           value={value}
-          placeholder="Choose a model"
+          placeholder={placeholder}
           options={options}
           onValueChange={onChange}
         />
       ) : (
-        <p role="alert">
-          OpenCode lists no models for {provider} that can run an executor.
-          Check its sign-in with <code>opencode auth list --standalone</code>.
-        </p>
+        // OpenCode listed nothing usable: the user names the model, as the provider picker asks for one.
+        <Field label="Model id" help={`A ${provider} model that can call tools.`}>
+          <TextInput
+            disabled={disabled}
+            value={value.startsWith(prefix) ? value.slice(prefix.length) : value}
+            onInput={(e) => {
+              const id = e.currentTarget.value.trim();
+              onChange(id ? `${prefix}${id}` : "");
+            }}
+          />
+        </Field>
       )}
       {chosen && <p className="u3-muted">{modelFacts(chosen)}</p>}
     </ResourceState>

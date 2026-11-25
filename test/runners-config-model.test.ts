@@ -62,7 +62,7 @@ test("runner.set saves a model against an empty listing with a could-not-check w
   mkdirSync(ctx.pacerHome, {recursive: true});
   writeFileSync(join(ctx.pacerHome, "strategy.yaml"), OPENER);
   const result = await runners.set(ctx, "opencode#acme", {model: "acme/b"});
-  expect(result.warnings).toEqual(["acme/b could not be checked: opencode lists no models for acme; check opencode auth list"]);
+  expect(result.warnings).toEqual(["acme/b could not be checked: opencode lists no models for acme; check opencode auth list --standalone"]);
   expect(loadStrategy(ctx).runners["opencode#acme"].model).toBe("acme/b");
 });
 
@@ -98,4 +98,17 @@ runners:
   }
   expect(await Bun.file(join(ctx.pacerHome, "strategy.yaml")).text()).toBe(text);
   expect((await runners.add(ctx, { agent: "opencode", account: "go", test: false, model: "opencode-go/glm-5.3" })).id).toBe("opencode#go");
+});
+
+test("runner add accepts an OpenCode provider account whose own model is one of its provider's", async () => {
+  const ctx = fakeCtx();
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), `planner: claude-code
+accounts:
+  claude: {kind: claude}
+  go: {kind: endpoint, source: opencode, provider: opencode-go, model: opencode-go/kimi-k3, usage: metered}
+runners:
+  claude-code: {}
+`);
+  expect((await runners.add(ctx, { agent: "opencode", account: "go", test: false })).id).toBe("opencode#go");
 });

@@ -240,12 +240,12 @@ async fn failed_and_empty_listings_carry_notes_and_are_never_cached() {
         (
             "empty",
             "",
-            "opencode lists no models for acme; check opencode auth list",
+            "opencode lists no models for acme; check opencode auth list --standalone",
         ),
         (
             "list",
             "other/x\n",
-            "opencode lists no models for acme; check opencode auth list",
+            "opencode lists no models for acme; check opencode auth list --standalone",
         ),
     ] {
         let fake = Fake::new(mode, models);
