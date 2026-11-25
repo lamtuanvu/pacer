@@ -29,7 +29,7 @@ fn has_target(update: &Value) -> bool {
 fn phase_view(update: &Value) -> (&'static str, &'static str, &'static str) {
     match update["phase"].as_str() {
         Some("idle") if has_target(update) => ("↓", "info", "Update available"),
-        Some("idle") if update["checkedAt"].is_null() => ("…", "neutral", "Not checked"),
+        Some("idle") if update["checkedAt"].is_null() => ("…", "neutral", "Not checked yet"),
         Some("idle") => ("✓", "neutral", "Up to date"),
         Some("checking") => ("…", "info", "Checking for updates"),
         Some("downloading") => ("↓", "info", "Downloading update"),
@@ -60,10 +60,45 @@ fn adoption_view(phase: Option<&str>) -> (&'static str, &'static str, &'static s
     }
 }
 
+/// A check that could not complete, as opposed to a real download or install failure.
+fn failed_check_code(update: &Value) -> bool {
+    matches!(
+        update["error"]["code"].as_str(),
+        Some("check_unavailable" | "check_interrupted")
+    )
+}
+
+/// Mirrors `interruptedCheck` in src/view-model/updates.ts. Older builds left only the
+/// raw adapter message. A record with a target, or an adoption that needs attention, is
+/// never filtered or downgraded.
+fn interrupted_check(update: &Value) -> bool {
+    let legacy = update["error"]["code"].as_str() == Some("update_failed")
+        && matches!(
+            update["error"]["message"].as_str(),
+            Some(
+                "Verified desktop update adapter is unavailable"
+                    | "Desktop update adapter closed before successful completion"
+                    | "Desktop update adapter operation was cancelled"
+                    | "Desktop update adapter operation timed out"
+            )
+        );
+    let adoption_needs_attention = update["adoption"].is_object()
+        && !matches!(
+            update["adoption"]["phase"].as_str(),
+            Some("available" | "cancelled" | "committed")
+        );
+    !has_target(update) && !adoption_needs_attention && (failed_check_code(update) || legacy)
+}
+
 /// Mirrors the glyph, tone and label selection of `desktopUpdateView`, including adoption.
 fn update_view(update: &Value) -> UpdateIndicator {
     let (mut glyph, mut tone, mut label) = phase_view(update);
     let phase = update["phase"].as_str();
+    if phase == Some("error") && interrupted_check(update) {
+        (glyph, tone, label) = ("?", "neutral", "Couldn't check for updates");
+    } else if phase == Some("error") && has_target(update) && failed_check_code(update) {
+        (glyph, tone, label) = ("↓", "info", "Update available");
+    }
     let adoption = update
         .get("adoption")
         .filter(|adoption| adoption.is_object());
@@ -108,10 +143,15 @@ pub fn update_indicator(updates: &[Value]) -> Option<UpdateIndicator> {
                     )
             })
     };
-    updates
-        .iter()
+    // A check that retries on its own is ranked like idle: never an attention item.
+    let ranked = || {
+        updates.iter().filter(|update| {
+            update["phase"].as_str() != Some("error") || !interrupted_check(update)
+        })
+    };
+    ranked()
         .find(failed)
-        .or_else(|| updates.iter().find(active))
+        .or_else(|| ranked().find(active))
         .map(update_view)
 }
 
@@ -265,6 +305,62 @@ mod tests {
         assert_eq!(adoption.title, "— !");
         assert_eq!(adoption.tooltip, "pacer: Service recovery needs attention");
         assert!(adoption.alert);
+    }
+    #[test]
+    fn a_check_that_could_not_complete_is_neutral_like_the_shared_view() {
+        let failed = |code: &str, message: &str, target: Value| json!({"phase":"error","target":target,"error":{"code":code,"message":message}});
+        for (code, message) in [
+            ("check_unavailable", "anything"),
+            ("check_interrupted", "anything"),
+            ("update_failed", "Verified desktop update adapter is unavailable"),
+            ("update_failed", "Desktop update adapter closed before successful completion"),
+            ("update_failed", "Desktop update adapter operation was cancelled"),
+            ("update_failed", "Desktop update adapter operation timed out"),
+        ] {
+            let update = failed(code, message, Value::Null);
+            // Never ranked, so it raises no tray signal and cannot mask other work.
+            assert_eq!(update_indicator(std::slice::from_ref(&update)), None, "{code} {message}");
+            assert_eq!(title(update.clone()), "—", "{code} {message}");
+            let ready = json!({"phase":"ready","target":"1.1.0"});
+            assert_eq!(update_indicator(&[update.clone(), ready]).map(|i| i.glyph), Some("↑"));
+            assert_eq!(
+                update_view(&update),
+                UpdateIndicator { glyph: "?", tone: "neutral", label: "Couldn't check for updates" }
+            );
+        }
+        // A failed re-check keeps the update the person can still download.
+        for code in ["check_unavailable", "check_interrupted"] {
+            assert_eq!(
+                update_indicator(&[failed(code, "x", json!("1.1.0"))]),
+                Some(UpdateIndicator { glyph: "↓", tone: "info", label: "Update available" }),
+                "{code}"
+            );
+        }
+        // Real failures stay red: a legacy adapter message with a target, another code, no error.
+        for update in [
+            failed("update_failed", "Desktop update adapter operation timed out", json!("1.1.0")),
+            failed("update_failed", "disk full", Value::Null),
+            failed("download_failed", "x", Value::Null),
+            json!({"phase":"error","target":null}),
+        ] {
+            let model = TrayModel::from_snapshot(&json!({"desktopUpdates":[update.clone()]}));
+            assert_eq!(model.title, "— !", "{update}");
+            assert!(model.alert, "{update}");
+        }
+        // An adoption that needs attention is never hidden by a self-retrying check error.
+        let mut adopting = failed("check_unavailable", "x", Value::Null);
+        adopting["adoption"] = json!({"phase":"recovery-failed"});
+        assert_eq!(update_indicator(&[adopting]).map(|i| i.label), Some("Service recovery needs attention"));
+        for phase in ["available", "cancelled", "committed"] {
+            let mut settled = failed("check_unavailable", "x", Value::Null);
+            settled["adoption"] = json!({"phase": phase});
+            assert_eq!(update_indicator(&[settled]), None, "{phase}");
+        }
+    }
+    #[test]
+    fn an_unchecked_installation_reads_like_the_shared_view() {
+        let update = json!({"phase":"idle","target":null,"checkedAt":null});
+        assert_eq!(update_view(&update).label, "Not checked yet");
     }
     #[test]
     fn adoption_phases_override_like_the_shared_view() {
