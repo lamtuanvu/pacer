@@ -104,6 +104,7 @@ function makeApi(opts: {
   inventory: ReturnType<typeof inventory>;
   setMany?: { throw?: ApiError; warnings?: string[]; gate?: Promise<void> };
   runnerModelsGet?: (id: string, saved: number) => RunnerModels | Promise<RunnerModels>;
+  settings?: { keys: Record<string, { value: unknown }>; planners: string[] };
 }): MatrixApi {
   const calls: Array<{ op: string; params: Record<string, unknown> }> = [];
   const savedModels: Record<string, RunnerModels> = {};
@@ -125,6 +126,7 @@ function makeApi(opts: {
         calls.push({ op, params });
         switch (op) {
           case "dispatch.config.get": return opts.config as T;
+          case "config.get": return (opts.settings ?? { keys: {}, planners: [] }) as T;
           case "dispatch.models":
             // Return a fresh object each call so an inventory.reload (or a config
             // invalidation) changes identity and the clean page reloads drafts.
@@ -177,6 +179,7 @@ async function withMatrix(run: (container: FakeElement, api: MatrixApi, rerender
   available?: Record<string, AvailableModels>;
   setMany?: { throw?: ApiError; warnings?: string[]; gate?: Promise<void> };
   runnerModelsGet?: (id: string, saved: number) => RunnerModels | Promise<RunnerModels>;
+  settings?: { keys: Record<string, { value: unknown }>; planners: string[] };
 }) {
   const previous = { document: globalThis.document, CSSStyleSheet: globalThis.CSSStyleSheet, window: globalThis.window, getComputedStyle: globalThis.getComputedStyle, requestAnimationFrame: globalThis.requestAnimationFrame };
   globalThis.document = {
@@ -243,14 +246,18 @@ test("an unknown-listing executor with no models shows the Add model field", asy
   });
 });
 
-test("the planner executor renders switches disabled with the planner note", async () => {
+test("the planner executor is editable and explains the tier fallback", async () => {
   await withMatrix(async (container, _api) => {
     const text = textOf(container);
-    expect(text).toContain("Planner. Pacer does not dispatch tasks to it");
-    expect(text).not.toContain("Add model");
+    expect(text).toContain("Planner. Pacer sends it a complex task only when no other agent has a frontier model on, using planner quota.");
     const switches = allNodes(container, n => n.tagName === "input" && (n.attrs.class ?? "").includes("pc-switch"));
     expect(switches.length).toBeGreaterThan(0);
-    for (const sw of switches) expect(sw.attrs.disabled).toBeDefined();
+    for (const sw of switches) expect(sw.attrs.disabled).toBeUndefined();
+    // A small planner model never takes work: the fallback only sends complex tasks.
+    const takes = allNodes(container, n => (n.attrs.role ?? "") === "row" && textOf(n).includes("default-model"));
+    expect(takes.length).toBe(1);
+    expect(textOf(takes[0]!)).toContain("—");
+    expect(textOf(takes[0]!)).not.toContain("Complex");
   }, {
     config: configView("claude-code"),
     inventory: inventory([record("claude-code", "claude-code", "claude-code", "default-model", { kind: "executor-default" })]),
@@ -582,9 +589,9 @@ test("an external change on a clean page reloads the runner models without a con
   }, options);
 });
 
-test("Suggest, Accept all and Save keep the read-only planner out of set_many", async () => {
-  // The planner runner has pricing facts (so it would be suggested if it were
-  // editable), but it stays read-only through the whole flow.
+test("Suggest, Accept all and Save leave the planner out of set_many", async () => {
+  // The planner runner has pricing facts, but suggestions never touch it: spending
+  // planner quota stays an explicit edit.
   const plannerModels: RunnerModels = { runner: "claude-code", revision: "r-planner", default: "default-model", models: [{ id: "default-model", tier: "unknown" }] };
   const plannerListing: AvailableModels = { runner: "claude-code", source: "opencode", fetchedAt: 1, provider: "Zhipu", models: [ { id: "default-model", context: 128000, tools: true, costOut: 5 } ] };
   await withMatrix(async (container, api) => {
@@ -857,5 +864,83 @@ test("turn a model off, save, then a refresh with identical server models shows 
     models: { go: declarationsGo },
     available: { go: servedGo },
     runnerModelsGet,
+  });
+});
+test("a frontier planner model counts toward complex coverage and takes only complex work", async () => {
+  const plannerFrontier: RunnerModels = { runner: "claude-code", revision: "r-planner", default: "default-model", models: [{ id: "default-model", tier: "frontier" }] };
+  await withMatrix(async (container) => {
+    const text = textOf(container);
+    expect(text).toContain("Complex, as fallback");
+    expect(text).toContain("No other agent has a frontier model, so the planner takes complex tasks.");
+  }, {
+    config: configView("claude-code"),
+    inventory: inventory([record("claude-code", "claude-code", "claude-code", "default-model", { kind: "executor-default" })]),
+    models: { "claude-code": plannerFrontier },
+    available: { "claude-code": { ...unknown, runner: "claude-code" } },
+  });
+});
+
+test("a planner with no models explains how to enable the tier fallback", async () => {
+  const plannerEmpty: RunnerModels = { runner: "claude-code", revision: "r-planner", default: null, models: [] };
+  await withMatrix(async (container) => {
+    const text = textOf(container);
+    expect(text).toContain("To let the planner take complex tasks, add a model and set its size to Frontier.");
+    expect(text).not.toContain("Uses its default and can take any difficulty");
+  }, {
+    config: configView("claude-code"),
+    inventory: inventory([record("claude-code", "claude-code", "claude-code", "default-model", { kind: "executor-default" })]),
+    models: { "claude-code": plannerEmpty },
+    available: { "claude-code": { ...unknown, runner: "claude-code" } },
+  });
+});
+
+test("with the tier fallback off the planner row says it takes no tasks", async () => {
+  const plannerFrontier: RunnerModels = { runner: "claude-code", revision: "r-planner", default: "default-model", models: [{ id: "default-model", tier: "frontier" }] };
+  await withMatrix(async (container) => {
+    const text = textOf(container);
+    expect(text).toContain("Planner. The tier fallback is off, so Pacer sends it no tasks.");
+    expect(text).not.toContain("Complex, as fallback");
+    expect(text).not.toContain("so the planner takes complex tasks");
+  }, {
+    config: configView("claude-code"),
+    inventory: inventory([record("claude-code", "claude-code", "claude-code", "default-model", { kind: "executor-default" })]),
+    models: { "claude-code": plannerFrontier },
+    available: { "claude-code": { ...unknown, runner: "claude-code" } },
+    settings: { keys: { "pacing.planner_tier_fallback": { value: "off" } }, planners: [] },
+  });
+});
+
+test("editing the planner row saves it through set_many with its tier", async () => {
+  await withMatrix(async (container, api) => {
+    const frontier = findNode(container, n => n.tagName === "button" && (n.attrs.role ?? "") === "radio" && textOf(n) === "Frontier");
+    expect(frontier).toBeTruthy();
+    await act(async () => { fire(frontier!, "click", {}); await new Promise(resolve => setTimeout(resolve, 0)); });
+    await clickText(container, "Save matrix");
+    await until(() => api.calls.some(c => c.op === "runner.models.set_many"));
+    const runners = api.calls.find(c => c.op === "runner.models.set_many")!.params.runners as Array<{ id: string; models: Array<{ id: string; tier: string }> }>;
+    expect(runners.map(r => r.id)).toEqual(["claude-code"]);
+    expect(runners[0]!.models).toMatchObject([{ id: "default-model", tier: "frontier" }]);
+  }, {
+    config: configView("claude-code"),
+    inventory: inventory([record("claude-code", "claude-code", "claude-code", "default-model", { kind: "executor-default" })]),
+    models: { "claude-code": declarationsPlanner },
+    available: { "claude-code": { ...unknown, runner: "claude-code" } },
+  });
+});
+
+test("another agent with a frontier model hides the planner coverage line", async () => {
+  const plannerFrontier: RunnerModels = { runner: "claude-code", revision: "r-planner", default: "default-model", models: [{ id: "default-model", tier: "frontier" }] };
+  const goFrontier: RunnerModels = { runner: "go", revision: "r-go", default: "zhipu/glm", models: [{ id: "zhipu/glm", tier: "frontier" }] };
+  await withMatrix(async (container) => {
+    const text = textOf(container);
+    expect(text).not.toContain("so the planner takes complex tasks");
+  }, {
+    config: configView("claude-code"),
+    inventory: inventory([
+      record("go", "zhipu", "opencode", "zhipu/glm"),
+      record("claude-code", "claude-code", "claude-code", "default-model", { kind: "executor-default" }),
+    ]),
+    models: { go: goFrontier, "claude-code": plannerFrontier },
+    available: { go: servedGo, "claude-code": { ...unknown, runner: "claude-code" } },
   });
 });
