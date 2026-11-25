@@ -738,13 +738,16 @@ test('overallCounts: a person-addressed item is a need, a question or caller dec
     task('reviewed', '/w/e', { state: 'done' }),
     task('msg', '/w/a', { state: 'running' }),
     task('old', '/w/f', { state: 'done' }),
+    // Back in the queue for a new attempt but its review is still open: a need, not also queued.
+    task('requeued', '/w/g', { state: 'queued' }),
   ]
   const attention = [
     { ...attentionItem('r', null), kind: 'review', taskId: 'reviewed' },
     { ...attentionItem('m', null), kind: 'message', taskId: 'msg' },
     { ...attentionItem('qq', null), kind: 'question', taskId: 'q' },
+    { ...attentionItem('rq', null), kind: 'review', taskId: 'requeued' },
   ] as AttentionItem[]
-  assert.deepEqual(overallCounts(tasks, attention), { needsYou: 2, running: 2, asked: 2, queued: 1, worktrees: 5 })
+  assert.deepEqual(overallCounts(tasks, attention), { needsYou: 3, running: 2, asked: 2, queued: 1, worktrees: 6 })
 })
 
 test('executorSummary lists enabled executors in routing order and names shared agents by account', () => {
