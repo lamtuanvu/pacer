@@ -135,7 +135,7 @@ pub fn snapshot_runs(ctx: &Ctx) -> Vec<Value> {
     };
     let sql = format!(
         "SELECT id, title, workflow, status, {priority}, {paused}, {letter}, created_at,
-                {orch_state}, {planner}, {pending}, reason, {next_wake}
+                {orch_state}, {planner}, {pending}, reason, {next_wake}, {origin}
          FROM workflow_runs
          WHERE status IN ('running', 'waiting')
          ORDER BY created_at, id",
@@ -146,6 +146,7 @@ pub fn snapshot_runs(ctx: &Ctx) -> Vec<Value> {
         planner = col_bare("planner", "NULL"),
         pending = col_bare("pending_planner", "NULL"),
         next_wake = col_bare("next_wake_at", "NULL"),
+        origin = col_bare("origin", "NULL"),
     );
     let mut run_stmt = match db.prepare(&sql) {
         Ok(s) => s,
@@ -166,6 +167,7 @@ pub fn snapshot_runs(ctx: &Ctx) -> Vec<Value> {
         Option<String>,
         Option<String>,
         Option<f64>,
+        Option<String>,
     );
 
     let run_rows: Vec<RunTuple> = match run_stmt.query_map([], |row| {
@@ -183,6 +185,7 @@ pub fn snapshot_runs(ctx: &Ctx) -> Vec<Value> {
             row.get(10)?,
             row.get(11)?,
             row.get(12)?,
+            row.get(13)?,
         ))
     }) {
         Ok(rows) => rows.flatten().collect(),
@@ -314,6 +317,7 @@ pub fn snapshot_runs(ctx: &Ctx) -> Vec<Value> {
             pending_planner,
             reason,
             next_wake_at,
+            origin,
         ) = row;
 
         let steps = steps_by_run.get(id).cloned().unwrap_or_default();
@@ -409,6 +413,9 @@ pub fn snapshot_runs(ctx: &Ctx) -> Vec<Value> {
         );
         obj.insert("title".into(), json!(title));
         obj.insert("workflow".into(), json!(workflow));
+        if let Some(o) = origin.as_ref().filter(|s| !s.is_empty()) {
+            obj.insert("origin".into(), json!(o));
+        }
         obj.insert("status".into(), json!(status));
         obj.insert("priority".into(), json!(prio));
         if let Some(pr) = paused_reason.as_ref().filter(|s| !s.is_empty()) {

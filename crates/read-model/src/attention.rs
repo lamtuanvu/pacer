@@ -541,11 +541,16 @@ pub fn run_question_items(ctx: &Ctx) -> Vec<Value> {
     } else {
         "NULL"
     };
+    let origin_expr = if run_cols.contains("origin") {
+        "r.origin"
+    } else {
+        "NULL"
+    };
     let sql = format!(
         "SELECT q.id, q.run_id, q.step_id, q.attempt, q.branch, q.asker_task_id, q.asker_kind,
                 q.text, q.answer_type, q.options, q.recommended, q.blocks, q.artifact,
                 q.suggested, q.rev, q.created_at, r.title, r.workflow, r.status,
-                {priority_expr}, {letter_expr}
+                {priority_expr}, {letter_expr}, {origin_expr}
          FROM workflow_questions q
          JOIN workflow_runs r ON r.id = q.run_id
          WHERE q.status = 'open' AND q.answerer = 'person'
@@ -579,6 +584,7 @@ pub fn run_question_items(ctx: &Ctx) -> Vec<Value> {
             row.get::<_, String>(18)?,
             row.get::<_, Option<String>>(19)?,
             row.get::<_, Option<String>>(20)?,
+            row.get::<_, Option<String>>(21)?,
         ))
     }) {
         Ok(rows) => rows,
@@ -635,6 +641,7 @@ pub fn run_question_items(ctx: &Ctx) -> Vec<Value> {
             _status,
             priority,
             letter,
+            origin,
         ) = row;
         let unblocks = match blocks.as_str() {
             "branch" => "branch",
@@ -645,11 +652,6 @@ pub fn run_question_items(ctx: &Ctx) -> Vec<Value> {
             "decide"
         } else {
             "blocked"
-        };
-        let notify = if unblocks == "nothing" {
-            "all"
-        } else {
-            "important"
         };
         // Item `run.title` keeps the stored value (or workflow when empty) — matches
         // TS `run.title || run.workflow`. Detail subject is separately normalised (I-2).
@@ -663,6 +665,20 @@ pub fn run_question_items(ctx: &Ctx) -> Vec<Value> {
             created_at
         } else {
             ctx.now
+        };
+        // Mirrors TS notifyLevelForRun("question", run, now, {since, unblocks}).
+        // Children inherit the root's origin, so origin alone answers ownership.
+        // A NULL origin is a pre-upgrade run: blocking items were always
+        // important before origin existed, so it stays human-owned. New runs
+        // always record an origin; `unknown:<id>` is not human-owned.
+        let human_owned = matches!(origin.as_deref(), None | Some("human"));
+        let waiting_on = origin.as_deref().filter(|o| o.starts_with("external:"));
+        let notify = if unblocks == "nothing" {
+            "all"
+        } else if human_owned || ctx.now - at >= CALLER_GONE_AFTER_S {
+            "important"
+        } else {
+            "all"
         };
         let parsed_options: Option<Vec<Value>> = options
             .as_ref()
@@ -724,6 +740,9 @@ pub fn run_question_items(ctx: &Ctx) -> Vec<Value> {
         obj.insert("raisedAt".into(), number(at));
         obj.insert("since".into(), number(at));
         obj.insert("notify".into(), json!(notify));
+        if let Some(caller) = waiting_on {
+            obj.insert("waitingOn".into(), json!(caller));
+        }
         obj.insert("actions".into(), actions);
         obj.insert("unblocks".into(), json!(unblocks));
         let prio = match priority.as_deref() {

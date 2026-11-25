@@ -9,6 +9,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - **Planner tier fallback.** When a task is `complex` (or a dispatch brief sets `min_tier`) and no executor other than the planner declares a model at the target tier, Pacer runs it on the planner's own account as a managed task, even when the planner is ahead of pace. A busy planner makes the task wait rather than run below its tier. New setting `pacing.planner_tier_fallback` (`on` by default); `pacer route --difficulty` and `routing.route { difficulty }` (protocol 3 only); `pacer status` shows a `Tier fallback:` line while it applies. The planner runner needs a declared `tier: frontier` model to qualify.
 - **TUI Runs screen.** Tab/`6` opens a Runs list (open person-answerable questions first) and a run view that draws the engine graph as a tree with a details pane; answer, pause/resume, stop, priority, auto and orchestrator message keys use existing ops. `run.get` adds an optional `definition` projection; `run.answer` accepts an optional `note` (same sanitize/trim rules as `question.answer`).
 
+### Changed
+
+- Planner-started workflow runs no longer raise human banners for blocking items unless the caller has been silent for 30 minutes; run snapshots expose `origin`.
+
 ## [0.18.4] - 2026-11-25
 
 ### Changed

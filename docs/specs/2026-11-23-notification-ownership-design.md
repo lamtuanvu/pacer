@@ -143,3 +143,109 @@ Ownership uses `origin` for CLI roots so a planner shelling out to
 - Caller-gone: **30 minutes** (`CALLER_GONE_AFTER_S = 1800`).
 - Notify cooldown: **30 minutes** (`NOTIFY_COOLDOWN_S = 1800`).
 - Ledger retention: **7 days** (unchanged).
+
+## Addendum 2026-11-25 — workflow-run ownership (issue #1278, PR D)
+
+The maintainer decided that a planner-started run's blocking items escalate
+after the caller has been silent for `CALLER_GONE_AFTER_S`, the same way a
+stalled `caller_decision` task does. The task-ownership rules above are
+unchanged; this addendum adds the run case. The maintainer also decided that a
+NULL `origin` identifies a pre-upgrade run and stays human-owned (blocking items
+were always `important` before origin existed), while every new run must record
+an origin: `unknown:<caller id>` is used when the caller is neither the human
+nor an identified external agent.
+
+### Run origin
+
+`workflow_runs.origin` is a nullable `TEXT` column, added with the same
+idempotent `ALTER TABLE ... ADD COLUMN` pattern as the other run columns in
+`workflowDatabase` (inside the write transaction, never on a read, and never
+backfilled):
+
+- `"human"` — the run was started by the local human (app-authenticated, or an
+  explicit local-human participant).
+- `"external:<kind>[:<session>]"` — a planner/external agent started it. The
+  value is the caller participant id from `callerParticipant`, so it also names
+  the caller for grouping. It is never taken from a `run.start` request field.
+- `NULL` — a pre-upgrade row written before the column existed. It **is**
+  human-owned at read time so old runs keep the pre-change behavior: blocking
+  items were always `important`. New runs never write `NULL`. An unidentified
+  local caller (for example a non-TTY CLI `run.start` outside a planner session)
+  is recorded as the real participant `external:local` under ADR 0011, not `NULL`.
+- `unknown:<caller id>` — a caller id that is neither `human` nor an identified
+  external participant (for example `orchestrator` or `task:<id>`). It is an
+  explicit non-human value, never an external caller: it carries no `waitingOn`
+  and its blocking items wait out `CALLER_GONE_AFTER_S` before escalating.
+
+In `run.start`, the caller participant id is recorded when it is `human` or
+`external:...`; any other caller id is recorded as `unknown:<caller id>`, so a
+new run is never written with a NULL origin. `startRun` writes `origin` at
+insert. Child runs (`parentRunId`) inherit their parent's origin; because every
+child does, the origin on any run in the tree is the root's origin and no
+ancestry walk is needed. `runEntityValue` and the snapshot run read model expose
+`origin` additively (P4). The Rust read model reads the column defensively
+(`PRAGMA table_info`) so an older schema stays readable.
+
+### Notify rules for run attention
+
+`src/attention/rules.ts` exports `runOwnedByHuman`, `runExternalCaller` and
+`notifyLevelForRun`; `src/workflow/attention.ts` calls them for every run item
+instead of hard-coding `notify` (the six values previously hard-coded):
+
+| Situation | `notify` |
+| --- | --- |
+| `budget_spent`, `budget_msg_spent`, `orchestrator_failed`, `orchestrator_blocked`, unresolved wake, or a blocking `question` on a human-origin root — including a legacy NULL origin | `important` |
+| The same blocking kinds on an external-origin or `unknown:<id>` root, age < `CALLER_GONE_AFTER_S` | `all` |
+| The same blocking kinds on an external-origin or `unknown:<id>` root once `since` is at least `CALLER_GONE_AFTER_S` old | `important` |
+| `budget_warn`, `budget_msg_warn` | `all` (always) |
+| `question` with `unblocks:"nothing"` | `all` (always) |
+
+`since` is when the blocking condition was raised (question `createdAt` or the
+run's per-kind attention clock), not when the run started. A run item with an
+external origin carries `waitingOn: origin`, so once it escalates the existing
+caller-gone grouping in `src/notify/decide.ts` emits one banner per caller
+instead of one per run. `callerGoneCandidates` therefore groups any important
+item with `waitingOn`, not only `stalled` items; human, legacy NULL and
+`unknown:<id>` roots and warning items never carry `waitingOn`, so an `unknown:`
+run escalates as an ordinary ungrouped banner. Grouping copy and the 7-day
+ledger retention are unchanged.
+
+The Rust read model mirrors `notify` and `waitingOn` for run questions
+(`crates/read-model/src/attention.rs`), including the legacy-NULL human-owned
+rule and the non-human `unknown:` fallback, and exposes `origin` on snapshot
+runs (`crates/read-model/src/runs.rs`), keeping managed-attention parity green.
+
+### Live validation (CT-11)
+
+Rerun in an unseeded sandbox with an isolated `PACER_HOME`, a dedicated loopback
+port and binaries from the checkout under review. To set the exact origins (including
+legacy `NULL` and `unknown:<id>`) without launching a real executor, runs and one
+open blocking person question per run were seeded into the sandbox task database;
+every verdict below comes from the running service's own attention derivation
+(`snapshot.get`) and its notify pump (`/v3/events` SSE and the delivery ledger),
+not from a unit test. Aging was done by moving the question's `created_at` and the
+run's `updated_at` to `now - 1900 s` (past `CALLER_GONE_AFTER_S = 1800 s`).
+
+| Behavior | Verdict |
+| --- | --- |
+| (a) Human-origin blocking question → `notify:"important"`, no `waitingOn` | PASS |
+| (b) External-origin (`external:local`) blocking question → `notify:"all"`, `waitingOn:external:local` | PASS |
+| (c) Same question after aging past `CALLER_GONE_AFTER_S` → `notify:"important"`, `waitingOn` retained | PASS |
+| (c) One grouped `caller_gone:external:local` banner delivered to a registered app notifier, both members acked | PASS |
+| (d) Legacy `NULL` origin → blocking question `notify:"important"`, no `waitingOn` | PASS |
+| (e) `unknown:<id>` origin (`unknown:orchestrator`) → `notify:"all"`, no `waitingOn` | PASS |
+| `origin` exposed on run snapshots (`run.list`) | PASS |
+
+Summary: 7 PASS, 0 FAIL. The grouped banner was observed as an SSE `notify` event
+keyed `caller_gone:external:local` with body "2 delegated tasks waiting" and the
+registered client id in `recipients`; the delivery ledger held the group key and
+both member ack keys.
+
+UNVERIFIED: banner delivery was checked at the service/API layer only — no
+browser, desktop or TUI notification-center presentation was visually inspected
+(that client surface is unchanged). Runs were seeded into the sandbox database
+rather than started through an app-authenticated `run.start`, so the start-path
+attribution of `origin:"human"` was not exercised live; the human-owned notify
+decision itself was. Managed-attention parity and deterministic origin coverage
+remain covered by the Rust and TypeScript tests (`test/read-model-parity.test.ts`,
+`test/attention-rules.test.ts`, `test/workflow-attention-ui.test.ts`).

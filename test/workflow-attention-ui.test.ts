@@ -5,8 +5,9 @@ import { join } from "node:path";
 import { fakeCtx, tmpDir } from "./helpers";
 import { callOp } from "../src/api/ops";
 import {
-  getRun, insertRun, updateRun, type RunRow,
+  getRun, insertQuestion, insertRun, updateRun, type RunRow,
 } from "../src/workflow/store";
+import { CALLER_GONE_AFTER_S } from "../src/attention/rules";
 import {
   countMessageTurn, countOrchestratorTurn, parseBudget, parseSpent, serializeBudget, serializeSpent,
 } from "../src/workflow/budget";
@@ -368,6 +369,111 @@ describe("workflow attention action consistency", () => {
       expect(parseBudget(run.budget).messageTurns).toBe(budget + 20);
     }
   });
+});
+
+describe("workflow run attention notify ownership", () => {
+ const blocked = (origin?: string) => {
+  const { ctx, run } = titledRun({ origin });
+  updateRun(ctx, run.id, run.rev, { orchestratorState: "blocked", reason: "planner failed" });
+  return { ctx, run };
+ };
+
+ test("a human-started run's blocking item notifies important without waitingOn", () => {
+  const { ctx, run } = blocked("human");
+  const item = deriveWorkflowAttention(ctx).find(i => i.id === `orchestrator_failed:${run.id}`)!;
+  expect(item.notify).toBe("important");
+  expect(item.waitingOn).toBeUndefined();
+ });
+
+ test("a legacy NULL-origin blocking item stays important without waitingOn", () => {
+  const { ctx, run } = blocked();
+  const item = deriveWorkflowAttention(ctx).find(i => i.id === `orchestrator_failed:${run.id}`)!;
+  expect(item.notify).toBe("important");
+  expect(item.waitingOn).toBeUndefined();
+ });
+
+ test("an explicit unknown:<id> blocking item has no caller and waits out the window", () => {
+  const { ctx, run } = blocked("unknown:orchestrator");
+  const id = `orchestrator_failed:${run.id}`;
+  const early = deriveWorkflowAttention(ctx).find(i => i.id === id)!;
+  expect(early.notify).toBe("all");
+  expect(early.waitingOn).toBeUndefined();
+  ctx.now = NOW + CALLER_GONE_AFTER_S;
+  const late = deriveWorkflowAttention(ctx).find(i => i.id === id)!;
+  expect(late.notify).toBe("important");
+  expect(late.waitingOn).toBeUndefined();
+ });
+
+ test("an external-origin blocking item stays all with waitingOn until the caller-gone window", () => {
+  const { ctx, run } = blocked("external:claude-code:sess");
+  const early = deriveWorkflowAttention(ctx).find(i => i.id === `orchestrator_failed:${run.id}`)!;
+  expect(early.notify).toBe("all");
+  expect(early.waitingOn).toBe("external:claude-code:sess");
+  ctx.now = NOW + CALLER_GONE_AFTER_S;
+  const late = deriveWorkflowAttention(ctx).find(i => i.id === `orchestrator_failed:${run.id}`)!;
+  expect(late.notify).toBe("important");
+  expect(late.waitingOn).toBe("external:claude-code:sess");
+ });
+
+ test("budget spent and message spent inherit the root origin on human and child runs", () => {
+  const { ctx, run } = titledRun({ origin: "human" });
+  updateRun(ctx, run.id, run.rev, { spent: serializeSpent({ orchestratorTurns: 5, messageTurns: 5 }) });
+  for (const id of [`budget_spent:${run.id}`, `budget_msg_spent:${run.id}`]) {
+   const item = deriveWorkflowAttention(ctx).find(i => i.id === id)!;
+   expect(item.notify).toBe("important");
+   expect(item.waitingOn).toBeUndefined();
+  }
+  // A child run inherits the root origin at insert and answers the same way.
+  const child = insertRun(ctx, {
+   workflow: "t/child", version: 1, repo: tmpDir(), brief: "b", origin: "human",
+   parentRunId: run.id, parentStep: "ask",
+  });
+  expect(child.origin).toBe("human");
+ });
+
+ test("warning items stay level all even on a human-origin run", () => {
+  const { ctx, run } = titledRun({ origin: "human" });
+  for (let i = 0; i < 4; i++) countOrchestratorTurn(ctx, run.id);
+  const warn = deriveWorkflowAttention(ctx).find(i => i.id === `budget_warn:${run.id}`)!;
+  expect(warn.notify).toBe("all");
+  expect(warn.waitingOn).toBeUndefined();
+  updateRun(ctx, run.id, getRev(ctx, run.id), {
+   spent: serializeSpent({ orchestratorTurns: 0, messageTurns: 0 }),
+  });
+  for (let i = 0; i < 4; i++) countMessageTurn(ctx, run.id);
+  const msgWarn = deriveWorkflowAttention(ctx).find(i => i.id === `budget_msg_warn:${run.id}`)!;
+  expect(msgWarn.notify).toBe("all");
+ });
+
+ test("a blocking person question follows origin and a nothing-unblocks question stays all", () => {
+  const human = titledRun({ origin: "human" });
+  const blocking = insertQuestion(human.ctx, {
+   runId: human.run.id, stepId: "ask", attempt: 1, askerKind: "orchestrator",
+   text: "Approve?", answerType: "yes_no", blocks: "step", answerer: "person",
+  });
+  const humanItem = deriveWorkflowAttention(human.ctx).find(i => i.id === `question:${blocking.id}`)!;
+  expect(humanItem.notify).toBe("important");
+  expect(humanItem.waitingOn).toBeUndefined();
+
+  const planner = titledRun({ origin: "external:codex:sess" });
+  const plannerQ = insertQuestion(planner.ctx, {
+   runId: planner.run.id, stepId: "ask", attempt: 1, askerKind: "orchestrator",
+   text: "Approve?", answerType: "yes_no", blocks: "step", answerer: "person",
+  });
+  const early = deriveWorkflowAttention(planner.ctx).find(i => i.id === `question:${plannerQ.id}`)!;
+  expect(early.notify).toBe("all");
+  expect(early.waitingOn).toBe("external:codex:sess");
+  planner.ctx.now = NOW + CALLER_GONE_AFTER_S;
+  const late = deriveWorkflowAttention(planner.ctx).find(i => i.id === `question:${plannerQ.id}`)!;
+  expect(late.notify).toBe("important");
+
+  const noBlock = insertQuestion(human.ctx, {
+   runId: human.run.id, stepId: "note", attempt: 1, askerKind: "orchestrator",
+   text: "FYI", answerType: "yes_no", blocks: "nothing", answerer: "person",
+  });
+  const quiet = deriveWorkflowAttention(human.ctx).find(i => i.id === `question:${noBlock.id}`)!;
+  expect(quiet.notify).toBe("all");
+ });
 });
 
 function getRev(ctx: ReturnType<typeof fakeCtx>, id: string): number {
