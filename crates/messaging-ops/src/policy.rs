@@ -126,7 +126,7 @@ fn strategy_config(home: &Path) -> Value {
         .unwrap_or_else(strategy::default_messaging_config);
     if let Some(rules) = config.get_mut("rules").and_then(Value::as_array_mut) {
         for rule in rules {
-            if let Some(normal) = project_messaging::rule(rule) {
+            if let Some(normal) = project_messaging::rule(rule, "", &mut Vec::new()) {
                 *rule = normal;
             }
         }

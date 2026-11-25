@@ -407,7 +407,6 @@ async fn forward_input<
                 && !crate::native::status_residue_stays_forwarded(&request_ctx, op.name, &params)
                 && !(op.name == "repo.remove"
                     && crate::native::repo_remove_stays_forwarded(&request_ctx, &params))
-                && !crate::native::project_messaging_stays_forwarded(&request_ctx, op.name, &params)
                 && !crate::native::msg_answer_stays_forwarded(op.name, &request_ctx, &params)
                 && !crate::native::repo_registry_stays_forwarded(&request_ctx, op.name, &params)
                 && !crate::native::discovery_stays_forwarded(&request_ctx, op.name, &params)

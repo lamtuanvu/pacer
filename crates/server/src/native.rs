@@ -120,7 +120,6 @@ use pacer_config_ops::{project_strategy_ops, repo_registry_ops, strategy_preview
 #[doc(hidden)]
 pub use pacer_discovery_ops::network::set_probe_outputs_for_tests;
 pub use planning_ops::planning_stays_forwarded;
-pub(crate) use project_messaging_ops::project_messaging_stays_forwarded;
 pub(crate) use repo_ops::repo_remove_stays_forwarded;
 
 /// `terminal.*` inputs whose registry files only TypeScript reads faithfully.
