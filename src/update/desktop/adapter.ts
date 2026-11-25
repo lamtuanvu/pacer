@@ -3,13 +3,13 @@ import { z } from "zod";
 import { CoreError } from "../../core/errors";
 import { isVersion } from "../version";
 import { DESKTOP_IDENTIFIERS } from "./bundle-identity";
-import { NativeHelperError } from "./native-helper-errors";
+import { NativeHelperError, NativeHelperIntegrityError } from "./native-helper-errors";
 import type { Candidate, Installation } from "./types";
 import type { UpdateChannel } from "../channel";
 
 export const MAX_FRAME_BYTES = 256 * 1024;
 export type HandoffState = "none" | "uncertain" | "acknowledged";
-export type AdapterFailure = "unavailable" | "protocol" | "closed" | "cancelled" | "timeout" | "remote" | "helper-denied" | "channel-retired";
+export type AdapterFailure = "unavailable" | "protocol" | "closed" | "cancelled" | "timeout" | "remote" | "helper-denied" | "channel-retired" | "integrity";
 const messages: Record<AdapterFailure, string> = {
   unavailable: "Verified desktop update adapter is unavailable",
   protocol: "Desktop update adapter protocol was rejected",
@@ -19,6 +19,7 @@ const messages: Record<AdapterFailure, string> = {
   remote: "Desktop update adapter could not complete the operation",
   "helper-denied": "Desktop update helper launch was refused by the parent channel",
   "channel-retired": "Native parent helper channel is retired; restart the service to recover",
+  integrity: "Desktop update helper failed integrity verification",
 };
 /** The check that rejected a helper stream. Only enumerated values and integers, never frame payloads. */
 export type AdapterRejection = {
@@ -333,7 +334,11 @@ export async function runAdapterCommand(factory: VerifiedPipeFactory | undefined
       await writer.write(bytes);
       if (!stopped) progressDeadline();
     } catch (error) {
-      if (error instanceof NativeHelperError) {
+      if (error instanceof NativeHelperIntegrityError) {
+        // A failed signature/hash/process check is a real failure, not a transient
+        // "closed" pipe: keep it red and ranked instead of persisting check_unavailable.
+        fail("integrity");
+      } else if (error instanceof NativeHelperError) {
         fail(error.kind === "refused" ? "helper-denied" : "channel-retired");
       } else {
         fail("closed");

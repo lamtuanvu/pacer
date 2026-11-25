@@ -205,7 +205,7 @@ test('helper integrity and verification refusals stay real failures', () => {
 
 test('a failed download with a target stays red and ranked by the indicator', () => {
   const failed = desktopStatus({ phase: 'error', target: '1.1.0', actions: ['check', 'download'], error: {
-    code: 'download_failed', message: "The update couldn't be downloaded. Check your connection, then choose Check for updates to try again.",
+    code: 'download_failed', message: "The update couldn't be downloaded. Check your connection, then choose Download update to try again.",
   } });
   const view = desktopUpdateView(failed);
   expect(view.tone).toBe('bad');
@@ -215,15 +215,48 @@ test('a failed download with a target stays red and ranked by the indicator', ()
   expect(desktopUpdateIndicator([failed])?.label).toBe('Update needs attention');
 });
 
-test('legacy raw-message and check-code records with a target are never neutralised', () => {
+test('legacy raw-message records with a target stay red and ranked', () => {
   for (const error of [
     { code: 'update_failed', message: 'Desktop update adapter closed before successful completion' },
     { code: 'update_failed', message: 'Desktop update adapter operation timed out' },
-    { code: 'check_unavailable', message: "Couldn't check for updates. Check your connection, then try again." },
   ]) {
     const status = desktopStatus({ phase: 'error', target: '1.1.0', actions: ['check', 'download'], error });
     expect(desktopUpdateView(status).tone).toBe('bad');
+    expect(desktopUpdateView(status).label).toBe('Update needs attention');
     expect(desktopUpdateIndicator([status])).not.toBeNull();
+  }
+});
+
+test('a failed re-check with an available target keeps the update offered with a neutral note', () => {
+  for (const code of ['check_unavailable', 'check_interrupted']) {
+    const status = desktopStatus({ phase: 'error', target: '1.1.0', actions: ['check', 'download'], error: {
+      code, message: "Couldn't check for updates. Check your connection, then try again.",
+    } });
+    const view = desktopUpdateView(status);
+    expect(view.label).toBe('Update available');
+    expect(view.tone).toBe('info');
+    expect(view.primary).toBe('Download update');
+    expect(view.detail).toContain("latest check couldn't complete");
+    expect(view.detail).not.toContain('Update needs attention');
+    expect(desktopUpdateIndicator([status])?.label).toBe('Update available');
+  }
+});
+
+test('an in-progress or failed adoption is never hidden behind a neutral check error', async () => {
+  const { adoptionStatus } = await import('./fixtures/desktop-update/status');
+  const error = { code: 'check_unavailable', message: "Couldn't check for updates. Check your connection, then try again." };
+  for (const phase of ['waiting', 'installing', 'verifying', 'recovery-failed'] as const) {
+    const status = desktopStatus({ phase: 'error', actions: [], error, adoption: adoptionStatus({ phase }) });
+    expect(desktopUpdateIndicator([status])).not.toBeNull();
+  }
+  const failed = desktopStatus({ phase: 'error', actions: [], error, adoption: adoptionStatus({ phase: 'recovery-failed' }) });
+  expect(desktopUpdateView(failed).label).toBe('Service recovery needs attention');
+  expect(desktopUpdateView(failed).tone).toBe('bad');
+  expect(desktopUpdateIndicator([failed])?.label).toBe('Service recovery needs attention');
+  // A settled adoption has nothing that needs attention: the self-retrying check stays neutral.
+  for (const phase of ['available', 'cancelled', 'committed'] as const) {
+    const settled = desktopStatus({ phase: 'error', actions: [], error, adoption: adoptionStatus({ phase }) });
+    expect(desktopUpdateIndicator([settled])).toBeNull();
   }
 });
 

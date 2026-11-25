@@ -18,7 +18,7 @@ import {
 /** Private service composition. Public client registration cannot reach this channel. */
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import type { ParentHelperSpawner } from "./native-parent-helper";
-import { helperRefused } from "./native-helper-errors";
+import { helperRefused, NativeHelperIntegrityError } from "./native-helper-errors";
 import {
   closeSync,
   chmodSync,
@@ -111,6 +111,19 @@ const denied = () =>
     "Authenticated native control is unavailable",
     "Use the supported signed desktop and service baseline.",
   );
+/** Fail closed, but classify local signature/hash/process refusals separately from a
+ *  missing session: a damaged or tampered helper is a real failure, not a network check. */
+const helperIntegrityCheck = <T>(check: () => T): T => {
+  try {
+    return check();
+  } catch (error) {
+    if (error instanceof NativeHelperIntegrityError) throw error;
+    throw new NativeHelperIntegrityError("Desktop update helper failed integrity verification", error);
+  }
+};
+/** Keep an integrity refusal from being rewritten as a generic "unavailable" by cleanup catches. */
+const denyUnlessIntegrity = (error: unknown) =>
+  error instanceof NativeHelperIntegrityError ? error : denied();
 /** Named hello failure; never includes nonces, tokens or challenge material. */
 class HelloRejection extends Error {
   constructor(
@@ -2153,7 +2166,7 @@ export function createNativePipeFactory(
           mkdirSync(directory, { mode: 0o700 });
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== "EEXIST")
-            throw denied();
+            throw new NativeHelperIntegrityError("Desktop update helper staging directory could not be created", error);
         }
         const stat = lstatSync(directory);
         if (
@@ -2163,7 +2176,7 @@ export function createNativePipeFactory(
           stat.mode & 0o077 ||
           realpathSync(directory) !== directory
         )
-          throw denied();
+          throw new NativeHelperIntegrityError("Desktop update helper staging directory failed integrity verification");
       }
       if (!recovery) staged = directory;
       const helperIdentity =
@@ -2173,12 +2186,12 @@ export function createNativePipeFactory(
           recovery?.source ??
           join(session.installation.appPath, BUNDLED_HELPER_PATH),
         helper = recovery?.source ?? join(directory, "pacer-update-helper");
-      authority.verifyStatic(source, "helper");
+      helperIntegrityCheck(() => authority.verifyStatic(source, "helper"));
       if (!recovery) {
         copyFileSync(source, helper, constants.COPYFILE_EXCL);
         chmodSync(helper, 0o700);
       }
-      authority.verifyStatic(helper, "helper");
+      helperIntegrityCheck(() => authority.verifyStatic(helper, "helper"));
       const fd = openSync(helper, constants.O_RDONLY | constants.O_NOFOLLOW);
       try {
         fsyncSync(fd);
@@ -2196,14 +2209,14 @@ export function createNativePipeFactory(
         let sha256: string;
         try {
           const stat = fstatSync(hashFd);
-          if (!stat.isFile() || stat.nlink !== 1 || stat.uid !== process.getuid?.() || stat.mode & 0o077 || stat.size > 128 * 1024 * 1024) throw denied();
+          if (!stat.isFile() || stat.nlink !== 1 || stat.uid !== process.getuid?.() || stat.mode & 0o077 || stat.size > 128 * 1024 * 1024) throw new NativeHelperIntegrityError("Desktop update helper file failed integrity verification");
           const hash = createHash("sha256"), buffer = Buffer.alloc(65536);
           let bytes = 0;
           for (;;) {
             const count = readSync(hashFd, buffer, 0, buffer.length, null);
             if (!count) break;
             bytes += count;
-            if (bytes > 128 * 1024 * 1024) throw denied();
+            if (bytes > 128 * 1024 * 1024) throw new NativeHelperIntegrityError("Desktop update helper file failed integrity verification");
             hash.update(buffer.subarray(0, count));
           }
           sha256 = hash.digest("hex");
@@ -2231,7 +2244,7 @@ export function createNativePipeFactory(
         try {
           const identity = processIdentity(child.pid);
           if (!identity) throw denied();
-          const verified = authority.verifyProcess(identity, "helper");
+          const verified = helperIntegrityCheck(() => authority.verifyProcess(identity, "helper"));
           if (!sameProcess(verified.process, identity) || verified.executable !== helper || verified.parentPid !== owner.process.pid || signal.aborted) throw denied();
           if (!recovery) {
             const cleanup = freshHelperCleanup(helper, identity);
@@ -2239,9 +2252,9 @@ export function createNativePipeFactory(
           }
           accepted = true;
           return { identity: helperIdentity, stdin: child.stdin, stdout: child.stdout, exited: child.exited, abort: () => child.abort() };
-        } catch {
+        } catch (error) {
           abort();
-          throw denied();
+          throw denyUnlessIntegrity(error);
         } finally { signal.removeEventListener("abort", abort); }
       }
       const child = Bun.spawn([helper, "--ota-pipe"], {
@@ -2267,7 +2280,7 @@ export function createNativePipeFactory(
       signal.addEventListener("abort", abort, { once: true });
       try {
         if (!identity) throw denied();
-        const verified = authority.verifyProcess(identity, "helper");
+        const verified = helperIntegrityCheck(() => authority.verifyProcess(identity, "helper"));
         if (
           verified.executable !== helper ||
           verified.parentPid !== process.pid ||
@@ -2312,9 +2325,9 @@ export function createNativePipeFactory(
               child.kill("SIGTERM");
           },
         };
-      } catch {
+      } catch (error) {
         abort();
-        throw denied();
+        throw denyUnlessIntegrity(error);
       } finally {
         signal.removeEventListener("abort", abort);
       }

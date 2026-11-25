@@ -18,16 +18,24 @@ const interruptedAdapterMessages = new Set([
   "Desktop update adapter operation was cancelled",
   "Desktop update adapter operation timed out",
 ]);
+/** A check that could not complete, as opposed to a real download/install/verification failure. */
+const failedCheckError = (error: UpdateStatus["error"]) => {
+  if (!error) return false;
+  if (interruptedCheckCodes.has(error.code)) return true;
+  return error.code === "update_failed" && interruptedAdapterMessages.has(error.message);
+};
 const interruptedCheck = (update: UpdateStatus) => {
   const error = update.error;
   // A failed download keeps its target (and, with it, an available update), so a
   // record with a target must never be filtered, downgraded or hidden from the tray.
   if (!error || update.target) return false;
-  if (interruptedCheckCodes.has(error.code)) return true;
-  return error.code === "update_failed" && interruptedAdapterMessages.has(error.message);
+  // An adoption still in progress or failed needs attention even when the update
+  // record carries a self-retrying check error. Never hide it from the tray.
+  if (update.adoption && !["available", "cancelled", "committed"].includes(update.adoption.phase)) return false;
+  return failedCheckError(error);
 };
 /** Adapter internals are diagnostics, never user-facing copy. Service-authored hints stay visible. */
-const internalAdapterMessage = (message: string) => /^(Verified )?desktop update adapter |^Desktop update helper launch was refused( by the parent channel)?|^Native parent helper (launch was refused|channel is retired)|^desktop update could not be verified$/i.test(message);
+const internalAdapterMessage = (message: string) => /^(Verified )?desktop update adapter |^Desktop update helper launch was refused( by the parent channel)?|^Desktop update helper failed integrity verification$|^Native parent helper (launch was refused|channel is retired)|^desktop update could not be verified$/i.test(message);
 /** A retired helper channel only recovers when the service restarts; keep that step in the copy. */
 const retiredChannel = (error: UpdateStatus["error"]) => !!error && /^Native parent helper channel is retired/i.test(error.message);
 const RETIRED_CHANNEL_DETAIL = "Updates stopped working until pacer's service restarts. Restart pacer, then check again.";
@@ -59,6 +67,11 @@ export function desktopUpdateView(update: UpdateStatus): DesktopUpdateView {
   // the retry budget is spent.
   if (update.phase === "error" && interruptedCheck(update)) {
     [label, tone, glyph, detail] = ["Couldn't check for updates", "neutral", "?", "pacer couldn't check for updates. Check your connection, then choose Check for updates to try again."];
+  } else if (update.phase === "error" && update.target && !!update.error && interruptedCheckCodes.has(update.error.code)) {
+    // A failed re-check must not replace an update the person can still download.
+    // Only explicit check codes qualify: a legacy adapter message with a target may
+    // have been a failed download, which stays red and ranked.
+    [label, tone, glyph, detail] = ["Update available", "info", "↓", "An update is available to download. The latest check couldn't complete."];
   } else if (update.phase === "error" && retiredChannel(update.error)) {
     // UI-12 keeps the raw refusal internal, but the one working recovery step survives.
     detail = RETIRED_CHANNEL_DETAIL;

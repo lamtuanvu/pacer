@@ -18,3 +18,14 @@ export const helperRefused = (message = "Native parent helper launch was refused
 /** A retired or broken parent channel: no further spawn can succeed on it. */
 export const helperRetired = (message = "Native parent helper channel is retired", cause?: unknown) =>
   new NativeHelperError("retired", message, cause);
+
+/** A bundled helper (or its staging) failed signature/hash/process verification.
+ *  Distinct from a missing session: fail closed, but never report it as a network hiccup. */
+export class NativeHelperIntegrityError extends Error {
+  constructor(message = "Desktop update helper failed integrity verification", cause?: unknown) {
+    super(message, cause === undefined ? undefined : { cause });
+    this.name = "NativeHelperIntegrityError";
+  }
+}
+export const helperIntegrity = (message?: string, cause?: unknown) =>
+  new NativeHelperIntegrityError(message, cause);

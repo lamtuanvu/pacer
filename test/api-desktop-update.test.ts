@@ -9,8 +9,10 @@ import { publish } from "../src/link/publish";
 import { startServer } from "../src/serve/http";
 import { HttpClient } from "../src/api/http-client";
 import { helloBody } from "../src/api/protocol";
-import { createDesktopUpdateRuntime, bindDesktopUpdateRuntime, NIGHTLY_HELPER_TOO_OLD, type NativeAuthorityProvider, type VerifiedNativeSession } from "../src/update/desktop/service";
+import { createDesktopUpdateRuntime, bindDesktopUpdateRuntime, HELPER_INTEGRITY_DETAIL, NIGHTLY_HELPER_TOO_OLD, type NativeAuthorityProvider, type VerifiedNativeSession } from "../src/update/desktop/service";
 import { FrameDecoder, encodeFrame, parseAdapterCommand, type VerifiedPipeFactory, type AdapterCommand } from "../src/update/desktop/adapter";
+import { helperIntegrity, helperRetired } from "../src/update/desktop/native-helper-errors";
+import { desktopUpdateIndicator } from "../src/view-model/updates";
 import { requestRestart } from "../src/update/desktop/policy";
 import { readUpdate, writeUpdate } from "../src/update/desktop/store";
 import type { Candidate, Installation, UpdateStatus } from "../src/update/desktop/types";
@@ -413,6 +415,54 @@ test("download and install failures never arm a check retry", async () => {
   install.reconnectDesktop(); await install.runtime.tick(); await install.runtime.settled();
   expect(install.commands).toEqual([]);
   expect(JSON.stringify(install.runtime.status("desktop"))).not.toContain("helper failed");
+});
+
+test("a helper integrity refusal stays a ranked update failure, never a transient check", async()=>{
+  const f=fixture({autoDownload:false});
+  // The real adapter maps this error; only factory.open is faked.
+  f.factory.open=async()=>{throw helperIntegrity();};
+  await f.runtime.start();
+  await f.runtime.check(f.request("integrity-check")); await f.runtime.settled();
+  const status=f.runtime.status("desktop");
+  expect(status.error?.code).toBe("update_failed");
+  expect(status.error?.code).not.toBe("check_unavailable");
+  expect(status.error?.message).toBe(HELPER_INTEGRITY_DETAIL);
+  expect(JSON.stringify(status)).not.toContain("failed integrity verification");
+  // Fail closed: the helper never received a command frame.
+  expect(f.commands).toEqual([]);
+  const indicator=desktopUpdateIndicator([status]);
+  expect(indicator?.label).toBe("Update needs attention");
+  expect(indicator?.tone).toBe("bad");
+});
+
+test("an interrupted download persists plain copy that names the retry button", async()=>{
+  const f=fixture({late:true,autoDownload:false});
+  const value=readUpdate(f.ctx,"desktop");
+  writeUpdate(f.ctx,{...value,phase:"downloading",candidate,downloadedBytes:5,totalBytes:10,error:null},value.revision);
+  await f.runtime.start();
+  f.register();
+  await f.runtime.tick(); await f.runtime.settled();
+  const status=f.runtime.status("desktop");
+  expect(status.error?.code).toBe("interrupted");
+  expect(status.error?.message).toBe("The download was interrupted. Choose Download update to try again.");
+  expect(JSON.stringify(status)).not.toContain("network operation was interrupted");
+  expect(desktopUpdateIndicator([status])?.label).toBe("Update needs attention");
+});
+
+test("download failures name Download update and a retired channel keeps its restart step", async()=>{
+  const f=fixture(); const open=f.factory.open; let calls=0;
+  f.factory.open=async(...args)=>{if(++calls===2)throw Error("private download helper failure");return open(...args);};
+  await f.runtime.start();
+  await f.runtime.check(f.request("check")); await f.runtime.settled();
+  const failed=f.runtime.status("desktop");
+  expect(failed.error?.code).toBe("download_failed");
+  expect(failed.error?.message).toContain("choose Download update to try again");
+  expect(failed.error?.message).not.toContain("Check for updates to try again");
+  f.factory.open=async()=>{throw helperRetired();};
+  await f.runtime.download(f.request("download-retired")); await f.runtime.settled();
+  const retired=f.runtime.status("desktop");
+  expect(retired.error?.code).toBe("download_failed");
+  expect(retired.error?.message).toBe("Updates stopped working until pacer's service restarts. Restart pacer, then check again.");
 });
 
 test("service stop aborts an in-flight check and download", async () => {

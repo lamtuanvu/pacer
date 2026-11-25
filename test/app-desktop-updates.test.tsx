@@ -30,7 +30,7 @@ test("an interrupted check is neutral on screen and never shows adapter internal
 
 test("a failed download stays red with plain copy and a retired channel keeps its recovery step", () => {
   const failed = render(desktopStatus({ phase: "error", target: "1.1.0", actions: ["check", "download"], error: {
-    code: "download_failed", message: "The update couldn't be downloaded. Check your connection, then choose Check for updates to try again.",
+    code: "download_failed", message: "The update couldn't be downloaded. Check your connection, then choose Download update to try again.",
   } }));
   expect(failed).toContain("Update needs attention");
   expect(failed).toContain("couldn't be downloaded");
@@ -42,6 +42,17 @@ test("a failed download stays red with plain copy and a retired channel keeps it
   } }));
   expect(retired).toContain("Updates stopped working until pacer's service restarts. Restart pacer, then check again.");
   expect(retired).not.toContain("channel is retired");
+});
+
+test("a failed re-check keeps the available update primary with a neutral note", () => {
+  const html = render(desktopStatus({ phase: "error", target: "1.1.0", actions: ["check", "download"], error: {
+    code: "check_unavailable", message: "Couldn't check for updates. Check your connection, then try again.",
+  } }));
+  expect(html).toContain("Update available");
+  expect(html).toContain("latest check couldn't complete");
+  expect(html).toContain("Download update");
+  expect(html).not.toContain("Update needs attention");
+  expect(html).not.toContain("Couldn't check for updates");
 });
 
 test("desktop ready renders one primary action, checked time and safely escaped release notes", () => {
