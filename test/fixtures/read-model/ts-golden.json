@@ -150,6 +150,7 @@
           "plugins": 0
         },
         "complete": false,
+        "onboarded": false,
         "ready": false,
         "open": 3,
         "items": [
@@ -447,7 +448,7 @@
               }
             }
           ],
-          "notify": "important"
+          "notify": "all"
         }
       ],
       "service": {
@@ -516,6 +517,7 @@
           "plugins": 0
         },
         "complete": false,
+        "onboarded": false,
         "ready": false,
         "open": 3,
         "items": [
@@ -1595,7 +1597,7 @@
               }
             }
           ],
-          "notify": "important",
+          "notify": "all",
           "taskId": "TASK_3",
           "executor": "codex"
         },
@@ -1798,6 +1800,7 @@
           "plugins": 0
         },
         "complete": false,
+        "onboarded": false,
         "ready": false,
         "open": 3,
         "items": [
@@ -2078,7 +2081,7 @@
               }
             }
           ],
-          "notify": "important",
+          "notify": "all",
           "taskId": "TASK_3",
           "executor": "codex"
         },
@@ -2539,7 +2542,7 @@
               }
             }
           ],
-          "notify": "important",
+          "notify": "all",
           "taskId": "TASK_3",
           "executor": "codex"
         },
@@ -2745,6 +2748,7 @@
           "plugins": 0
         },
         "complete": false,
+        "onboarded": false,
         "ready": false,
         "open": 3,
         "items": [
@@ -3028,7 +3032,7 @@
               }
             }
           ],
-          "notify": "important",
+          "notify": "all",
           "taskId": "TASK_3",
           "executor": "codex"
         },
@@ -3233,6 +3237,7 @@
           "plugins": 0
         },
         "complete": false,
+        "onboarded": false,
         "ready": false,
         "open": 3,
         "items": [
@@ -3516,7 +3521,7 @@
               }
             }
           ],
-          "notify": "important",
+          "notify": "all",
           "taskId": "TASK_3",
           "executor": "codex"
         },
@@ -3719,6 +3724,7 @@
           "plugins": 0
         },
         "complete": false,
+        "onboarded": false,
         "ready": false,
         "open": 3,
         "items": [

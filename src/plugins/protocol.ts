@@ -5,8 +5,14 @@ import { WORKTREE_CAPABILITY_METHODS, WORKTREE_METHOD_CAPABILITY } from "./execu
 import { ORCA_CAPABILITY_METHODS, ORCA_METHOD_CAPABILITY } from "./executor-orca-protocol";
 import { HOSTS_METHODS, HOSTS_METHOD_CAPABILITY } from "./hosts-protocol";
 import { REMOTE_CALLER_METHODS } from "./remote-caller-protocol";
+import { WORKFLOW_METHODS, workflowContribution } from "./workflow-protocol";
 export {HOST_RUNNER_SCRIPTS,hostRunnerAlias,hostRunnerSession,hostRunnerScript,hostRunnerContribution} from "./host-runner-protocol";
 export { executorContribution, executorAvailableParams, executorAvailableResult } from "./executor-protocol";
+export {
+  WORKFLOW_SOURCE_MAX_BYTES, WORKFLOW_PROMPT_MAX_BYTES, WORKFLOW_DEFINITIONS_REPLY_MAX_BYTES,
+  WORKFLOW_DEFINITIONS_DEADLINE_MS, workflowContribution, workflowDefinitionsParams, workflowDefinitionsResult,
+  workflowDefinitionsReplyFits, workflowDefinitionsReplyBytes,
+} from "./workflow-protocol";
 export {POLICY_DECISIONS,POLICY_EVENT_TYPES,POLICY_TASK_STATES,POLICY_OBSERVATIONS_FEATURE,pluginMetadata,readOwnerMetadata,policyBeforeParams,policyVerdict,policyEvent} from "./policy-protocol";
 import { z } from "zod";
 import { PLANNER_METHODS, PLANNER_CAPABILITY_METHODS, PLANNER_METHOD_CAPABILITY } from "./planner-protocol";
@@ -30,12 +36,12 @@ export * from "./ui-schema";
 import { observationMethodSchema, observationScopeSchema, observationSchema, decisionRequestSchema, proposalSchema } from "../dispatch/types";
 
 /** Plugin protocol version; independent of the client protocol (P4 applies to both). */
-export const PLUGIN_PROTOCOL_VERSION = "1.11.0";
+export const PLUGIN_PROTOCOL_VERSION = "1.12.0";
 /** Release that added the #503 policy redaction metadata and `kind:name` secret references. */
 export const PLUGIN_HARDENING_PROTOCOL_VERSION = "1.8.0";
 export const PLUGIN_PROTOCOL_MAJOR = 1;
 
-export const EXTENSION_POINTS = ["diagnostic", "agentSession", "observation", "decision", "ui", "assistant", "pairing", "usage", "classifier", "notifier", "endpoint", "planner", "policy", "hostRunner", "remoteCaller", "executor"] as const;
+export const EXTENSION_POINTS = ["diagnostic", "agentSession", "observation", "decision", "ui", "assistant", "pairing", "usage", "classifier", "notifier", "endpoint", "planner", "policy", "hostRunner", "remoteCaller", "executor", "workflow"] as const;
 export type ExtensionPoint = (typeof EXTENSION_POINTS)[number];
 
 export const CAPABILITIES = ["tasks.read", "events.subscribe", "process.spawn", "fs.read", "net.http", "secrets.resolve", "config.get", "entitlement.report", "log", "identity.sign", "net.p2p", "fs.write", "worktree", "usage.state", "hosts", "orca", "assistant.tool"] as const;
@@ -85,6 +91,7 @@ export const manifestContributes = z.object({
   hostRunner: hostRunnerContribution.optional(),
   remoteCaller: genericContribution.optional(),
   executor: executorContribution.optional(),
+  workflow: workflowContribution.optional(),
 }).strict();
 
 export const manifestSchema = z.object({
@@ -112,6 +119,8 @@ export const manifestSchema = z.object({
     ctx.addIssue({ code: "custom", path: ["capabilities"], message: "a manifest with assistant.tool sets host to >=1.11.0" });
   if (m.contributes.assistant?.reply === true && !hostFloorAtLeast(m.host, "1.11.0"))
     ctx.addIssue({ code: "custom", path: ["host"], message: "a manifest with contributes.assistant.reply sets host to >=1.11.0" });
+  if (m.contributes.workflow !== undefined && !hostFloorAtLeast(m.host, "1.12.0"))
+    ctx.addIssue({ code: "custom", path: ["host"], message: "a manifest with contributes.workflow sets host to >=1.12.0" });
   if (m.capabilities.some(c => c.name === "identity.sign") && !hostFloorAtLeast(m.host, "1.4.0")) ctx.addIssue({ code: "custom", path: ["host"], message: "a manifest with the identity.sign capability sets host to >=1.4.0" });
   if (Object.hasOwn(m.contributes, "pairing")) {
     if (!m.capabilities.some(c => c.name === "net.p2p")) ctx.addIssue({ code: "custom", path: ["capabilities"], message: "a manifest with contributes.pairing declares net.p2p" });
@@ -300,6 +309,7 @@ export const EXTENSION_METHODS: Record<string, MethodDef> = {
   ...HOST_RUNNER_METHODS,
   ...REMOTE_CALLER_METHODS,
   ...EXECUTOR_METHODS,
+  ...WORKFLOW_METHODS,
   ...CLASSIFIER_METHODS,
   ...NOTIFIER_METHODS,
   ...ENDPOINT_METHODS,

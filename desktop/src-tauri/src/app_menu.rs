@@ -36,7 +36,6 @@ pub fn model() -> Vec<Item> {
         ("View", "go.dispatch", "Dispatch", Some("CmdOrCtrl+1")),
         ("View", "go.needs-you", "Needs you", Some("CmdOrCtrl+2")),
         ("View", "go.tasks", "Tasks", Some("CmdOrCtrl+3")),
-        ("View", "go.terminal", "Workspace", Some("CmdOrCtrl+4")),
         (
             "View",
             "view.panel.left",
@@ -384,7 +383,6 @@ mod tests {
             ("go.dispatch", "CmdOrCtrl+1"),
             ("go.needs-you", "CmdOrCtrl+2"),
             ("go.tasks", "CmdOrCtrl+3"),
-            ("go.terminal", "CmdOrCtrl+4"),
             ("go.back", "CmdOrCtrl+["),
             ("go.forward", "CmdOrCtrl+]"),
         ] {
@@ -396,6 +394,7 @@ mod tests {
             );
         }
         assert_eq!(items.iter().filter(|item| item.section == "Go").count(), 5);
+        assert!(!items.iter().any(|item| item.id == "go.terminal"));
         assert_eq!(
             items
                 .iter()

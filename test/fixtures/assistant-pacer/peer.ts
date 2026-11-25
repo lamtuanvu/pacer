@@ -72,7 +72,7 @@ async function handle(line: string): Promise<void> {
   }
   if (method === "$/cancel") return;
   if (method === "plugin.hello") {
-    write({ id, result: { protocol: "1.11.0", id: bundled.id, version: bundled.version, contributes: ["assistant"] } });
+    write({ id, result: { protocol: "1.12.0", id: bundled.id, version: bundled.version, contributes: ["assistant"] } });
     return;
   }
   if (id === undefined || id === null) return;

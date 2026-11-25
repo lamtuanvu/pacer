@@ -59,7 +59,7 @@
       "content": [
         {
           "type": "text",
-          "text": "{\n \"task\": {\n  \"id\": \"task-planner\",\n  \"title\": \"planner child\",\n  \"state\": \"done\",\n  \"goal\": \"planner child\",\n  \"executor\": null,\n  \"backend\": null,\n  \"worktree\": null,\n  \"updatedAt\": 0,\n  \"acceptanceState\": \"none\",\n  \"review\": {\n   \"accepted\": true,\n   \"kind\": null,\n   \"note\": \"checked\",\n   \"at\": 0\n  },\n  \"resolved\": \"reviewed\",\n  \"fullTitle\": \"planner child\",\n  \"rev\": 5,\n  \"queue\": null,\n  \"source\": \"planner\",\n  \"repo\": {\n   \"key\": \"local:fixture\",\n   \"path\": \"$REPO\",\n   \"label\": \"t-fixture-home\"\n  },\n  \"kind\": null,\n  \"host\": null,\n  \"account\": null,\n  \"model\": null\n }\n}"
+          "text": "{\n \"task\": {\n  \"id\": \"task-planner\",\n  \"title\": \"planner child\",\n  \"state\": \"done\",\n  \"goal\": \"planner child\",\n  \"executor\": null,\n  \"backend\": null,\n  \"worktree\": null,\n  \"updatedAt\": 0,\n  \"acceptanceState\": \"none\",\n  \"review\": {\n   \"accepted\": true,\n   \"kind\": null,\n   \"note\": \"checked\",\n   \"at\": 0\n  },\n  \"resolved\": \"reviewed\",\n  \"fullTitle\": \"planner child\",\n  \"rev\": 5,\n  \"queue\": null,\n  \"source\": \"planner\",\n  \"origin\": \"external:mcp\",\n  \"repo\": {\n   \"key\": \"local:fixture\",\n   \"path\": \"$REPO\",\n   \"label\": \"t-fixture-home\"\n  },\n  \"kind\": null,\n  \"host\": null,\n  \"account\": null,\n  \"model\": null\n }\n}"
         }
       ],
       "structuredContent": {
@@ -84,6 +84,7 @@
           "rev": 5,
           "queue": null,
           "source": "planner",
+          "origin": "external:mcp",
           "repo": {
             "key": "local:fixture",
             "path": "$REPO",

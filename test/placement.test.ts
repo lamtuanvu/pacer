@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { resolvePlacement, type TaskRecord } from "../src/tasks/types";
+import { resolvePlacement, reuseWorktreePlacement, type TaskRecord } from "../src/tasks/types";
 import { delegate, validateInput } from "../src/tasks/api";
 import { validateStrategy } from "../src/config/strategy";
 import { parseOutboxEvent } from "../src/link/envelope";
@@ -8,6 +8,11 @@ import { summarizeTask } from "../src/mcp/server";
 import { fakeCtx, tmpDir } from "./helpers";
 const s=validateStrategy({planner:"claude-code",providers:{"claude-code":{},codex:{}}},"/x");
 const brief={goal:"fix it",repo:"/repo"};
+test("reuseWorktreePlacement is current only when the path is the brief repo", () => {
+  const repo = tmpDir(), other = tmpDir();
+  expect(reuseWorktreePlacement(repo, repo)).toEqual({ mode: "current", why: "reuse task worktree" });
+  expect(reuseWorktreePlacement(other, repo)).toEqual({ mode: "new", why: "reuse task worktree" });
+});
 for(const mode of ["current","new"] as const)test(`explicit ${mode} overrides all automatic hints`,()=>{
  for(const busy of [true,false])for(const reason of [undefined,"small follow-up"]){
  expect(resolvePlacement({brief:{...brief,context:"uncommitted"},kind:"research",placement:{requested:mode,reason}},"child-of-current",busy)).toEqual({mode,why:`agent: ${reason??"no reason given"}`});

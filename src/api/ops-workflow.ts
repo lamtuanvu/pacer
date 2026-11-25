@@ -136,7 +136,7 @@ export const workflowOps: Record<string, OpDef> = {
     },
   }),
   "workflow.list": op({
-    description: "Installed workflow definitions, oldest first.",
+    description: "Installed workflow definitions, oldest first. Each entry includes origin (manual or plugin:<id>@<version>) and whether it is disabled.",
     params: z.object({}),
     handler: ctx => {
       assertPersonCaller(ctx);
@@ -144,7 +144,7 @@ export const workflowOps: Record<string, OpDef> = {
     },
   }),
   "run.start": op({
-    description: "Start a run of an installed workflow for one brief and repository; the entry step becomes an ordinary task.",
+    description: "Start a run of an installed workflow for one brief and repository; the entry step becomes an ordinary task. Pass workflow `auto` to start the configured router (strategy workflows.router, default pacer-dev/router).",
     params: z.object({
       workflow: workflowRef,
       repo: z.string().min(1).max(4096),

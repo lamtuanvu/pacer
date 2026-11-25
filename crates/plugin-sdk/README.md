@@ -24,6 +24,25 @@ Plugins need a `tokio` runtime (see the `serve` method) and a
 [the plugin protocol](../../docs/plugin-protocol.md) for the wire contract and the
 manifest schema.
 
+### The `install` feature
+
+`pacer_plugin::install` contains the plugin-side helpers used to plan planner
+integrations: managed blocks, JSONC and hook-file editing, undo ownership
+records, staging (`InstallPlan`, `PreparedPlannerBuilder`) and host transport
+(`create_planner_io`, `read_planner_prior`). It is a library: it does not write
+files, run commands on its own or switch any plugin. The host owns commit,
+compensation and recovery. `txn` and `journal` stay host-side.
+
+```
+pacer-plugin = { path = "../plugin-sdk", features = ["install"] }
+```
+
+The feature pulls in `sha2`, `jiff`, `toml` and `icu_collator`. Offsets in JSONC
+errors are UTF-16, matching JavaScript; editing spans are kept in bytes. Key
+order on serialized documents follows ECMAScript own-property order, and
+managed-content fingerprints sort keys with the ICU root collator, as
+`String.prototype.localeCompare` does in the TypeScript SDK.
+
 ## Usage
 
 A plugin is a subprocess the host starts lazily. Register handlers that answer
@@ -329,6 +348,8 @@ For 0.2, agent-session/native identity types live in the independent publishable
 Observation/decision extension types likewise move to independent publishable `pacer-plugin-dispatch-protocol` 0.2; the SDK type facade preserves their names. No protocol area has a layer-0 peer dependency.
 
 Assistant turn and assistant tool types (`assistant.reply`, `capability.assistant.tool`, protocol 1.11.0) live in independent publishable `pacer-plugin-assistant-protocol` 0.3, with the same `pacer_plugin::types` facade names. 0.3 adds the optional `endpoint.baseUrl` field on `assistant.reply` params.
+
+Workflow definition pages (`workflow.definitions`, protocol 1.12.0) live in independent publishable `pacer-plugin-workflow-protocol` 0.3. Register them with `Plugin::workflow_definitions`; the `pacer_plugin::types` facade preserves the generated names.
 
 Host-runner and host capability types live in independent publishable `pacer-plugin-hosts-protocol` 0.2, with the same `pacer_plugin::types` facade names. See [ADR 0009](../../docs/decisions/0009-plugin-hosts-protocol-area.md).
 

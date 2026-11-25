@@ -68,7 +68,7 @@ import { markAuthFailed, attemptAuthError } from "../usage/auth";
 import { markExhausted } from "../usage/reactive";
 import { usageRefreshCapability } from "../usage";
 import { listTasksWhere, readTask, updateTask, withTaskLock, withTaskLockAsync } from "./store";
-import { resolvePlacement, TERMINAL_STATES, type AttemptUsage, type RoutingNote, type TaskRecord, type TaskResult, type Verification } from "./types";
+import { resolvePlacement, reuseWorktreePlacement, TERMINAL_STATES, type AttemptUsage, type RoutingNote, type TaskRecord, type TaskResult, type Verification } from "./types";
 import { liveTurnForTask } from "../workflow/wakeups";
 import { issueRunGrant } from "../workflow/run-grant";
 
@@ -637,7 +637,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
           other.placement?.mode === "current" && (path === localTop || path.startsWith(`${localTop}/`));
       });
       const localPlacement = localOwnerCandidate && task.worktree ?
-        { mode: "new" as const, why: "reuse task worktree" } : localOwnerCandidate ? resolvePlacement(task,
+        reuseWorktreePlacement(task.worktree, task.brief.repo) : localOwnerCandidate ? resolvePlacement(task,
         validateExecution(s.execution).worktree, !!localBusy,
         !!localGit && !("error" in localGit) && localGit.dirty) : null;
       const ownedCurrent = localOwnerCandidate && localPlacement?.mode === "current";
@@ -776,7 +776,11 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
       // Orchestrator turns: issue the prg_ into the AGENT execution env only (not the
       // `_run` child). Mirrors work-grant issuance above (round-2 B1).
       if (task.kind === "orchestrate") {
-        const turn = liveTurnForTask(ctx, id);
+        // Shared orch task can bind turns on child runs; prefer the root run from requestId.
+        const rootFromReq = typeof task.requestId === "string"
+          ? /^orch:(.+)$/.exec(task.requestId)?.[1]
+          : undefined;
+        const turn = liveTurnForTask(ctx, id, rootFromReq);
         if (turn) {
           // Use the runner ctx clock: turn.deadline is on that clock (tests freeze now).
           const token = issueRunGrant(ctx, {
@@ -802,8 +806,16 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
         if (owned) {
           if (!ownedResume) task = updateTask(ctx, id, current => {
             current.executorProvider = "pacer-exec-direct";
-            if (localPlacement) current.placement = { requested: current.placement?.requested ?? "auto",
-              ...current.placement, mode: localPlacement.mode, why: localPlacement.why };
+            if (localPlacement) {
+              // Distinct reused checkout must take the owned-new route; align requested so
+              // executor-production does not reject a leftover placement.requested of "current"
+              // (e.g. brief.repo was a sibling worktree while the retained path is elsewhere).
+              const alignRequested = !!current.worktree && localPlacement.mode === "new" &&
+                current.placement?.requested === "current";
+              current.placement = { requested: current.placement?.requested ?? "auto",
+                ...current.placement, mode: localPlacement.mode, why: localPlacement.why,
+                ...(alignRequested ? { requested: "new" as const } : {}) };
+            }
           });
           // A reattached owner starts a new monitor; the lost-contact mark the lost owner left must not outlive it.
           else task = updateTask(ctx, id, current => {

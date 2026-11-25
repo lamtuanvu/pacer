@@ -11,6 +11,74 @@ fn action(label: &str, op: &str, params: Value) -> Value {
 fn open(label: &str, params: Value) -> Value {
     action(label, "ui.open", params)
 }
+/// Stalled caller_decision older than this becomes an important (grouped) notification.
+const CALLER_GONE_AFTER_S: f64 = 30.0 * 60.0;
+
+fn is_external_agent_origin(origin: &Value) -> bool {
+    text(origin).starts_with("external:")
+}
+
+fn owned_by_human(t: &Value) -> bool {
+    let parent = &t["work"]["parentId"];
+    if !parent.is_null() && truth(parent) {
+        return false;
+    }
+    if truth(&t["work"]["userStarted"]) {
+        return true;
+    }
+    match text(&t["source"]) {
+        "ui" | "onboarding" => true,
+        // CLI pacer delegate from a planner still records source "cli"; origin decides.
+        "cli" => !is_external_agent_origin(&t["origin"]),
+        _ => false,
+    }
+}
+
+fn notify_level(kind: &str, task: Option<&Value>, now: f64) -> &'static str {
+    if matches!(kind, "account_signin" | "planner_quota") {
+        return "important";
+    }
+    if matches!(
+        kind,
+        "stuck"
+            | "executor_down"
+            | "host_down"
+            | "discovery"
+            | "discovery-network"
+            | "setup"
+            | "update"
+    ) {
+        return "all";
+    }
+    if kind == "stalled" {
+        if let Some(t) = task
+            && text(&t["liveness"]["reason"]) == "caller_decision"
+            && now - num(&t["liveness"]["since"]) >= CALLER_GONE_AFTER_S
+        {
+            return "important";
+        }
+        return "all";
+    }
+    let Some(t) = task else {
+        return "important";
+    };
+    if kind == "review" {
+        return "important";
+    }
+    if kind == "message" && truth(&t["messages"]["question"]) {
+        return "important";
+    }
+    if truth(&t["liveness"]["escalatedAt"])
+        && matches!(kind, "question" | "failed" | "limit" | "message")
+    {
+        return "important";
+    }
+    if owned_by_human(t) && matches!(kind, "question" | "failed" | "limit") {
+        return "important";
+    }
+    "all"
+}
+
 #[allow(clippy::too_many_arguments)]
 fn item(
     kind: &str,
@@ -21,6 +89,20 @@ fn item(
     now: f64,
     extra: Value,
 ) -> Value {
+    item_for(kind, key, title, detail, actions, now, extra, None)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn item_for(
+    kind: &str,
+    key: &str,
+    title: &str,
+    detail: &str,
+    actions: Vec<Value>,
+    now: f64,
+    extra: Value,
+    task: Option<&Value>,
+) -> Value {
     merge(
         &json!({
         "id":format!("{kind}:{key}"),"kind":kind,"severity":if ["stuck","stalled"].contains(&kind){
@@ -29,11 +111,7 @@ fn item(
         "decide"}
         else{
         "problem"}
-        ,"repo":null,"title":title,"detail":detail,"raisedAt":number(now),"since":number(now),"actions":actions,"notify":if ["setup","update"].contains(&kind){
-        "all"}
-        else{
-        "important"}
-        }
+        ,"repo":null,"title":title,"detail":detail,"raisedAt":number(now),"since":number(now),"actions":actions,"notify":notify_level(kind, task, now)}
         ),
         &extra,
     )
@@ -769,7 +847,7 @@ pub fn raised(
                 ),
             );
             stop["style"] = json!("danger");
-            items.push(item(
+            items.push(item_for(
                 "question",
                 id,
                 title,
@@ -784,6 +862,7 @@ pub fn raised(
                 ],
                 ctx.now,
                 e,
+                Some(&t),
             ));
         } else if let Some(reason) = reason {
             let (detail, label, view) = match reason {
@@ -805,7 +884,7 @@ pub fn raised(
                 e["since"] = t["reviewRequest"]["at"].clone();
                 e["raisedAt"] = t["reviewRequest"]["at"].clone();
             }
-            items.push(item(
+            items.push(item_for(
                 kind,
                 id,
                 title,
@@ -818,6 +897,7 @@ pub fn raised(
                 )],
                 ctx.now,
                 e,
+                Some(&t),
             ));
         } else if ["failed", "limit"].contains(&text(&t["state"]))
             && !["retriedBy", "dismissed", "review", "resolved"]
@@ -857,7 +937,7 @@ pub fn raised(
             } else {
                 "No other executor available".into()
             };
-            items.push(item(
+            items.push(item_for(
                 text(&t["state"]),
                 id,
                 title,
@@ -881,6 +961,7 @@ pub fn raised(
                 ],
                 ctx.now,
                 extra.clone(),
+                Some(&t),
             ));
         } else if t["state"] == "running" && t["progress"]["phase"] == "idle" {
             let mut stop = action(
@@ -891,7 +972,7 @@ pub fn raised(
                 ),
             );
             stop["style"] = json!("danger");
-            items.push(item(
+            items.push(item_for(
                 "stuck",
                 id,
                 title,
@@ -899,6 +980,7 @@ pub fn raised(
                 vec![open("Open task", params.clone()), stop],
                 ctx.now,
                 extra.clone(),
+                Some(&t),
             ));
         }
         // prompt_wait:<taskId> — Convert to question (I-3). Id prefix is not the kind.
@@ -931,7 +1013,10 @@ pub fn raised(
             );
             row.insert("raisedAt".into(), t["promptWait"]["at"].clone());
             row.insert("since".into(), t["promptWait"]["at"].clone());
-            row.insert("notify".into(), json!("important"));
+            row.insert(
+                "notify".into(),
+                json!(notify_level("stuck", Some(&t), ctx.now)),
+            );
             row.insert(
                 "actions".into(),
                 json!([
@@ -954,7 +1039,10 @@ pub fn raised(
             let mut e = extra.clone();
             e["since"] = t["liveness"]["since"].clone();
             e["raisedAt"] = t["liveness"]["since"].clone();
-            items.push(item(
+            if truth(&t["liveness"]["waitingOn"]) {
+                e["waitingOn"] = t["liveness"]["waitingOn"].clone();
+            }
+            items.push(item_for(
                 "stalled",
                 id,
                 title,
@@ -967,6 +1055,7 @@ pub fn raised(
                 )],
                 ctx.now,
                 e,
+                Some(&t),
             ));
         }
         if truth(&t["messages"]["unreadForHuman"]) && !truth(&t["dismissed"]) && !legacy {
@@ -999,7 +1088,16 @@ pub fn raised(
                     if n == 1.0 { "" } else { "s" }
                 )
             };
-            items.push(item("message", id, title, &detail, vec![a], ctx.now, e));
+            items.push(item_for(
+                "message",
+                id,
+                title,
+                &detail,
+                vec![a],
+                ctx.now,
+                e,
+                Some(&t),
+            ));
         }
     }
     for a in accounts {
@@ -1271,6 +1369,31 @@ mod managed_action_tests {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod notify_level_tests {
+    use super::notify_level;
+    use serde_json::json;
+
+    #[test]
+    fn human_owned_failed_task_is_important() {
+        let task =
+            json!({"source":"ui","work":{"rootId":"t","parentId":null,"depth":0},"origin":"human"});
+        assert_eq!(notify_level("failed", Some(&task), 100.0), "important");
+    }
+
+    #[test]
+    fn planner_owned_failed_task_is_all() {
+        let task = json!({"source":"planner","work":{"rootId":"t","parentId":null,"depth":0}});
+        assert_eq!(notify_level("failed", Some(&task), 100.0), "all");
+    }
+
+    #[test]
+    fn prompt_wait_stuck_is_all_even_when_human_owned() {
+        let task = json!({"source":"ui","work":{"rootId":"t","parentId":null,"depth":0}});
+        assert_eq!(notify_level("stuck", Some(&task), 100.0), "all");
     }
 }
 

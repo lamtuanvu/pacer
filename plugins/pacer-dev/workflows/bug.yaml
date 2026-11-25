@@ -1,0 +1,41 @@
+id: pacer-dev/bug
+version: 1
+title: Bug fix
+inputs: { brief: string }
+steps:
+  investigate:
+    type: agent
+    kind: research
+    code: false
+    prompt: prompts/investigate.md
+  reproduce_or_fix:
+    type: agent
+    kind: debug
+    code: true
+    prompt: prompts/bugfix.md
+  test:
+    type: agent
+    kind: tests
+    result: evidence
+    needs: [browser]
+    prompt: prompts/test.md
+  approve_publish:
+    type: human
+    decision: must
+    approves: publish
+    question:
+      text: Approve publishing this bugfix (push and open a PR)?
+      kind: approve_revise
+  open_pr:
+    type: agent
+    role: orchestrator
+    prompt: prompts/open-pr.md
+  done:
+    type: end
+edges:
+  - [investigate, reproduce_or_fix]
+  - [reproduce_or_fix, test]
+  - [test, approve_publish]
+  - [approve_publish, open_pr, "result.answer == 'approve'"]
+  - [approve_publish, test, "result.answer == 'revise'", { max_loops: 2 }]
+  - [open_pr, done]

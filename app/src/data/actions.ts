@@ -26,7 +26,7 @@ export function uiHref(params: Record<string, unknown>): string {
     case "review": return id ? `#/tasks/${id}` : "#/needs-you";
     // The thread lives in the workspace's Messages panel.
     case "task": return id ? params.tab === "messages" ? `#/workspace?task=${id}&panel=messages` : `#/tasks/${id}${params.tab === "answer" ? "?tab=answer" : ""}` : "#/tasks";
-    case "session": return id ? `#/workspace?task=${id}${params.tab === "messages" ? "&panel=messages" : ""}` : "#/workspace";
+    case "session": return id ? `#/workspace?task=${id}${params.tab === "messages" ? "&panel=messages" : ""}` : "#/tasks";
     case "settings": return `#${settingsPath(params.section)}`;
     default: return "#/";
   }

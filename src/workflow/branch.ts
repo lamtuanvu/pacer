@@ -20,8 +20,8 @@ import {
 import { enqueueWakeup, stepWakeRef } from "./wakeups";
 import { dataPreamble } from "./template";
 
-/** Kinds that edit the tree by default. Research/review stay off unless
- *  `code: true`. Docs and unfamiliar-code write files so they count as code. */
+/** Kinds that edit the tree by default. Research (read-only) and role:reviewer
+ *  stay off unless `code: true`. Docs and unfamiliar-code write files so they count as code. */
 const CODE_KINDS = new Set([
   "boilerplate", "tests", "rename", "migration", "feature", "debug", "refactor", "performance",
   "docs", "unfamiliar-code",

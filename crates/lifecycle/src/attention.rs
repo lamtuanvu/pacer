@@ -77,6 +77,75 @@ pub fn sort(items: &mut [Item]) {
             .then_with(|| js::compare(s(a.get("id")), s(b.get("id"))))
     });
 }
+
+/// Stalled caller_decision older than this becomes an important (grouped) notification.
+const CALLER_GONE_AFTER_S: f64 = 30.0 * 60.0;
+
+fn is_external_agent_origin(origin: &Value) -> bool {
+    s(origin).starts_with("external:")
+}
+
+fn owned_by_human(t: &Value) -> bool {
+    let parent = &t["work"]["parentId"];
+    if !parent.is_null() && truth(parent) {
+        return false;
+    }
+    if truth(&t["work"]["userStarted"]) {
+        return true;
+    }
+    match s(&t["source"]) {
+        "ui" | "onboarding" => true,
+        // CLI pacer delegate from a planner still records source "cli"; origin decides.
+        "cli" => !is_external_agent_origin(&t["origin"]),
+        _ => false,
+    }
+}
+
+fn notify_level(kind: &str, task: Option<&Value>, now: f64) -> &'static str {
+    if matches!(kind, "account_signin" | "planner_quota") {
+        return "important";
+    }
+    if matches!(
+        kind,
+        "stuck"
+            | "executor_down"
+            | "host_down"
+            | "discovery"
+            | "discovery-network"
+            | "setup"
+            | "update"
+    ) {
+        return "all";
+    }
+    if kind == "stalled" {
+        if let Some(t) = task
+            && s(&t["liveness"]["reason"]) == "caller_decision"
+            && now - n(&t["liveness"]["since"]) >= CALLER_GONE_AFTER_S
+        {
+            return "important";
+        }
+        return "all";
+    }
+    let Some(t) = task else {
+        return "important";
+    };
+    if kind == "review" {
+        return "important";
+    }
+    if kind == "message" && truth(&t["messages"]["question"]) {
+        return "important";
+    }
+    if truth(&t["liveness"]["escalatedAt"])
+        && matches!(kind, "question" | "failed" | "limit" | "message")
+    {
+        return "important";
+    }
+    if owned_by_human(t) && matches!(kind, "question" | "failed" | "limit") {
+        return "important";
+    }
+    "all"
+}
+
 // Each argument corresponds to a field in the TS rule constructor.
 #[allow(clippy::too_many_arguments)]
 fn add(
@@ -89,6 +158,21 @@ fn add(
     actions: Vec<Value>,
     extra: Value,
 ) {
+    add_for(items, time, kind, key, title, detail, actions, extra, None);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn add_for(
+    items: &mut Vec<Item>,
+    time: f64,
+    kind: &str,
+    key: &str,
+    title: &str,
+    detail: &str,
+    actions: Vec<Value>,
+    extra: Value,
+    task: Option<&Value>,
+) {
     let severity = if ["stuck", "stalled"].contains(&kind) {
         "blocked"
     } else if ["review", "update", "discovery", "discovery-network"].contains(&kind) {
@@ -96,7 +180,7 @@ fn add(
     } else {
         "problem"
     };
-    let mut v = json!({"id":format!("{kind}:{key}"),"kind":kind,"severity":severity,"repo":null,"title":title,"detail":detail,"raisedAt":time,"since":time,"actions":actions,"notify":if ["setup","update"].contains(&kind){"all"}else{"important"}});
+    let mut v = json!({"id":format!("{kind}:{key}"),"kind":kind,"severity":severity,"repo":null,"title":title,"detail":detail,"raisedAt":time,"since":time,"actions":actions,"notify":notify_level(kind, task, time)});
     if let Some(extra) = extra.as_object() {
         for (k, val) in extra {
             v[k] = val.clone();
@@ -149,7 +233,7 @@ pub fn derive(input: &Value, time: f64) -> Vec<Item> {
             x["severity"] = "blocked".into();
             x["since"] = t["question"]["at"].clone();
             x["raisedAt"] = x["since"].clone();
-            add(
+            add_for(
                 &mut items,
                 time,
                 "question",
@@ -173,9 +257,10 @@ pub fn derive(input: &Value, time: f64) -> Vec<Item> {
                     danger("Stop", "task.stop", id),
                 ],
                 x,
+                Some(t),
             );
         } else if ["checks_failed", "incomplete"].contains(&why) {
-            add(
+            add_for(
                 &mut items,
                 time,
                 "failed",
@@ -195,12 +280,13 @@ pub fn derive(input: &Value, time: f64) -> Vec<Item> {
                     json!({"view":"task","id":id}),
                 )],
                 extra.clone(),
+                Some(t),
             );
         } else if why == "review_requested" {
             let mut x = extra.clone();
             x["since"] = t["reviewRequest"]["at"].clone();
             x["raisedAt"] = x["since"].clone();
-            add(
+            add_for(
                 &mut items,
                 time,
                 "review",
@@ -209,6 +295,7 @@ pub fn derive(input: &Value, time: f64) -> Vec<Item> {
                 s(&t["reviewRequest"]["note"]),
                 vec![open("Review changes", json!({"view":"review","id":id}))],
                 x,
+                Some(t),
             );
         } else if ["failed", "limit"].contains(&state)
             && !["retriedBy", "dismissed", "review", "resolved"]
@@ -239,7 +326,7 @@ pub fn derive(input: &Value, time: f64) -> Vec<Item> {
             } else {
                 "No other executor available".into()
             };
-            add(
+            add_for(
                 &mut items,
                 time,
                 state,
@@ -263,9 +350,10 @@ pub fn derive(input: &Value, time: f64) -> Vec<Item> {
                     open("See error", json!({"view":"task","id":id})),
                 ],
                 extra.clone(),
+                Some(t),
             );
         } else if state == "running" && t["progress"]["phase"] == "idle" {
-            add(
+            add_for(
                 &mut items,
                 time,
                 "stuck",
@@ -277,13 +365,17 @@ pub fn derive(input: &Value, time: f64) -> Vec<Item> {
                     danger("Stop it", "task.stop", id),
                 ],
                 extra.clone(),
+                Some(t),
             );
         }
         if truth(&t["liveness"]["stalled"]) {
             let mut x = extra.clone();
             x["since"] = t["liveness"]["since"].clone();
             x["raisedAt"] = x["since"].clone();
-            add(
+            if truth(&t["liveness"]["waitingOn"]) {
+                x["waitingOn"] = t["liveness"]["waitingOn"].clone();
+            }
+            add_for(
                 &mut items,
                 time,
                 "stalled",
@@ -295,6 +387,7 @@ pub fn derive(input: &Value, time: f64) -> Vec<Item> {
                     json!({"view":"task","id":id,"tab":"messages"}),
                 )],
                 x,
+                Some(t),
             );
         }
         if truth(&t["messages"]["unreadForHuman"]) && !truth(&t["dismissed"]) && !question {
@@ -325,7 +418,17 @@ pub fn derive(input: &Value, time: f64) -> Vec<Item> {
                     if count == 1.0 { "" } else { "s" }
                 )
             };
-            add(&mut items, time, "message", id, goal, &detail, vec![act], x);
+            add_for(
+                &mut items,
+                time,
+                "message",
+                id,
+                goal,
+                &detail,
+                vec![act],
+                x,
+                Some(t),
+            );
         }
     }
     let executors = a(&input["executors"]);

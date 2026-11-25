@@ -42,6 +42,7 @@ import { ResultStaging } from "./result-staging";
 import { MAX_LINE_BYTES } from "./lines";
 import { PLANNER_INSTALL_FEATURE } from "./planner-protocol";
 import { EXTENSION_METHODS, HELLO_METHOD, NOTIFICATIONS, uiOf, parseViewDocument, parseStatusItemDocument, type ViewDocument, PLUGIN_ID, PLUGIN_PROTOCOL_MAJOR, PLUGIN_PROTOCOL_VERSION, type PluginManifest, type PluginState, helloResult, RESULT_CHUNK_METHOD, resultChunkParams, chunkedResult } from "./protocol";
+import { workflowDefinitionsReplyFits } from "./workflow-protocol";
 import type { BundledPlugin } from "./types";
 import { inspectBundledNativeExecutable, nativeSiblingRefusal } from "./native-bundled";
 import { currentVersion } from "../update/version";
@@ -139,7 +140,16 @@ export function surfaceKinds(m: PluginManifest | null): SurfaceKind[] {
   const ui = m ? uiOf(m) : null;
   return ui ? KINDS.filter(k => ui[k].length > 0) : [];
 }
-const grantCovers = (m: PluginManifest, g: PluginGrant | null | undefined) => g != null && m.capabilities.every(c => g.capabilities.includes(c.name)) && surfaceKinds(m).every(k => (g.surfaces ?? []).includes(k));
+/** Workflow names a manifest contributes (consent covers each name; adding one asks again). */
+export function workflowNames(m: PluginManifest | null): string[] {
+  const raw = m?.contributes.workflow;
+  return raw ? Object.keys(raw).sort() : [];
+}
+const grantCovers = (m: PluginManifest, g: PluginGrant | null | undefined) =>
+  g != null
+  && m.capabilities.every(c => g.capabilities.includes(c.name))
+  && surfaceKinds(m).every(k => (g.surfaces ?? []).includes(k))
+  && workflowNames(m).every(name => (g.workflows ?? []).includes(name));
 /**
  * The native owner pins commands by absolute argv[0] and matches plugin spawns by
  * its file name, so a bare name must resolve to a path ending in that name. A
@@ -201,6 +211,8 @@ export class PluginRegistry {
   private readonly nativeOrcaBridgeByPlugin = new Map<string, { token: string; authority: CallAuthority }>();
   private eventTimer:ReturnType<typeof setInterval>|undefined;
   private published: Promise<unknown> = Promise.resolve();
+  /** Nested depth: host bookkeeping (startup workflow sync) mutates state without outbox noise. */
+  private statePublishMute = 0;
   private readonly entries = new Map<string, Entry>();
   private readonly admission = new CallAdmission();
   // Full-session viewer streams have no deadline; they run in their own pool so they can never hold the shared call slots.
@@ -1675,8 +1687,21 @@ export class PluginRegistry {
     e.state = state; e.error = error;
     if (state === "disabled" || state === "needs_grant" || state === "refused" || state === "failing") { e.cache.clear(); e.nativeUiRevision++; }
     if (ctx.readOnly) return; // Passive usage must not create durable plugin event storage.
+    // Startup workflow sync starts plugins only to page definitions; keep the outbox quiet
+    // so SSE/config tests (and clients) do not see bookkeeping as user-visible changes.
+    if (this.statePublishMute > 0) return;
     this.published = this.published.then(() => publish(ctx, [{ type: "entity", data: { kind: "plugin", id: e.id, value: { id: e.id, state, error } } }])).catch(() => {});
     if (state === "failing") appendActivity(ctx, { kind: "plugin_state", level: "warn", text: `Plugin ${e.id} is failing · ${error ?? "unknown error"}` });
+  }
+
+  /** Run `fn` without publishing plugin state transitions (host bookkeeping paths). */
+  async withoutStatePublish<T>(fn: () => Promise<T>): Promise<T> {
+    this.statePublishMute++;
+    try {
+      return await fn();
+    } finally {
+      this.statePublishMute--;
+    }
   }
 
   /** Re-read manifests and config; runtime states survive unless config now disables or refuses the plugin. */
@@ -1709,7 +1734,16 @@ export class PluginRegistry {
       }
       const covered = e.bundled || grantCovers(m, grant);
       if (cfg.disabled.includes(e.id)) { this.retireObservations(e);void this.stop(e); this.setState(ctx, e, "disabled"); return; }
-      if (!covered) { this.retireObservations(e);void this.stop(e); this.setState(ctx, e, "needs_grant", `needs a grant for ${[...m.capabilities.map(c => c.name), ...surfaceKinds(m).map(k => `${k} surfaces`)].join(", ") || "no capabilities"}`); return; }
+      if (!covered) {
+        const parts = [
+          ...m.capabilities.map(c => c.name),
+          ...surfaceKinds(m).map(k => `${k} surfaces`),
+          ...workflowNames(m).map(name => `workflow ${name}`),
+        ];
+        this.retireObservations(e); void this.stop(e);
+        this.setState(ctx, e, "needs_grant", `needs a grant for ${parts.join(", ") || "no capabilities"}`);
+        return;
+      }
       if (!ENABLED.has(e.state) && e.state !== "failing") this.setState(ctx, e, "idle");
     };
     for (const b of this.deps.bundled) {
@@ -2034,6 +2068,12 @@ export class PluginRegistry {
     const e = this.findEntry(ctx, id);
     e.nativeSurfaceRevisions.set(surfaceId, (e.nativeSurfaceRevisions.get(surfaceId) ?? 0) + 1);
     for (const k of [...e.cache.keys()]) if (k.startsWith(`${surfaceId}\u0000`)) e.cache.delete(k);
+  }
+
+  /** Current validated manifest, or null when the plugin is unknown or refused. */
+  manifestOf(ctx: Ctx, id: string): PluginManifest | null {
+    this.refresh(ctx);
+    return this.entries.get(id)?.manifest ?? null;
   }
 
   list(ctx: Ctx): PluginInfo[] {
@@ -2839,6 +2879,18 @@ export class PluginRegistry {
           if (!checked.success) { appendPluginLog(ctx, e.id, "stderr", `invalid ${method} result: ${checked.error.issues[0]?.path.join(".") || "result"}`); throw new CoreError("invalid_input", `plugin ${e.id} returned an invalid ${method} result`); }
           return checked.data as T;
         }
+        if (method === "workflow.definitions") {
+          const checked = def.result.safeParse(value);
+          if (!checked.success) {
+            appendPluginLog(ctx, e.id, "workflow", `invalid workflow.definitions result: ${checked.error.issues[0]?.path.join(".") || "result"}`);
+            throw new CoreError("plugin_refused", `plugin ${e.id} returned an invalid workflow.definitions result`);
+          }
+          if (!workflowDefinitionsReplyFits(checked.data)) {
+            appendPluginLog(ctx, e.id, "workflow", "workflow.definitions reply exceeds 960 KiB");
+            throw new CoreError("plugin_refused", `plugin ${e.id} returned a workflow.definitions reply over 960 KiB`);
+          }
+          return checked.data as T;
+        }
         return value as T;
       };
       if (e.manifest?.reentrant) return run();
@@ -2846,7 +2898,7 @@ export class PluginRegistry {
     }, options.signal);
   }
 
-  async enable(ctx: Ctx, id: string, grant: boolean): Promise<{ id: string; state: PluginState; needs?: string[]; surfaces?: SurfaceKind[] }> {
+  async enable(ctx: Ctx, id: string, grant: boolean): Promise<{ id: string; state: PluginState; needs?: string[]; surfaces?: SurfaceKind[]; workflows?: string[] }> {
     this.refresh(ctx);
     const e = this.findEntry(ctx, id);
     if (e.state === "refused") throw new CoreError("plugin_refused", `plugin ${id} cannot be enabled: ${e.error}`);
@@ -2854,14 +2906,36 @@ export class PluginRegistry {
     const needs = m.capabilities.map(c => c.name);
     const current = pluginsConfig(ctx).installed[id];
     const surfaces = surfaceKinds(m);
+    const workflows = workflowNames(m);
     const covered = e.bundled || grantCovers(m, current);
-    if (!covered && !grant) return { id, state: "needs_grant", needs, ...(surfaces.length ? { surfaces } : {}) };
+    if (!covered && !grant) {
+      return {
+        id, state: "needs_grant", needs,
+        ...(surfaces.length ? { surfaces } : {}),
+        ...(workflows.length ? { workflows } : {}),
+      };
+    }
     const policy = Object.hasOwn(m.contributes, "policy");
-    if (!e.bundled && (!covered || current?.version !== m.version || current?.policy !== policy)) await setPluginGrant(ctx, id, { version: m.version, capabilities: needs, surfaces, policy });
+    const recordedWorkflows = [...(current?.workflows ?? [])].sort().join("\0");
+    const nextWorkflows = workflows.join("\0");
+    // Adding a workflow name fails grantCovers (asks again). Removing a name keeps coverage
+    // and re-records the shorter list without prompting (D12).
+    if (!e.bundled && (!covered || current?.version !== m.version || current?.policy !== policy || recordedWorkflows !== nextWorkflows)) {
+      await setPluginGrant(ctx, id, {
+        version: m.version, capabilities: needs, surfaces, policy,
+        ...(workflows.length ? { workflows } : {}),
+      });
+    }
     await setPluginDisabled(ctx, id, false);
     e.crashes = []; e.nextStartAt = 0;
     if (e.state === "failing") e.state = "idle";
     this.refresh(ctx);
+    if (Object.hasOwn(m.contributes, "workflow")) {
+      const { syncPluginWorkflows } = await import("../workflow/plugin-sync");
+      void syncPluginWorkflows(ctx, id).catch(error => {
+        appendPluginLog(ctx, id, "workflow", error instanceof Error ? error.message : String(error));
+      });
+    }
     return { id, state: e.state };
   }
 
@@ -2869,6 +2943,8 @@ export class PluginRegistry {
     const e = this.findEntry(ctx, id);
     if (e.state === "refused") throw new CoreError("plugin_refused", `plugin ${id} is refused: ${e.error}`);
     await setPluginDisabled(ctx, id, true);
+    const { disablePluginWorkflows } = await import("../workflow/plugin-sync");
+    disablePluginWorkflows(ctx, id);
     await this.stop(e);
     this.refresh(ctx);
     return { id, state: e.state };
@@ -2878,6 +2954,8 @@ export class PluginRegistry {
     const e = this.findEntry(ctx, id);
     if (e.bundled) throw new CoreError("not_allowed", `plugin ${id} is bundled with pacer and cannot be removed`, "Use plugin.disable instead.");
     await this.stop(e);
+    const { disablePluginWorkflows } = await import("../workflow/plugin-sync");
+    disablePluginWorkflows(ctx, id);
     rmSync(e.dir!, { recursive: true, force: true });
     await setPluginGrant(ctx, id, null);
     await setPluginDisabled(ctx, id, false);

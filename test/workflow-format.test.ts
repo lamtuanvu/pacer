@@ -30,7 +30,7 @@ steps:
     branches: [one, two]
     each:
       type: agent
-      kind: review
+      kind: research
       prompt: "Review it"
     join: all
   redo:
@@ -118,6 +118,37 @@ test("reports every structural error at once", () => {
 
 test("a clean definition validates to no errors", () => {
   expect(validateWorkflow(parseWorkflow(FIXTURE_OK).def!)).toEqual([]);
+});
+
+test("unknown task kinds are refused at definition time", () => {
+  const base = parseWorkflow(FIXTURE_OK).def!;
+  const badAgent: WorkflowDef = {
+    ...base,
+    steps: {
+      ...base.steps,
+      work: { type: "agent", kind: "not-a-kind", prompt: "x" },
+    },
+  };
+  expect(validateWorkflow(badAgent).map(e => `${e.path}: ${e.message}`)).toEqual(
+    expect.arrayContaining([
+      expect.stringMatching(/steps\.work\.kind: unknown kind 'not-a-kind'/),
+    ]),
+  );
+  const badFanout: WorkflowDef = {
+    ...base,
+    steps: {
+      ...base.steps,
+      reviews: {
+        type: "fanout",
+        branches: ["one", "two"],
+        each: { type: "agent", kind: "review", prompt: "x" },
+        join: "all",
+      },
+    },
+  };
+  expect(validateWorkflow(badFanout).some(e =>
+    e.path === "steps.reviews.each.kind" && /unknown kind 'review'/.test(e.message),
+  )).toBe(true);
 });
 
 test("rejects a when clause that does not parse", () => {

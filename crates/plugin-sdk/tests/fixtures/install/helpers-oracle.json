@@ -1,0 +1,42 @@
+{
+  "sha256": {
+    "": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "abc": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+    "界": "e89b8e5fa2ab010e2bf4d9245b9e0fc2dbd5213500605240ec8a768cbdbd96f2",
+    "﻿value": "94d426247f353b9358c95dfa4406f9a4445ae9cb471af8c36ea14f342ad22f79",
+    "line\nnext": "dc20ec73d7c6c71c3936bd3ff9734b011870b68ef6ca70ac638189d251526eb9",
+    "\u0000": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d"
+  },
+  "hostAgree": true,
+  "shellCommand": [
+    {
+      "argv": [],
+      "command": ""
+    },
+    {
+      "argv": [
+        "pacer",
+        "space here",
+        "\n",
+        "'",
+        "$HOME",
+        "`literal`",
+        "界"
+      ],
+      "command": "pacer 'space here' '\n' ''\\''' '$HOME' '`literal`' '界'"
+    },
+    {
+      "argv": [
+        "/opt/My Disk/pacer",
+        "it's"
+      ],
+      "command": "'/opt/My Disk/pacer' 'it'\\''s'"
+    },
+    {
+      "argv": [
+        "/usr/bin/pacer_-.:=@%+-"
+      ],
+      "command": "/usr/bin/pacer_-.:=@%+-"
+    }
+  ]
+}

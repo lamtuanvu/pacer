@@ -111,7 +111,9 @@ async function runOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord,
     current.worktreeIntent && (placement !== "new" ||
       current.worktreeIntent.providerId !== providerId ||
       current.worktreeIntent.attempt !== current.attempts.length + 1) ||
-    current.worktree && (placement !== "new" || !current.retryOf && current.attempts.length === 0))
+    // A retry may record worktree === brief.repo when reusing an in-place checkout; that is not isolated.
+    current.worktree && realpathSafe(current.worktree) !== realpathSafe(current.brief.repo) &&
+      (placement !== "new" || !current.retryOf && current.attempts.length === 0))
     throw new CoreError("capability_denied", "direct executor route is not an owned local attempt");
   if (!Number.isSafeInteger(task.timeoutS) || task.timeoutS < 1 || task.timeoutS > 14400)
     throw new CoreError("invalid_input", "direct executor timeout must be between 1 and 14400 seconds");

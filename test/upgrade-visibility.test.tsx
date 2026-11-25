@@ -83,3 +83,27 @@ test("status never prints control characters from work records", () => {
     sessions: [{ kind: "terminal", id: "abc\u001b[2J", pacer: "0.2.0\u001b[2J", older: true, reopenToUpdate: false }] });
   for (const line of lines) expect(line).not.toMatch(/[\x00-\x1f\x7f]/);
 });
+
+test("Settings older-runner list omits a running task that has no live run", async () => {
+  const { runningWork } = await import("../src/service/running-work");
+  const ctx = fakeCtx();
+  const t = createTask(ctx, { brief: { goal: "g", repo: tmpDir() }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  updateTask(ctx, t.id, x => {
+    x.state = "running";
+    x.runnerPacer = "0.1.0";
+    x.executorProvider = "pacer-exec-direct";
+    x.stopPending = { attempt: 1, requestedAt: ctx.now, providerId: "pacer-exec-direct", graceMs: 5000, reason: "user" };
+    x.attempts = [{ executor: "codex", model: null, startedAt: ctx.now - 10, endedAt: ctx.now - 1,
+      exitCode: 143, timedOut: false, limitHit: false, log: "" }];
+    delete x.run;
+  });
+  const work = await runningWork(ctx, "0.17.5");
+  expect(work.tasks.some(row => row.taskId === t.id)).toBe(false);
+  expect(renderToString(<RunningWorkList work={{
+    pacer: work.pacer,
+    tasks: work.tasks.map(row => ({ task_id: row.taskId, runner_pacer: row.runnerPacer, older: row.older })),
+    sessions: [],
+    counts: { tasks: work.tasks.length, sessions: 0, older_runners: work.tasks.filter(row => row.older).length,
+      older_sessions: 0, reopen_to_update: 0 },
+  }} />)).toBe("");
+});

@@ -1,4 +1,5 @@
 import type { RepoRef } from "../api/read-model/types";
+import { realpathSafe } from "../core/git";
 import type { Progress } from "../supervisor/progress";
 import type { WorktreeMode } from "../config/execution";
 import type { ResultCheck } from "../classify/hooks";
@@ -154,6 +155,14 @@ export function resolvePlacement(task: Pick<TaskRecord,"kind"|"brief"|"placement
   if(task.kind==="research")return {mode:"current",why:"read-only kind"};
   if(dirty&&/uncommitted|in[ -]progress|working[ -]tree|unstaged/i.test([task.brief.goal,task.brief.context,task.brief.scope].join("\n")))return {mode:"current",why:"builds on uncommitted work"};
   return {mode:strategy==="current"?"current":"new",why:"strategy default"};
+}
+
+/** Retried attempt reusing a prior checkout: in-place when that path is the brief repo itself, else isolated. */
+export function reuseWorktreePlacement(worktree: string, briefRepo: string): ResolvedPlacement {
+  return {
+    mode: realpathSafe(worktree) === realpathSafe(briefRepo) ? "current" : "new",
+    why: "reuse task worktree",
+  };
 }
 
 /** Commit a running task's changes are counted from: the new worktree's base, or the in-place start commit. */

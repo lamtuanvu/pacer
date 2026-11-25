@@ -26,6 +26,9 @@ pub struct Data {
 pub struct Candidate {
     pub key: String,
     pub data: Data,
+    /// Extra ledger keys acked with this send (same-task siblings).
+    #[serde(rename = "ackKeys", skip_serializing_if = "Option::is_none")]
+    pub ack_keys: Option<Vec<String>>,
 }
 fn view(item: &Item) -> String {
     if let Some(section) = a(item.get("actions"))
@@ -52,35 +55,79 @@ fn view(item: &Item) -> String {
     }
     String::new()
 }
+fn item_key(item: &Item) -> String {
+    format!("{}:{}", s(item.get("id")), js::number(n(item.get("since"))))
+}
+
+fn candidate_from_item(item: &Item) -> Candidate {
+    let key = item_key(item);
+    Candidate {
+        key: key.clone(),
+        data: Data {
+            key,
+            title: Text::new(s(item.get("title"))),
+            body: item.detail.clone(),
+            actions: a(item.get("actions")).iter().take(2).cloned().collect(),
+            url: format!("/app/#/{}", view(item)),
+            recipients: None,
+            client_id: None,
+        },
+        ack_keys: None,
+    }
+}
+
+/// One candidate per taskId; ack_keys cover same-task siblings (TS onePerTask).
+fn one_per_task(items: &[&Item]) -> Vec<Candidate> {
+    let mut keys_by_task: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+    for item in items {
+        if !truth(item.get("taskId")) {
+            continue;
+        }
+        keys_by_task
+            .entry(s(item.get("taskId")).to_owned())
+            .or_default()
+            .push(item_key(item));
+    }
+    let mut seen_task = HashSet::new();
+    let mut out = vec![];
+    for item in items {
+        if !truth(item.get("taskId")) {
+            out.push(candidate_from_item(item));
+            continue;
+        }
+        let task_id = s(item.get("taskId"));
+        if !seen_task.insert(task_id.to_owned()) {
+            continue;
+        }
+        let mut c = candidate_from_item(item);
+        if let Some(keys) = keys_by_task.get(task_id)
+            && keys.len() > 1
+        {
+            c.ack_keys = Some(keys[1..].to_vec());
+        }
+        out.push(c);
+    }
+    out
+}
+
 pub fn candidates(items: &[Item], level: &str, ledger: &Value) -> Vec<Candidate> {
     if level == "off" {
         return vec![];
     }
-    let mut seen: HashSet<_> = ledger
+    let ledger_keys: HashSet<_> = ledger
         .as_object()
         .map(|o| o.keys().cloned().collect())
         .unwrap_or_default();
-    let mut out = vec![];
+    let mut eligible = vec![];
     for item in items {
-        let key = format!("{}:{}", s(item.get("id")), js::number(n(item.get("since"))));
-        if seen.contains(&key) || level == "important" && item.get("notify") != "important" {
+        let key = item_key(item);
+        if ledger_keys.contains(&key) || level == "important" && item.get("notify") != "important" {
             continue;
         }
-        seen.insert(key.clone());
-        out.push(Candidate {
-            key: key.clone(),
-            data: Data {
-                key,
-                title: Text::new(s(item.get("title"))),
-                body: item.detail.clone(),
-                actions: a(item.get("actions")).iter().take(2).cloned().collect(),
-                url: format!("/app/#/{}", view(item)),
-                recipients: None,
-                client_id: None,
-            },
-        });
+        eligible.push(item);
     }
-    out
+    one_per_task(&eligible)
 }
 pub fn retain(ledger: &Value, time: f64) -> Value {
     json!(
@@ -137,6 +184,7 @@ pub fn transitions(candidates: &mut Vec<Candidate>, items: &[Item], level: &str,
                 recipients: None,
                 client_id: None,
             },
+            ack_keys: None,
         });
     }
 }

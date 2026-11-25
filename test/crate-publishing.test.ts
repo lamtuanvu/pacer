@@ -18,7 +18,7 @@ test("independent crate versions ignore generated VCS and lock metadata but dete
 test("the independent protocol crates publish before the SDK that depends on all of them", () => {
   const root = join(import.meta.dir, "..");
   const manifest = (folder: string) => Bun.TOML.parse(readFileSync(join(root, "crates", folder, "Cargo.toml"), "utf8")) as { package: { name: string; version: string; publish?: boolean }; dependencies?: Record<string, unknown> };
-  expect(pluginCrateFolders).toEqual(["plugin-decision-protocol", "plugin-agent-session-protocol", "plugin-install-protocol", "plugin-hosts-protocol", "plugin-exec-protocol", "plugin-assistant-protocol", "plugin-protocol", "plugin-sdk"]);
+  expect(pluginCrateFolders).toEqual(["plugin-decision-protocol", "plugin-agent-session-protocol", "plugin-install-protocol", "plugin-hosts-protocol", "plugin-exec-protocol", "plugin-assistant-protocol", "plugin-workflow-protocol", "plugin-protocol", "plugin-sdk"]);
   const names = pluginCrateFolders.map(folder => manifest(folder).package.name);
   for (const [index, folder] of pluginCrateFolders.entries()) {
     const { package: metadata, dependencies = {} } = manifest(folder);
@@ -28,6 +28,9 @@ test("the independent protocol crates publish before the SDK that depends on all
   const protocols = names.slice(0, -1);
   for (const folder of pluginCrateFolders.slice(0, -1)) expect(Object.keys(manifest(folder).dependencies ?? {}).filter(name => names.includes(name))).toEqual([]);
   expect(Object.keys(manifest("plugin-sdk").dependencies ?? {})).toEqual(expect.arrayContaining(protocols));
+  // Every crate the SDK depends on by path must publish first, or `cargo package` cannot resolve it.
+  const sdkPathDeps = Object.entries((manifest("plugin-sdk").dependencies ?? {}) as Record<string, { path?: string }>).filter(([, spec]) => typeof spec === "object" && spec.path).map(([name]) => name);
+  expect(protocols).toEqual(expect.arrayContaining(sdkPathDeps));
 });
 
 test("protocol area crate archives hash like the other plugin crates", async () => {
@@ -100,8 +103,18 @@ test("release graph packages every independent area before the SDK", async () =>
   const { readFileSync } = await import("node:fs");
   const metadata = pluginCrateFolders.map(folder => Bun.TOML.parse(readFileSync(new URL(`../crates/${folder}/Cargo.toml`, import.meta.url), "utf8")) as { package: { name: string; version: string; publish: boolean }; dependencies: Record<string, unknown> });
   // A crate whose published bytes change needs its own version bump; the SDK pins each area's current version.
-  const versions: Record<string, string> = { "pacer-plugin-assistant-protocol": "0.4.0", "pacer-plugin": "0.5.0" };
-  for (const item of metadata) expect(item.package).toMatchObject({ version: versions[item.package.name] ?? "0.3.0", publish: true });
+  const versions: Record<string, string> = {
+    "pacer-plugin-decision-protocol": "0.4.0",
+    "pacer-plugin-agent-session-protocol": "0.4.0",
+    "pacer-plugin-install-protocol": "0.4.0",
+    "pacer-plugin-hosts-protocol": "0.4.0",
+    "pacer-plugin-exec-protocol": "0.4.0",
+    "pacer-plugin-assistant-protocol": "0.5.0",
+    "pacer-plugin-workflow-protocol": "0.3.0",
+    "pacer-plugin-protocol": "0.4.0",
+    "pacer-plugin": "0.5.0",
+  };
+  for (const item of metadata) expect(item.package).toMatchObject({ version: versions[item.package.name], publish: true });
   const sdk = metadata.at(-1)!;
   for (const item of metadata.slice(0, -1)) expect(sdk.dependencies[item.package.name]).toMatchObject({ version: item.package.version });
   expect(sdk.dependencies["pacer-plugin-policy-protocol"]).toBeUndefined();
@@ -114,6 +127,16 @@ test("release graph packages every independent area before the SDK", async () =>
     publish: async () => {},
   })).rejects.toThrow("install refused");
   expect(calls).toEqual(["pacer-plugin-decision-protocol", "pacer-plugin-agent-session-protocol", "pacer-plugin-install-protocol"]);
+});
+
+test("the archive check accepts every crate in the publish list", async () => {
+  // The archive path allowlist is separate from the publish list; a crate missing from it fails the release at packaging.
+  for (const folder of pluginCrateFolders) {
+    const { package: metadata } = Bun.TOML.parse(readFileSync(join(import.meta.dir, "..", "crates", folder, "Cargo.toml"), "utf8")) as { package: { name: string; version: string } };
+    const root = `${metadata.name}-${metadata.version}`;
+    const bytes = await new Bun.Archive({ [`${root}/Cargo.toml`]: `[package]\nname="${metadata.name}"\n`, [`${root}/src/lib.rs`]: "source" }, { compress: "gzip" }).bytes();
+    expect(await crateContentHash(bytes)).toMatch(/^[0-9a-f]{64}$/);
+  }
 });
 
 test("new publishable area archives use the same bounded canonical content checks", async () => {

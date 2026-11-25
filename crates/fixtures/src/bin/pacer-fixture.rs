@@ -1,4 +1,7 @@
-use pacer_plugin::{Manifest, Plugin, PluginError};
+use pacer_plugin::{
+    Manifest, Plugin, PluginError,
+    types::{WorkflowDefinitionsParams, WorkflowDefinitionsResult},
+};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::{
@@ -17,6 +20,54 @@ struct Fixture {
     ignore_cancel: Option<bool>,
     claim_contributes: Option<Vec<String>>,
     call_capability: Option<String>,
+    /// Pages for `workflow.definitions` (≤1 workflow each). Absent → no workflow handler.
+    workflow_pages: Option<Vec<Value>>,
+}
+
+fn workflow_page(
+    pages: &[Value],
+    after: Option<&str>,
+    plugin_id: &str,
+) -> Result<WorkflowDefinitionsResult, PluginError> {
+    let idx = match after {
+        None => 0usize,
+        Some(cursor) => pages
+            .iter()
+            .position(|page| page.get("next").and_then(Value::as_str) == Some(cursor))
+            .map(|i| i + 1)
+            .unwrap_or(usize::MAX),
+    };
+    let Some(page) = pages.get(idx) else {
+        return Ok(WorkflowDefinitionsResult {
+            workflows: vec![],
+            next: None,
+        });
+    };
+    let mut body = page.clone();
+    if let Some(obj) = body.as_object_mut() {
+        // `next` is a page cursor, not part of the workflow entry schema.
+        // Keep it on the result envelope only.
+        let next = obj.remove("next");
+        let mut workflows = obj.remove("workflows").unwrap_or_else(|| json!([]));
+        if let Some(items) = workflows.as_array_mut() {
+            for item in items {
+                if let Some(source) = item
+                    .get("source")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+                {
+                    item["source"] = Value::String(source.replace("__PLUGIN__", plugin_id));
+                }
+            }
+        }
+        let mut envelope = serde_json::Map::new();
+        envelope.insert("workflows".into(), workflows);
+        if let Some(next) = next {
+            envelope.insert("next".into(), next);
+        }
+        body = Value::Object(envelope);
+    }
+    serde_json::from_value(body).map_err(|e| PluginError::new("invalid_input", e.to_string()))
 }
 
 #[tokio::main]
@@ -33,8 +84,11 @@ async fn main() -> std::io::Result<()> {
     if let Some(points) = fx.claim_contributes.clone() {
         plugin = plugin.contributes(points);
     }
-    plugin
-        .handle("diagnostic.ping", move |_p, c| {
+    plugin = plugin.handle("diagnostic.ping", {
+        let fx = fx.clone();
+        let pings = pings.clone();
+        let id = id.clone();
+        move |_p, c| {
             let (fx, pings, id) = (fx.clone(), pings.clone(), id.clone());
             async move {
                 let n = pings.fetch_add(1, Ordering::SeqCst) + 1;
@@ -69,7 +123,19 @@ async fn main() -> std::io::Result<()> {
                 }
                 Ok(json!({"ok": true, "uptimeS": 0}))
             }
-        })
-        .serve_stdio()
-        .await
+        }
+    });
+    if let Some(pages) = fx.workflow_pages.clone() {
+        let pages = Arc::new(pages);
+        let plugin_id = id.clone();
+        plugin = plugin.workflow_definitions(move |params: WorkflowDefinitionsParams, _c| {
+            let pages = pages.clone();
+            let plugin_id = plugin_id.clone();
+            async move {
+                let after = params.after.as_ref().map(|a| a.as_str().to_owned());
+                workflow_page(&pages, after.as_deref(), &plugin_id)
+            }
+        });
+    }
+    plugin.serve_stdio().await
 }

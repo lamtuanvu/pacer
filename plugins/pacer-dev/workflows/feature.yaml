@@ -1,0 +1,65 @@
+id: pacer-dev/feature
+version: 1
+title: Feature (MVP)
+inputs: { brief: string }
+steps:
+  brainstorm:
+    type: agent
+    role: orchestrator
+    interactive: true
+    prompt: prompts/brainstorm.md
+  approve_spec:
+    type: human
+    decision: must
+    question:
+      text: Approve the brainstormed spec, or ask for a revise?
+      kind: approve_revise
+  review:
+    type: fanout
+    branches: [architecture, devils-advocate, ux, security]
+    each:
+      type: agent
+      kind: research
+      prompt: prompts/review.md
+    join: all
+  implement:
+    type: agent
+    kind: feature
+    code: true
+    prompt: prompts/implement.md
+  code_review:
+    type: agent
+    role: reviewer
+    prompt: prompts/code-review.md
+  test:
+    type: agent
+    kind: tests
+    result: evidence
+    needs: [browser]
+    prompt: prompts/test.md
+  approve_publish:
+    type: human
+    decision: must
+    approves: publish
+    question:
+      text: Approve publishing this run (push and open a PR)?
+      kind: approve_revise
+  open_pr:
+    type: agent
+    role: orchestrator
+    prompt: prompts/open-pr.md
+  done:
+    type: end
+edges:
+  - [brainstorm, approve_spec]
+  - [approve_spec, review, "result.answer == 'approve'"]
+  - [approve_spec, brainstorm, "result.answer == 'revise'", { max_loops: 3 }]
+  - [review, implement, "result.verdict == 'pass'"]
+  - [review, brainstorm, "result.verdict == 'revise'", { max_loops: 2 }]
+  - [implement, code_review]
+  - [code_review, test, "result.verdict == 'pass'"]
+  - [code_review, implement, "result.verdict == 'revise'", { max_loops: 2 }]
+  - [test, approve_publish]
+  - [approve_publish, open_pr, "result.answer == 'approve'"]
+  - [approve_publish, test, "result.answer == 'revise'", { max_loops: 2 }]
+  - [open_pr, done]

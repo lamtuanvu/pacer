@@ -1128,6 +1128,36 @@ test("a settled in-place attempt can claim a second provider run", async () => {
   } finally { cleanup(); }
 });
 
+test("retry of a settled current-placement task reuses the brief repo through owned current", async () => {
+  const { ctx, task, cfg, cleanup } = fixture();
+  try {
+    const first = await runOwnedDirectCurrent({ ...ctx, run: realRun }, cfg, task);
+    updateTask(ctx, task.id, current => {
+      current.state = "failed";
+      current.attempts.push(first.attempt);
+      current.result = { status: "failed", executor: "codex", model: null, files: "",
+        report: "fixture", backend: "direct" };
+      delete current.run;
+    });
+    const retried = createTask(ctx, { brief: { goal: "retry in place", repo: task.brief.repo }, kind: null,
+      requestedExecutor: "codex", timeoutS: 30, placement: { requested: "current" } });
+    // Retry admission records run.workdir (the brief repo) as worktree when reusing in-place.
+    const selected = updateTask(ctx, retried.id, current => {
+      current.state = "running";
+      current.executor = "codex";
+      current.executorProvider = "pacer-exec-direct";
+      current.retryOf = task.id;
+      current.worktree = task.brief.repo;
+      current.placement = { requested: "current", mode: "current", why: "reuse task worktree" };
+    });
+    const outcome = await runOwnedDirectCurrent({ ...ctx, run: realRun }, cfg, selected);
+    expect(outcome.exec.code).toBe(0);
+    expect(readTask(ctx, retried.id)?.run?.mode).toBe("current");
+    const { realpathSafe } = await import("../src/core/git");
+    expect(realpathSafe(readTask(ctx, retried.id)?.run?.workdir ?? "")).toBe(realpathSafe(task.brief.repo));
+  } finally { cleanup(); }
+});
+
 test("lost worktree effect reply recovers the exact placement before run claim", async () => {
   const { ctx, task, cfg, cleanup } = fixture();
   try {

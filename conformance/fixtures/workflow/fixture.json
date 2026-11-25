@@ -1,0 +1,18 @@
+{
+  "workflowPages": [
+    {
+      "workflows": [
+        {
+          "name": "demo",
+          "version": 1,
+          "source": "id: __PLUGIN__/demo\nversion: 1\nsteps:\n  done: { type: end }\nedges: []\n",
+          "prompts": {}
+        }
+      ],
+      "next": "end"
+    },
+    {
+      "workflows": []
+    }
+  ]
+}

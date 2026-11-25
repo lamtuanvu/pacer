@@ -1945,6 +1945,8 @@ dependencies = [
 name = "pacer-plugin"
 version = "0.8.0"
 dependencies = [
+ "icu_collator",
+ "jiff",
  "pacer-plugin-agent-session-protocol",
  "pacer-plugin-assistant-protocol",
  "pacer-plugin-decision-protocol",
@@ -1953,15 +1955,18 @@ dependencies = [
  "pacer-plugin-install-protocol",
  "pacer-plugin-protocol",
  "ryu-js",
+ "pacer-plugin-workflow-protocol",
  "serde",
  "serde_json",
+ "sha2",
  "tokio",
  "tokio-util",
+ "toml",
 ]
 
 [[package]]
 name = "pacer-plugin-agent-session-protocol"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "regress",
  "serde",
@@ -1970,7 +1975,7 @@ dependencies = [
 
 [[package]]
 name = "pacer-plugin-assistant-protocol"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "regress",
  "serde",
@@ -2001,7 +2006,7 @@ dependencies = [
 
 [[package]]
 name = "pacer-plugin-decision-protocol"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "regress",
  "serde",
@@ -2010,7 +2015,7 @@ dependencies = [
 
 [[package]]
 name = "pacer-plugin-exec-protocol"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "regress",
  "serde",
@@ -2044,7 +2049,7 @@ dependencies = [
 
 [[package]]
 name = "pacer-plugin-hosts-protocol"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "regress",
  "serde",
@@ -2054,7 +2059,7 @@ dependencies = [
 
 [[package]]
 name = "pacer-plugin-install-protocol"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "regress",
  "serde",
@@ -2100,7 +2105,7 @@ dependencies = [
 
 [[package]]
 name = "pacer-plugin-protocol"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "regress",
  "serde",
@@ -2123,6 +2128,16 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
+]
+
+[[package]]
+name = "pacer-plugin-workflow-protocol"
+version = "0.3.0"
+dependencies = [
+ "regress",
+ "serde",
+ "serde_json",
+ "uuid",
 ]
 
 [[package]]
