@@ -1,7 +1,7 @@
 /** Live board layout: deterministic, drawn from step rows only, one place per running agent. */
 import { expect, test } from "bun:test";
 import { layoutLiveBoard, type LayoutInput, type LiveBoardLayout } from "../app/src/screens/runs/live-board-layout";
-import { layoutInputFromDetail } from "../app/src/screens/runs/live-board-model";
+import { graphStatusLabel, layoutInputFromDetail } from "../app/src/screens/runs/live-board-model";
 import {
   fanoutInput, featureDefinition, generatedInput, noDefinitionInput, plainInput, retriedInput, step,
 } from "./app-live-board-fixtures";
@@ -142,4 +142,9 @@ test("layoutInputFromDetail reads steps, definition, graphs and children (parent
   expect(input.graphs).toEqual([{ stepId: "plan", attempt: 1, version: 2, status: "approved", stepCount: 4 }]);
   expect(input.children).toEqual([{ runId: "run_child", parentStep: "plan", createdAt: 5, steps: [step("api", "done", { runId: "run_child" })] }]);
   expect(input.definition?.edges.length).toBe(featureDefinition.edges.length);
+});
+
+test("graph version statuses are shown in plain words, and an unknown status is shown as it is", () => {
+  expect(["proposed", "approved", "rejected", "superseded"].map(graphStatusLabel)).toEqual(["proposed", "approved", "rejected", "replaced"]);
+  expect(graphStatusLabel("something_new")).toBe("something_new");
 });

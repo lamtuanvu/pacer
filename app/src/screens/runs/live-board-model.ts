@@ -44,3 +44,7 @@ export function executorOf(taskId: string, tasks: ReadonlyArray<{ id: string; ex
   const t = tasks?.find(x => x.id === taskId);
   return t?.executor ? t.executor : "unknown executor";
 }
+
+const GRAPH_STATUS: Record<string, string> = { proposed: "proposed", approved: "approved", rejected: "rejected", superseded: "replaced" };
+/** The engine's graph version status in plain words; an unknown status is shown as it is. */
+export const graphStatusLabel = (status: string): string => Object.hasOwn(GRAPH_STATUS, status) ? GRAPH_STATUS[status]! : status;

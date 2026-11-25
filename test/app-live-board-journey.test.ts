@@ -106,8 +106,8 @@ test("frames: one place per working agent, only between arriving and leaving", (
 test("frames: the plan zone fills in as versions are drafted and approved", () => {
   const line = (text: string) => frameAt(journey, layout, journey.events.find(e => e.text === text)!.index).zones.get("zone:plan");
   expect(line("plan starts")).toMatchObject({ drafted: 0, approved: false, line: "Planning has not produced a version yet" });
-  expect(line("The planner drafts plan v1 (2 steps)")).toMatchObject({ drafted: 1, approved: false, line: "v1 draft · 2 steps" });
-  expect(line("The planner drafts plan v2 (4 steps)")).toMatchObject({ drafted: 2, approved: false, line: "v2 draft · 4 steps · v1 rejected" });
+  expect(line("The planner drafts plan v1 (2 steps)")).toMatchObject({ drafted: 1, approved: false, line: "v1 proposed · 2 steps" });
+  expect(line("The planner drafts plan v2 (4 steps)")).toMatchObject({ drafted: 2, approved: false, line: "v2 proposed · 4 steps · v1 rejected" });
   expect(line("You: Approved the plan (2) · plan")).toMatchObject({ approved: true, line: "v2 approved · 4 steps · 0 started · v1 rejected" });
   expect(line("oc-glm arrives at ui")).toMatchObject({ approved: true, line: "v2 approved · 4 steps · 2 started · v1 rejected" });
   // before the generate step starts there is no zone to draw

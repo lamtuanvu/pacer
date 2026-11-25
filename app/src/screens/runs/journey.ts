@@ -7,7 +7,7 @@
 import { actorLabel, decisionKindLabel, decisionRows } from "../../../../src/view-model/run-board";
 import { runStatus } from "../../../../src/view-model/runs";
 import type { LiveBoardLayout } from "./live-board-layout";
-import { nodeLabel } from "./live-board-model";
+import { graphStatusLabel, nodeLabel } from "./live-board-model";
 
 export type JourneyKind = "start" | "router" | "decision" | "plan" | "arrive" | "step" | "leave" | "step_end" | "finish";
 const RANK: Record<JourneyKind, number> = { start: 0, router: 1, decision: 1, arrive: 2, step: 2, plan: 3, leave: 4, step_end: 4, finish: 5 };
@@ -147,11 +147,11 @@ export function frameAt(journey: Journey, layout: LiveBoardLayout, index: number
     let approved = false;
     if (!latest) line = "Planning has not produced a version yet";
     else {
-      // The newest version is a draft until it is approved or the generate step has finished; older ones were superseded and keep their final status.
-      const status = genEnded || approvalPlayed ? latest.status : "draft";
+      // The newest version is only proposed until it is approved or the generate step has finished; older ones were superseded and keep their final status.
+      const status = genEnded || approvalPlayed ? latest.status : "proposed";
       approved = status === "approved";
       const prev = shownVersions.length > 1 ? shownVersions[shownVersions.length - 2]! : undefined;
-      line = `v${latest.version} ${status} · ${latest.stepCount} ${latest.stepCount === 1 ? "step" : "steps"}${approved ? ` · ${started} started` : ""}${prev ? ` · v${prev.version} ${prev.status}` : ""}`;
+      line = `v${latest.version} ${graphStatusLabel(status)} · ${latest.stepCount} ${latest.stepCount === 1 ? "step" : "steps"}${approved ? ` · ${started} started` : ""}${prev ? ` · v${prev.version} ${graphStatusLabel(prev.status)}` : ""}`;
     }
     zones.set(z.id, { drafted, line, approved });
   }
