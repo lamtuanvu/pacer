@@ -38,6 +38,21 @@ export type PanelPlanner = {
   stale: boolean
 }
 
+/** Pacer-wide counts, across every worktree (the status bar and the panel's "All worktrees" box). */
+export type PanelOverall = {
+  /** Reviews and messages addressed to a person. */
+  needsYou: number
+  running: number
+  /** Executor questions waiting on their caller. */
+  asked: number
+  queued: number
+  /** Worktrees with something active or waiting on a person. */
+  worktrees: number
+}
+
+/** One enabled executor, as the "All worktrees" box lists it. */
+export type PanelExecutor = { id: string; name: string; state: string; tone: 'good' | 'info' | 'warn' | 'bad' | 'muted' }
+
 /** Trimmed snapshot the worker builds from /v3/snapshot. The panel filters by scope. */
 export type PanelSnapshot = {
   connected: boolean
@@ -48,6 +63,8 @@ export type PanelSnapshot = {
   pause: PacerPause | null
   attention: AttentionRow[]
   tasks?: PanelTask[]
+  overall?: PanelOverall
+  executors?: PanelExecutor[]
 }
 
 export type ActResult =

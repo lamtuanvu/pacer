@@ -388,3 +388,17 @@ test('status tone: amber for asked, caller deciding and stalled; red for failed;
   assert.equal(taskStatusTone({ ...base, id: 'e', state: 'running', liveness: null }), 'muted')
   assert.equal(taskStatusTone({ ...base, id: 'f', state: 'queued', liveness: null }), 'muted')
 })
+
+test('an action outcome is kept until replaced by the next one', () => {
+  let state = initialPanelState()
+  state = reducePanel(state, { type: 'begin', pendingKey: 'open-app:t1' }).state
+  state = reducePanel(state, { type: 'act-result', pendingKey: 'open-app:t1', ok: false, error: 'Open the pacer app to see this.' }).state
+  assert.deepEqual(state.ui.statusByKey, { 'open-app:t1': { tone: 'bad', text: 'Open the pacer app to see this.' } })
+  assert.equal(state.ui.pending['open-app:t1'], undefined)
+  state = reducePanel(state, { type: 'act-result', pendingKey: 'run:t2:watch', ok: true, successText: 'Watching' }).state
+  assert.deepEqual(state.ui.statusByKey, { 'run:t2:watch': { tone: 'good', text: 'Watching' } })
+  state = reducePanel(state, { type: 'act-result', pendingKey: 'run:t2:stop', ok: false, conflict: true }).state
+  assert.deepEqual(state.ui.statusByKey, { 'run:t2:stop': { tone: 'warn', text: 'Already handled elsewhere' } })
+  state = reducePanel(state, { type: 'clear-status', pendingKey: 'run:t2:stop' }).state
+  assert.deepEqual(state.ui.statusByKey, {})
+})

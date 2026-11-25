@@ -36,7 +36,27 @@ function dispatch(event: PanelEvent): void {
   render()
 }
 
+// One outcome is shown at a time, so one timer: each new result restarts it, and an older
+// result's timer can never clear a newer one.
+let statusTimer: ReturnType<typeof setTimeout> | null = null
+
 async function runRequest(run: RunRequest, successText?: string): Promise<void> {
+  try {
+    await sendRequest(run, successText)
+  } finally {
+    const tone = state.ui.statusByKey[run.pendingKey]?.tone
+    if (tone) {
+      if (statusTimer) clearTimeout(statusTimer)
+      // Successes fade quickly; errors stay long enough to read.
+      statusTimer = setTimeout(() => {
+        statusTimer = null
+        dispatch({ type: 'clear-status', pendingKey: run.pendingKey })
+      }, tone === 'good' ? 4000 : 10000)
+    }
+  }
+}
+
+async function sendRequest(run: RunRequest, successText?: string): Promise<void> {
   dispatch({ type: 'begin', pendingKey: run.pendingKey })
   try {
     if (run.kind === 'openWorkspace') {
@@ -190,12 +210,37 @@ function renderNeedsRow(item: AttentionRow, model: Extract<ReturnType<typeof pan
         void runRequest({ kind: 'act', op: a.op, params: { ...a.params }, pendingKey }, a.label)
       } }))
     }
+    if (item.taskId && !(item.actions ?? []).some((a) => a.op === 'ui.open')) actions.append(openInPacerButton(item.taskId))
     detail.append(actions)
     const confirmBox = renderConfirm(`att:${item.id}:`)
     if (confirmBox) detail.append(confirmBox)
     row.append(detail)
   }
   return row
+}
+
+// The same node is reused across renders so screen readers announce its changes as a live region.
+const statusLine = el('p', 'pc-status')
+statusLine.setAttribute('role', 'status')
+
+/** The outcome of the latest action (sent, failed, already handled), announced to screen readers. */
+function renderStatusLine(): HTMLElement {
+  const last = Object.values(state.ui.statusByKey).at(-1)
+  statusLine.className = last ? `pc-status pc-status--${last.tone}` : 'pc-status'
+  statusLine.textContent = last?.text ?? ''
+  statusLine.hidden = !last
+  return statusLine
+}
+
+/** Opens the task's page in the pacer app (pacer://tasks/<id>). */
+function openInPacer(taskId: string): void {
+  const pendingKey = `open-app:${taskId}`
+  dispatch({ type: 'begin', pendingKey })
+  void runRequest({ kind: 'act', op: 'ui.open', params: { view: 'task', id: taskId }, pendingKey })
+}
+
+function openInPacerButton(taskId: string): HTMLButtonElement {
+  return button('Open in pacer', { size: 'sm', variant: 'ghost', disabled: controlBusy(state.ui.pending, `open-app:${taskId}`), onClick: () => openInPacer(taskId) })
 }
 
 /** The in-row confirm (Stop, Reject) for the pending action whose key starts with `prefix`. */
@@ -313,6 +358,7 @@ function renderTaskRow(task: PanelTask, model: Extract<ReturnType<typeof panelMo
       actions.append(button('Stop', { size: 'sm', variant: 'ghost', disabled: busy, onClick: () => {
         dispatch({ type: 'ask-confirm', confirm: { key: `run:${task.id}:stop`, text: 'Stop this task?', confirmLabel: 'Stop it', cancelLabel: 'Keep it', successText: 'Stopped', run: { kind: 'act', op: 'task.stop', params: { id: task.id, expect_rev: task.rev }, pendingKey: `run:${task.id}:stop` } } })
       } }))
+      actions.append(openInPacerButton(task.id))
       detail.append(actions)
     } else if (cl === 'running') {
       const actions = el('div')
@@ -333,6 +379,7 @@ function renderTaskRow(task: PanelTask, model: Extract<ReturnType<typeof panelMo
       actions.append(button('Stop', { size: 'sm', variant: 'ghost', disabled: busy, onClick: () => {
         dispatch({ type: 'ask-confirm', confirm: { key: `run:${task.id}:stop`, text: 'Stop this task?', confirmLabel: 'Stop it', cancelLabel: 'Keep it', successText: 'Stopped', run: { kind: 'act', op: 'task.stop', params: { id: task.id, expect_rev: task.rev }, pendingKey: `run:${task.id}:stop` } } })
       } }))
+      actions.append(openInPacerButton(task.id))
       detail.append(actions)
     } else if (cl === 'queued') {
       const actions = el('div')
@@ -340,6 +387,7 @@ function renderTaskRow(task: PanelTask, model: Extract<ReturnType<typeof panelMo
       actions.append(button('Stop', { size: 'sm', variant: 'ghost', onClick: () => {
         dispatch({ type: 'ask-confirm', confirm: { key: `run:${task.id}:stop`, text: 'Stop this task?', confirmLabel: 'Stop it', cancelLabel: 'Keep it', successText: 'Stopped', run: { kind: 'act', op: 'task.stop', params: { id: task.id, expect_rev: task.rev }, pendingKey: `run:${task.id}:stop` } } })
       } }))
+      actions.append(openInPacerButton(task.id))
       detail.append(actions)
     } else if (cl === 'failed') {
       const att = (model.snapshot.attention ?? []).find((a) => a.taskId === task.id && (a.kind === 'failed' || a.kind === 'limit'))
@@ -354,6 +402,12 @@ function renderTaskRow(task: PanelTask, model: Extract<ReturnType<typeof panelMo
           } }))
         }
       }
+      actions.append(openInPacerButton(task.id))
+      detail.append(actions)
+    } else {
+      const actions = el('div')
+      actions.style.cssText = 'display:flex;gap:4px;flex-wrap:wrap;margin-left:-12px;'
+      actions.append(openInPacerButton(task.id))
       detail.append(actions)
     }
 
@@ -379,6 +433,8 @@ function renderReady(model: Extract<ReturnType<typeof panelModel>, { kind: 'read
     main.append(el('p', undefined, 'Focus an Orca worktree to see the tasks delegated from it.'))
     const p = main.lastChild as HTMLElement
     p.style.color = 'var(--ink-secondary)'
+    const overallBox = renderOverall(snapshot)
+    if (overallBox) main.append(overallBox)
     shell.append(main)
     return shell
   }
@@ -398,6 +454,7 @@ function renderReady(model: Extract<ReturnType<typeof panelModel>, { kind: 'read
   const cap = titleRow.lastChild as HTMLElement
   cap.style.cssText = 'font-size:12px;line-height:16px;color:var(--ink-muted);'
   main.append(titleRow)
+  main.append(renderStatusLine())
 
   if (empty) {
     const p = el('p', undefined, 'Nothing delegated from this worktree yet.')
@@ -437,10 +494,14 @@ function renderReady(model: Extract<ReturnType<typeof panelModel>, { kind: 'read
   }
 
   // Done
-  if (doneCount === 0) {
-    shell.append(main)
-    return shell
-  }
+  if (doneCount > 0) main.append(renderDone(model, doneCount, now))
+  const overallBox = renderOverall(snapshot)
+  if (overallBox) main.append(overallBox)
+  shell.append(main)
+  return shell
+}
+
+function renderDone(model: Extract<ReturnType<typeof panelModel>, { kind: 'ready' }>, doneCount: number, now: number): HTMLElement {
   const doneSection = el('section')
   doneSection.dataset.row = 'done'
   doneSection.setAttribute('aria-label', 'Done')
@@ -462,8 +523,12 @@ function renderReady(model: Extract<ReturnType<typeof panelModel>, { kind: 'read
     const dbox = el('div')
     dbox.style.cssText = 'display:flex;flex-direction:column;border:1px solid var(--line);border-radius:10px;'
     for (const d of model.doneTasks) {
-      const drow = el('div')
-      drow.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 12px;border-top:1px solid var(--surface-lane);font-size:12px;line-height:16px;'
+      const drow = el('button', 'row')
+      drow.type = 'button'
+      drow.title = 'Open in pacer'
+      drow.dataset.focus = `done:${d.id}`
+      drow.addEventListener('click', () => openInPacer(d.id))
+      drow.style.cssText = 'min-height:28px;padding:6px 12px;border-top:1px solid var(--surface-lane);font-size:12px;line-height:16px;'
       const g = doneGlyph(d)
       const dg = el('span', undefined, g.glyph)
       dg.style.cssText = `flex:none;width:14px;text-align:center;color:${g.tone === 'good' ? 'var(--good-fg)' : g.tone === 'bad' ? 'var(--bad-fg)' : g.tone === 'warn' ? 'var(--warn-fg)' : 'var(--ink-muted)'};`
@@ -487,10 +552,84 @@ function renderReady(model: Extract<ReturnType<typeof panelModel>, { kind: 'read
       doneSection.append(more)
     }
   }
-  main.append(doneSection)
+  return doneSection
+}
 
-  shell.append(main)
-  return shell
+/** Pacer-wide: counts across every worktree, the executors, and a pause if one is on. */
+function renderOverall(snapshot: PanelSnapshot): HTMLElement | null {
+  const overall = snapshot.overall
+  if (!overall) return null
+  const section = el('section')
+  section.setAttribute('aria-label', 'All worktrees')
+  section.style.cssText = 'display:flex;flex-direction:column;gap:6px;'
+  const h2 = el('h2', undefined, 'All worktrees')
+  h2.style.cssText = 'margin:0;font-size:11px;line-height:14px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--ink-muted);'
+  section.append(h2)
+  const box = el('div')
+  box.style.cssText = 'display:flex;flex-direction:column;gap:8px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;font-size:12px;line-height:16px;'
+
+  const parts: string[] = []
+  if (overall.running) parts.push(`${overall.running} running`)
+  if (overall.asked) parts.push(`${overall.asked} asked caller`)
+  if (overall.queued) parts.push(`${overall.queued} queued`)
+  if (overall.worktrees > 1) parts.push(`in ${overall.worktrees} worktrees`)
+  const counts = el('p')
+  counts.style.cssText = 'margin:0;color:var(--ink-secondary);'
+  // Only what needs a person is amber; the rest is context.
+  if (overall.needsYou) {
+    const needs = el('span', undefined, `${overall.needsYou} need you`)
+    needs.style.cssText = 'color:var(--warn-fg);font-weight:600;'
+    counts.append(needs, parts.length ? ' · ' : '')
+  }
+  counts.append(parts.length || overall.needsYou ? parts.join(' · ') : 'Nothing running in any worktree.')
+  box.append(counts)
+
+  const pause = snapshot.pause
+  if (pause) {
+    const until = pause.until ? ` until ${absoluteTime(pause.until, snapshot.at)}` : ''
+    const line = el('p', undefined, `Delegation paused${until}${pause.reason ? ` · ${pause.reason}` : ''}`)
+    line.style.cssText = 'margin:0;color:var(--warn-fg);'
+    box.append(line)
+  }
+
+  const executors = snapshot.executors ?? []
+  if (executors.length > 0) {
+    const list = el('ul')
+    list.setAttribute('aria-label', 'Executors')
+    list.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px 12px;margin:0;padding:0;list-style:none;'
+    const dot: Record<string, string> = { good: 'var(--good-fill)', info: 'var(--info-fg)', warn: 'var(--warn-fill)', bad: 'var(--bad-fill)', muted: 'var(--ink-muted)' }
+    for (const e of executors) {
+      const item = el('li')
+      item.style.cssText = 'display:flex;align-items:center;gap:6px;'
+      const d = el('span')
+      d.setAttribute('aria-hidden', 'true')
+      d.style.cssText = `flex:none;width:7px;height:7px;border-radius:50%;background:${dot[e.tone] ?? dot.muted};`
+      item.append(d)
+      const name = el('span', undefined, e.name)
+      name.style.color = 'var(--ink)'
+      item.append(name)
+      const state = el('span', undefined, executorStateWords(e.state))
+      state.style.color = 'var(--ink-muted)'
+      item.append(state)
+      list.append(item)
+    }
+    box.append(list)
+  }
+
+  const open = button('Open pacer', { size: 'sm', variant: 'ghost', className: 'pc-link-btn', onClick: () => {
+    const pendingKey = 'overall:open'
+    dispatch({ type: 'begin', pendingKey })
+    void runRequest({ kind: 'act', op: 'ui.open', params: { view: overall.needsYou ? 'needs-you' : 'overview' }, pendingKey })
+  } })
+  open.style.alignSelf = 'flex-start'
+  box.append(open)
+  section.append(box)
+  return section
+}
+
+function executorStateWords(state: string): string {
+  const words: Record<string, string> = { exhausted: 'out of quota', down: 'not working', failing: 'failing', blocked: 'blocked', full: 'all slots busy', busy: 'busy', ready: 'ready', checking: 'checking', disabled: 'off' }
+  return words[state] ?? state
 }
 
 function renderModel(model: ReturnType<typeof panelModel>, now: number): HTMLElement {
@@ -526,6 +665,7 @@ function renderModel(model: ReturnType<typeof panelModel>, now: number): HTMLEle
         dispatch({ type: 'begin', pendingKey })
         void runRequest({ kind: 'act', op: 'ui.open', params: { view: 'overview' }, pendingKey })
       } }))
+      card.append(renderStatusLine())
       card.append(el('p', 'pc-caption', 'No app on this machine? Start it from a terminal:'))
       card.append(el('code', 'pc-code-box', 'pacer serve'))
       main.append(card)
