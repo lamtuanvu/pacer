@@ -5,7 +5,7 @@ import { useContext } from "preact/hooks";
 import { SetupContext } from "../screens/setup/context";
 import type { Counts } from "../../../src/api/read-model/types";
 import type { ClientSnapshot } from "../../../src/view-model/snapshot";
-import { runsBadgeCount } from "../data/runs";
+import { runsBadgeCount } from "../data/runs-badge";
 import { Tooltip } from "../ds/Tooltip";
 import { Icon, type IconName } from "../ds/icons";
 import { primaryFor, routes, type Route, type RouteTarget } from "../router";

@@ -15,7 +15,10 @@ import {
 import type { BrowserApi } from "./api";
 import { ApiError } from "./api";
 
+import { runAttentionQueue } from "./runs-badge";
+
 export { RUNS_EMPTY, RUNS_UNAVAILABLE };
+export { runAttentionQueue, runsBadgeCount } from "./runs-badge";
 
 const ANSWER_TYPES = new Set(["single", "multi", "text", "yes_no", "approve_revise"]);
 
@@ -96,11 +99,6 @@ interface RunSummaryRow {
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
-
-/** Open person-answerable run questions; order is the attention queue's (unblocks → priority → age). */
-export function runAttentionQueue(attention: AttentionItem[] | undefined): AttentionItem[] {
-  return (attention ?? []).filter(a => a.run && a.kind === "question" && a.question);
-}
 
 function optionShape(raw: unknown): { value: string; note?: string } | undefined {
   if (!isObj(raw) || typeof raw.value !== "string" || !raw.value) return undefined;
@@ -399,9 +397,4 @@ export async function markRunSeen(api: BrowserApi, id: string, ops: ReadonlySet<
   } catch {
     /* non-blocking: list still works without seen */
   }
-}
-
-/** Badge count for the rail: person-answerable run questions. */
-export function runsBadgeCount(attention: AttentionItem[] | undefined): number {
-  return runAttentionQueue(attention).length;
 }
