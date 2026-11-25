@@ -23,7 +23,7 @@ export async function crateContentHash(bytes: Uint8Array): Promise<string> {
   let size = 0;
   let root: string | undefined;
   for (const [path, file] of files) {
-    const match = /^(pacer-plugin(?:-(?:decision-|agent-session-|install-|hosts-|exec-|assistant-)?protocol)?-\d+\.\d+\.\d+)\/(.+)$/.exec(path);
+    const match = /^(pacer-plugin(?:-(?:decision-|agent-session-|install-|hosts-|exec-|assistant-|workflow-)?protocol)?-\d+\.\d+\.\d+)\/(.+)$/.exec(path);
     if (!match || match[2].split("/").some(part => !part || part === "." || part === "..") || path.includes("\\")) throw Error("Invalid plugin crate archive path");
     if (root !== undefined && root !== match[1]) throw Error("Plugin crate has multiple archive roots");
     root = match[1];

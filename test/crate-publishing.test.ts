@@ -129,6 +129,16 @@ test("release graph packages every independent area before the SDK", async () =>
   expect(calls).toEqual(["pacer-plugin-decision-protocol", "pacer-plugin-agent-session-protocol", "pacer-plugin-install-protocol"]);
 });
 
+test("the archive check accepts every crate in the publish list", async () => {
+  // The archive path allowlist is separate from the publish list; a crate missing from it fails the release at packaging.
+  for (const folder of pluginCrateFolders) {
+    const { package: metadata } = Bun.TOML.parse(readFileSync(join(import.meta.dir, "..", "crates", folder, "Cargo.toml"), "utf8")) as { package: { name: string; version: string } };
+    const root = `${metadata.name}-${metadata.version}`;
+    const bytes = await new Bun.Archive({ [`${root}/Cargo.toml`]: `[package]\nname="${metadata.name}"\n`, [`${root}/src/lib.rs`]: "source" }, { compress: "gzip" }).bytes();
+    expect(await crateContentHash(bytes)).toMatch(/^[0-9a-f]{64}$/);
+  }
+});
+
 test("new publishable area archives use the same bounded canonical content checks", async () => {
   for (const name of ["pacer-plugin-decision-protocol", "pacer-plugin-agent-session-protocol", "pacer-plugin-install-protocol", "pacer-plugin-hosts-protocol", "pacer-plugin-exec-protocol", "pacer-plugin-assistant-protocol"]) {
     const bytes = await new Bun.Archive({
