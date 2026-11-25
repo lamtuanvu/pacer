@@ -4,9 +4,9 @@ import type { ReadOp } from "./tools";
 import type { ActionCard, AssistantScope } from "./types";
 
 /**
- * One turn's tool budget: `max` calls are allowed, then `capability.assistant.tool` is refused.
- * The `assistant.respond` loop charges its rounds as `maxToolRounds × the four calls each round
- * may ask for`, which its own caps already hold; the capability path charges one call per round.
+ * One turn's tool budget: `max` calls are allowed, then `capability.assistant.tool` and the
+ * `assistant.tool` op are refused. Every backend's `assistant.reply` call charges one call per
+ * round under `limits.maxToolRounds`.
  */
 export interface ToolBudget { used: number; max: number }
 

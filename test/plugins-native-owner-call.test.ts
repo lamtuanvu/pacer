@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { HostClient } from "../packages/plugin-sdk/src";
 import { BUNDLED } from "../plugins/bundled";
+import { pluginRegistry } from "../src/plugins";
 import { discoverEndpointModels, endpointLaunchSettings } from "../src/plugins/endpoint-adapter";
 import { relayOwner, type Relay } from "./fixtures/native-owner-relay";
 import { authed, ownerKey } from "./fixtures/owner-auth";
@@ -706,19 +707,31 @@ test("flag-on endpoint.launchEnv with empty bindings writes the config through C
 // Answers hello as `id` serving `point`, then each call by sending every capability request in turn and replying with what it got.
 const askScript = (id: string, point: string, asks: [string, unknown][]) => `const asks=${JSON.stringify(asks)};const r=Bun.stdin.stream().getReader();let b='';const send=x=>console.log(JSON.stringify({jsonrpc:'2.0',...x}));let call,answers=[];const ask=()=>answers.length<asks.length?send({id:900+answers.length,method:asks[answers.length][0],params:asks[answers.length][1]}):send({id:call,result:{answers}});for(;;){const {value,done}=await r.read();if(done)break;b+=new TextDecoder().decode(value);while(b.includes('\\n')){const i=b.indexOf('\\n'),m=JSON.parse(b.slice(0,i));b=b.slice(i+1);if(m.method==='plugin.hello')send({id:m.id,result:{protocol:m.params.protocol,id:${JSON.stringify(id)},version:m.params.manifest.version,contributes:[${JSON.stringify(point)}]}});else if(m.method&&m.id!==undefined){call=m.id;answers=[];ask();}else if(m.id>=900){answers.push(m.error?{code:m.error.data?.code,message:m.error.message}:{value:m.result});ask();}}}`;
 const resolves = (refs: string[]): [string, unknown][] => refs.map(ref => ["capability.secrets.resolve", { ref }]);
-const assistantPlugin = BUNDLED.find(plugin => plugin.manifest.id === "pacer-assistant")!;
+const assistantPlugin = {
+  manifest: manifestSchema.parse({
+    id: "fx-assistant", version: "1.0.0", publisher: "test", host: ">=1.11.0",
+    contributes: { assistant: { backend: "pacer", reply: true } },
+    capabilities: [{ name: "secrets.resolve", scopes: ["endpoint"] }], reentrant: true, tier: "free",
+  }),
+  main: async () => ({ handlers: {} }),
+};
 const ASSISTANT_KEY = "sk-fake-assistant-fixture-key";
 
-test("flag-on Core answers the assistant's endpoint key on its own call exactly as flag-off, and only that key", async () => {
+test("flag-on Core answers the assistant's endpoint key on its own reply call exactly as flag-off, and only that key", async () => {
   const outcomes = [];
   for (const flag of [false, true]) {
-    const { ctx, registry, relay } = await bundledSetup(flag, { script: askScript("pacer-assistant", "assistant", resolves(["endpoint:lab", "endpoint/lab", "endpoint:open", "env:HOME"])) }, assistantPlugin);
+    const script = askScript("fx-assistant", "assistant", resolves(["endpoint:lab", "endpoint/lab", "endpoint:open", "env:HOME"]));
+    const { ctx, registry, relay } = await bundledSetup(flag, { script }, assistantPlugin);
+    // The key gating reads the shared registry: the only plugin serving backend:pacer is this one.
+    pluginRegistry(ctx, { bundled: [assistantPlugin], spawnBundled: () => ({ argv: [process.execPath, "-e", script], cwd: ctx.home, env: {} }) });
     writeFileSync(join(ctx.pacerHome, "strategy.yaml"), `planner: claude-code\naccounts:\n  claude-code: {kind: claude}\n  lab: {kind: endpoint, usage: unmetered, connection: {api: openai-compatible, base_url: "http://127.0.0.1:9/v1", key: file, models: [{id: m, context: 100, output: 10, tools: false}]}}\nrunners:\n  opencode#lab: {model: m}\n`, { mode: 0o600 });
     mkdirSync(join(ctx.pacerHome, "secrets"), { recursive: true, mode: 0o700 });
     writeFileSync(join(ctx.pacerHome, "secrets", "lab.key"), ASSISTANT_KEY, { mode: 0o600 });
     const { writeSettings } = await import("../src/assistant/store");
     writeSettings(ctx, { runner: "opencode#lab", account: "lab", expect_rev: 1 });
-    outcomes.push(await registry.call(ctx, "pacer-assistant", "assistant.respond", {}, { deadlineMs: 10000 }));
+    const params = { conversationId: "conv-1", turnId: "turn-1", account: "lab", backend: "pacer", system: "s", digest: "d", tools: [], history: [], message: "m",
+      limits: { maxInputTokens: 32_000, maxOutputTokens: 8_000, maxToolRounds: 6, deadlineMs: 10_000 } };
+    outcomes.push(await registry.call(ctx, "fx-assistant", "assistant.reply", params, { deadlineMs: 10000 }));
     if (relay) {
       expect(relay.calls.map(call => call.coreMethods)).toEqual([["capability.secrets.resolve", "capability.identity.sign"]]);
       expect(relay.forwarded).toEqual(Array(4).fill("capability.secrets.resolve"));

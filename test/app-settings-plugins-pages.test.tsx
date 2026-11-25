@@ -328,19 +328,19 @@ browserTest('narrow card actions align at the right with and without Settings',a
 test('bundled plugin cards use host display copy and render actual versions', () => {
   const html = draw(<PluginsPage initialData={{plugins:[
     {...pluginFixture,id:'pacer-agent-session',bundled:true,version:'2.3.4',publisher:'pacer'},
-    {...pluginFixture,id:'pacer-assistant',bundled:true,version:'bundled',publisher:'pacer'},
+    {...pluginFixture,id:'assistant-pacer',bundled:true,version:'bundled',publisher:'pacer'},
     {...pluginFixture,id:'third-party',bundled:false},
-    {...pluginFixture,id:'pacer-assistant',bundled:false},
+    {...pluginFixture,id:'assistant-pacer',bundled:false},
   ]}}/>);
-  for (const text of ['Agent sessions','Live terminal sessions for delegated tasks','Assistant','The always-on assistant behind ⌘J','2.3.4 · pacer','bundled · pacer','third-party']) expect(html).toContain(text);
+  for (const text of ['Agent sessions','Live terminal sessions for delegated tasks','Pacer assistant',"Pacer's own agent (native reply backend)",'2.3.4 · pacer','bundled · pacer','third-party']) expect(html).toContain(text);
   expect(html).toContain('aria-label="Enable Agent sessions"');
-  expect(html).toContain('<b>pacer-assistant</b>');
+  expect(html).toContain('<b>assistant-pacer</b>');
   expect(html).not.toContain('<b>pacer-agent-session</b>');
 });
 
 test('plugin metadata omits by and empty version separators',()=>{
   for (const version of ['1.0.0','']) {
-    const html=draw(<PluginsPage initialData={{plugins:[{...pluginFixture,id:'pacer-assistant',bundled:true,version,publisher:'pacer'}]}} initialSurfaces={surfaces}/>);
+    const html=draw(<PluginsPage initialData={{plugins:[{...pluginFixture,id:'assistant-pacer',bundled:true,version,publisher:'pacer'}]}} initialSurfaces={surfaces}/>);
     expect(html).toContain(version ? '1.0.0 · pacer' : '>pacer</span>');
     expect(html).not.toContain(' · by ');
     expect(html).not.toContain('> · pacer');
@@ -349,7 +349,7 @@ test('plugin metadata omits by and empty version separators',()=>{
 });
 
 browserTest('plugin card descriptions use the board body type and secondary ink',async()=>{
-  const page=await mount({mode:'plugins',plugins:[{...pluginFixture,id:'pacer-assistant',bundled:true}]});
+  const page=await mount({mode:'plugins',plugins:[{...pluginFixture,id:'assistant-pacer',bundled:true}]});
   try {
     expect(await page.locator('.pc-plugin-card__description').evaluate(node=>{
       const style=getComputedStyle(node), sample=document.createElement('span');

@@ -64,11 +64,11 @@ export type AssistantBackend = (typeof ASSISTANT_BACKENDS)[number];
 /**
  * `contributes.assistant`: which backend this plugin serves (`pacer` when absent, as every
  * existing manifest has it) and whether it serves the turn-level `assistant.reply` method. A
- * contribution without `reply` keeps serving the older host-driven `assistant.respond` loop.
+ * contribution without `reply` answers no turn; the host never drives a model loop itself.
  */
 // Open like every other contribution before 1.11.0 (P14: a minor bump never narrows an accepted shape); only the two named keys are typed.
 export const assistantContribution = z.object({
-  /** `true` when the plugin answers whole turns with `assistant.reply`; any other value keeps the older `assistant.respond` loop. */
+  /** `true` when the plugin answers whole turns with `assistant.reply`; any other value answers no turn. */
   reply: z.json().optional(),
   /** `executor` when the plugin serves the executor backend; any other value, or none, serves `pacer`. */
   backend: z.json().optional(),
@@ -187,8 +187,6 @@ export interface MethodDef<P extends z.ZodTypeAny = z.ZodTypeAny, R extends z.Zo
   params: P;
   result: R;
   deadlineMs: number;
-  /** When set, the method stays for the plugin-protocol compatibility window and will be removed afterward. */
-  deprecated?: true;
 }
 const method = <P extends z.ZodTypeAny, R extends z.ZodTypeAny>(d: MethodDef<P, R>) => d as unknown as MethodDef;
 
@@ -206,18 +204,7 @@ export const delegationControlResult = z.discriminatedUnion("mechanism", [
 ]);
 
 
-const assistantMessage = z.object({ role: z.enum(["user", "assistant", "tool"]), content: z.string().max(200_000), toolCallId: z.string().max(128).optional(), toolCalls: z.array(z.object({ id: z.string().min(1).max(128), name: z.string().min(1).max(64), arguments: z.record(z.string(), z.unknown()) })).max(16).optional() });
-export const assistantRespondParams = z.object({
-  conversationId: z.string().min(1).max(128), turnId: z.string().min(1).max(128), messages: z.array(assistantMessage).min(1).max(100),
-  tools: z.array(z.object({ name: z.string().min(1).max(64), description: z.string().max(1000), parameters: z.unknown() })).max(32),
-  context: z.object({ system: z.string().max(50_000), backend: z.object({ kind: z.literal("endpoint"), account: z.string().min(1).max(64), model: z.string().min(1).max(256), baseUrl: z.string().max(2048) }) }),
-  limits: z.object({ maxOutputTokens: z.number().int().positive().max(32_000), maxToolRounds: z.number().int().min(0).max(6), deadlineMs: z.number().int().min(1000).max(120_000) }),
-});
-export const assistantRespondResult = z.object({
-  message: z.string().max(200_000), toolCalls: z.array(z.object({ id: z.string().min(1).max(128), name: z.string().min(1).max(64), arguments: z.record(z.string(), z.unknown()) })).max(16).optional(),
-  usage: z.object({ input: z.number().int().nonnegative(), output: z.number().int().nonnegative(), cacheRead: z.number().int().nonnegative().optional(), cacheWrite: z.number().int().nonnegative().optional(), coverage: z.enum(["measured", "partial", "unknown"]) }),
-});
-/** The host caps an `assistant.respond` call at this long, whatever `limits.deadlineMs` asks for. */
+/** The host caps an `assistant.reply` call at this long, whatever `limits.deadlineMs` asks for. */
 export const ASSISTANT_MAX_DEADLINE_MS = 120_000;
 
 /** One host-issued ask-mode command (`assistant.reply` executor turns): exactly what the plugin echoes to spawn. */
@@ -318,8 +305,7 @@ export const EXTENSION_METHODS: Record<string, MethodDef> = {
   "agentSession.delegationControl": method({description: "Describe a candidate native subagent blocking path; the host must probe before certification.",params:agentVersion,result:delegationControlResult,deadlineMs:5000}),
   "agentSession.prepare": method({description: "Prepare an interactive argument vector without credentials or spawning.", params: agentPrepareParams, result: agentLaunchResult, deadlineMs: 5000}),
   "agentSession.attachment": method({description: "Prepare native attachment arguments or an explicit reference without submitting input.", params: agentAttachmentParams, result: agentAttachmentResult, deadlineMs: 5000}),
-  "assistant.respond": method({description: "Deprecated. Answer one assistant turn from the messages and tool results the host provides. The host runs every read tool and calls again with the results, up to maxToolRounds. A returned toolCall is a request, not an action. Prefer assistant.reply; this method stays until one pacer release after the native pacer-assistant-pacer updater ships, then is removed under the plugin protocol compatibility rule.", params: assistantRespondParams, result: assistantRespondResult, deadlineMs: ASSISTANT_MAX_DEADLINE_MS, deprecated: true}),
-  "assistant.reply": method({description: "Answer one whole assistant turn: the host has already built the system prompt, the digest and the transcript, and runs every tool the plugin asks for through capability.assistant.tool under this call's authority, up to limits.maxToolRounds. The plugin may stream assistant.delta notifications while it runs, and cancellation aborts the call. Used when the plugin serves the chosen backend and provides it; otherwise the host keeps its deprecated assistant.respond loop as a temporary fallback.", params: assistantReplyParams, result: assistantReplyResult, deadlineMs: ASSISTANT_MAX_DEADLINE_MS}),
+  "assistant.reply": method({description: "Answer one whole assistant turn: the host has already built the system prompt, the digest and the transcript, and runs every tool the plugin asks for through capability.assistant.tool under this call's authority, up to limits.maxToolRounds. The plugin may stream assistant.delta notifications while it runs, and cancellation aborts the call. The host calls this on the plugin that serves the chosen backend with assistant.reply; without one the backend is reported unavailable and no turn runs.", params: assistantReplyParams, result: assistantReplyResult, deadlineMs: ASSISTANT_MAX_DEADLINE_MS}),
   "ui.render": method({description:"Return the view document for one surface.",params:uiRenderParams,result:uiRenderResult,deadlineMs:2000}),
   "ui.action": method({description:"Handle a user action on a surface; the host has already shown any confirmation.",params:uiActionParams,result:uiActionResult,deadlineMs:10000}),
   "ui.settings.validate": method({description:"Check settings values the host already validated against the manifest schema.",params:uiValidateParams,result:uiValidateResult,deadlineMs:2000}),

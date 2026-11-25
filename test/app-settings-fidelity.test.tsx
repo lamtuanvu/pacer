@@ -36,7 +36,7 @@ test('executor list keeps keyboard actions and exposes an end-of-list drag guide
 
 test('bundled plugin icons describe the capability even without contributed UI surfaces', () => {
   expect(pluginIcon('pacer-agent-session',[])).toBe('plugin-terminal');
-  expect(pluginIcon('pacer-assistant',[])).toBe('spark');
+  expect(pluginIcon('assistant-pacer',[])).toBe('spark');
   expect(pluginIcon('unknown',[])).toBe('plugin');
 });
 

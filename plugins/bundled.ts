@@ -24,9 +24,6 @@ export const BUNDLED: BundledPlugin[] = [{manifest:manifestSchema.parse(plannerM
   manifest: {id: "pacer-agent-session", version: "1.0.0", publisher: "pacer", host: "^1", contributes: {agentSession: {}}, capabilities: [], reentrant: true, tier: "free"},
   main: () => import("./agent-session/index"),
 }, {
-  manifest: {id: "pacer-assistant", version: "1.0.0", publisher: "pacer", host: "^1.3", contributes: {assistant: {}}, capabilities: [{name: "secrets.resolve", scopes: ["endpoint"]}, {name: "net.http"}], reentrant: true, tier: "free"},
-  main: () => import("./assistant/index"),
-}, {
   // Pacer's own agent (ADR 0028): native sibling of pacer-core. Absent binary ⇒ refused / unavailable.
   manifest: manifestSchema.parse(assistantPacerManifest),
   executable: "pacer-assistant-pacer",

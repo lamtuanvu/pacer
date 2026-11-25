@@ -31,7 +31,6 @@ export type Coverage = "measured" | "partial" | "unknown";
 export interface AssistantUsage { input: number; output: number; cacheRead?: number; cacheWrite?: number; coverage: Coverage }
 
 export interface ProposedCall { id: string; name: string; arguments: Record<string, unknown> }
-export interface AssistantMessage { role: "user" | "assistant" | "tool"; content: string; toolCalls?: ProposedCall[]; toolCallId?: string }
 
 export const ACTION_OPS = ["dispatch.retry", "task.retry", "dispatch.stop", "task.stop", "dispatch.answer", "task.answer", "delegation.pause", "delegation.resume", "dispatch.submit"] as const;
 export type ActionOp = (typeof ACTION_OPS)[number];

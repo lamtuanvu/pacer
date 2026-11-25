@@ -271,7 +271,6 @@
  "test/ask.test.ts": 0.71,
  "test/assistant-api.test.ts": 0.18,
  "test/assistant-core.test.ts": 0.04,
- "test/assistant-plugin.test.ts": 0.01,
  "test/assistant-service.test.ts": 0.16,
  "test/attachments-http.test.ts": 0.01,
  "test/attachments-store.test.ts": 0.08,
