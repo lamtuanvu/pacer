@@ -1,8 +1,8 @@
 /** Mascots: pure, seeded from the executor identity, no assets. */
 import { expect, test } from "bun:test";
-import { MASCOT_COLUMNS, MASCOT_ROWS, MASCOT_TONES, PERSON_FIGURE, mascotFor } from "../app/src/screens/runs/mascot";
+import { MASCOT_COLUMNS, MASCOT_ROWS, MASCOT_TONES, PERSON_FIGURE, mascotFor, type MascotAccessory } from "../app/src/screens/runs/mascot";
 
-const GOLDEN: Record<string, { rows: string[]; eyes: Array<[number, number]>; tone: number; accessory: string }> = {
+const GOLDEN: Record<string, { rows: string[]; eyes: Array<[number, number]>; tone: number; accessory: MascotAccessory }> = {
   "oc-glm": { rows: ["...#...", "..###..", ".#####.", ".#####.", "..###..", ".#####.", "..###..", "..#.#.."], eyes: [[2, 3], [4, 3]], tone: 2, accessory: "antenna" },
   "claude-code": { rows: ["..#.#..", ".#####.", "..###..", ".#####.", ".#####.", ".#####.", "#######", "..#.#.."], eyes: [[2, 4], [4, 4]], tone: 4, accessory: "ears" },
 };
