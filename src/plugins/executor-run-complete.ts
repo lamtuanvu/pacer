@@ -46,12 +46,10 @@ export async function answerExecutorReportedCompletion(authority: CallAuthority,
   const before = check();
   authority.consumeExecutorComplete(params.taskId, params.attempt);
   if (held) {
-    // A live interactive root a person started is owned by the user, not the reporting agent.
-    // The report is already persisted in the run directory for the UI; do not reap the wrapper,
-    // issue an exit receipt or settle the task. Only the user's stop (or the agent's own exit) ends it.
-    // Today no owned-executor route can reach a held root (conversations are excluded upstream), so
-    // the absence of an exit receipt does not affect executor-production's completion binding.
-    return { status: before.status, summary: before.summary, at: before.at, exitCode: before.exit ?? 0 };
+    // A live interactive root a person started is owned by the user, not the reporting agent. No
+    // owned-executor route reaches it (conversations are excluded upstream), so there can be no
+    // verified exit receipt: refuse rather than return a success the caller would bind as one.
+    throw new CoreError("capability_denied", "interactive report owner is held open by the user");
   }
   const stable = () => {
     const current = check();

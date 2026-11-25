@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { supervise } from "../src/supervisor/supervise";
 import type { RunState } from "../src/supervisor/run";
 import { tmpDir } from "./helpers";
-import { agentHook, readReport, writeReport } from "../src/session/reports";
+import { agentHook, readReport, writeReport, writeHeldReport, reportCommand } from "../src/session/reports";
 import { writeFileSync, chmodSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { folderKeys } from "../src/exec/claude-trust";
 import { join } from "node:path";
@@ -118,13 +118,51 @@ test("agent hooks persist the native conversation identity for explicit resume",
   expect(require("node:fs").readFileSync(join(dir, "agent-session-id"), "utf8")).toBe("native-session-123");
 });
 
-test("heldSettlement keeps a report while a plugin-owned stop is still pending", () => {
+function heldChatWithReport(summary: string) {
+  const ctx = fakeCtx();
+  const task = createTask(ctx, { brief: { goal: "chat", repo: ctx.home }, kind: null,
+    requestedExecutor: null, timeoutS: 60, source: "ui", interactionMode: "conversation" });
+  const dir = join(ctx.pacerHome, "runs", task.id, "1");
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  writeFileSync(join(dir, "interactive.json"), JSON.stringify({ interactionMode: "conversation" }), { mode: 0o600 });
+  updateTask(ctx, task.id, current => {
+    current.state = "running"; current.origin = "human"; current.interactive = true;
+    current.run = { dir, attempt: 1, executor: "codex", startedAt: ctx.now, mode: "current",
+      workdir: ctx.home, logFile: join(dir, "log"), session: "interactive" };
+  });
+  expect(reportCommand(["--task", task.id, "--status", "done", "--summary", summary], ctx).code).toBe(0);
+  return { ctx, task, dir };
+}
+const stoppedResult: TaskResult = { status: "stopped", executor: "codex", model: null, files: "", report: "stopped", backend: "direct" };
+
+test("heldSettlement keeps an explicit report after hooks overwrite session-status.json", () => {
+  // A `pacer report done` is stored in its own record; PostToolUse/Stop hooks still rewrite the
+  // conversation's session-status.json, but must not erase the outcome the user ends with.
+  const { ctx, task, dir } = heldChatWithReport("Agent finished in turn one");
+  agentHook(dir, { hook_event_name: "PostToolUse" });
+  agentHook(dir, { hook_event_name: "Stop" });
+  expect(readReport(dir)?.status).toBe("turn-ended");
+  updateTask(ctx, task.id, current => { current.state = "stopped"; });
+  expect(heldSettlement(ctx, readTask(ctx, task.id)!, stoppedResult, true))
+    .toMatchObject({ status: "done", report: "Agent finished in turn one" });
+});
+
+test("a new user turn clears the held completion so a stop mid-turn-2 settles stopped", () => {
+  const { ctx, task, dir } = heldChatWithReport("Turn one answer");
+  agentHook(dir, { hook_event_name: "UserPromptSubmit" });
+  agentHook(dir, { hook_event_name: "Stop" });
+  expect(readReport(dir)?.status).toBe("turn-ended");
+  updateTask(ctx, task.id, current => { current.state = "stopped"; });
+  expect(heldSettlement(ctx, readTask(ctx, task.id)!, stoppedResult, true)).toBeNull();
+});
+
+test("heldSettlement honours the stop decision captured before stopPending was cleared", () => {
   const ctx = fakeCtx();
   const task = createTask(ctx, { brief: { goal: "chat", repo: ctx.home }, kind: null,
     requestedExecutor: null, timeoutS: 60 });
   const dir = tmpDir();
   writeFileSync(join(dir, "interactive.json"), JSON.stringify({ interactionMode: "conversation" }), { mode: 0o600 });
-  writeReport(dir, "done", "plugin-owned report");
+  writeHeldReport(dir, "done", "plugin-owned report", 1);
   updateTask(ctx, task.id, current => {
     current.state = "running"; current.origin = "human"; current.source = "ui";
     current.interactionMode = "conversation"; current.interactive = true;
@@ -133,8 +171,15 @@ test("heldSettlement keeps a report while a plugin-owned stop is still pending",
     current.run = { dir, attempt: 1, executor: "codex", startedAt: ctx.now, mode: "current",
       workdir: ctx.home, logFile: join(dir, "log"), session: "interactive" };
   });
-  const stopped: TaskResult = { status: "stopped", executor: "codex", model: null, files: "", report: "stopped", backend: "direct" };
-  expect(heldSettlement(ctx, readTask(ctx, task.id)!, stopped)).toMatchObject({ status: "done", report: "plugin-owned report" });
+  const id = task.id;
+  updateTask(ctx, id, current => { delete current.stopPending; });
+  // The caller's captured decision is used; a fresh re-check of the now-clean task would miss it.
+  expect(heldSettlement(ctx, readTask(ctx, id)!, stoppedResult, true))
+    .toMatchObject({ status: "done", report: "plugin-owned report" });
+  expect(heldSettlement(ctx, readTask(ctx, id)!, stoppedResult)).toBeNull();
+  // A report from another attempt must not settle this one.
+  updateTask(ctx, id, current => { current.run!.attempt = 2; });
+  expect(heldSettlement(ctx, readTask(ctx, id)!, stoppedResult, true)).toBeNull();
   // A human root with no report still settles as stopped, and so does an agent-delegated task.
   const plain = createTask(ctx, { brief: { goal: "child", repo: ctx.home }, kind: null,
     requestedExecutor: null, timeoutS: 60 });
@@ -143,7 +188,7 @@ test("heldSettlement keeps a report while a plugin-owned stop is still pending",
     current.run = { dir, attempt: 1, executor: "codex", startedAt: ctx.now, mode: "current",
       workdir: ctx.home, logFile: join(dir, "log"), session: "interactive" };
   });
-  expect(heldSettlement(ctx, readTask(ctx, plain.id)!, stopped)).toBeNull();
+  expect(heldSettlement(ctx, readTask(ctx, plain.id)!, stoppedResult, true)).toBeNull();
 });
 
 test("a session launch carries its owning task id regardless of the run directory layout", async () => {

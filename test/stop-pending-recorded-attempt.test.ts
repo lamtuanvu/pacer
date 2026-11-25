@@ -5,7 +5,7 @@ import { superviseTask } from "../src/tasks/api";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
 import { runningWork, workCounts } from "../src/service/running-work";
 import { readRun } from "../src/supervisor/run";
-import { writeReport } from "../src/session/reports";
+import { writeReport, writeHeldReport } from "../src/session/reports";
 import { storedBlockers } from "../src/update/desktop/blockers";
 import { fakeCtx, tmpDir } from "./helpers";
 
@@ -112,9 +112,9 @@ test("reconcile settles stopPending when the attempt is already recorded and run
 });
 
 test("reconcile keeps the report when a user stops a held interactive root", async () => {
-  const { ctx, task, dir } = seedRecordedStopPending({ keepRun: true });
+  const { ctx, task, dir, attempt } = seedRecordedStopPending({ keepRun: true });
   writeFileSync(join(dir, "interactive.json"), JSON.stringify({ interactionMode: "conversation" }), { mode: 0o600 });
-  writeReport(dir, "done", "agent finished the request");
+  writeHeldReport(dir, "done", "agent finished the request", attempt);
   updateTask(ctx, task.id, current => {
     current.origin = "human"; current.source = "ui";
     current.interactionMode = "conversation"; current.interactive = true;

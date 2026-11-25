@@ -271,9 +271,10 @@ test("reported interactive completion requires the exact live report and reaped 
   }
 });
 
-test("a human-started interactive root keeps its live run after reporting done", async () => {
-  // A session a person started is held open: the report is recorded for the UI, but the host must
-  // not reap its wrapper or settle the task. Agent-delegated runs still get an exit receipt.
+test("a human-started interactive root refuses completion and keeps its live run", async () => {
+  // A session a person started is held open: there is no owned-executor route to reap its wrapper,
+  // so a completion call must be refused instead of returning an unverified exit receipt. The live
+  // terminal is untouched; agent-delegated runs still get an exit receipt.
   const { ctx, task, resource, manifest, cleanup } = fixture();
   updateTask(ctx, task.id, current => {
     current.origin = "human"; current.source = "ui";
@@ -291,9 +292,8 @@ test("a human-started interactive root keeps its live run after reporting done",
     await call("capability.process.startRun", { task: claim.task, attempt: 1, runDir: 1 });
     const dir = readTask(ctx, task.id)!.run!.dir;
     writeReport(dir, "done", "human session report");
-    const result = await call("capability.process.completeReportedRun", { taskId: task.id,
-      attempt: 1 }) as { status: string; summary: string };
-    expect(result).toMatchObject({ status: "done", summary: "human session report" });
+    await expect(call("capability.process.completeReportedRun", { taskId: task.id,
+      attempt: 1 })).rejects.toMatchObject({ code: "capability_denied" });
     // The live terminal is untouched: no wrapper exit, no settled task, no exit receipt.
     expect((await call("capability.process.pollRun", { taskId: task.id,
       attempt: 1 }) as { state: string }).state).toBe("running");

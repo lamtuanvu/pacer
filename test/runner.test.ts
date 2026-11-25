@@ -10,7 +10,7 @@ import { runAttempt } from "../src/exec/direct";
 import type { AttemptOutcome } from "../src/exec/direct";
 import { type RunnerDeps, runTask } from "../src/tasks/runner";
 import { taskStop } from "../src/tasks/api";
-import { writeReport } from "../src/session/reports";
+import { writeReport, writeHeldReport } from "../src/session/reports";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
 import { readAuthFailures } from "../src/usage/auth";
 import { readMarks } from "../src/usage/reactive";
@@ -286,7 +286,7 @@ test("a user stop of a held interactive root with a report keeps the outcome", a
   d.runAttempt = async () => {
     const dir = tmpDir();
     writeFileSync(join(dir, "interactive.json"), JSON.stringify({ interactionMode: "conversation" }), { mode: 0o600 });
-    writeReport(dir, "done", "agent finished the request");
+    writeHeldReport(dir, "done", "agent finished the request", 1);
     updateTask(ctx, t.id, current => {
       current.run = { dir, attempt: 1, executor: "codex", startedAt: 1, mode: "current",
         workdir: t.brief.repo, logFile: join(dir, "log"), session: "interactive" };

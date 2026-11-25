@@ -1,7 +1,7 @@
 import { beginWorkSync, claimWorkSync, attachRunEvidenceSync, finishWorkSync } from "../update/desktop/admission";
 import { makeCtx } from "../ctx";
 import { nativeTerminalEnv } from "./environment";
-import { readReport, writeReport } from "./reports";
+import { readReport, writeReport, clearHeldReport } from "./reports";
 import { createServer, createConnection } from "node:net";
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
@@ -73,9 +73,12 @@ export async function sessionHost(dir:string):Promise<number> {
   delete process.env.PACER_ADMISSION_SESSION; delete process.env.PACER_ADMISSION_DIR; delete process.env.PACER_COMPLETION_NONCE;
   // Interactive roots a person started keep their terminal after reporting done; the report stays in
   // the run's report file for the UI and the user's stop (or the agent's own exit) ends the session.
-  const id = launchTaskId(dir, config);
-  const task = id ? readTask(ctx, id) : undefined;
-  const held = !!task && heldOpenForHuman(ctx, task);
+  let held = false;
+  try {
+    const id = launchTaskId(dir, config);
+    const task = id ? readTask(ctx, id) : undefined;
+    held = !!task && heldOpenForHuman(ctx, task);
+  } catch { /* a missing or unreadable task must not stop the host; default to a reapable run */ }
   const result = await sessionHostAdmitted(dir, held);
   writeFileSync(join(dir, "admission.complete"), (config.completionNonce ?? lease) + "\n", { mode: 0o600 });
   finishWorkSync(ctx, lease);
@@ -119,7 +122,12 @@ async function sessionHostAdmitted(dir:string, heldOpen = false):Promise<number>
       input:(bytes,delivery)=>{
         if(bytes.length)try{
           writeFileSync(join(dir,"session.input"),"",{mode:0o600});
-          if(!delivery)writeFileSync(join(dir,"session.human-input"),"",{mode:0o600});
+          if(!delivery){
+            writeFileSync(join(dir,"session.human-input"),"",{mode:0o600});
+            // A submitted line starts a new user turn; the previous turn's completion no longer holds.
+            // Terminal replies a viewer sends on attach (escape sequences) are not a turn.
+            if(bytes[0]!==0x1b&&bytes.includes(0x0d))clearHeldReport(dir);
+          }
         }catch{/* optional input markers */}
         proc.terminal?.write(bytes);
         try{writeFileSync(join(dir,'session.activity'),'',{mode:0o600});}catch{/* optional activity */}

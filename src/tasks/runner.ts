@@ -136,7 +136,7 @@ async function finish(ctx: Ctx, id: string, result: TaskResult): Promise<TaskRec
     // A held interactive root keeps its terminal after `pacer report done|failed`. When the user
     // ends it, honour that report instead of downgrading it to a bare stop so the outcome stays
     // visible for review. Without a report the recorded stop stands.
-    const preserved = heldSettlement(ctx, t, result);
+    const preserved = heldSettlement(ctx, t, result, stoppedByUser);
     if (preserved) result = preserved;
     t.result = stoppedByUser && !preserved ? { ...result, status: "stopped" } : result;
     t.state = t.result.status;
