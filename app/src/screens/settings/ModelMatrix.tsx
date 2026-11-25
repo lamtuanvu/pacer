@@ -18,6 +18,7 @@ import {
   type MatrixRow, type MatrixDraft, type MatrixTier, type MatrixListingModel,
 } from "../../model/model-matrix";
 import { plannerRunner } from "../../model/planner";
+import type { ConfigData } from "../../model/strategy";
 
 interface ConfigView { strategy: string; planner: string; plannerAccount: string; source: "built-in" | "strategy"; config: DispatchConfig }
 
@@ -90,6 +91,10 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
   const config = useResource<ConfigView>("dispatch.config.get", {}, initialConfig);
   const inventory = useResource<DispatcherInventory>("dispatch.models", {}, initialInventory);
   const targets: TierTargets = config.data?.config?.tierTargets ?? { simple: "small", standard: "medium", complex: "frontier" };
+  // pacing.planner_tier_fallback (default on) decides whether the planner takes complex tasks at all.
+  const settings = useResource<ConfigData>("config.get", {});
+  const fallbackOn = settings.data?.keys?.["pacing.planner_tier_fallback"]?.value !== "off";
+  const complexSize = targets.complex.charAt(0).toUpperCase() + targets.complex.slice(1);
 
   const [runnerIds, setRunnerIds] = useState<string[]>([]);
   const [availableById, setAvailableById] = useState<Record<string, AvailableModels>>({});
@@ -207,9 +212,15 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
 
   const plannerId = plannerRunner(inventory.data?.models ?? [], config.data?.planner, config.data?.plannerAccount);
   const isPlanner = (runnerId: string) => runnerId === plannerId;
-  // The planner and any runner whose models failed to load are read-only: editing
-  // them is meaningless, and saving them would make runner.models.set_many fail.
-  const isReadOnly = (runnerId: string) => isPlanner(runnerId) || !!loadErrors[runnerId];
+  // A runner whose models failed to load is read-only: saving it would make
+  // runner.models.set_many fail. The planner is editable; the planner tier
+  // fallback reads its declared tiers.
+  const isReadOnly = (runnerId: string) => !!loadErrors[runnerId];
+  // Suggestions never touch the planner: spending planner quota stays an explicit edit.
+  const suggestable = (runnerId: string) => !isReadOnly(runnerId) && !isPlanner(runnerId);
+  // The planner takes only complex tasks, and only through the tier fallback.
+  const plannerTakes = (tier: MatrixTier | "unknown") =>
+    fallbackOn && tier !== "unknown" && TIERS[tier as keyof typeof TIERS] >= TIERS[targets.complex] ? "Complex, as fallback" : "—";
 
   const runners = runnerIds.map(id => {
     const draft = drafts.find(d => d.runner === id);
@@ -247,10 +258,10 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
 
   const handleSuggest = () => {
     setSuggestPhase(true);
-    const editableRunners = drafts.filter(d => !isReadOnly(d.runner)).map(d => d.runner);
+    const editableRunners = drafts.filter(d => suggestable(d.runner)).map(d => d.runner);
     bumpVersions(editableRunners);
     setDrafts(prev => prev.map(d => {
-      if (isReadOnly(d.runner)) return d;
+      if (!suggestable(d.runner)) return d;
       const available = availableById[d.runner];
       const listingById = new Map((available?.models ?? []).map((m: AvailableModel) => [m.id, { id: m.id, context: m.context, tools: m.tools, costOut: m.costOut }]));
       const suggested = suggestRows(d.rows, listingById);
@@ -260,18 +271,18 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
 
   const handleAcceptAll = () => {
     setDrafts(prev => {
-      const editable = prev.filter(d => !isReadOnly(d.runner)).map(d => d.runner);
+      const editable = prev.filter(d => suggestable(d.runner)).map(d => d.runner);
       bumpVersions(editable);
-      return prev.map(d => isReadOnly(d.runner) ? d : ({ ...d, rows: acceptAllSuggestions(d.rows) }));
+      return prev.map(d => !suggestable(d.runner) ? d : ({ ...d, rows: acceptAllSuggestions(d.rows) }));
     });
     setSuggestPhase(false);
   };
 
   const handleDismissAll = () => {
     setDrafts(prev => {
-      const editable = prev.filter(d => !isReadOnly(d.runner)).map(d => d.runner);
+      const editable = prev.filter(d => suggestable(d.runner)).map(d => d.runner);
       bumpVersions(editable);
-      return prev.map(d => isReadOnly(d.runner) ? d : ({ ...d, rows: dismissSuggestions(d.rows) }));
+      return prev.map(d => !suggestable(d.runner) ? d : ({ ...d, rows: dismissSuggestions(d.rows) }));
     });
     setSuggestPhase(false);
   };
@@ -295,7 +306,7 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
   /** Whether any editable row carries listing facts, so the empty-suggestion
    * card can explain accurately when nothing differs from the listings (F4). */
   const anyListingFacts = drafts
-    .filter(d => !isReadOnly(d.runner))
+    .filter(d => suggestable(d.runner))
     .some(d => d.rows.some(r => r.costOut != null));
 
   const changedModelCount = drafts.reduce((total, d, i) => {
@@ -313,7 +324,6 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
 
   const blockedGroups = runners.filter(({ id, draft }) => {
     if (!draft) return false;
-    if (isPlanner(id)) return false;
     const noDefault = draft.default == null;
     const allOff = draft.rows.length > 0 && draft.rows.every(r => !r.on);
     return noDefault && allOff;
@@ -464,7 +474,7 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
                   const listingModels = available?.models ?? null;
                   const unknownListing = available?.source === "none" || listingModels === null;
                   const noModels = (listingModels?.length ?? 0) === 0 && (draft?.rows.length ?? 0) === 0;
-                  const readOnly = planner || !!loadError;
+                  const readOnly = !!loadError;
                   return (
                     <div key={id} className="pc-model-matrix__group">
                       <div className="pc-model-matrix__group-head">
@@ -473,9 +483,13 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
                         <span className="mono u3-muted">{id}</span>
                         {draft && <span className="u3-muted">{draft.rows.length} model{draft.rows.length === 1 ? "" : "s"} · {draft.rows.filter(r => r.on).length} on</span>}
                       </div>
-                      {planner && <p className="u3-muted">Planner. Pacer does not dispatch tasks to it, so its models are not edited here.</p>}
+                      {planner && <p className="u3-muted">{!settings.data
+                        ? "Planner."
+                        : fallbackOn
+                          ? `Planner. Pacer sends it a complex task only when no other agent has a ${targets.complex} model on, using planner quota.`
+                          : "Planner. The tier fallback is off, so Pacer sends it no tasks."}</p>}
                       {loadError && <p className="u3-muted">{loadError}</p>}
-                      {!readOnly && noModels && <p className="u3-muted">Uses its default and can take any difficulty</p>}
+                      {!readOnly && noModels && <p className="u3-muted">{planner ? (fallbackOn ? `To let the planner take complex tasks, add a model and set its size to ${complexSize}.` : "No models.") : "Uses its default and can take any difficulty"}</p>}
                       {!readOnly && unknownListing && (
                         <form className="pc-model-matrix__add" onSubmit={event => { event.preventDefault(); handleAdd(id); }}>
                           <Field label={modelAddLabel(id)}><TextInput value={addingByRunner[id] ?? ""} disabled={busy} onInput={e => setAddingByRunner(prev => ({ ...prev, [id]: e.currentTarget.value }))} /></Field>
@@ -527,7 +541,7 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
                                     >Unrated</RadioChip>
                                   </RadioGroup></span>
                                   <div role="cell">
-                                    <span className="u3-muted">{row.on ? (row.tier === "unknown" ? "Any, unrated" : takes.map(t => t.charAt(0).toUpperCase() + t.slice(1)).join(", ") || "—") : "Off"}</span>
+                                    <span className="u3-muted">{!row.on ? "Off" : planner ? plannerTakes(row.tier) : row.tier === "unknown" ? "Any, unrated" : takes.map(t => t.charAt(0).toUpperCase() + t.slice(1)).join(", ") || "—"}</span>
                                     {pendingRow && !readOnly && <Button size="sm" variant="ghost" aria-label={`Accept suggestion for ${row.id}`} disabled={busy} onClick={() => handleAccept(id, row.id)}>Accept</Button>}
                                   </div>
                                 </div>
@@ -540,13 +554,16 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
                   );
                 })}
 
-                {/* Coverage cards: count only dispatch targets; the planner is not one. */}
+                {/* Coverage cards count dispatch targets; the planner counts only toward complex, through the tier fallback. */}
                 <div className="pc-model-matrix__coverage">
                   {(["simple", "standard", "complex"] as const).map(diff => {
+                    const fits = (r: { on: boolean; tier: MatrixTier | "unknown" }) => r.on && r.tier !== "unknown" && TIERS[r.tier as keyof typeof TIERS] >= TIERS[targets[diff]];
                     const count = drafts
                       .filter(d => !isPlanner(d.runner))
                       .flatMap(d => d.rows)
-                      .filter(r => r.on && r.tier !== "unknown" && TIERS[r.tier as keyof typeof TIERS] >= TIERS[targets[diff]]).length;
+                      .filter(fits).length;
+                    // The fallback fires only when no other declared model fits the complex tier.
+                    const plannerTakesComplex = fallbackOn && diff === "complex" && count === 0 && drafts.some(d => isPlanner(d.runner) && d.rows.some(fits));
                     const defaultExecutors = runners.filter(({ id, draft }) => {
                       if (isPlanner(id)) return false;
                       const rated = draft?.rows.filter(r => r.on && r.tier !== "unknown") ?? [];
@@ -556,14 +573,16 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
                       <div key={diff} className="pc-card">
                         <span>{diff.charAt(0).toUpperCase() + diff.slice(1)} · needs {targets[diff]}</span>
                         <span>{count} {count === 1 ? "model" : "models"}</span>
-                        {defaultExecutors > 0 && <span className="u3-muted">Plus {defaultExecutors} {defaultExecutors === 1 ? "executor that uses its default model" : "executors that use their default model"}.</span>}
+                        {plannerTakesComplex
+                          ? <span className="u3-muted">No other agent has a {targets.complex} model, so the planner takes complex tasks.</span>
+                          : defaultExecutors > 0 && <span className="u3-muted">Plus {defaultExecutors} {defaultExecutors === 1 ? "executor that uses its default model" : "executors that use their default model"}.</span>}
                       </div>
                     );
                   })}
                 </div>
 
                 {blockedGroups.length > 0 && (
-                  <p className="u3-muted">Some runners have no default model and all models off; turn a model on or set a default before saving.</p>
+                  <p className="u3-muted">{blockedGroups.map(g => executorLabel(g.id)).join(", ")} {blockedGroups.length === 1 ? "has" : "have"} no default model and all models off; turn a model on or set a default before saving.</p>
                 )}
 
                 {notice && <p role="status">{notice}</p>}

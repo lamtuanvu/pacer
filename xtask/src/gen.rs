@@ -161,7 +161,7 @@ fn generate_area(schema_path: &Path, area: &str) -> Result<String, String> {
             "terminal-protocol" => terminal(name),
             "assistant-protocol" => name.starts_with("Assistant"),
             "workflow-protocol" => workflow(name),
-            "dispatch-protocol" => name.starts_with("Dispatch"),
+            "dispatch-protocol" => name.starts_with("Dispatch") || name.starts_with("Routing"),
             "client-control-protocol" => agent_control(name),
             "limits-protocol" => name.starts_with("Limits"),
             "discovery-protocol" => name.starts_with("Discovery"),
@@ -173,6 +173,7 @@ fn generate_area(schema_path: &Path, area: &str) -> Result<String, String> {
                     && !name.starts_with("Task")
                     && !terminal(name)
                     && !name.starts_with("Dispatch")
+                    && !name.starts_with("Routing")
                     && !name.starts_with("Limits")
                     && !name.starts_with("Discovery")
                     && !name.starts_with("Assistant")
