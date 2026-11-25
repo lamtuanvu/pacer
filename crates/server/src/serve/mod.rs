@@ -219,7 +219,6 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             || (op.name == "repo.remove"
                 && crate::native::repo_remove_stays_forwarded(&ctx, &params))
             || crate::native::project_messaging_stays_forwarded(&ctx, op.name, &params)
-            || crate::native::msg_stays_forwarded(op.name, &ctx)
             || crate::native::msg_answer_stays_forwarded(op.name, &ctx, &params)
             || crate::native::repo_registry_stays_forwarded(&ctx, op.name, &params)
             || crate::native::discovery_stays_forwarded(&ctx, op.name, &params)

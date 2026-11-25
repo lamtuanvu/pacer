@@ -11,7 +11,10 @@ use pacer_foundation::{
     lock::{LockOptions, with_lock},
 };
 use serde_json::{Map, Value, json};
-use std::{fs, io, path::Path};
+use std::{
+    fs, io,
+    path::{Path, PathBuf},
+};
 
 const FILE: &str = "project-messaging.json";
 const MAX_SAFE: f64 = 9_007_199_254_740_991.0;
@@ -189,29 +192,131 @@ fn parse(bytes: &[u8]) -> Option<Map<String, Value>> {
     Some(projects)
 }
 
-/// Why a present file is not usable. TypeScript reports Node and Zod details
-/// that only its reader can reproduce.
+/// Why a present file is not usable. TypeScript reports the Node error message and
+/// Zod's joined issues verbatim in `readProjectMessaging`, so both are reproduced here.
 #[derive(Debug)]
 pub enum ReadError {
-    Unreadable(io::Error),
-    Invalid,
+    Unreadable { path: PathBuf, error: io::Error },
+    Invalid { issues: Vec<String> },
 }
 impl std::fmt::Display for ReadError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Unreadable(error) => write!(f, "Cannot read project messaging: {error}"),
-            Self::Invalid => f.write_str("Invalid project messaging"),
+            Self::Unreadable { path, error } => {
+                write!(f, "Cannot read project messaging: {}", node_error(path, error))
+            }
+            Self::Invalid { issues } => {
+                write!(f, "Invalid project messaging: {}", issues.join("; "))
+            }
         }
+    }
+}
+
+/// Node's `Error.message` for a failed `readFileSync`, using `code: message` with the
+/// path only where Node includes it (an `EISDIR` read has no path in the message).
+fn node_error(path: &Path, error: &io::Error) -> String {
+    let shown = path.display();
+    match error.kind() {
+        io::ErrorKind::NotFound => format!("ENOENT: no such file or directory, open '{shown}'"),
+        io::ErrorKind::PermissionDenied => format!("EACCES: permission denied, open '{shown}'"),
+        io::ErrorKind::IsADirectory => "EISDIR: illegal operation on a directory, read".into(),
+        _ => error.to_string(),
     }
 }
 
 /// A missing file is an empty policy set.
 pub fn read_projects(home: &Path) -> Result<Map<String, Value>, ReadError> {
-    match fs::read(home.join(FILE)) {
-        Ok(bytes) => parse(&bytes).ok_or(ReadError::Invalid),
+    let path = home.join(FILE);
+    match fs::read(&path) {
+        Ok(bytes) => match parse(&bytes) {
+            Some(projects) => Ok(projects),
+            None => Err(ReadError::Invalid {
+                issues: zod_issues(&bytes),
+            }),
+        },
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(Map::new()),
-        Err(error) => Err(ReadError::Unreadable(error)),
+        Err(error) => Err(ReadError::Unreadable { path, error }),
     }
+}
+
+fn js_kind(value: Option<&Value>) -> &'static str {
+    match value {
+        None => "undefined",
+        Some(Value::Null) => "null",
+        Some(Value::Bool(_)) => "boolean",
+        Some(Value::Number(_)) => "number",
+        Some(Value::String(_)) => "string",
+        Some(Value::Array(_)) => "array",
+        Some(Value::Object(_)) => "object",
+    }
+}
+
+fn issue(path: &str, message: String) -> String {
+    format!("{path}: {message}")
+}
+
+fn expected(path: &str, want: &str, got: Option<&Value>) -> String {
+    issue(path, format!("Invalid input: expected {want}, received {}", js_kind(got)))
+}
+
+/// Zod issue paths and messages for the `schema` above, in schema field order.
+/// Only the strict outer document and the fields TypeScript validates are checked.
+fn zod_issues(bytes: &[u8]) -> Vec<String> {
+    let value: Value = match serde_json::from_slice(bytes) {
+        Ok(value) => value,
+        Err(_) => return vec![expected("", "object", None)],
+    };
+    let Some(top) = value.as_object() else {
+        return vec![expected("", "object", Some(&value))];
+    };
+    let mut out = Vec::new();
+    for key in top.keys().filter(|k| k.as_str() != "version" && k.as_str() != "projects") {
+        out.push(issue(key, "Unrecognized key".into()));
+    }
+    match top.get("version") {
+        Some(Value::Number(n)) if n.as_f64() == Some(1.0) => {}
+        Some(_) => out.push(issue("version", "Invalid input: expected 1".into())),
+        None => out.push(issue("version", "Invalid input: expected 1".into())),
+    }
+    let Some(projects) = top.get("projects").and_then(Value::as_object) else {
+        out.push(expected("projects", "record", top.get("projects")));
+        return out;
+    };
+    for (key, entry) in projects {
+        if !project_key(key) {
+            out.push(issue(&format!("projects.{key}"), "Invalid key in record".into()));
+            continue;
+        }
+        let path = format!("projects.{key}");
+        let Some(map) = entry.as_object() else {
+            out.push(expected(&path, "object", Some(entry)));
+            continue;
+        };
+        for extra in map
+            .keys()
+            .filter(|k| !["rev", "rules", "max_turns", "liveness"].contains(&k.as_str()))
+        {
+            out.push(issue(&format!("{path}.{extra}"), "Unrecognized key".into()));
+        }
+        match map.get("rules") {
+            Some(Value::Array(items)) if items.len() <= 50 => {
+                for (n, item) in items.iter().enumerate() {
+                    if rule(item).is_none() {
+                        let at = format!("{path}.rules.{n}");
+                        out.push(expected(&at, "object", Some(item)));
+                    }
+                }
+            }
+            Some(value) => out.push(expected(&format!("{path}.rules"), "array", Some(value))),
+            None => out.push(expected(&format!("{path}.rules"), "array", None)),
+        }
+        match map.get("rev") {
+            Some(value) if int(value, 1.0, MAX_SAFE).is_some() => {}
+            Some(value) => out.push(expected(&format!("{path}.rev"), "number", Some(value))),
+            None => out.push(expected(&format!("{path}.rev"), "number", None)),
+        }
+    }
+    out
 }
 
 fn view(repo: &str, projects: &Map<String, Value>, error: Option<String>) -> Value {
@@ -406,7 +511,9 @@ mod tests {
         fs::write(dir.path().join(FILE), "{").unwrap();
         let read = get(dir.path(), "github.com/a/b").unwrap();
         assert_eq!(read["rev"], json!(0));
-        assert_eq!(read["error"], json!("Invalid project messaging"));
+        let error = read["error"].as_str().unwrap();
+        assert!(error.starts_with("Invalid project messaging: "), "{error}");
+        assert!(error.ends_with(": Invalid input: expected object, received undefined"), "{error}");
         let error = write(&ctx(dir.path()), "github.com/a/b", 0, None).unwrap_err();
         assert_eq!(error.code, Code::InvalidInput);
         assert_eq!(
