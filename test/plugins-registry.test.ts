@@ -8,6 +8,7 @@ import { eventsSince } from "../src/api/events";
 import { readActivity } from "../src/activity/log";
 import { CoreError } from "../src/core/errors";
 import { PluginRegistry } from "../src/plugins/registry";
+import { markServeRegistry, pluginRegistry, resetServeRegistryForTests } from "../src/plugins/index";
 import { PLUGIN_PROTOCOL_VERSION } from "../src/plugins/protocol";
 import { pluginLogPath } from "../src/plugins/host";
 import { fakeCtx } from "./helpers";
@@ -27,6 +28,8 @@ function home() {
 const live = (ctx: ReturnType<typeof fakeCtx>) => ({ ...ctx, now: Date.now() / 1000 });
 const registries: PluginRegistry[] = [];
 afterEach(async () => { await Promise.all(registries.splice(0).map(r => r.shutdown())); });
+// markServeRegistry is a process-local, irreversible opt-in; restore the default so each test starts clean.
+afterEach(resetServeRegistryForTests);
 const registry = (sleep?: (ms: number) => Promise<void>) => {
   const r = new PluginRegistry({ bundled: [], spawnBundled: () => { throw new Error("no bundled plugins"); }, sleep, publishRuntimeState: true });
   registries.push(r);
@@ -46,49 +49,45 @@ test("a passive (non-serve) registry does not publish plugin lifecycle events", 
   // Passive read path: a fresh non-serve registry refreshes and starts the plugin (as a usage read would).
   const r = new PluginRegistry({ bundled: [], spawnBundled: () => { throw new Error("no bundled plugins"); }, sleep: async () => {} });
   registries.push(r);
-  await r.doctor(live(ctx), "fx-good").catch(() => {});
+  const [report] = await r.doctor(live(ctx), "fx-good");
+  expect(report).toMatchObject({ id: "fx-good", ok: true, state: "ready" });
   await r.shutdown();
   const pluginEvents = eventsSince(ctx, before, 3).events.filter(e => e.type === "plugin");
   expect(pluginEvents).toHaveLength(0);
 });
 
-test("serve-marked registry publishes ready/failing; a child with serve's env does not", async () => {
+test("a registry from pluginRegistry(ctx) defaults to not publishing runtime state", async () => {
+  resetServeRegistryForTests();
   const ctx = home();
-  installFixture("crasher", join(ctx.pacerHome, "plugins"));
-
-  // The serve startup path marks its registry explicitly (publishRuntimeState: true).
-  const serve = registry();
-  await serve.enable(ctx, "fx-crasher", true);
-  await serve.doctor(live(ctx), "fx-crasher");
-  for (let i = 0; i < 3; i++) {
-    await serve.call(live(ctx), "fx-crasher", "diagnostic.ping", {});
-    await Bun.sleep(150);
-  }
-  const serveStates = eventsSince(ctx, 0, 3).events
-    .filter(e => e.type === "plugin" && (e.data as { id: string }).id === "fx-crasher")
-    .map(e => (e.data as { state: string }).state);
-  expect(serveStates).toContain("ready");
-  expect(serveStates).toContain("failing");
-  await serve.shutdown();
-
-  // A child spawned by serve copies serve's environment. Under the old env/argv
-  // detection (PACER_SERVE=1 inherited) it became a second publisher; now the opt-in
-  // is process-local, so the same env does not make it publish lifecycle events.
-  const childCtx = { ...ctx, env: { ...ctx.env, PACER_SERVE: "1" } };
   installFixture("good", join(ctx.pacerHome, "plugins"));
-  const before = eventsSince(ctx, 0, 3).last;
-  const child = new PluginRegistry({ bundled: [], spawnBundled: () => { throw new Error("no bundled plugins"); }, sleep: async () => {}, publishRuntimeState: false });
-  registries.push(child);
-  await child.enable(childCtx, "fx-good", true);
-  await child.doctor(live(childCtx), "fx-good").catch(() => {});
-  await Bun.sleep(60); // let any mistaken async publish land before asserting silence
-  await child.shutdown();
-  const childStates = eventsSince(ctx, before, 3).events
+  const r = pluginRegistry(ctx);
+  await r.enable(live(ctx), "fx-good", true);
+  const [report] = await r.doctor(live(ctx), "fx-good");
+  expect(report).toMatchObject({ id: "fx-good", ok: true, state: "ready" });
+  await r.shutdown(); // drains any queued publish before reading the outbox
+  const states = eventsSince(ctx, 0, 3).events
     .filter(e => e.type === "plugin" && (e.data as { id: string }).id === "fx-good")
     .map(e => (e.data as { state: string }).state);
-  expect(childStates).not.toContain("starting");
-  expect(childStates).not.toContain("ready");
-  expect(childStates).not.toContain("idle");
+  expect(states).not.toContain("idle");
+  expect(states).not.toContain("ready");
+});
+
+test("markServeRegistry() flips an already-created pluginRegistry(ctx) registry to publish", async () => {
+  resetServeRegistryForTests();
+  const ctx = home();
+  installFixture("good", join(ctx.pacerHome, "plugins"));
+  // The registry is created before the serve startup path marks this process.
+  const r = pluginRegistry(ctx);
+  expect(r).toBe(pluginRegistry(ctx)); // one registry per home in this process
+  markServeRegistry();
+  await r.enable(live(ctx), "fx-good", true);
+  const [report] = await r.doctor(live(ctx), "fx-good");
+  expect(report).toMatchObject({ id: "fx-good", ok: true, state: "ready" });
+  await r.shutdown(); // drains the queued publishes
+  const states = eventsSince(ctx, 0, 3).events
+    .filter(e => e.type === "plugin" && (e.data as { id: string }).id === "fx-good")
+    .map(e => (e.data as { state: string }).state);
+  expect(states).toContain("ready");
 });
 
 test("discovery lists installed plugins with their static states", async () => {

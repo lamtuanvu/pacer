@@ -22,6 +22,12 @@ export function markServeRegistry(): void {
   for (const r of registries.values()) r.setPublishRuntimeState(true);
 }
 
+/** Test-only: restore the default no-publish opt-in so tests stay independent. */
+export function resetServeRegistryForTests(): void {
+  serveRegistry = false;
+  for (const r of registries.values()) r.setPublishRuntimeState(false);
+}
+
 /** Preserve front/wrapper routing while binding development children to this source core. */
 export function bundledPluginSpawn(c: Ctx, id: string, runtime: {executable:string;bunVersion?:string} = {executable:process.execPath,bunVersion:process.versions.bun}) {
   const bundled = BUNDLED.find(plugin => plugin.manifest.id === id);

@@ -817,10 +817,10 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
       return { code: 0, out: "", err: "", keepAlive: true };
     }
     case "serve": {
+      if (rest.includes("--help") || rest.includes("-h")) return { code: 0, out: `usage: pacer serve [--port <n>]\n\nLocal HTTP service (default port ${DEFAULT_PORT}).`, err: "" };
       // Explicit process-local opt-in only: a serve child inherits the environment,
       // so env/argv detection would make it a second runtime-state publisher.
       markServeRegistry();
-      if (rest.includes("--help") || rest.includes("-h")) return { code: 0, out: `usage: pacer serve [--port <n>]\n\nLocal HTTP service (default port ${DEFAULT_PORT}).`, err: "" };
       const { opts } = parseFlags(rest, ["internal"]);
       const internal = opts.internal === true;
       const tokenRequired = `pacer serve --internal requires its credential in the secrets frame on stdin (${CORE_SECRETS_ENV}=${CORE_SECRETS_STDIN}); start it through the pacer front door${legacySecrets ? `; ${LEGACY_CORE_SECRETS}` : ""}`;
