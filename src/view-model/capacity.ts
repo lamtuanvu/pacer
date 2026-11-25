@@ -89,7 +89,7 @@ export function executorReadiness(executor: ExecutorRow, snapshot: ClientSnapsho
   else if (stale || codes.includes("budget_expired_or_unknown")) { label = "Skipped"; tone = "warn"; reason = age == null ? "Usage reading needs refreshing" : `Usage reading is ${age < 3600 ? `${Math.floor(age / 60)}m` : `${Math.floor(age / 3600)}h`} old`; }
   else if (decision?.state === "ineligible" || (["down", "blocked", "exhausted"].includes(executor.state) || executor.state === "failing" && decision?.state !== "eligible")) {
     label = "Cannot take work"; tone = "bad";
-    reason = executor.state === "blocked" || codes.includes("blocked") ? "Blocked by you" : executor.state === "exhausted" || codes.includes("budget_exhausted") ? "Out of quota" : codes.includes("not_installed") ? "Agent needs installing" : executor.lastCheck?.passed === false ? "Last test task failed" : "Agent needs attention";
+    reason = executor.state === "blocked" || codes.includes("blocked") ? "Blocked by you" : executor.state === "exhausted" || codes.includes("budget_exhausted") ? "Out of quota" : codes.includes("not_installed") ? "Agent needs installing" : executor.reason?.startsWith("Key missing") ? "Key missing" : executor.reason?.startsWith("Not working") || executor.lastCheck?.passed === false ? "Last test task failed" : "Agent needs attention";
   }
   else if (!decision || decision.state === "uncertain") { label = "Skipped"; tone = "warn"; reason = "Refresh to confirm availability"; }
   else if (executor.state === "full") { label = "Skipped"; tone = "neutral"; reason = "All parallel slots are in use"; }
@@ -98,5 +98,9 @@ export function executorReadiness(executor: ExecutorRow, snapshot: ClientSnapsho
   else if (executorPace(executor, snapshot).label === "Ahead of pace") { label = "Ahead of pace"; tone = "warn"; reason = "Used before others only for capable work"; }
   if ((label === "Ready" || label === "Ahead of pace") && executor.state === "failing" && executor.recentFailures > 0) reason = `${executor.recentFailures} recent failures`;
   return { label, tone, glyph: tone === "good" ? "✓" : tone === "neutral" ? "■" : "!", reason,
-    tooltip: [technical.label, technical.detail, technical.age, executor.sub].filter(Boolean).join(" · ") };
+    tooltip: (() => {
+      const segments = [technical.label, technical.detail, technical.age, ...(executor.sub ? executor.sub.split(" · ") : [])].filter(Boolean) as string[];
+      const seen = new Set<string>();
+      return segments.filter(segment => (seen.has(segment) ? false : (seen.add(segment), true))).join(" · ");
+    })() };
 }
