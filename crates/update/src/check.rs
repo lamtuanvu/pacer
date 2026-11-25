@@ -17,7 +17,7 @@ const CACHE_S: f64 = 86_400.0;
 const DEV_VERSION: &str = "0.0.0-dev";
 
 /// `currentVersion()`: the build define, else the workspace package version.
-fn current_version() -> &'static str {
+pub fn current_version() -> &'static str {
     static VERSION: OnceLock<String> = OnceLock::new();
     VERSION.get_or_init(|| {
         if let Some(version) = option_env!("PACER_BUILD_VERSION") {

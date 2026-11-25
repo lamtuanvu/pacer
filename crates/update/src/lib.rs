@@ -18,12 +18,13 @@ pub mod manager;
 pub mod manifest;
 pub mod onboarding;
 pub mod replace;
+pub mod run;
 mod service;
 pub mod sign;
 #[cfg(test)]
 mod tests;
 
-pub use check::update_check;
+pub use check::{current_version, update_check};
 pub use handover::{service_handover, service_work};
 pub use service::service_status;
 

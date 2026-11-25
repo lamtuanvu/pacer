@@ -203,14 +203,21 @@ fn forward_override_removes_only_selected_native_ops() {
 }
 
 #[test]
-fn service_install_and_update_apply_are_native_with_a_core_effects_bridge() {
+fn service_install_uses_a_core_bridge_and_update_apply_is_native() {
     for name in ["service.install", "update.apply"] {
         assert!(registry("").get(name).is_some(), "{name}");
         assert!(super::service_registry("").get(name).is_some(), "{name}");
         assert!(registry(name).get(name).is_none(), "{name}");
-        assert!(super::install_apply_sync::uses_effects(name), "{name}");
     }
-    assert!(!super::install_apply_sync::uses_effects("service.status"));
+    assert!(super::service_install_dispatch::uses_effects(
+        "service.install"
+    ));
+    assert!(!super::service_install_dispatch::uses_effects(
+        "update.apply"
+    ));
+    assert!(!super::service_install_dispatch::uses_effects(
+        "service.status"
+    ));
     let ctx = |env: &[(&str, &str)]| {
         let env = env
             .iter()
@@ -225,14 +232,10 @@ fn service_install_and_update_apply_are_native_with_a_core_effects_bridge() {
         "service.install",
         &params
     ));
-    assert!(super::service_agent_stays_forwarded(
+    assert!(!super::service_agent_stays_forwarded(
         &grant,
         "update.apply",
         &params
-    ));
-    assert!(!super::install_apply_sync::stays_forwarded(
-        &grant,
-        "service.status"
     ));
 }
 
@@ -283,7 +286,6 @@ async fn install_apply_bridge_names_reach_core_endpoints() {
     // Without a Core target the bridge reports a restarting core, not an unknown bridge.
     for bridge in [
         "service.effects",
-        "update.effects",
         "handover.effects",
         "onboarding.effects",
         "host.effects",
@@ -301,7 +303,6 @@ async fn install_apply_bridge_names_reach_core_endpoints() {
 fn install_apply_bridges_wait_like_the_forwarded_path() {
     use crate::native::core_bridge_sync::deadline;
     assert_eq!(deadline("service.effects"), None);
-    assert_eq!(deadline("update.effects"), None);
     assert_eq!(deadline("handover.effects"), None);
     assert_eq!(deadline("onboarding.effects"), None);
     assert_eq!(deadline("host.effects"), None);

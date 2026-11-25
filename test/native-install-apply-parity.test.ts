@@ -6,7 +6,6 @@ import {join} from "node:path";
 import {callOp, parseOpParams} from "../src/api/ops";
 import {handoverEffectsBridge} from "../src/api/handover-bridge";
 import {onboardingEffectsBridge} from "../src/api/onboarding-bridge";
-import {serviceEffectsBridge, updateEffectsBridge} from "../src/api/install-apply-bridge";
 import {toApiError} from "../src/api/errors";
 import {fakeCtx} from "./helpers";
 import {closedPort, pinnedEnv} from "./isolated-port";
@@ -29,6 +28,14 @@ const NOW = 1_700_000_000.5;
 const homes: string[] = [];
 afterAll(() => { for (const home of homes) rmSync(home, {recursive: true, force: true}); });
 const home = () => { const dir = realpathSync(mkdtempSync(join(tmpdir(), "native-install-apply-"))); homes.push(dir); return dir; };
+
+/** The service effect Core runs, mirrored locally now that install-apply-bridge.ts is deleted. */
+async function serviceEffectsBridge(ctx: any, request: unknown): Promise<unknown> {
+  const kind = request && typeof request === "object" && !Array.isArray(request) ? (request as {kind?: unknown}).kind : undefined;
+  if (kind !== "install") throw new (await import("../src/core/errors")).CoreError("invalid_input", "service effect required");
+  const {callOp} = await import("../src/api/ops");
+  return callOp(ctx, "service.install", {consent: true});
+}
 
 type Op = "service.install" | "update.apply" | "service.handover" | "service.work" | "onboarding.try";
 type Step = {op: Op; params: unknown; env?: Record<string, string>};
@@ -71,6 +78,10 @@ function compare(steps: Step[]) {
     try { parseOpParams(ctx, step.op, step.params); } catch (error) { refusal = toApiError(error); }
     if (refusal) {
       expect(reply, label).toEqual({error: refusal});
+      expect(effects, label).toEqual([]);
+    } else if (step.op === "update.apply") {
+      // update.apply is fully native: no Core effect, and the reply is the created job.
+      expect(reply, label).toEqual({result: {job: {kind: "update.apply", target: "pacer"}}});
       expect(effects, label).toEqual([]);
     } else {
       expect(reply, label).toEqual({result: EFFECT});
@@ -167,20 +178,6 @@ test("the Core effects bridge runs only the effect it names", async () => {
   for (const request of [undefined, null, [], {}, {kind: "apply"}, {kind: "install "}]) {
     await expect(serviceEffectsBridge(ctx, request)).rejects.toMatchObject({code: "invalid_input", message: "service effect required"});
   }
-  for (const request of [undefined, {}, {kind: "install"}]) {
-    await expect(updateEffectsBridge(ctx, request)).rejects.toMatchObject({code: "invalid_input", message: "update effect required"});
-  }
-});
-
-test("the update effect runs the reference update.apply preflight", async () => {
-  // A non-standalone core is refused before any download, so neither run touches a release or a binary.
-  const deps = {update: {standalone: false}};
-  const reply = async (run: () => Promise<unknown>) => { try { return {result: await run()}; } catch (error) { return {error: toApiError(error)}; } };
-  const dir = home();
-  const ctx = fakeCtx({pacerHome: dir, home: dir, now: NOW});
-  const viaBridge = await reply(() => updateEffectsBridge(ctx, {kind: "apply"}, deps));
-  expect(viaBridge).toEqual(await reply(() => callOp(ctx, "update.apply", {}, deps)));
-  expect(viaBridge).toMatchObject({error: {code: "not_allowed"}});
 });
 
 test("the handover effects bridge runs only the effect it names", async () => {

@@ -622,9 +622,27 @@ async fn forward_input<
                     }
                     continue;
                 }
-                if crate::native::install_apply_sync::uses_effects(op.name) {
+                if op.name == "update.apply" {
+                    // The job runs on a spawned task so the request loop keeps reading;
+                    // the reply is written when the job settles, as TypeScript's stdio door does.
                     crate::native::msg_write_sync::trace(op.name, request.get("id"));
-                    match crate::native::install_apply_sync::admit(&request_ctx, op.name, &params) {
+                    let id = request.get("id").cloned();
+                    let reply_id = id.clone();
+                    let apply_ctx = request_ctx.clone();
+                    let task = waits.spawn(async move {
+                        let result =
+                            crate::native::update_apply::update_apply(&apply_ctx, params, false)
+                                .await;
+                        id.and_then(|id| rpc_line(&id, result).ok())
+                    });
+                    if let Some(id) = reply_id {
+                        wait_ids.insert(task.id(), id);
+                    }
+                    continue;
+                }
+                if crate::native::service_install_dispatch::uses_effects(op.name) {
+                    crate::native::msg_write_sync::trace(op.name, request.get("id"));
+                    match crate::native::service_install_dispatch::admit(&request_ctx, &params) {
                         Ok(()) => {
                             core.write_all(&line).await?;
                             core.flush().await?;

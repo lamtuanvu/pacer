@@ -47,7 +47,6 @@ use pacer_task_ops::job_ops;
 use pacer_update::handover;
 pub(crate) mod handover_sync;
 use pacer_update::onboarding;
-pub(crate) mod install_apply_sync;
 pub(crate) mod onboarding_sync;
 use pacer_install::agent_ops as agent_ops_mod;
 use pacer_install::install_ops;
@@ -97,7 +96,55 @@ pub(crate) use pacer_core_bridge::task_wait_sync;
 use pacer_task_ops::task_stop_ops;
 use pacer_task_ops::task_wait_ops;
 pub(crate) use pacer_task_ops::terminal_ops;
-use pacer_update::apply;
+pub(crate) mod update_apply;
+
+/// Direct `service.install` dispatch: Rust owns the refusals and schema and sends
+/// the one install effect to Core over the private bridge. `update.apply` now runs
+/// natively in [`update_apply`], so only this op still needs Core's service backend.
+pub(crate) mod service_install_dispatch {
+    use super::{CoreError, Ctx, Value, core_bridge_sync};
+    use pacer_foundation::api::OpFuture;
+    use pacer_install::install_ops::{self, ServiceEffects};
+
+    pub(crate) fn uses_effects(op: &str) -> bool {
+        install_ops::uses_effects(op)
+    }
+
+    pub(crate) fn stays_forwarded(ctx: &Ctx) -> bool {
+        let cwd = pacer_messaging_ops::msg_ops::current_dir();
+        install_ops::stays_forwarded(ctx)
+            || cwd.is_some_and(|cwd| {
+                pacer_messaging_ops::msg_ops::own_worktree(ctx, &cwd)
+                    || pacer_messaging_ops::msg_ops::orca_worktree(&cwd)
+            })
+    }
+
+    pub(crate) fn admit(ctx: &Ctx, params: &Value) -> Result<(), CoreError> {
+        install_ops::admit(ctx, params)
+    }
+
+    pub(crate) struct HttpEffects {
+        pub(crate) target: Option<(u16, String)>,
+    }
+
+    impl ServiceEffects for HttpEffects {
+        fn call(&mut self, request: Value) -> OpFuture<'_> {
+            Box::pin(core_bridge_sync::http(
+                self.target.clone(),
+                "service.effects",
+                serde_json::json!({"request": request}),
+            ))
+        }
+    }
+
+    pub(crate) async fn call(
+        ctx: &Ctx,
+        params: Value,
+        effects: &mut dyn ServiceEffects,
+    ) -> Result<Value, CoreError> {
+        install_ops::service_install(ctx, params, effects).await
+    }
+}
 
 pub use assistant_ops::assistant_stays_forwarded;
 pub(crate) use config_get_ops::needs_config_host_bridge;
@@ -159,7 +206,7 @@ pub fn service_agent_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> boo
             agent_apply_sync::stays_forwarded(ctx, op)
         }
         "limits.refresh" => limits_refresh_ops::limits_refresh_stays_forwarded(ctx, params),
-        "service.install" | "update.apply" => install_apply_sync::stays_forwarded(ctx, op),
+        "service.install" => service_install_dispatch::stays_forwarded(ctx),
         "service.handover" | "service.work" => handover_sync::stays_forwarded(ctx),
         _ => pacer_update::service_update_stays_forwarded(ctx, op),
     }
@@ -841,7 +888,7 @@ static OPS: &[NativeOp] = &[
     },
     NativeOp {
         name: "update.apply",
-        call: apply::update_apply_stub,
+        call: update_apply::update_apply_daemon,
     },
     NativeOp {
         name: "service.handover",

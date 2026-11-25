@@ -314,80 +314,82 @@ fn service_manager_output_parses_like_the_reference() {
     assert_eq!(js_number("12abc"), None);
 }
 
-#[derive(Default)]
-struct Effects(Vec<Value>);
-
-impl apply::UpdateEffects for Effects {
-    fn call(&mut self, request: Value) -> pacer_foundation::api::OpFuture<'_> {
-        self.0.push(request);
-        Box::pin(async { Ok(json!({"job": {"id": "j-1"}})) })
-    }
-}
-
-fn apply_update(
-    env: &[(&str, &str)],
-    params: Value,
-) -> (Result<Value, pacer_foundation::api::CoreError>, Vec<Value>) {
+#[test]
+fn update_apply_refusals_and_schema_issues() {
     let dir = tempfile::tempdir().unwrap();
-    let mut effects = Effects::default();
-    let result = tokio::runtime::Builder::new_current_thread()
-        .build()
-        .unwrap()
-        .block_on(apply::update_apply(
-            &ctx(dir.path(), env),
-            params,
-            &mut effects,
-        ));
-    (result, effects.0)
-}
-
-#[test]
-fn update_apply_requests_one_core_update_job() {
-    for params in [json!({}), json!(null), json!({"force": true})] {
-        let (result, effects) = apply_update(&[], params);
-        assert_eq!(result.unwrap(), json!({"job": {"id": "j-1"}}));
-        assert_eq!(effects, vec![json!({"kind": "apply"})]);
-    }
-}
-
-#[test]
-fn update_apply_refusals_and_schema_issues_never_reach_core() {
     let error = |env: &[(&str, &str)], params: Value| {
-        let (result, effects) = apply_update(env, params);
-        assert!(effects.is_empty());
-        let error = result.unwrap_err();
-        (error.code, error.message)
+        let c = ctx(dir.path(), env);
+        apply::admit(&c, &params).unwrap_err()
     };
     assert_eq!(
-        error(&[], json!(false)),
-        (
-            Code::InvalidInput,
-            "params: Invalid input: expected object, received boolean".to_owned()
-        )
+        error(&[], json!(false)).message,
+        "params: Invalid input: expected object, received boolean"
     );
     assert_eq!(
         error(
             &[("PACER_ROLE", "executor"), ("PACER_ENFORCEMENT_TOKEN", "t")],
             json!([])
-        ),
-        (
-            Code::NotAllowed,
-            "PACER_ROLE=executor: upgrades are not allowed from a delegated task.".to_owned()
         )
+        .message,
+        "PACER_ROLE=executor: upgrades are not allowed from a delegated task."
     );
     assert_eq!(
-        error(&[("PACER_ENFORCEMENT_TOKEN", "t")], json!([])),
-        (
-            Code::NotAllowed,
-            "Enforcement identity only reports a native child denial".to_owned()
-        )
+        error(&[("PACER_ENFORCEMENT_TOKEN", "t")], json!([])).message,
+        "Enforcement identity only reports a native child denial"
     );
+    assert!(apply::admit(&ctx(dir.path(), &[]), &json!({})).is_ok());
+    assert!(apply::admit(&ctx(dir.path(), &[]), &Value::Null).is_ok());
+}
+
+#[test]
+fn update_apply_preflight_refuses_a_source_core_and_a_managed_install() {
+    use crate::run::{NoopHost, UpdateInputs, UpdateOptions, run_update};
     let dir = tempfile::tempdir().unwrap();
-    assert!(apply::stays_forwarded(&ctx(
-        dir.path(),
-        &[("PACER_WORK_GRANT", "g")]
-    )));
-    assert!(!apply::stays_forwarded(&ctx(dir.path(), &[])));
+    let bin = dir.path().join("pacer");
+    std::fs::write(&bin, b"#!/bin/sh\necho pacer 0.1.0\n").unwrap();
+    let inputs = |env: Vec<(&str, &str)>, standalone: bool| {
+        let mut map = std::collections::HashMap::new();
+        for (k, v) in env {
+            map.insert(k.to_owned(), v.to_owned());
+        }
+        UpdateInputs {
+            env: map,
+            pacer_home: dir.path().join(".pacer"),
+            exec_path: bin.clone(),
+            standalone,
+            version: "0.1.0".into(),
+            platform: Some(crate::manifest::host_platform().unwrap()),
+            nightly: false,
+        }
+    };
+    // A source core is refused with the install-a-release hint, before any fetch.
+    let c = ctx(dir.path(), &[("PACER_CORE_ARGV", "bun src/cli.ts")]);
+    let error = apply::preflight(&c, &inputs(vec![], false)).unwrap_err();
+    assert_eq!(error.code, Code::NotAllowed);
+    assert_eq!(
+        error.hint.as_deref(),
+        Some("Install a release build to update from this screen.")
+    );
+    assert!(error.message.contains("runs from source"));
+    // A standalone install passes the source check and reaches the (empty) source probe.
+    let c = ctx(dir.path(), &[]);
+    assert!(apply::preflight(&c, &inputs(vec![], true)).is_ok());
+    // The probe itself refuses a non-standalone install with the source message.
+    let probe = inputs(vec![], false);
+    let result = run_update(
+        &UpdateOptions {
+            check: false,
+            ..UpdateOptions::default()
+        },
+        &probe,
+        &mut NoopHost,
+    );
+    assert_eq!(result.code, 2);
+    assert!(
+        result
+            .err
+            .starts_with("pacer update: this pacer runs from source")
+    );
 }
 
 #[test]

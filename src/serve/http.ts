@@ -573,14 +573,18 @@ export function startServer(
             return Response.json({ error: body }, { status: httpStatus(body.code) });
           }
         }
-        if ((pathname === "/_internal/service-effects" || pathname === "/_internal/update-effects") && req.method === "POST") {
+        if (pathname === "/_internal/service-effects" && req.method === "POST") {
           if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
           try {
             const body = await req.json().catch(() => null);
             const request = body && typeof body === "object" && !Array.isArray(body) ? (body as { request?: unknown }).request : undefined;
-            const { serviceEffectsBridge, updateEffectsBridge } = await import("../api/install-apply-bridge");
-            const bridge = pathname === "/_internal/service-effects" ? serviceEffectsBridge : updateEffectsBridge;
-            return Response.json({ result: await bridge(getCtx(), request, opts.opDeps) });
+            const kind = request && typeof request === "object" && !Array.isArray(request) ? (request as { kind?: unknown }).kind : undefined;
+            if (kind !== "install") {
+              const { CoreError } = await import("../core/errors");
+              throw new CoreError("invalid_input", "service effect required");
+            }
+            const { callOp } = await import("../api/ops");
+            return Response.json({ result: await callOp(getCtx(), "service.install", { consent: true }, opts.opDeps) });
           } catch (error) {
             const { toApiError, httpStatus } = await import("../api/errors");
             const body = toApiError(error);
