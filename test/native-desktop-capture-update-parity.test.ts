@@ -5,18 +5,18 @@ import { join } from "node:path";
 import { callOp } from "../src/api/ops";
 import { toApiError } from "../src/api/errors";
 import { captureBridge } from "../src/api/desktop-capture-bridge";
-import { updateBridge } from "../src/api/desktop-update-bridge";
 import { createSession } from "../src/serve/app-auth";
 import type { Ctx } from "../src/types";
 import { keychainStubPath } from "./keychain-stub";
 import { fakeCtx, tmpDir } from "./helpers";
 import { closedPort, pinnedEnv, spawnPinned } from "./pinned-port";
 
-// Native desktop.capture.* and desktop.update.* against the same requests forced
-// through PACER_FORWARD_OPS to the TypeScript core, over the real stdio and
-// HTTP front doors. Capture is a Bridge-op family (like setup-doctor): Rust
+// Native desktop.capture.* against the same requests forced through
+// PACER_FORWARD_OPS to the TypeScript core, over the real stdio and HTTP
+// front doors. Capture is a Bridge-op family (like setup-doctor): Rust
 // validates each param set, then the sealed bridge runs the real handler for
-// the reply; update keeps effectful install/restart in Core.
+// the reply. The TypeScript desktop.update ops were removed with the TS stack;
+// their native runtime is covered by the Rust crate's own tests.
 
 const root = join(import.meta.dir, "..");
 const front = process.env.PACER_TEST_NATIVE_FRONT_DOOR;
@@ -24,9 +24,6 @@ const core = JSON.stringify([process.execPath, join(import.meta.dir, "../src/cli
 const OPS = [
   "desktop.capture.register", "desktop.capture.targets", "desktop.capture.request",
   "desktop.capture.claim", "desktop.capture.complete", "desktop.capture.result",
-  "desktop.update.status", "desktop.update.check", "desktop.update.download",
-  "desktop.update.restart", "desktop.update.cancel", "desktop.update.adopt",
-  "desktop.update.adoptCancel", "desktop.update.configure",
 ].join(",");
 const STRATEGY = "planner: claude-code\nproviders:\n  claude-code: {usage: quota}\n  codex: {}\nrouting:\n  - default: [codex]\n";
 let driver: string | undefined;
@@ -84,7 +81,7 @@ async function exchange(dir: string, cases: [string, unknown][], forward: boolea
     expect(code, stderr).toBe(0);
     const lines = stdout.trim().split("\n").map(line => JSON.parse(line));
     expect(lines[0].result?.protocol).toBe("3.0.0");
-    const markers = stderr.split("\n").filter(line => /^native desktop\.(capture|update)\.[a-z]+ \d+$/.test(line));
+    const markers = stderr.split("\n").filter(line => /^native desktop\.(capture|update)\.\S+ \d+$/.test(line));
     return { replies: lines.slice(1).sort((a, b) => a.id - b.id), markers };
   } finally { if (child.exitCode === null) { child.kill("SIGTERM"); await child.exited; } }
 }
@@ -108,16 +105,9 @@ const ERRORS: [string, unknown][] = [
   ] }],
   ["desktop.capture.complete", { request_id: "r", worker_token: "z", error: "nope" }],
   ["desktop.capture.result", {}],
-  ["desktop.update.status", {}], ["desktop.update.status", { installationId: "-" }], ["desktop.update.status", { x: 1 }],
-  ["desktop.update.status", null],
-  ["desktop.update.check", {}], ["desktop.update.check", { installationId: "a", requestId: "b", expectRevision: -1 }],
-  ["desktop.update.restart", { installationId: "a", requestId: "b", expectRevision: 0, version: "x" }],
-  ["desktop.update.configure", { installationId: "a", requestId: "b", expectRevision: 0, autoDownload: "y" }],
-  ["desktop.update.configure", null],
-  ["desktop.update.cancel", {}], ["desktop.update.adopt", 5], ["desktop.update.adoptCancel", "s"],
 ];
 
-test("native desktop capture and update ops reject invalid params like TypeScript", async () => {
+test("native desktop capture ops reject invalid params like TypeScript", async () => {
   const dir = home();
   const ctx = fakeCtx({ home: dir, pacerHome: join(dir, ".pacer"), now: 1_700_000_000, which: () => null });
   for (const [op, params] of ERRORS) {
@@ -140,19 +130,12 @@ test("native requests carry the validated params to Core", () => {
     .toEqual({ op: "desktop.capture.request", params: { client_id: "c", window: "main", mode: "window", window_id: "12" } });
   expect(nativeResult(dir, "desktop.capture.register", { client_id: "c", worker_token: "a".repeat(64), extra: 1 }, { echo: true }).result)
     .toEqual({ op: "desktop.capture.register", params: { client_id: "c", worker_token: "a".repeat(64) } });
-  expect(nativeResult(dir, "desktop.update.status", { installationId: "abc" }, { echo: true }).result)
-    .toEqual({ op: "desktop.update.status", params: { installationId: "abc" } });
-  expect(nativeResult(dir, "desktop.update.restart", { installationId: "a", requestId: "b", expectRevision: 0, version: "1.2.3" }, { echo: true }).result)
-    .toEqual({ op: "desktop.update.restart", params: { installationId: "a", requestId: "b", expectRevision: 0, version: "1.2.3" } });
-}, 120000);
+});
 
-test("desktop capture and update bridges refuse other operations", async () => {
+test("desktop capture bridge refuses other operations; update is no longer a bridge", async () => {
   const ctx = fakeCtx({ which: () => null });
   for (const body of [null, [], {}, { op: "desktop.capture.nope" }, { op: "desktop.update.nope" }, { op: "setup.health" }, { op: "service.install", params: { consent: true } }]) {
     await expect(captureBridge(ctx, body)).rejects.toMatchObject({ code: "invalid_input" });
-  }
-  for (const body of [null, [], {}, { op: "desktop.update.nope" }, { op: "desktop.capture.targets" }, { op: "doctor.run" }]) {
-    await expect(updateBridge(ctx, body)).rejects.toMatchObject({ code: "invalid_input" });
   }
 });
 
@@ -170,12 +153,22 @@ test.skipIf(!front)("stdio desktop capture and update errors match forced forwar
   }
   const [native, forwarded] = runs.map((list) => list.map(run => run.replies));
   expect(native).toEqual(forwarded);
+  // The forwarded door runs every op through Core, so it carries no native
+  // markers. Update is now fully native (DX1): `call_native_op` emits the
+  // trace before parameter validation, so every dispatched update request —
+  // valid or invalid — carries a marker. Capture is a bridge family: invalid
+  // params are rejected before the trace, so only the valid (non-error)
+  // capture requests carry a capture marker.
   expect(runs[1]!.flatMap(run => run.markers)).toEqual([]);
-  // Bridge op params are validated before the native `call_op` trace is emitted,
-  // so only the valid (non-error) requests carry a `native` marker.
-  expect(runs[0]!.slice(0, 2).map(run => run.markers)).toEqual([
-    [],
+  expect(runs[0]![0]!.markers).toEqual(
+    (ERRORS as [string, unknown][]).flatMap(([op], i) =>
+      op.startsWith("desktop.update.") ? [`native ${op} ${i + 2}`] : [],
+    ),
+  );
+  expect(runs[0]!.slice(1).map(run => run.markers)).toEqual([
     ["native desktop.capture.targets 2"],
+    ["native desktop.capture.targets 2"],
+    ["native desktop.capture.targets 2", "native desktop.capture.targets 3"],
   ]);
   const replies = forwarded as { result?: unknown; error?: { data?: { code?: string } } }[][];
   expect(replies[0]!.map(reply => reply.error?.data?.code)).toEqual(ERRORS.map(() => "invalid_input"));
@@ -206,7 +199,7 @@ async function serve(dir: string, forward: boolean) {
     },
     bearer: { Authorization: `Bearer ${token}` },
     app: (cookie: string) => ({ Cookie: `pacer_session=${cookie}`, Origin: base, "X-Pacer-Client": "app" }),
-    stop: async () => { child.kill("SIGTERM"); await child.exited; return (await stderr).split("\n").filter(line => /^native desktop\.(capture|update)\.[a-z]+$/.test(line)); },
+    stop: async () => { child.kill("SIGTERM"); await child.exited; return (await stderr).split("\n").filter(line => /^native desktop\.(capture|update)\.\S+$/.test(line)); },
   };
 }
 
@@ -225,12 +218,18 @@ test.skipIf(!front)("HTTP desktop capture and update errors match forced forward
     results.push({ bodies: await Promise.all(bodies), markers: await server.stop() });
   }
   expect(results[0]!.bodies).toEqual(results[1]!.bodies);
-  expect(results[1]!.markers).toEqual([]);
-  // Bridge param errors return before the native `call_op` trace, so only the
-  // two valid desktop.capture.targets requests carry a `native` marker.
-  expect(results[0]!.markers).toEqual(
-    ["desktop.capture.targets", "desktop.capture.targets"].map(op => `native ${op}`),
-  );
+  // The forwarded door runs every op through Core, so it carries no native
+  // markers. Update is now fully native (DX1): `call_native_op` traces
+  // before parameter validation, so every update row in ERRORS carries a
+  // marker; capture is a bridge family, so only the two valid
+  // desktop.capture.targets requests do. HTTP settle order is parallel, so
+  // compare sorted marker sets.
+  const sorted = (markers: string[]) => [...markers].sort();
+  expect(sorted(results[1]!.markers)).toEqual([]);
+  expect(sorted(results[0]!.markers)).toEqual(sorted([
+    "native desktop.capture.targets", "native desktop.capture.targets",
+    ...(ERRORS as [string, unknown][]).filter(([op]) => op.startsWith("desktop.update.")).map(([op]) => `native ${op}`),
+  ]));
   const bodies = results[1]!.bodies as { status: number; body: { result?: unknown; error?: { code?: string } } }[];
   expect(bodies.slice(0, 2).map(b => b.status)).toEqual([200, 200]);
   expect(bodies.slice(0, 2).map(b => b.body.result)).toEqual([[], []]);

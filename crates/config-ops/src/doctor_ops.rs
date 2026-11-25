@@ -401,13 +401,10 @@ pub async fn run(
         )),
         "doctor.run" => store_doctor_report(ctx, &parts.await?["doctor"]),
         "setup.health" => setup_health(ctx, parsed["params"]["trigger"].as_str(), parts).await,
-        // Desktop capture and update ops run their real handler in Core (the broker and
-        // updater state live there); Rust validated the params, so Core's reply is the answer.
-        op if crate::desktop_capture_ops::needs_capture_bridge(op)
-            || crate::desktop_update_ops::needs_update_bridge(op) =>
-        {
-            parts.await
-        }
+        // Desktop capture ops run their real handler in Core (the broker and
+        // capture state live there); Rust validated the params, so Core's reply is the answer.
+        // (Desktop update ops are cut over to the native Rust runtime.)
+        op if crate::desktop_capture_ops::needs_capture_bridge(op) => parts.await,
         _ => Err(invalid("unknown core bridge op")),
     }
 }

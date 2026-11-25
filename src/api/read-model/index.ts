@@ -2,7 +2,6 @@ import { activeAgentSessions, agentSessionsRevision } from "../../session/agents
 import { arch, platform } from "node:os";
 import { execFileSync } from "node:child_process";
 import { policySummary } from "../../plugins/policy";
-import { desktopUpdateStatuses } from "../../update/desktop/service";
 import { readProjectStrategies, type ProjectStrategyFile } from "../../config/project-strategies";
 import { resolveProjectSelection } from "../../engine/project-routing";
 import { validateExecution } from "../../config/execution";
@@ -89,7 +88,7 @@ export function buildReadModel(ctx:Ctx,input:{status:Status;strategy:Strategy;ta
    + listTasksWhere(ctx, { states: ["running"] }).filter(t => occupiesLocalCapacity(t.kind) && localRunningRecord(t)).length
    + activeAgentSessions(ctx).length;
  const machine = {agentSessionsRevision:agentSessionsRevision(ctx),os: machineOS, arch: arch(), used: usedLocal, ...machineCap(exec.localMaxTasks ?? null), ...machineGuardState(exec)};
- return {policy,desktopUpdates:desktopUpdateStatuses(ctx),machine,pause,attention,service:{...(policyError ? {projectStrategyError: policyError} : {}),version:pkg.version,protocol:PROTOCOL_VERSION,pid:process.pid,startedAt,notifiers,notifier:notifiers.os,...waitingField()},planner,executors,accounts,hosts,repos:repos.map(r=>{schedulePathRefresh(r.path);return {...r,label:labels.get(r.key)!,...(cachedPath(r.path).unreachable?{unreachable:true as const}:{})};}),setup,counts:buildCounts(visibleTasks,executors,setup,hosts,attention),today:buildToday(ctx,visibleTasks),runs:composeSnapshotRuns(ctx)};
+ return {policy,desktopUpdates:[],machine,pause,attention,service:{...(policyError ? {projectStrategyError: policyError} : {}),version:pkg.version,protocol:PROTOCOL_VERSION,pid:process.pid,startedAt,notifiers,notifier:notifiers.os,...waitingField()},planner,executors,accounts,hosts,repos:repos.map(r=>{schedulePathRefresh(r.path);return {...r,label:labels.get(r.key)!,...(cachedPath(r.path).unreachable?{unreachable:true as const}:{})};}),setup,counts:buildCounts(visibleTasks,executors,setup,hosts,attention),today:buildToday(ctx,visibleTasks),runs:composeSnapshotRuns(ctx)};
 }
 
 export function serviceNotifiers(ctx: Ctx): ServiceNotifiers {

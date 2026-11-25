@@ -26,11 +26,9 @@ import { clientControlOps } from "./ops-client-control";
 import pkg from "../../package.json";
 import { PROTOCOL_VERSION } from "./protocol";
 import { taskIdText } from "../plugins/ui-schema";
-import { desktopUpdateOps } from "./ops-desktop-update";
 import { desktopReconciliationOps } from "./ops-desktop-reconciliation";
 import { captureBroker } from "../desktop/capture-broker";
 import { desktopOps } from "./ops-desktop";
-import type { DesktopUpdateRuntime } from "../update/desktop/service";
 import { resolvePolicyRepoInput } from "../core/project-policy";
 import * as projectStrategies from "../core/project-strategies";
 import { pruneTasks, restoreTask } from "../tasks/retention";
@@ -107,7 +105,6 @@ export interface OpDeps {
    */
   participant?: string;
   usageRefreshDone?: () => Promise<void>;
-  desktopUpdates?: DesktopUpdateRuntime;
   onboardingRoute?: import("../onboarding/try").TryDeps["route"];
   snapshotProbe?: boolean;
   terminalPresetsOnly?: boolean;
@@ -278,7 +275,7 @@ export const OPS: Record<string, OpDef> = {
     },
   }),
  ...sessionOps, ...msgOps, ...workflowOps, ...terminalOps, ...desktopOps, ...assistantOps, ...discoveryOps,
-  ...desktopUpdateOps, ...desktopReconciliationOps,
+  ...desktopReconciliationOps,
   "project.strategy.list": op({
     description: "List repository executor overrides, including policies for absent checkouts.", params: z.object({}),
     handler: ctx => projectStrategies.list(ctx),

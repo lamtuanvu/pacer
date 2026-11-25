@@ -5,8 +5,7 @@ import { join } from "node:path";
 import { atomicWrite, checkout, type Session } from "../core";
 import { ControlError, MAX_IMAGE_BYTES, type Action, type CaptureResult, type Observation, type SurfaceAdapter, type Target } from "./contract";
 import { operationContext, type OperationContext } from "./deadline";
-import { resolveDesktopControlBinding, assertSameControlBinding } from "./ota-binding";
-import type { DesktopControlBinding } from "./ota-binding-proof";
+import { resolveDesktopControlBinding, assertSameControlBinding, type DesktopControlBinding } from "./binding";
 
 async function helperPath(): Promise<string> {
   if (process.platform !== "darwin") throw new ControlError("unsupported_capability", "native desktop control requires macOS");
@@ -65,24 +64,18 @@ export async function createDesktopAdapter(session: Session): Promise<SurfaceAda
     return current;
   }
   function verifyWindow(current: DesktopControlBinding, target: Target): void {
-    if (current.source !== "ota") return;
     const identity = current.identity;
     if (target.pid !== identity.pid || target.start_identity !== identity.start_identity ||
-        target.generation !== `${identity.start_identity}:${target.window_id}` ||
-        !current.windows?.some(w => w.window_id === target.window_id && w.label === target.native_label && w.client_id === target.client_id))
-      throw new ControlError("stale_reference", "OTA window authority changed", "not_delivered");
+        target.generation !== `${identity.start_identity}:${target.window_id}`)
+      throw new ControlError("stale_reference", "owned desktop window authority changed", "not_delivered");
   }
   const snapshots = new Map<string, Observation>();
   async function targets(clock?: OperationContext): Promise<Target[]> {
     const current = await verify(clock), identity = current.identity;
     const result = await nativeCommand({ command: "targets", pid: identity.pid, start_identity: identity.start_identity }, clock);
     let reported: Array<{window_id: string; label: "main" | "tray"; pid: number; client_id: string}> = [];
-    if (current.source === "ota") reported = current.windows!;
-    else try { reported = await serviceOp(session, "desktop.capture.targets", {}, clock); } catch { /* Older releases use external observation with explicit native IDs. */ }
-    const windows = result.windows.filter((window: {window_id: string}) => current.source !== "ota" ||
-      current.windows!.filter(w => w.pid === identity.pid && w.window_id === window.window_id).length === 1);
-    if (current.source === "ota" && windows.length === 0)
-      throw new ControlError("stale_reference", "no registered OTA window is visible");
+    try { reported = await serviceOp(session, "desktop.capture.targets", {}, clock); } catch { /* Older releases use external observation with explicit native IDs. */ }
+    const windows = result.windows as Array<{window_id: string; title: string; bounds: {X: number; Y: number; Width: number; Height: number}}>;
     return windows.map((window: {window_id: string; title: string; bounds: {X: number; Y: number; Width: number; Height: number}}): Target => ({
       id: reported.find(entry => entry.pid === identity.pid && entry.window_id === window.window_id)?.label ?? `window-${window.window_id}`,
       client_id: reported.find(entry => entry.pid === identity.pid && entry.window_id === window.window_id)?.client_id,
@@ -139,7 +132,7 @@ export async function createDesktopAdapter(session: Session): Promise<SurfaceAda
           }
           catch (error) {
             // Window evidence may fall back to external window capture. Never substitute content.
-            if (mode !== "window" || authority.source === "ota") throw error;
+            if (mode !== "window") throw error;
             // Recheck ordinary ownership before external window observation.
             verifyWindow(await verify(clock), target);
             const capture = await nativeCommand({ command: "capture", pid: identity.pid, start_identity: identity.start_identity, window_id: target.window_id }, clock);

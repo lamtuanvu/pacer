@@ -4,7 +4,6 @@ import pkg from "../../package.json";
 import { validateExecution } from "../config/execution";
 import { loadStrategy, validateStrategy } from "../config/strategy";
 import { readProjectStrategies } from "../config/project-strategies";
-import { desktopUpdateStatuses } from "../update/desktop/service";
 import { discoveryRuleInput } from "../discovery/prompts";
 import { policySummary } from "../plugins/policy";
 import { waitingIO } from "../core/path-probe";
@@ -86,7 +85,7 @@ export async function snapshotProbeParts(ctx: Ctx) {
     policy,
     machine,
     service,
-    desktopUpdates: desktopUpdateStatuses(ctx),
+    desktopUpdates: [],
     serviceInstalled: serviceInstalled(ctx),
     canPair: discovery?.canPair ?? false,
     status,
