@@ -8,6 +8,11 @@ import type { AttentionItem } from "./types";
 
 type Entry = { since: number; dismissedSince?: number; snoozedUntil?: number };
 type Store = Record<string, Entry>;
+/** Task items are derived as `${kind}:${taskId}`; a task id may itself contain `:`. */
+const taskOwnerOf = (id: string): string | undefined => {
+  const colon = id.indexOf(":");
+  return colon < 0 ? undefined : id.slice(colon + 1);
+};
 const pathFor = (ctx: Ctx) => join(ctx.pacerHome,"state","attention.json");
 function transaction<T>(ctx: Ctx, fn: (store: Store) => T): T {
   return withLockSync(ctx,"attention",()=>{
@@ -19,16 +24,21 @@ function transaction<T>(ctx: Ctx, fn: (store: Store) => T): T {
 }
 /**
  * Apply a freshly derived item set to the attention store and return the visible items.
- * `prune` is true only when `items` covers the full task set (a full pass or a genuine
- * reconcile). When it is false (a partial read that included only some tasks), entries for
- * tasks outside `items` are left untouched so their since/dismissedSince/snoozedUntil survive
- * until a full pass can authoritatively decide they no longer apply.
+ * `prune` is `true` when `items` covers the full task set (a full pass or a genuine
+ * reconcile), so every unmatched entry no longer applies and is deleted. For a partial
+ * read it is the set of task ids that read covered: an unmatched entry is deleted only
+ * when its task was covered (so a settled item's stale dismissal/snooze cannot survive
+ * to hide a follow-up) or when it is not task-scoped (non-task items are derived from
+ * full input on every tick). Entries for uncovered tasks keep their
+ * since/dismissedSince/snoozedUntil until a full pass decides authoritatively.
  */
-export function applyStore(ctx: Ctx, items: AttentionItem[], prune = true): AttentionItem[] {
+export function applyStore(ctx: Ctx, items: AttentionItem[], prune: true | ReadonlySet<string> = true): AttentionItem[] {
   return transaction(ctx,store=>{
-    if(prune){
-      const ids=new Set(items.map(i=>i.id));
-      for (const id of Object.keys(store)) if (!ids.has(id)) delete store[id];
+    const ids=new Set(items.map(i=>i.id));
+    for (const id of Object.keys(store)) {
+      if (ids.has(id)) continue;
+      const owner=taskOwnerOf(id);
+      if (prune === true || owner === undefined || prune.has(owner)) delete store[id];
     }
     return sortItems(items.flatMap(item=>{
       const entry=store[item.id]??= {since:ctx.now};

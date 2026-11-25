@@ -53,7 +53,7 @@ export async function readModelContext(ctx:Ctx) {
  cache.set(ctx.pacerHome,{at:ctx.now,promise});
  try{return await promise;}catch(e){cache.delete(ctx.pacerHome);throw e;}
 }
-export function buildReadModel(ctx:Ctx,input:{status:Status;strategy:Strategy;tasks:ApiTask[];setup:SetupChecklist;hosts:HostCfg[];signedIn?:{name:string;signedIn:boolean|null}[];prune?:boolean}):ReadModelFields {
+export function buildReadModel(ctx:Ctx,input:{status:Status;strategy:Strategy;tasks:ApiTask[];setup:SetupChecklist;hosts:HostCfg[];signedIn?:{name:string;signedIn:boolean|null}[];prune?:true|ReadonlySet<string>}):ReadModelFields {
  const policy=policySummary(ctx);
  const {status,strategy,tasks}=input,executors=buildExecutors(status,strategy,tasks,ctx.now,ctx),accounts=buildAccounts(status,strategy,ctx).map(a=>({...a,signedIn:a.signedIn===false?false:input.signedIn?.find(row=>row.name===a.name)?.signedIn??a.signedIn})),planner=buildPlanner(status),hosts=buildHosts(input.hosts,executors,tasks,ctx),setup=buildSetup(withStatus(input.setup,status,ctx,tasks.some(t=>!!t.review)),policy);
  let policies: ProjectStrategyFile | undefined, policyError: string | undefined;

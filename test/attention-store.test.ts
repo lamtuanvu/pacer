@@ -49,15 +49,14 @@ test("a partial apply leaves unrelated entries (and their since) intact until a 
  const b: AttentionItem = {id:"failed:b",kind:"failed",severity:"problem",title:"B",detail:"b",repo:null,raisedAt:ctx.now,since:ctx.now,actions:[],notify:"all",taskId:"b"};
  // Full pass prunes and records both.
  expect(applyStore(ctx,[a,b])).toHaveLength(2);
- // Dismiss a, then a partial pass only re-derives b.
+ // Dismiss a, then a partial read covering only task b re-derives b.
  dismissItem(ctx,a.id,[a,b]);
- const partial=applyStore({...ctx,now:ctx.now+10},[b],false);
- // The partial pass must not resurrect a nor reset b's since.
+ const partial=applyStore({...ctx,now:ctx.now+10},[b],new Set(["b"]));
+ // The partial read must not resurrect a nor reset b's since.
  expect(partial.some(i=>i.id===a.id)).toBe(false);
  expect(partial).toHaveLength(1);
- // On the next full pass a's dismissal is gone (it was pruned as it no longer derives) only
- // because a no longer derives; but crucially b keeps its original since, and a keeps it too
- // while it still derives.
+ // a stays dismissed in the store throughout; b keeps its original since until a full pass
+ // covering every task can authoritatively decide whether a still applies.
  const full=applyStore({...ctx,now:ctx.now+20},[a,b]);
  expect(full.find(i=>i.id===b.id)!.since).toBe(ctx.now);
  expect(full.some(i=>i.id===a.id)).toBe(false);
@@ -70,10 +69,26 @@ test("a dismiss on an unrelated entry survives a partial apply (prune=false)",()
  applyStore(ctx,[a,b]);
  dismissItem(ctx,a.id,[a,b]); // user dismisses a
  // A partial pass only touches b and must leave a's dismissal intact in the store.
- applyStore({...ctx,now:ctx.now+10},[b],false);
- const partialAgain=applyStore({...ctx,now:ctx.now+11},[b],false);
+ applyStore({...ctx,now:ctx.now+10},[b],new Set(["b"]));
+ const partialAgain=applyStore({...ctx,now:ctx.now+11},[b],new Set(["b"]));
  expect(partialAgain.some(i=>i.id===a.id)).toBe(false);
  // The same materialized via buildReadModel-style full input: a still hidden after full pass.
  const full=applyStore({...ctx,now:ctx.now+20},[a,b]);
  expect(full.some(i=>i.id===a.id)).toBe(false);
+});
+
+test("a covered task's stale dismissal is pruned on a partial apply so a follow-up is visible",()=>{
+ const {ctx}=fixture();
+ const q: AttentionItem = {id:"question:t",kind:"question",severity:"blocked",title:"Question",detail:"q",repo:null,raisedAt:ctx.now,since:ctx.now,actions:[],notify:"important",taskId:"t"};
+ applyStore(ctx,[q]);
+ dismissItem(ctx,q.id,[q]);
+ // The task is answered: a partial read that covers t derives no question item.
+ expect(applyStore({...ctx,now:ctx.now+10},[],new Set(["t"]))).toEqual([]);
+ const store=readJson<Record<string,unknown>>(join(ctx.pacerHome,"state","attention.json"))!;
+ expect(store[q.id]).toBeUndefined(); // stale dismissal is gone, not carried forward
+ // A follow-up question gets a fresh entry instead of being hidden by the old dismissal.
+ const followUp:AttentionItem={...q,title:"Follow-up",raisedAt:ctx.now+11,since:ctx.now+11};
+ const out=applyStore({...ctx,now:ctx.now+11},[followUp],new Set(["t"]));
+ expect(out).toHaveLength(1);
+ expect(out[0]!.since).toBe(ctx.now+11);
 });

@@ -556,8 +556,9 @@ test("a settled failed task keeps its since, dismissal and notify key across a p
   expect(partial.some(e => e.type === "task")).toBe(true);
   // The unrelated entry must survive with its `since` untouched (would otherwise mint a new key).
   expect(att()[key]).toMatchObject({ since: firstSince });
-  // (b) a following full pass must not reset `since` nor produce a second notification key.
-  await pumpOnce({ ...c, now: c.now + 30 }, d, { reconcile: true });
+  // (b) an ordinary pass (no reconcile, past the 15 s cadence) derives selected ∪ snapshot
+  // like production; it must not reset `since` nor produce a second notification key.
+  await pumpOnce({ ...c, now: c.now + 16 }, d);
   expect(att()[key]).toMatchObject({ since: firstSince });
   const keys = Object.keys(notified()).filter(k => k.startsWith(`${key}:`));
   expect(keys).toEqual([`${key}:${firstSince}`]);
@@ -565,7 +566,34 @@ test("a settled failed task keeps its since, dismissal and notify key across a p
   const { dismissItem } = await import("../src/attention/store");
   dismissItem(c, key, [{ id: key } as AttentionItem]); // dismiss the failed task
   updateTask(c, otherId, t => { t.title = "changed again"; }); // another task's partial tick
-  await pumpOnce({ ...c, now: c.now + 40 }, d); // partial, non-pass tick (prune:false)
+  await pumpOnce({ ...c, now: c.now + 17 }, d); // non-pass tick: only otherId is covered
   await pumpOnce({ ...c, now: c.now + 90 }, d, { reconcile: true }); // full pass
   expect(att()[key]).toMatchObject({ since: firstSince, dismissedSince: firstSince });
+});
+
+test("a covered task's dismissed question is pruned on a task-change tick so a follow-up is visible", async () => {
+  const { capacityFixture } = await import("./read-model-helpers");
+  const { dismissItem } = await import("../src/attention/store");
+  const c = fakeCtx();
+  const taskId = makeTask(c, { state: "needs_input", goal: "needs an answer" });
+  updateTask(c, taskId, t => { t.question = { text: "First?", at: c.now } as never; });
+  const { s, st } = capacityFixture();
+  const d: PumpDeps = { ...deps(c).d, strategy: () => s, status: async () => st,
+    probeHosts: async () => [], backfillRepos: async () => {},
+    setup: async () => ({ checkedAt: c.now, complete: true, ready: false, items: [] }) };
+  const att = () => readJson<Record<string, { since: number; dismissedSince?: number }>>(join(c.pacerHome, "state", "attention.json")) ?? {};
+  const key = `question:${taskId}`;
+  await pumpOnce(c, d); // full pass records the first question
+  const firstSince = att()[key]!.since;
+  dismissItem(c, key, [{ id: key } as AttentionItem]);
+  // Answer it; the next task-change tick covers this task and derives no question item.
+  updateTask(c, taskId, t => { t.state = "running" as never; t.question = { text: "First?", at: c.now, answer: "ok" } as never; });
+  await pumpOnce({ ...c, now: c.now + 1 }, d);
+  expect(att()[key]).toBeUndefined(); // covered task's stale dismissal is pruned
+  // A follow-up question must get a fresh entry, not be hidden by the old dismissal.
+  updateTask(c, taskId, t => { t.state = "needs_input" as never; t.question = { text: "Second?", at: c.now + 2 } as never; });
+  await pumpOnce({ ...c, now: c.now + 2 }, d);
+  expect(att()[key]).toMatchObject({ since: c.now + 2 });
+  expect(att()[key]!.dismissedSince).toBeUndefined();
+  expect(att()[key]!.since).not.toBe(firstSince);
 });
