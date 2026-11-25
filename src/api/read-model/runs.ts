@@ -27,6 +27,8 @@ export interface SnapshotRun {
   letter: string;
   title: string;
   workflow: string;
+  /** Notification owner: `human`, `external:<kind>[:<session>]`, or absent. */
+  origin?: string;
   status: "running" | "waiting";
   priority: RunAttentionPriority;
   paused_reason?: string;
@@ -187,6 +189,7 @@ export function composeSnapshotRuns(ctx: Ctx): SnapshotRun[] {
       letter: letters.get(run.id) ?? "A",
       title: run.title,
       workflow: run.workflow,
+      ...(run.origin ? { origin: run.origin } : {}),
       status: run.status,
       priority,
       ...(run.pausedReason ? { paused_reason: run.pausedReason } : {}),

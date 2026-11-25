@@ -1,5 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 use pacer_foundation::Ctx;
+use pacer_read_model::js::text;
 use pacer_read_model::runs::{letter_at, snapshot_runs};
 use serde_json::json;
 use std::collections::HashMap;
@@ -199,4 +200,43 @@ fn ranking_prefers_priority_then_unblocks() {
     let items = pacer_read_model::attention::run_question_items(&ctx);
     assert_eq!(items[0]["run"]["priority"], json!("urgent"));
     assert_eq!(items[1]["run"]["priority"], json!("background"));
+}
+
+#[test]
+fn snapshot_runs_exposes_origin_from_the_migrated_column() {
+    let (_dir, ctx) = ctx();
+    let db = open(&ctx);
+    db.execute_batch(
+        "CREATE TABLE workflow_runs(
+           id TEXT PRIMARY KEY, workflow TEXT, version INTEGER, repo TEXT, brief TEXT, title TEXT,
+           status TEXT, reason TEXT, loops TEXT, rev INTEGER, created_at REAL, updated_at REAL,
+           priority TEXT, letter TEXT, origin TEXT
+         );
+         CREATE TABLE workflow_steps(
+           run_id TEXT, step_id TEXT, attempt INTEGER, branch TEXT, task_id TEXT,
+           status TEXT, result TEXT, error TEXT, started_at REAL, ended_at REAL,
+           PRIMARY KEY(run_id, step_id, attempt, branch)
+         );",
+    )
+    .unwrap();
+    for (id, origin) in [
+        ("run_humanxxx", Some("human")),
+        ("run_plannerx", Some("external:codex:sess")),
+        ("run_legacyxx", None),
+    ] {
+        db.execute(
+            "INSERT INTO workflow_runs(id, workflow, version, repo, brief, title, status, reason, loops, rev, created_at, updated_at, priority, letter, origin)
+             VALUES (?1, 't', 1, '/tmp', 'b', 'T', 'running', NULL, '{}', 1, 1.0, 1.0, 'normal', 'A', ?2)",
+            rusqlite::params![id, origin],
+        )
+        .unwrap();
+    }
+    let runs = snapshot_runs(&ctx);
+    let by_id = |id: &str| runs.iter().find(|r| r["id"] == json!(id)).expect("run");
+    assert_eq!(text(&by_id("run_humanxxx")["origin"]), "human");
+    assert_eq!(
+        text(&by_id("run_plannerx")["origin"]),
+        "external:codex:sess"
+    );
+    assert!(by_id("run_legacyxx").get("origin").is_none());
 }

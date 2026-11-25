@@ -68,6 +68,147 @@ fn seed_question_for_asker(
     .expect("question");
 }
 
+/// Seed a run whose schema includes the migrated `origin` column.
+fn seed_origin_question(
+    ctx: &Ctx,
+    run_id: &str,
+    q_id: &str,
+    origin: Option<&str>,
+    created_at: f64,
+    blocks: &str,
+) {
+    let path = ctx.pacer_home.join("state/tasks.db");
+    let db = rusqlite::Connection::open(&path).expect("open db");
+    db.execute_batch(
+        "CREATE TABLE IF NOT EXISTS workflow_runs(
+           id TEXT PRIMARY KEY, workflow TEXT, version INTEGER, repo TEXT, brief TEXT, title TEXT,
+           status TEXT, reason TEXT, loops TEXT, rev INTEGER, created_at REAL, updated_at REAL,
+           origin TEXT
+         );
+         CREATE TABLE IF NOT EXISTS workflow_questions(
+           id TEXT PRIMARY KEY, run_id TEXT, step_id TEXT, attempt INTEGER, branch TEXT,
+           asker_task_id TEXT, asker_kind TEXT, text TEXT, answer_type TEXT, options TEXT,
+           recommended TEXT, blocks TEXT, artifact TEXT, answerer TEXT, chain TEXT,
+           suggested TEXT, answer TEXT, answered_by TEXT, status TEXT, rev INTEGER,
+           created_at REAL, answered_at REAL
+         );",
+    )
+    .expect("ddl");
+    db.execute(
+        "INSERT INTO workflow_runs(id, workflow, version, repo, brief, title, status, reason, loops, rev, created_at, updated_at, origin)
+         VALUES (?1, 't/attn', 1, '/tmp', 'B', 'Ship?', 'running', NULL, '{}', 1, ?2, ?2, ?3)",
+        rusqlite::params![run_id, created_at, origin],
+    )
+    .expect("run");
+    db.execute(
+        "INSERT INTO workflow_questions(
+           id, run_id, step_id, attempt, branch, asker_task_id, asker_kind, text, answer_type,
+           options, recommended, blocks, artifact, answerer, chain, suggested, answer, answered_by,
+           status, rev, created_at, answered_at
+         ) VALUES (?1, ?2, 'ask', 1, NULL, 't-ask', 'executor', 'Ship?', 'single',
+           NULL, 'a', ?3, NULL, 'person', '[]', NULL, NULL, NULL, 'open', 1, ?4, NULL)",
+        rusqlite::params![q_id, run_id, blocks, created_at],
+    )
+    .expect("question");
+}
+
+#[test]
+fn run_question_notify_follows_origin_and_caller_gone_window() {
+    let (_dir, ctx) = ctx();
+    let now = ctx.now;
+    // Human-origin root: a blocking question interrupts immediately, no waitingOn.
+    seed_origin_question(
+        &ctx,
+        "run_humanxxx",
+        "q_humanxxxx",
+        Some("human"),
+        now - 10.0,
+        "step",
+    );
+    // Planner-origin root, recent: stays quiet but names the external caller.
+    seed_origin_question(
+        &ctx,
+        "run_plannerx",
+        "q_plannerxx",
+        Some("external:codex:sess"),
+        now - 10.0,
+        "step",
+    );
+    // Planner-origin root, older than the window: escalates with waitingOn.
+    seed_origin_question(
+        &ctx,
+        "run_olderxxx",
+        "q_olderxxxx",
+        Some("external:claude-code:sess"),
+        now - 1800.0,
+        "step",
+    );
+    // Legacy NULL origin: a pre-upgrade run stays human-owned, so it interrupts
+    // immediately without a waitingOn caller (the pre-change behavior).
+    seed_origin_question(
+        &ctx,
+        "run_legacyxx",
+        "q_legacyxxx",
+        None,
+        now - 10.0,
+        "step",
+    );
+    // Explicit unknown:<id> origin: no human ownership and no external caller to
+    // group by, so it is quiet until the caller-gone window.
+    seed_origin_question(
+        &ctx,
+        "run_unknownx",
+        "q_unknownxx",
+        Some("unknown:orchestrator"),
+        now - 10.0,
+        "step",
+    );
+    seed_origin_question(
+        &ctx,
+        "run_unkolder",
+        "q_unkolderx",
+        Some("unknown:orchestrator"),
+        now - 1800.0,
+        "step",
+    );
+    // A question that unblocks nothing stays level all even for a human root.
+    seed_origin_question(
+        &ctx,
+        "run_nothingx",
+        "q_nothingxx",
+        Some("human"),
+        now - 10.0,
+        "nothing",
+    );
+
+    let items = attention::run_question_items(&ctx);
+    let by_q = |id: &str| {
+        items
+            .iter()
+            .find(|i| i["question"]["id"] == json!(id))
+            .expect("item")
+    };
+    assert_eq!(text(&by_q("q_humanxxxx")["notify"]), "important");
+    assert!(by_q("q_humanxxxx").get("waitingOn").is_none());
+    assert_eq!(text(&by_q("q_plannerxx")["notify"]), "all");
+    assert_eq!(
+        text(&by_q("q_plannerxx")["waitingOn"]),
+        "external:codex:sess"
+    );
+    assert_eq!(text(&by_q("q_olderxxxx")["notify"]), "important");
+    assert_eq!(
+        text(&by_q("q_olderxxxx")["waitingOn"]),
+        "external:claude-code:sess"
+    );
+    assert_eq!(text(&by_q("q_legacyxxx")["notify"]), "important");
+    assert!(by_q("q_legacyxxx").get("waitingOn").is_none());
+    assert_eq!(text(&by_q("q_unknownxx")["notify"]), "all");
+    assert!(by_q("q_unknownxx").get("waitingOn").is_none());
+    assert_eq!(text(&by_q("q_unkolderx")["notify"]), "important");
+    assert!(by_q("q_unkolderx").get("waitingOn").is_none());
+    assert_eq!(text(&by_q("q_nothingxx")["notify"]), "all");
+}
+
 #[test]
 fn missing_tables_yield_no_run_question_items() {
     let (_dir, ctx) = ctx();

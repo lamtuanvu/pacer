@@ -1303,7 +1303,7 @@ export async function startPendingEntries(
 
 export async function startRun(
   ctx: Ctx,
-  input: { workflow: string; repo: string; brief: string; title?: string; priority?: RunPriority; publish?: "draft" },
+  input: { workflow: string; repo: string; brief: string; title?: string; priority?: RunPriority; publish?: "draft"; origin?: string },
   spawn?: SpawnRunner,
   deps: EngineDeps = defaultEngineDeps,
   child?: {
@@ -1361,6 +1361,9 @@ export async function startRun(
   const priority = child
     ? (child.priority ?? runPriorityOf(parent))
     : (input.priority ?? "normal");
+  // Child runs inherit the root's notification owner: the parent already carries
+  // the root's origin (children inherit at their own start), so no deeper walk.
+  const origin = child ? parent?.origin : input.origin;
   // Inherit a parent person pause so a child STARTED after the pause is also paused.
   // insertRun also re-checks the parent inside its immediate txn (M3).
   const inheritPersonPause = !!(child && parent && isPersonPaused(parent));
@@ -1377,6 +1380,7 @@ export async function startRun(
     brief: input.brief,
     title: input.title,
     priority,
+    ...(origin ? { origin } : {}),
     entryLeaseUntil: leaseAtInsert + leaseS,
     entryOwner,
     ...(seed ? { entrySeed: seed } : {}),

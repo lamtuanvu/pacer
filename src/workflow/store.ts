@@ -145,6 +145,10 @@ export function workflowDatabase(ctx: Ctx): Database {
     if (!runColumns.includes("entry_first_transient_at")) db.exec("ALTER TABLE workflow_runs ADD COLUMN entry_first_transient_at REAL");
     // Phase 6 batch I: wall-clock of the most recent transient entry-start failure (gap restart).
     if (!runColumns.includes("entry_last_transient_at")) db.exec("ALTER TABLE workflow_runs ADD COLUMN entry_last_transient_at REAL");
+    // Notification ownership: `human` or the external caller participant id
+    // (`external:<kind>[:<session>]`). Nullable: pre-upgrade rows and runs started
+    // without a caller are not human-owned; never backfill them as human.
+    if (!runColumns.includes("origin")) db.exec("ALTER TABLE workflow_runs ADD COLUMN origin TEXT");
     // Backfill letters for live letterless rows inside this write transaction only (never on read).
     // Used set includes ALL existing letters (terminal rows too) so the unique index cannot throw.
     {
@@ -352,6 +356,8 @@ export interface RunRow {
   entryFirstTransientAt?: number;
   /** Phase 6 batch I: unix seconds of the most recent durable transient entry-start failure. */
   entryLastTransientAt?: number;
+  /** Notification owner at start: `human` or `external:<kind>[:<session>]`. NULL = not human-owned. */
+  origin?: string;
 }
 
 /** How long an entry-start owner holds exclusive ownership after claim/renew (seconds). */
@@ -512,6 +518,8 @@ export type NewRun = {
   entryOwner?: string;
   /** Durable seedFinished written atomically with the run row. */
   entrySeed?: { finishedIds: string[]; results: Record<string, unknown> };
+  /** Notification owner; children inherit the root's value in startRun. */
+  origin?: string;
 };
 
 export type StepKey = { runId: string; stepId: string; attempt: number; branch?: string };
@@ -568,6 +576,7 @@ interface RunDbRow {
   entry_start_attempts?: number | null;
   entry_first_transient_at?: number | null;
   entry_last_transient_at?: number | null;
+  origin?: string | null;
 }
 interface StepDbRow {
   run_id: string; step_id: string; attempt: number; branch: string | null; task_id: string | null;
@@ -653,6 +662,7 @@ function runFromRow(row: RunDbRow): RunRow {
   if (row.entry_last_transient_at != null) {
     out.entryLastTransientAt = row.entry_last_transient_at;
   }
+  if (row.origin) out.origin = row.origin;
   return out;
 }
 
@@ -896,6 +906,7 @@ export function insertRun(ctx: Ctx, r: NewRun): RunRow {
     if (r.entryLeaseUntil != null) row.entryLeaseUntil = r.entryLeaseUntil;
     if (r.entryOwner) row.entryOwner = r.entryOwner;
     if (r.entrySeed && r.entrySeed.finishedIds.length > 0) row.entrySeed = r.entrySeed;
+    if (r.origin) row.origin = r.origin;
     row.meaningfulAt = ctx.now;
     const seedJson = row.entrySeed ? JSON.stringify(row.entrySeed) : null;
     const used = db.query<{ letter: string | null }, []>("SELECT letter FROM workflow_runs WHERE letter IS NOT NULL AND letter != ''")
@@ -908,7 +919,7 @@ export function insertRun(ctx: Ctx, r: NewRun): RunRow {
       row.letter = letter;
       try {
         db.query(
-          "INSERT INTO workflow_runs(id, workflow, version, repo, brief, title, status, reason, loops, rev, created_at, updated_at, parent_run_id, parent_step, planner, orchestrator_task_id, session_id, budget, spent, step_mode, root_task_id, priority, paused_reason, letter, meaningful_at, entry_lease_until, entry_owner, entry_seed, entry_start_attempts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          "INSERT INTO workflow_runs(id, workflow, version, repo, brief, title, status, reason, loops, rev, created_at, updated_at, parent_run_id, parent_step, planner, orchestrator_task_id, session_id, budget, spent, step_mode, root_task_id, priority, paused_reason, letter, meaningful_at, entry_lease_until, entry_owner, entry_seed, entry_start_attempts, origin) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         ).run(
           row.id, row.workflow, row.version, row.repo, row.brief, row.title, row.status, null,
           JSON.stringify(row.loops), row.rev, row.createdAt, row.updatedAt,
@@ -918,6 +929,7 @@ export function insertRun(ctx: Ctx, r: NewRun): RunRow {
           row.stepMode, row.rootTaskId ?? null,
           row.priority, row.pausedReason ?? null, row.letter, row.meaningfulAt,
           row.entryLeaseUntil ?? null, row.entryOwner ?? null, seedJson, 0,
+          row.origin ?? null,
         );
         return row;
       } catch (err) {

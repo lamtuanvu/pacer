@@ -1,5 +1,8 @@
-import { expect, test } from "bun:test";
-import { deriveItems, type RuleInput } from "../src/attention/rules";
+import { describe, expect, test } from "bun:test";
+import {
+  CALLER_GONE_AFTER_S, deriveItems, notifyLevelForRun, runExternalCaller, runOwnedByHuman,
+  type RuleInput, type RunAttentionKind,
+} from "../src/attention/rules";
 import { apiTask } from "../src/api/read-model/tasks";
 import { deriveTaskItems } from "../src/core/task-attention";
 import { buildCounts } from "../src/api/read-model/summary";
@@ -207,4 +210,80 @@ test("managed work actions use revision-scoped dispatch requests", () => {
  }
  const t = {...task("needs_input"),rev:8,work:{rootId:"root",parentId:null,depth:0},question:{text:"Question?",at:ctx.now}};
  expect(deriveItems({...input(),tasks:[t]})[0]?.actions[0]).toEqual({label:"Answer",op:"dispatch.answer",params:{id:t.id,expect_rev:8,requestId:`${t.id}.8.answer`}});
+});
+
+describe("workflow run ownership notify rules", () => {
+ const now = 1_700_000_000;
+ const run = (origin?: string, updatedAt = now) => ({ origin, updatedAt });
+ const BLOCKING: RunAttentionKind[] = [
+  "budget_spent", "budget_msg_spent", "orchestrator_failed", "orchestrator_blocked",
+  "unresolved_wake", "question",
+ ];
+
+ test("runOwnedByHuman covers human and legacy NULL origins, including inherited child runs", () => {
+  expect(runOwnedByHuman(run("human"))).toBe(true);
+  expect(runOwnedByHuman({ origin: "human", parentRunId: "root" })).toBe(true);
+  expect(runOwnedByHuman(run(undefined))).toBe(true);
+  expect(runOwnedByHuman(null)).toBe(true);
+  expect(runOwnedByHuman(run("external:claude-code:sess"))).toBe(false);
+  expect(runOwnedByHuman(run("unknown:orchestrator"))).toBe(false);
+ });
+
+ test("runExternalCaller returns only an identified external origin", () => {
+  expect(runExternalCaller(run("external:claude-code:sess"))).toBe("external:claude-code:sess");
+  expect(runExternalCaller(run("human"))).toBeNull();
+  expect(runExternalCaller(run("external:local"))).toBe("external:local");
+  expect(runExternalCaller(run("unknown:orchestrator"))).toBeNull();
+  expect(runExternalCaller(run())).toBeNull();
+  expect(runExternalCaller(null)).toBeNull();
+ });
+
+ test("blocking kinds are important for a human-owned root at any age", () => {
+  for (const kind of BLOCKING) {
+   expect(notifyLevelForRun(kind, run("human", now - 10), now, { since: now - 10 })).toBe("important");
+   expect(notifyLevelForRun(kind, run("human", now - 86_400), now)).toBe("important");
+  }
+ });
+
+ test("blocking kinds on a planner-owned root wait out CALLER_GONE_AFTER_S", () => {
+  const planner = run("external:codex:sess", now - 10);
+  for (const kind of BLOCKING) {
+   expect(notifyLevelForRun(kind, planner, now, { since: now - 10 })).toBe("all");
+   expect(notifyLevelForRun(kind, planner, now, { since: now - CALLER_GONE_AFTER_S })).toBe("important");
+   expect(notifyLevelForRun(kind, planner, now, { since: now - CALLER_GONE_AFTER_S - 1 })).toBe("important");
+  }
+ });
+
+ test("a NULL-origin (legacy) blocking item stays important like a pre-upgrade run", () => {
+  for (const kind of BLOCKING) {
+   expect(notifyLevelForRun(kind, run(undefined, now - 10), now)).toBe("important");
+   expect(notifyLevelForRun(kind, run(undefined, now - 86_400), now)).toBe("important");
+  }
+ });
+
+ test("an explicit unknown:<id> origin is not human-owned and has no external caller", () => {
+  const unknown = run("unknown:orchestrator", now - 10);
+  expect(runOwnedByHuman(unknown)).toBe(false);
+  expect(runExternalCaller(unknown)).toBeNull();
+  for (const kind of BLOCKING) {
+   expect(notifyLevelForRun(kind, unknown, now)).toBe("all");
+   expect(notifyLevelForRun(kind, unknown, now, { since: now - CALLER_GONE_AFTER_S })).toBe("important");
+  }
+ });
+
+ test("warnings and questions that unblocks nothing are always level all", () => {
+  for (const kind of ["budget_warn", "budget_msg_warn"] as RunAttentionKind[]) {
+   expect(notifyLevelForRun(kind, run("human"), now)).toBe("all");
+   expect(notifyLevelForRun(kind, run("external:codex"), now, { since: now - 86_400 })).toBe("all");
+  }
+  expect(notifyLevelForRun("question", run("human"), now, { unblocks: "nothing" })).toBe("all");
+  expect(notifyLevelForRun("question", run("external:codex"), now, {
+   unblocks: "nothing", since: now - 86_400,
+  })).toBe("all");
+ });
+
+ test("caller-gone escalation needs a known, non-future since", () => {
+  expect(notifyLevelForRun("budget_spent", { origin: "external:codex" }, now)).toBe("all");
+  expect(notifyLevelForRun("budget_spent", { origin: "external:codex" }, now, { since: now + 10 })).toBe("all");
+ });
 });
