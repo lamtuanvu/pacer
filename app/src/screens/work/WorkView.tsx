@@ -4,7 +4,7 @@ import {Button} from "../../ds/Button";
 import {Disclosure,Field,TextArea} from "../../ds/Controls";
 import {EmptyState,Skeleton,TextRow} from "../../ds/Patterns";
 import {Page,Section,Stack} from "../../ds/Page";
-import {ErrorMessage,TaskLink,useAction,useQuery,useTaskContext} from "../task-shared";
+import {ErrorMessage,TaskLink,useAction,useQuery,useTaskContext,queryRevision} from "../task-shared";
 import {executorLabel,taskStatus,percentage} from "../../../../src/view-model/words";
 import {clock} from "../../../../src/view-model/time";
 
@@ -48,10 +48,11 @@ export function WorkNode({node,nodes,onChanged}:{node:Node;nodes:Node[];onChange
 }
 export function WorkView({id}:{id:string}){
  const {api,state}=useTaskContext(),visible=useViewActive();
- const tree=useQuery<Tree>("dispatch.tree",{id}),analytics=useQuery<Analytics>("dispatch.analytics",{});
+ const treeRevision=queryRevision(state,"dispatch.tree",{id});
+ const tree=useQuery<Tree>("dispatch.tree",{id}),analytics=useQuery<Analytics>("dispatch.analytics",{},treeRevision);
  const [events,setEvents]=useState<Event[]>([]),[eventError,setEventError]=useState<unknown>(),[eventVersion,reloadEvents]=useState(0),[eventsLoading,setEventsLoading]=useState(true);
  useEffect(()=>{if(!visible)return;let cancelled=false;setEventsLoading(true);setEventError(undefined);void(async()=>{try{let after=0;const all:Event[]=[];for(;;){const page=await api.call<{events:Event[];next:number;hasMore:boolean}>("dispatch.events",{id,after});if(cancelled)return;all.push(...page.events);if(!page.hasMore||page.next<=after)break;after=page.next;}if(!cancelled)setEvents(all);}catch(error){if(!cancelled)setEventError(error);}finally{if(!cancelled)setEventsLoading(false);}})();return()=>{cancelled=true;};},[api,id,eventVersion,visible]);
- useEffect(()=>{if(!visible)return;reloadEvents(v=>v+1);},[visible,state.invalidations]);
+ useEffect(()=>{if(!visible)return;reloadEvents(v=>v+1);},[visible,treeRevision]);
  const changed=()=>{tree.reload();reloadEvents(v=>v+1);analytics.reload();};
  if(!tree.data)return tree.error?<ErrorMessage error={tree.error}/>:<Skeleton layout="task" label="Loading work tree…"/>;
  const totals=tree.data.totals;

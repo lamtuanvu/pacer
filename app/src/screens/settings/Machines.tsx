@@ -174,11 +174,13 @@ function ThisMachine({ initialData }: { initialData?: ConfigData }) {
   const [live, setLive] = useState<ConfigData["machine"]>();
   const visible = useViewActive();
   useEffect(() => {
+    if (!visible) return;
     let active = true;
     const poll = () => {
       if (!active || (typeof document !== "undefined" && document.visibilityState !== "visible")) return;
       void api.call<ConfigData>("config.get", {}).then(r => { if (active) setLive(r.machine); }, () => {});
     };
+    poll();
     const timer = setInterval(poll, 5000);
     const onVisibility = () => { if (document.visibilityState === "visible") poll(); };
     if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVisibility);

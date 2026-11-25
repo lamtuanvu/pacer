@@ -128,9 +128,10 @@ export function JobList({target,onComplete}:{target:string;onComplete:()=>void})
  const jobs=new Map((query.data??[]).map(job=>[job.id,job]));
  for(const event of Object.values(state.jobs))if(event.target===target)jobs.set(event.id,latestJob(event,jobs.get(event.id))!);
  const running=[...jobs.values()].some(job=>job.state==='running'),signature=[...jobs.values()].filter(job=>job.state!=='running').map(job=>`${job.id}:${job.state}`).join('|');
+ const trackedJobSignature=[...jobs.values()].map(job=>`${job.id}:${job.state}:${job.endedAt ?? 0}:${job.steps.map(step=>`${step.name}:${step.state}:${step.detail ?? ""}`).join(",")}`).join('|');
  const last=useRef('');
  useEffect(()=>{if(signature&&last.current!==signature){last.current=signature;onComplete();}},[signature]);
- useEffect(()=>{if(!running)return;if (running) query.reload(); }, [state.jobs]);
+ useEffect(()=>{if(!running)return;if (running) query.reload(); }, [trackedJobSignature]);
   useEffect(()=>{ if(!running)return; const timer=setInterval(()=>{ if (typeof document !== "undefined" && document.visibilityState !== "visible") return; query.reload(); },30000); return()=>clearInterval(timer); },[running]);
  return <><ErrorMessage error={query.error}/>{[...jobs.values()].sort((a,b)=>b.startedAt-a.startedAt).slice(0,3).map(job=><JobProgress key={job.id} job={job}/>)}</>;
 }
