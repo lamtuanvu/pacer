@@ -4,6 +4,7 @@ import { orchestratorBlock, runStatus } from "../../../../src/view-model/runs";
 import { useLiveStyles } from "./LiveBoard";
 import { Alert } from "../../ds/Alert";
 import { Button, ButtonLink } from "../../ds/Button";
+import { SectionHeading } from "../../ds/SectionHeading";
 import { Range } from "../../ds/Controls";
 import { Page } from "../../ds/Page";
 import { EmptyState, RadioChoices } from "../../ds/Patterns";
@@ -120,7 +121,7 @@ export function JourneyPlayback({ runId, query, stepMs = STEP_MS }: { runId: str
           </section>
 
           <section className="lb-section" aria-labelledby={`${markerId}-events`}>
-            <h2 className="lb-title" id={`${markerId}-events`}>Events</h2>
+            <SectionHeading id={`${markerId}-events`}>Events</SectionHeading>
             <ol className="lb-list" aria-label="Journey events">
               {journey.events.map(e => {
                 const state = e.index < index ? "played" : e.index === index ? "now" : "next";

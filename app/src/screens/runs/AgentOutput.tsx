@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import type { BrowserApi } from "../../data/api";
 import { Alert } from "../../ds/Alert";
 import { Button, ButtonLink } from "../../ds/Button";
+import { SectionHeading } from "../../ds/SectionHeading";
 
 interface Chunk { stdout: string; stderr: string; next: { stdout: number; stderr: number }; done: boolean; source: string }
 export const OUTPUT_POLL_MS = 2500;
@@ -54,7 +55,7 @@ export function AgentOutput({ api, taskId, executor, stepLabel, sessionHref, onC
   return (
     <section ref={panel} className="lb-section" aria-label={`Live output: ${executor} on ${stepLabel}`}>
       <div className="lb-row">
-        <h2 className="lb-title">Live output</h2>
+        <SectionHeading>Live output</SectionHeading>
         <span className="lb-cap">{executor} · {stepLabel}</span>
       </div>
       <p className="lb-cap" role="status" aria-live="polite">{status}</p>

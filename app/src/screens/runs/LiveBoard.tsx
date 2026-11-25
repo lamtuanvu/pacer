@@ -15,6 +15,7 @@ import { Field, TextArea } from "../../ds/Controls";
 import { Page } from "../../ds/Page";
 import { EmptyState, RadioChoices } from "../../ds/Patterns";
 import { Pill } from "../../ds/Pill";
+import { SectionHeading } from "../../ds/SectionHeading";
 import { PageHead } from "../../shell/slots";
 import type { RouteQuery } from "../../router";
 import { RunQuestionCard } from "./run-shared";
@@ -199,7 +200,7 @@ export function LiveBoard({ runId, query, outputPollMs }: { runId: string; query
         ) : null}
 
         <section className="lb-section" aria-labelledby={`${markerId}-agents`}>
-          <h2 className="lb-title" id={`${markerId}-agents`}>Agents at work</h2>
+          <SectionHeading id={`${markerId}-agents`}>Agents at work</SectionHeading>
           {agents.length === 0 ? <p className="lb-cap">No agent is working on this run right now.</p> : (
             <ul className="lb-list">
               {agents.map(a => (
@@ -217,7 +218,7 @@ export function LiveBoard({ runId, query, outputPollMs }: { runId: string; query
 
         {questions.length ? (
           <section className="lb-section" aria-label="Needs your answer">
-            <h2 className="lb-title">Needs your answer</h2>
+            <SectionHeading>Needs your answer</SectionHeading>
             {questions.map(q => (
               <RunQuestionCard key={q.id} question={q} canAnswer={canAnswer} api={api}
                 onAnswered={() => { setAnnounce("Answer submitted"); queueMicrotask(() => headingRef.current?.focus({ preventScroll: true })); void load(); }}
@@ -228,7 +229,7 @@ export function LiveBoard({ runId, query, outputPollMs }: { runId: string; query
 
         {canMessage ? (
           <section className="lb-section" aria-labelledby={`${markerId}-send`}>
-            <h2 className="lb-title" id={`${markerId}-send`}>Message</h2>
+            <SectionHeading id={`${markerId}-send`}>Message</SectionHeading>
             <form className="lb-send" onSubmit={e => { e.preventDefault(); void send(); }}>
               <RadioChoices label="Send to" name={`${markerId}-lane`} value={channel} onChange={v => { setChannel(v as MessageChannel); setSendError(""); setSent(""); }}
                 options={(["party", "whisper", "planner"] as const).map(c => ({ value: c, label: CHANNEL_LABELS[c], disabled: (c === "planner" && !orchTaskId) || (c === "whisper" && agents.length === 0) }))} />
@@ -253,7 +254,7 @@ export function LiveBoard({ runId, query, outputPollMs }: { runId: string; query
         ) : null}
 
         <section className="lb-section" aria-labelledby={`${markerId}-steps`}>
-          <h2 className="lb-title" id={`${markerId}-steps`}>Steps on the board</h2>
+          <SectionHeading id={`${markerId}-steps`}>Steps on the board</SectionHeading>
           {nodes.length === 0 ? <p className="lb-cap">No steps have started yet.</p> : (
             <ul className="lb-list">
               {nodes.map(n => {
