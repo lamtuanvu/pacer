@@ -18,7 +18,7 @@ test("independent crate versions ignore generated VCS and lock metadata but dete
 test("the independent protocol crates publish before the SDK that depends on all of them", () => {
   const root = join(import.meta.dir, "..");
   const manifest = (folder: string) => Bun.TOML.parse(readFileSync(join(root, "crates", folder, "Cargo.toml"), "utf8")) as { package: { name: string; version: string; publish?: boolean }; dependencies?: Record<string, unknown> };
-  expect(pluginCrateFolders).toEqual(["plugin-decision-protocol", "plugin-agent-session-protocol", "plugin-install-protocol", "plugin-hosts-protocol", "plugin-exec-protocol", "plugin-assistant-protocol", "plugin-protocol", "plugin-sdk"]);
+  expect(pluginCrateFolders).toEqual(["plugin-decision-protocol", "plugin-agent-session-protocol", "plugin-install-protocol", "plugin-hosts-protocol", "plugin-exec-protocol", "plugin-assistant-protocol", "plugin-workflow-protocol", "plugin-protocol", "plugin-sdk"]);
   const names = pluginCrateFolders.map(folder => manifest(folder).package.name);
   for (const [index, folder] of pluginCrateFolders.entries()) {
     const { package: metadata, dependencies = {} } = manifest(folder);
@@ -28,6 +28,9 @@ test("the independent protocol crates publish before the SDK that depends on all
   const protocols = names.slice(0, -1);
   for (const folder of pluginCrateFolders.slice(0, -1)) expect(Object.keys(manifest(folder).dependencies ?? {}).filter(name => names.includes(name))).toEqual([]);
   expect(Object.keys(manifest("plugin-sdk").dependencies ?? {})).toEqual(expect.arrayContaining(protocols));
+  // Every crate the SDK depends on by path must publish first, or `cargo package` cannot resolve it.
+  const sdkPathDeps = Object.entries((manifest("plugin-sdk").dependencies ?? {}) as Record<string, { path?: string }>).filter(([, spec]) => typeof spec === "object" && spec.path).map(([name]) => name);
+  expect(protocols).toEqual(expect.arrayContaining(sdkPathDeps));
 });
 
 test("protocol area crate archives hash like the other plugin crates", async () => {
@@ -107,6 +110,7 @@ test("release graph packages every independent area before the SDK", async () =>
     "pacer-plugin-hosts-protocol": "0.4.0",
     "pacer-plugin-exec-protocol": "0.4.0",
     "pacer-plugin-assistant-protocol": "0.5.0",
+    "pacer-plugin-workflow-protocol": "0.3.0",
     "pacer-plugin-protocol": "0.4.0",
     "pacer-plugin": "0.5.0",
   };
