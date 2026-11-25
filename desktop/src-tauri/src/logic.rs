@@ -3332,7 +3332,28 @@ pub fn desktop_update_connection(
     } else {
         ("connecting", None)
     };
-    serde_json::json!({ "state": state, "reason": reason })
+    let mut result = serde_json::json!({ "state": state, "reason": reason });
+    if reason == Some("connection") {
+        if let Some(kind) = error.and_then(connection_error_kind) {
+            result["error"] = serde_json::json!(kind);
+        }
+    }
+    result
+}
+
+/// Stable kebab-case kind for the generic "connection" reason; never carries paths or messages.
+pub fn connection_error_kind(error: pacer_desktop::ota::OtaError) -> Option<&'static str> {
+    use pacer_desktop::ota::OtaError;
+    match error {
+        OtaError::Unavailable => Some("unavailable"),
+        OtaError::Invalid => Some("invalid"),
+        OtaError::Io => Some("io"),
+        OtaError::Busy => Some("busy"),
+        OtaError::Timeout => Some("timeout"),
+        OtaError::Interrupted => Some("interrupted"),
+        OtaError::RecoveryFailed => Some("recovery-failed"),
+        OtaError::Identity | OtaError::HandshakeClosed => None,
+    }
 }
 
 #[cfg(test)]
@@ -3356,10 +3377,33 @@ mod desktop_connection_tests {
     #[test]
     fn connection_failure_is_not_an_up_to_date_or_manual_only_state() {
         assert_eq!(desktop_update_connection(true, false, Some(OtaError::Identity), false, true), serde_json::json!({"state":"unavailable","reason":"service-identity"}));
-        assert_eq!(desktop_update_connection(true, false, Some(OtaError::Io), true, true), serde_json::json!({"state":"unavailable","reason":"connection"}));
+        assert_eq!(desktop_update_connection(true, false, Some(OtaError::Io), true, true), serde_json::json!({"state":"unavailable","reason":"connection","error":"io"}));
         assert_eq!(desktop_update_connection(true, false, Some(OtaError::HandshakeClosed), false, true), serde_json::json!({"state":"unavailable","reason":"handshake"}));
         assert_eq!(desktop_update_connection(true, false, Some(OtaError::Identity), true, true)["reason"], "service-takeover");
         assert_eq!(desktop_update_connection(true, false, Some(OtaError::Identity), true, false)["reason"], "service-identity");
+    }
+    #[test]
+    fn connection_reason_names_every_error_kind_and_only_then() {
+        for (error, kind) in [
+            (OtaError::Unavailable, "unavailable"),
+            (OtaError::Invalid, "invalid"),
+            (OtaError::Io, "io"),
+            (OtaError::Busy, "busy"),
+            (OtaError::Timeout, "timeout"),
+            (OtaError::Interrupted, "interrupted"),
+            (OtaError::RecoveryFailed, "recovery-failed"),
+        ] {
+            assert_eq!(
+                desktop_update_connection(true, false, Some(error), false, true),
+                serde_json::json!({"state":"unavailable","reason":"connection","error":kind})
+            );
+        }
+        for (error, takeover) in [(OtaError::Identity, true), (OtaError::Identity, false), (OtaError::HandshakeClosed, false)] {
+            assert!(desktop_update_connection(true, false, Some(error), takeover, true).get("error").is_none());
+        }
+        assert!(desktop_update_connection(true, true, Some(OtaError::Io), false, true).get("error").is_none());
+        assert!(desktop_update_connection(true, false, None, false, true).get("error").is_none());
+        assert!(desktop_update_connection(false, false, Some(OtaError::Io), false, true).get("error").is_none());
     }
     #[test]
     fn live_authority_and_build_support_are_distinct_from_pending_connection() {
