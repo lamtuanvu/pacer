@@ -52,9 +52,12 @@ async function open(fixture: Fixture, ops = ALL_OPS, handlers: Parameters<typeof
       {wrapRun ? <RunView runId={fixture.id} query={query} /> : <RunsPage query={query} runId={fixture.id} />}
     </TaskContext.Provider>
   ));
-  await until(() => domText(dom.container).includes("Run A") || domText(dom.container).includes("Couldn't load"), 3000);
+  await until(() => domText(dom.container).includes("Planner") || domText(dom.container).includes("Couldn't load"), 3000);
   // Flush passive effects of components that mounted after the async load (outside act).
   await act(async () => { await tick(); });
+  // Preact flushes passive effects after paint (rAF raced against a 100 ms timeout); wait past it so a form's
+  // mount-time reset effect cannot run after the test's first interaction.
+  await new Promise(resolve => setTimeout(resolve, 130));
   return { dom, calls, api };
 }
 const done = async (dom: Awaited<ReturnType<typeof open>>["dom"]) => { await unmount(dom); dom.restore(); };
@@ -106,6 +109,9 @@ test("the open question is drawn by the shared form and answering sends expect_r
     expect(calls.ops.find(c => c.op === "question.answer")!.params).toEqual({ id: "q_spec", answer: "approve", expect_rev: 3 });
     await until(() => calls.ops.filter(c => c.op === "run.get").length > getsBefore, 2000);
     await until(() => domText(dom.container).includes("Answer submitted"), 2000);
+    // focus returns to the run title instead of being dropped with the answered form
+    await tick();
+    expect((dom.doc as unknown as { activeElement: Node | null }).activeElement && text((dom.doc as unknown as { activeElement: Node }).activeElement)).toContain("Ship the board");
   } finally { await done(dom); }
 });
 

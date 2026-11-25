@@ -419,7 +419,9 @@ export function boardAvailability(input: BoardInput, hasOrchestratorTask: boolea
   return {
     brainstorm: hasOrchestratorTask,
     review: reviewerPanels(input.detail, input.decisions).length > 0,
-    execution: Object.keys(input.children ?? {}).length > 0 || input.detail.steps.some(s => !s.branch && stepTypeOf(input.detail, s.stepId) !== "fanout") && (executionWaves(input)?.waves.length ?? 0) > 1,
+    // Waves are for the execution phase: a generated child run, or three or more root steps already under way.
+    execution: Object.keys(input.children ?? {}).length > 0
+      || new Set(input.detail.steps.filter(s => !s.branch).map(s => s.stepId)).size >= 3,
     tests: t.evidence.length > 0 || !!t.branch || !!t.prUrl || t.publishQuestions.length > 0,
   };
 }

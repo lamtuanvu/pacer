@@ -97,7 +97,7 @@ export function RunQuestionCard({ question, canAnswer, api, onAnswered, onConfli
     onAnswered();
   };
   return (
-    <div className="rv-box">
+    <div className="rv-box rv-box--form">
       <QuestionForm key={`${question.id}:${question.rev}`} question={form} canAnswer={canAnswer} onSubmit={submit} onConflict={onConflict} />
     </div>
   );

@@ -89,6 +89,10 @@ test("boardAvailability offers only boards with data", () => {
   expect(bare).toEqual({ brainstorm: false, review: false, execution: false, tests: false });
   expect(boardAvailability({ detail: detailOf(fanout) }, true)).toMatchObject({ brainstorm: true, review: true });
   expect(boardAvailability({ detail: detailOf(evidence), artifacts: evidence.get.artifacts }, false).tests).toBe(true);
+  // Execution waves are offered for a generated child run, not for a run still in brainstorm
+  expect(boardAvailability({ detail: detailOf(plain) }, true).execution).toBe(false);
+  const child = { run_child: { run: { id: "run_child" }, steps: generated.children!.run_child!.steps as never } };
+  expect(boardAvailability({ detail: detailOf(generated), children: child }, true).execution).toBe(true);
 });
 
 test("vocabulary: plain words for actors, kinds, evidence status and pause reasons", () => {

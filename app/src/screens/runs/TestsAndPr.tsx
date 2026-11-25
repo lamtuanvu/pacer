@@ -41,7 +41,7 @@ export function TestsAndPr({ runId, data, questions, canAnswer, api, onAnswered,
                 return (
                   <li key={s.name} className="rv-box" data-surface={s.name} data-status={s.status}>
                     <span className="rv-row"><strong className="rv-grow rv-clip" title={s.name}>{s.name}</strong><Pill tone={st.tone}><span aria-hidden="true">{st.glyph} </span>{st.label}</Pill></span>
-                    {s.steps.length ? <ol className="rv-list" aria-label={`Steps for ${s.name}`}>{s.steps.map((t, i) => <li key={i} className="rv-text">{t}</li>)}</ol> : null}
+                    {s.steps.length ? <ol className="rv-ol" aria-label={`Steps for ${s.name}`}>{s.steps.map((t, i) => <li key={i} className="rv-text">{t}</li>)}</ol> : null}
                     {s.artifacts.length ? <span className="rv-row">{s.artifacts.map(a => <ArtifactLink key={a.id} runId={runId} artifact={a} />)}</span> : null}
                     {s.missingArtifacts.length ? <p className="rv-cap">{s.missingArtifacts.length} attached file{s.missingArtifacts.length === 1 ? "" : "s"} could not be found.</p> : null}
                     {s.status === "unverified" ? <p className="rv-cap">Not checked: nothing was driven for this surface.</p> : null}

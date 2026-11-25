@@ -29,9 +29,12 @@ function Panel({ panel }: { panel: ReviewerPanelData }) {
             {lane.verdict ? <span className="rv-row"><Verdict verdict={lane.verdict} /></span> : null}
             {lane.summary ? <p className="rv-text">{lane.summary}</p> : null}
             {lane.findings.length ? (
-              <ul className="rv-list" aria-label={`Findings from ${lane.branch}`}>
-                {lane.findings.map((f, i) => <li key={i} className="rv-text">{f}</li>)}
-              </ul>
+              <>
+                <p className="rv-cap">Findings</p>
+                <ul className="rv-ul" aria-label={`Findings from ${lane.branch}`}>
+                  {lane.findings.map((f, i) => <li key={i} className="rv-text">{f}</li>)}
+                </ul>
+              </>
             ) : lane.status === "done" ? <p className="rv-cap">No findings reported.</p> : null}
             {lane.error ? <p className="rv-text" role="note">This reviewer stopped: {lane.error}</p> : null}
           </li>
