@@ -52,6 +52,8 @@ export interface MultiRunModel {
   lines: RunLineRow[];
   queue: QueueRow[];
   bench: BenchRow[];
+  /** Executor slots in use across the bench: the dispatcher's capacity every run shares. */
+  capacity: { used: number; max: number } | null;
   hidden: { focus: number; quietRuns: number; quietItems: number; quietBackgroundItems: number };
 }
 
@@ -137,7 +139,9 @@ export function buildMultiRun(input: {
     const st = executorRowStatus(e);
     return { id: e.id, label: executorLabel(e.id), state: st.label, tone: st.tone, glyph: st.glyph, slots: e.slots ?? null };
   });
-  return { lines, queue, bench, hidden };
+  const slotted = bench.filter(b => b.slots);
+  const capacity = slotted.length ? { used: slotted.reduce((n, b) => n + b.slots!.used, 0), max: slotted.reduce((n, b) => n + b.slots!.max, 0) } : null;
+  return { lines, queue, bench, capacity, hidden };
 }
 
 /** Plain words for a run's step counts; zero counts are left out so the line stays short. */

@@ -200,7 +200,7 @@ export function MultiRun({ query }: { query: RouteQuery }) {
 
         <section className="lb-section" aria-labelledby="mr-bench">
           <h2 className="lb-title" id="mr-bench">Executor bench</h2>
-          <p className="lb-cap">One bench serves every run; the dispatcher fills free executors by run priority.</p>
+          <p className="lb-cap">One bench serves every run; the dispatcher fills free executors by run priority.{model.capacity ? ` ${model.capacity.used} of ${model.capacity.max} ${model.capacity.max === 1 ? "slot is" : "slots are"} in use.` : ""}</p>
           {model.bench.length === 0 ? <p className="lb-cap">No executors are set up.</p> : (
             <ul className="mr-bench">
               {model.bench.map(b => (
