@@ -217,32 +217,35 @@ runs (`crates/read-model/src/runs.rs`), keeping managed-attention parity green.
 
 ### Live validation (CT-11)
 
-Sandbox `wnorigin` (unseeded, isolated `PACER_HOME`/`HOME`/port, TypeScript core).
-Two real runs were started through the service: one with an app-authenticated
-HTTP `run.start` (origin `human`), one through the guarded CLI (origin
-`external:local`). Blocking person questions were then seeded into the
-disposable home so the service's own attention derivation decided `notify`.
-Evidence: `.work/live/wnorigin/evidence/report.md`.
+Rerun in an unseeded sandbox with an isolated `PACER_HOME`, a dedicated loopback
+port and binaries from the checkout under review. To set the exact origins (including
+legacy `NULL` and `unknown:<id>`) without launching a real executor, runs and one
+open blocking person question per run were seeded into the sandbox task database;
+every verdict below comes from the running service's own attention derivation
+(`snapshot.get`) and its notify pump (`/v3/events` SSE and the delivery ledger),
+not from a unit test. Aging was done by moving the question's `created_at` and the
+run's `updated_at` to `now - 1900 s` (past `CALLER_GONE_AFTER_S = 1800 s`).
 
 | Behavior | Verdict |
 | --- | --- |
-| `origin` visible in `run.list` for both starts | PASS |
-| Human-origin blocking question → `notify:"important"`, no `waitingOn` | PASS |
-| External-origin blocking question → `notify:"all"` with `waitingOn:external:local` | PASS |
-| After aging past `CALLER_GONE_AFTER_S` → `notify:"important"`, `waitingOn` retained | PASS |
-| Caller-gone grouped banner delivery | PASS — second sandbox, registered notifier |
+| (a) Human-origin blocking question → `notify:"important"`, no `waitingOn` | PASS |
+| (b) External-origin (`external:local`) blocking question → `notify:"all"`, `waitingOn:external:local` | PASS |
+| (c) Same question after aging past `CALLER_GONE_AFTER_S` → `notify:"important"`, `waitingOn` retained | PASS |
+| (c) One grouped `caller_gone:external:local` banner delivered to a registered app notifier, both members acked | PASS |
+| (d) Legacy `NULL` origin → blocking question `notify:"important"`, no `waitingOn` | PASS |
+| (e) `unknown:<id>` origin (`unknown:orchestrator`) → `notify:"all"`, no `waitingOn` | PASS |
+| `origin` exposed on run snapshots (`run.list`) | PASS |
 
-Summary: sandbox `wnorigin` 4 PASS, 0 FAIL; sandbox `wnotify2` 2 PASS, 0 FAIL
-(evidence: `.work/live/wnotify2/evidence/report.md`). With an app notifier client
-registered, two old blocking questions on an `external:local` run produced one
-`notify` event keyed `caller_gone:external:local` ("2 delegated tasks waiting"),
-delivered to that client, with both member ids acked in `notified.json`. No live
-surface remains UNVERIFIED. The generators for `test/read-model-parity.test.ts`
-(`UPDATE_READ_MODEL_GOLDEN=1`, `EXPORT_RUST_READ_MODEL=1`) were run: no golden change
-was needed because the shared fixtures have no workflow-run rows; deterministic
-origin coverage lives in the Rust and TypeScript tests instead.
+Summary: 7 PASS, 0 FAIL. The grouped banner was observed as an SSE `notify` event
+keyed `caller_gone:external:local` with body "2 delegated tasks waiting" and the
+registered client id in `recipients`; the delivery ledger held the group key and
+both member ack keys.
 
-The NULL-legacy human-owned rule and the `unknown:<caller id>` fallback recorded
-in this addendum were added in the 2026-11-25 fix round and are covered by
-TypeScript and Rust tests; those two specific values were not exercised in the
-sandboxes above.
+UNVERIFIED: banner delivery was checked at the service/API layer only — no
+browser, desktop or TUI notification-center presentation was visually inspected
+(that client surface is unchanged). Runs were seeded into the sandbox database
+rather than started through an app-authenticated `run.start`, so the start-path
+attribution of `origin:"human"` was not exercised live; the human-owned notify
+decision itself was. Managed-attention parity and deterministic origin coverage
+remain covered by the Rust and TypeScript tests (`test/read-model-parity.test.ts`,
+`test/attention-rules.test.ts`, `test/workflow-attention-ui.test.ts`).

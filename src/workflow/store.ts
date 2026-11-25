@@ -145,9 +145,10 @@ export function workflowDatabase(ctx: Ctx): Database {
     if (!runColumns.includes("entry_first_transient_at")) db.exec("ALTER TABLE workflow_runs ADD COLUMN entry_first_transient_at REAL");
     // Phase 6 batch I: wall-clock of the most recent transient entry-start failure (gap restart).
     if (!runColumns.includes("entry_last_transient_at")) db.exec("ALTER TABLE workflow_runs ADD COLUMN entry_last_transient_at REAL");
-    // Notification ownership: `human` or the external caller participant id
-    // (`external:<kind>[:<session>]`). Nullable: pre-upgrade rows and runs started
-    // without a caller are not human-owned; never backfill them as human.
+    // Notification ownership: `human` or the caller participant id
+    // (`external:<kind>[:<session>]` or `unknown:<caller id>`). A NULL origin marks
+    // a pre-upgrade run and is treated as human-owned at read time; new runs always
+    // record an origin (human, external:..., or unknown:<caller id>). Never backfill.
     if (!runColumns.includes("origin")) db.exec("ALTER TABLE workflow_runs ADD COLUMN origin TEXT");
     // Backfill letters for live letterless rows inside this write transaction only (never on read).
     // Used set includes ALL existing letters (terminal rows too) so the unique index cannot throw.

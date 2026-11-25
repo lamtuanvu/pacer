@@ -8,6 +8,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 - **TUI Runs screen.** Tab/`6` opens a Runs list (open person-answerable questions first) and a run view that draws the engine graph as a tree with a details pane; answer, pause/resume, stop, priority, auto and orchestrator message keys use existing ops. `run.get` adds an optional `definition` projection; `run.answer` accepts an optional `note` (same sanitize/trim rules as `question.answer`).
 
+### Changed
+
+- Planner-started workflow runs no longer raise human banners for blocking items unless the caller has been silent for 30 minutes; run snapshots expose `origin`.
+
 ## [0.18.4] - 2026-11-25
 
 ### Changed
