@@ -300,7 +300,7 @@ export function overallCounts(tasks: PacerTask[], attention: AttentionItem[]): P
     if (t.state === 'running' && !waitingOnPerson && !callerDeciding) running++
     else if (t.state === 'running' && !waitingOnPerson) asked++
     else if (t.state === 'needs_input' && !waitingOnPerson) asked++
-    else if (t.state === 'queued') queued++
+    else if (t.state === 'queued' && !waitingOnPerson) queued++
     else if (!waitingOnPerson) continue
     if (t.repo?.path) worktrees.add(normalizeRepoPath(t.repo.path))
   }
