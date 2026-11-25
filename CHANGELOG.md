@@ -4,6 +4,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.18.5] - 2026-11-25
+
 ### Changed
 
 - **Planner models are editable in the Model matrix.** The planner row in Settings › Model matrix accepts model tiers (the planner tier fallback reads them); `runner.models.set` and `set_many` no longer refuse the planner runner. Suggestions still leave the planner alone. Saving the row sets the planner runner's default model, which managed tasks on that runner use; the planner's own session is unaffected.
