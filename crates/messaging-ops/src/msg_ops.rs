@@ -51,24 +51,20 @@ pub fn is_msg_caller_op(name: &str) -> bool {
     is_msg_read_op(name) || crate::msg_writes::uses_bridge(name)
 }
 
-/// TypeScript keeps Orca worktree detection (strategy providers) and the human's read
-/// receipts on `msg.read` (task/attention publication). Work-grant callers resolve
-/// natively through `authorize_work_grant`. The message writes publish for the human
-/// through the Core bridge. `msg.policy` also stays forwarded when
-/// `project-messaging.json` is unusable, because its `projectError` carries Node and
-/// Zod details only the TypeScript reader produces.
-pub fn msg_stays_forwarded(name: &str, ctx: &Ctx) -> bool {
-    if name == "msg.policy" {
-        return pacer_config::project_messaging::read_projects(&ctx.pacer_home).is_err();
+/// `parseOpParams`'s `authorizeWorkOperation` gate (`src/api/ops.ts:730`). Every native
+/// message op passes it before validation; TypeScript applies it to every operation.
+/// Without an identity it does not touch the task store, which keeps non-task callers
+/// from creating one (the policy parity suite checks this).
+pub(crate) fn authorize(ctx: &Ctx, name: &str, params: &Value) -> Result<(), CoreError> {
+    let identified = env(ctx, "PACER_ASSISTANT_GRANT").is_some()
+        || env(ctx, "PACER_ENFORCEMENT_TOKEN").is_some()
+        || env(ctx, "PACER_WORK_GRANT").is_some()
+        || ctx.env.get("PACER_ROLE").map(String::as_str) == Some("orchestrator");
+    if !identified {
+        return Ok(());
     }
-    if !is_msg_caller_op(name) && name != "tree.status" {
-        return false;
-    }
-    match caller(ctx, current_dir().as_deref()) {
-        Ok(Caller::Forward) => true,
-        Ok(Caller::Id(id)) => name == "msg.read" && id == "human",
-        Err(_) => false,
-    }
+    let is_executor = ctx.env.get("PACER_ROLE").map(String::as_str) == Some("executor");
+    pacer_work::authorize_work_operation(ctx, name, params, is_executor)
 }
 
 /// Live interactive answer delivery and retries depend on Core-owned session state.
@@ -91,12 +87,6 @@ pub fn msg_answer_stays_forwarded(name: &str, ctx: &Ctx, params: &Value) -> bool
     messages::prior_is_answer(&ctx.pacer_home, &me, request_id).unwrap_or(true)
 }
 
-#[derive(Debug, PartialEq)]
-enum Caller {
-    Id(String),
-    Forward,
-}
-
 pub fn current_dir() -> Option<String> {
     std::env::current_dir()
         .ok()
@@ -110,45 +100,35 @@ pub(crate) fn env<'a>(ctx: &'a Ctx, name: &str) -> Option<&'a str> {
         .filter(|v| !v.is_empty())
 }
 
-/// `callerParticipant`: assistant grants are refused first; a live work grant resolves to
-/// its bound task; enforcement still forwards (the door refuses those ops before here).
-fn caller(ctx: &Ctx, cwd: Option<&str>) -> Result<Caller, CoreError> {
-    if let Some(token) = env(ctx, "PACER_ASSISTANT_GRANT") {
-        pacer_work::authorize_assistant_grant(ctx, token)?;
-        return Err(forbidden(
-            "An assistant grant runs assistant.tool only.",
-            "identity",
-        ));
-    }
+/// `callerParticipant` (`src/messaging/participants.ts:44`) after `authorize` has
+/// admitted the identity. A work grant resolves to its bound task; an Orca worktree
+/// with a configured provider is an executor session.
+fn caller(ctx: &Ctx, cwd: Option<&str>) -> Result<String, CoreError> {
     if let Some(token) = env(ctx, "PACER_WORK_GRANT") {
         let node = pacer_work::authorize_work_grant(ctx, token)?;
-        return Ok(Caller::Id(format!("task:{}", node.task_id)));
-    }
-    if env(ctx, "PACER_ENFORCEMENT_TOKEN").is_some() {
-        return Ok(Caller::Forward);
+        return Ok(format!("task:{}", node.task_id));
     }
     let role_executor = ctx.env.get("PACER_ROLE").map(String::as_str) == Some("executor");
-    let executor = role_executor || cwd.is_some_and(|cwd| own_worktree(ctx, cwd));
-    if !executor && cwd.is_some_and(orca_worktree) {
-        return Ok(Caller::Forward);
-    }
+    let executor = role_executor
+        || cwd.is_some_and(|cwd| own_worktree(ctx, cwd))
+        || cwd.is_some_and(|cwd| orca_executor_worktree(ctx, cwd));
     if executor {
         return match env(ctx, "PACER_TASK_ID") {
-            Some(id) => Ok(Caller::Id(format!("task:{id}"))),
+            Some(id) => Ok(format!("task:{id}")),
             None => Err(forbidden("Executor identity is unknown", "identity")),
         };
     }
     let auth = ctx.env.get(CALLER_AUTH_ENV).map(String::as_str);
     if auth == Some("app") {
-        return Ok(Caller::Id("human".into()));
+        return Ok("human".into());
     }
     if let Some(planner) = planner_participant(ctx) {
-        return Ok(Caller::Id(planner));
+        return Ok(planner);
     }
     if auth == Some("session") {
-        return Ok(Caller::Id("human".into()));
+        return Ok("human".into());
     }
-    Ok(Caller::Id("external:local".into()))
+    Ok("external:local".into())
 }
 
 pub(crate) fn forbidden(message: &str, layer: &str) -> CoreError {
@@ -169,24 +149,77 @@ pub fn own_worktree(ctx: &Ctx, cwd: &str) -> bool {
         .is_some_and(is_task_id)
 }
 
-/// `/orca/workspaces/<ws>/pacer-<taskId>-<provider>`; TypeScript confirms the provider.
+/// `orcaWorktreeName` (`src/exec/orca/names.ts:6`): replace runs outside `\\p{L}\\p{N}._-`
+/// with `-`, collapse `-` and `.` runs, then trim leading and trailing separators.
+pub fn orca_worktree_name(id: &str) -> String {
+    let mut replaced = String::new();
+    let mut in_bad = false;
+    for c in id.chars() {
+        if c.is_alphabetic() || c.is_numeric() || matches!(c, '.' | '_' | '-') {
+            in_bad = false;
+            replaced.push(c);
+        } else if !in_bad {
+            in_bad = true;
+            replaced.push('-');
+        }
+    }
+    let collapsed = |input: &str, repeated: char| {
+        let mut out = String::new();
+        let mut last = false;
+        for c in input.chars() {
+            if c == repeated {
+                if !last {
+                    out.push(c);
+                }
+                last = true;
+            } else {
+                last = false;
+                out.push(c);
+            }
+        }
+        out
+    };
+    let out = collapsed(&collapsed(&replaced, '-'), '.');
+    out.trim_matches(|c| c == '.' || c == '-').to_owned()
+}
+
+/// `/orca/workspaces/<ws>/pacer-<taskId>-<provider>`: the directory form other crates
+/// use to detect an Orca worktree before resolving the provider.
 pub fn orca_worktree(cwd: &str) -> bool {
+    orca_worktree_provider(cwd).is_some()
+}
+
+fn orca_worktree_provider(cwd: &str) -> Option<&str> {
     const MARK: &str = "/orca/workspaces/";
-    cwd.match_indices(MARK).any(|(at, _)| {
+    cwd.match_indices(MARK).find_map(|(at, _)| {
         let rest = &cwd[at + MARK.len()..];
-        let Some((workspace, rest)) = rest.split_once('/') else {
-            return false;
-        };
-        let Some(rest) = rest.strip_prefix("pacer-") else {
-            return false;
-        };
-        !workspace.is_empty()
-            && rest.get(..22).is_some_and(is_task_id)
-            && rest
-                .get(22..)
-                .and_then(|r| r.strip_prefix('-'))
-                .is_some_and(|provider| !provider.is_empty() && !provider.starts_with('/'))
+        let (workspace, rest) = rest.split_once('/')?;
+        let rest = rest.strip_prefix("pacer-")?;
+        if workspace.is_empty()
+            || !rest.get(..22).is_some_and(is_task_id)
+            || !rest[22..].starts_with('-')
+        {
+            return None;
+        }
+        let provider = &rest[23..];
+        (!provider.is_empty() && !provider.starts_with('/')).then_some(provider)
     })
+}
+
+/// `isExecutorSession`'s Orca branch: confirm the provider against the strategy. A
+/// strategy that cannot load fails open, exactly as the TypeScript `catch` does.
+pub fn orca_executor_worktree(ctx: &Ctx, cwd: &str) -> bool {
+    let Some(provider) = orca_worktree_provider(cwd) else {
+        return false;
+    };
+    pacer_config::strategy::load_strategy(&ctx.pacer_home)
+        .ok()
+        .and_then(|strategy| strategy.get("providers").and_then(Value::as_object).cloned())
+        .is_some_and(|providers| {
+            providers
+                .keys()
+                .any(|id| orca_worktree_name(id) == provider)
+        })
 }
 
 /// `String.replace(/[^allowed]/g, "-")` over UTF-16 code units.
@@ -498,17 +531,12 @@ pub(crate) fn open(ctx: &Ctx) -> Result<TaskStore, CoreError> {
 }
 
 pub(crate) fn participant(ctx: &Ctx) -> Result<String, CoreError> {
-    match caller(ctx, current_dir().as_deref())? {
-        Caller::Id(id) => Ok(id),
-        Caller::Forward => Err(CoreError::new(
-            Code::Unavailable,
-            "message caller requires the TypeScript core",
-        )),
-    }
+    caller(ctx, current_dir().as_deref())
 }
 
 pub fn msg_inbox(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
+        authorize(ctx, "msg.inbox", &params)?;
         let mut p = Params::new(&params)?;
         let unread_only = p.optional_bool("unread_only");
         let limit = p.optional_limit("limit");
@@ -523,6 +551,7 @@ pub fn msg_inbox(ctx: &Ctx, params: Value) -> OpFuture<'_> {
 
 pub fn msg_log(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
+        authorize(ctx, "msg.log", &params)?;
         let mut p = Params::new(&params)?;
         let task = p.task_id("task");
         let after = p.optional_string("after", 64);
@@ -546,21 +575,28 @@ pub fn msg_log(ctx: &Ctx, params: Value) -> OpFuture<'_> {
 
 pub fn msg_read(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
+        authorize(ctx, "msg.read", &params)?;
         let mut p = Params::new(&params)?;
         let ids = p.ids("ids");
         p.finish(&["ids"])?;
         let ids = ids.unwrap_or_default();
         let me = participant(ctx)?;
-        if me == "human" {
-            return Err(CoreError::new(
-                Code::Unavailable,
-                "human read receipts require the TypeScript core",
-            ));
-        }
         let mut store = open(ctx)?;
         // TypeScript stamps receipts with `Date.now() / 1000`.
         let at = (ctx.now * 1000.0).floor() / 1000.0;
         let read = messages::mark_read(&mut store, &me, &ids, at).map_err(store_error)?;
+        if read > 0 && me == "human" {
+            let tasks: Vec<String> = ids
+                .iter()
+                .filter_map(|id| messages::get(&mut store, id).ok().flatten())
+                .filter_map(|m| {
+                    m.get("taskId")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned)
+                })
+                .collect();
+            crate::publish::publish_task_messages(ctx, &mut store, &tasks)?;
+        }
         Ok(json!({"read": read}))
     })
 }
@@ -609,6 +645,7 @@ fn tree_node(store: &mut TaskStore, id: &str) -> Result<Value, StoreError> {
 /// `tree.status`: turn state of every node in the task's tree, root first.
 pub fn tree_status(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
+        authorize(ctx, "tree.status", &params)?;
         let mut p = Params::new(&params)?;
         let task = p.task_id("task");
         p.finish(&["task"])?;
@@ -638,6 +675,7 @@ pub fn tree_status(ctx: &Ctx, params: Value) -> OpFuture<'_> {
 /// `msg.policy` reads no caller identity: the guardrail and a hypothetical send are public.
 pub fn msg_policy(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
+        authorize(ctx, "msg.policy", &params)?;
         let mut p = Params::new(&params)?;
         let task = p
             .map

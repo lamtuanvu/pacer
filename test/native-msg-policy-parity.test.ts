@@ -110,8 +110,11 @@ test.skipIf(!front)("stdio msg.policy matches the TypeScript core byte for byte"
     { name: "invalid strategy section", prepare: home => writeFileSync(join(home, "strategy.yaml"), STRATEGY + "messaging: {tree: {max_turns: 0}}\n"), native: true },
     { name: "defaults off", prepare: home => writeFileSync(join(home, "strategy.yaml"), STRATEGY + "messaging: {defaults: false}\n"), native: true },
     { name: "no project file", prepare: home => rmSync(join(home, "project-messaging.json")), native: true },
-    { name: "invalid project file", prepare: home => writeFileSync(join(home, "project-messaging.json"), '{"version":2}'), native: false },
-    { name: "work grant", env: { PACER_WORK_GRANT: "pwg_bogus" }, native: false },
+    { name: "invalid project file", prepare: home => writeFileSync(join(home, "project-messaging.json"), '{"version":2}'), native: true },
+    { name: "project file is a directory", prepare: home => { rmSync(join(home, "project-messaging.json"), { force: true }); mkdirSync(join(home, "project-messaging.json")); }, native: true },
+    { name: "invalid JSON project file", prepare: home => writeFileSync(join(home, "project-messaging.json"), "{"), native: true },
+    { name: "invalid nested project rules", prepare: home => writeFileSync(join(home, "project-messaging.json"), '{"version":1,"projects":{"r":{"rules":5}}}'), native: true },
+    { name: "work grant", env: { PACER_WORK_GRANT: "pwg_bogus" }, native: true },
   ];
   for (const scenario of scenarios) {
     const nativeHome = clone(s.ctx.home), forwardHome = clone(s.ctx.home);
