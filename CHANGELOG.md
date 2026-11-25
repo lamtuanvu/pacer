@@ -14,6 +14,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - Planner-started workflow runs no longer raise human banners for blocking items unless the caller has been silent for 30 minutes; run snapshots expose `origin`.
 - **The assistant uses only its native agent.** Removed the deprecated plugin method `assistant.respond`, the bundled TypeScript `pacer-assistant` plugin and the host-side model loop. Every `backend: pacer` turn now goes to `assistant-pacer` through `assistant.reply`; with a missing or outdated binary, all pacer-backend rows are unavailable and admission refuses with a plain reason to update or repair pacer. This lands directly after v0.18.4, the first release whose updater installs the binary ([ADR 0028](docs/decisions/0028-assistant-backends.md)).
 
+### Fixed
+
+- The desktop menu-bar indicator no longer shows an update failure when a check was only interrupted or unavailable, keeps an available update visible after a failed re-check, and reads "Not checked yet" like the app.
+
 ## [0.18.4] - 2026-11-25
 
 ### Changed
