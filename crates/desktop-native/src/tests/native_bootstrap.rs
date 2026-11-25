@@ -6,6 +6,27 @@ use std::{
     time::Duration,
 };
 
+// Byte-for-byte the frame the server's `core_secrets` module builds for its Core
+// child (pacer-core-secrets/1, `internalToken`, `ownerKey`; `nativeConfigSyncKey`
+// absent). Desktop-native must not depend on pacer-server, so the test fixture is
+// produced here.
+fn secrets_frame() -> Vec<u8> {
+    let mut body = serde_json::Map::new();
+    for (name, value) in [
+        ("internalToken", Some("a".repeat(64))),
+        ("ownerKey", Some("b".repeat(64))),
+        ("nativeConfigSyncKey", None),
+    ] {
+        if let Some(value) = value {
+            body.insert(name.into(), value.into());
+        }
+    }
+    let body = serde_json::Value::Object(body).to_string();
+    let mut frame = format!("pacer-core-secrets/1 {}\n", body.len()).into_bytes();
+    frame.extend_from_slice(body.as_bytes());
+    frame
+}
+
 // These tests prove process-local descriptor lifetime using peer EOF. Darwin
 // cannot atomically CLOEXEC delivered rights. Other server tests spawn subprocesses and
 // may inherit a temporary descriptor, invalidating EOF as a local-close proof.
@@ -18,7 +39,7 @@ fn isolated(name: &str) -> bool {
     let output = std::process::Command::new(std::env::current_exe().unwrap())
         .args([
             "--exact",
-            &format!("serve::native_bootstrap::tests::{name}"),
+            &format!("native_bootstrap::tests::{name}"),
             "--test-threads=1",
         ])
         .env("PACER_BOOTSTRAP_FD_TEST_CHILD", name)
@@ -260,12 +281,7 @@ async fn secrets_frame_follows_only_the_ack_and_survives_one_byte_receipt() {
         return;
     }
     use nix::sys::socket::{ControlMessageOwned, MsgFlags, UnixAddr, recv, recvmsg};
-    let frame = crate::core_secrets::CoreSecrets {
-        internal_token: Some("a".repeat(64)),
-        owner_key: Some("b".repeat(64)),
-        native_config_sync_key: None,
-    }
-    .frame();
+    let frame = secrets_frame();
     for ack in [b'A', b'X', 0] {
         let (parent, mut child) = UnixStream::pair().unwrap();
         let (listener, _listener_peer) = UnixStream::pair().unwrap();
