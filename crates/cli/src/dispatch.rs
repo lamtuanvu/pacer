@@ -32,6 +32,26 @@ pub fn main(argv: Vec<String>) -> i32 {
     {
         return guard::run(&args[1..]);
     }
+    // `plugin run` is fully native for every shipped bundled plugin. It needs
+    // neither pacer-core nor self-repair: malformed arity and unknown ids are
+    // answered here, before `current_exe` / core resolution. The one remaining
+    // TypeScript row (pacer-dev) still falls through to B0b's core dispatch.
+    if args.first().is_some_and(|a| a == "plugin")
+        && args.get(1).is_some_and(|a| a == "run")
+    {
+        if args.len() != 3 {
+            eprintln!("usage: pacer plugin run <id>");
+            return 2;
+        }
+        let id = &args[2];
+        if let Some(code) = crate::plugin_run::run_native(id) {
+            return code;
+        }
+        if !crate::plugin_run::is_typescript_fallback(id) {
+            eprintln!("pacer: no bundled plugin {id}");
+            return 2;
+        }
+    }
     let exe = match std::env::current_exe().and_then(|p| p.canonicalize()) {
         Ok(exe) => exe,
         Err(error) => {
@@ -131,6 +151,8 @@ pub fn main(argv: Vec<String>) -> i32 {
                         2
                     }
                 }
+            } else if crate::plugin_run::is_plugin_run(args) {
+                crate::plugin_run::run(&core, args, &env)
             } else {
                 exec_core(&core, args, &env)
             }

@@ -1,11 +1,11 @@
 import type { Handler, HostClient } from "@pacer/plugin";
 import { dirname, join } from "node:path";
-import { BUNDLED } from "../../../plugins/bundled";
+import { BUNDLED } from "../../../src/plugins/bundled";
 import { pluginRegistry } from "../../../src/plugins";
 import type { PluginRegistry } from "../../../src/plugins/registry";
 import type { Ctx } from "../../../src/types";
-import { createHandlers } from "../../../plugins/pacer-exec-orca/index";
-import { manifest } from "../../../plugins/pacer-exec-orca/manifest";
+import { createHandlers } from "../../../examples/plugins/pacer-exec-orca/index";
+import { manifest } from "../../../examples/plugins/pacer-exec-orca/manifest";
 import { createCallAuthority } from "../../../src/plugins/authority";
 import type { OrcaExecutorCaller } from "../../../src/plugins/executor-orca";
 import { answerCapability } from "../../../src/plugins/host";

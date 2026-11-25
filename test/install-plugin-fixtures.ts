@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { fakeCtx as baseCtx } from "./helpers";
-import { BUNDLED } from "../plugins/bundled";
+import { BUNDLED } from "../src/plugins/bundled";
 import { pluginRegistry, shutdownPlugins } from "../src/plugins";
 import type { Ctx } from "../src/types";
 import { registerFixtureCleanup } from "./fixture-cleanup";
@@ -12,9 +12,7 @@ export function fakeCtx(options: Partial<Ctx> = {}): Ctx {
     spawnBundled: (_ctx, id) => ({
       argv: [
         process.execPath,
-        join(import.meta.dir, "../src/cli.ts"),
-        "plugin",
-        "run",
+        join(import.meta.dir, "../examples/plugins/run.ts"),
         id,
       ],
       cwd: ctx.home,

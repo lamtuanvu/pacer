@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { BUNDLED } from "../plugins/bundled";
-import { parseClaudeRun, parseRun } from "../plugins/assistant-executor/index";
+import { BUNDLED } from "../src/plugins/bundled";
+import { parseClaudeRun, parseRun } from "../examples/plugins/assistant-executor/index";
 import { admit, ask, assistantGrantFor, assistantStatus, cancel, candidates, deleteConversations, pruneConversationDirs, saveSettings, selfTest } from "../src/assistant/service";
 import { judge } from "../src/assistant/selftest";
 import {

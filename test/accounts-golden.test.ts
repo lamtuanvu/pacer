@@ -5,7 +5,7 @@ import {callOp} from "../src/api/ops";
 import {toApiError} from "../src/api/protocol";
 import {fakeCtx} from "./helpers";
 import {pluginRegistry} from "../src/plugins";
-import {launchEnv, type LaunchInput} from "../plugins/pacer-endpoints/launch-env";
+import {launchEnv, type LaunchInput} from "../examples/plugins/pacer-endpoints/launch-env";
 import {discoveryFromFetch} from "./endpoint-discovery-fixtures";
 import {endpointTestFromSpawn} from "./fixtures/endpoint-test-fixtures";
 

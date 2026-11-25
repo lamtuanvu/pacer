@@ -1,9 +1,10 @@
 // src/plugins/types.ts
 import type { PluginManifest } from "./protocol";
 /**
- * A reference plugin compiled into the pacer binary.
- * TypeScript plugins supply `main` (imported only by `pacer plugin run`).
- * Native plugins supply `executable` (basename next to `pacer-core`); when that sibling is
+ * A reference plugin available to the host. Shipped rows are native and hold
+ * only a manifest; `main` remains solely for `pacer-dev`, the workflow-frame
+ * plugin that has no Rust port yet (out of scope for M3 C13).
+ * `executable` names a native sibling of pacer-core; when that sibling is
  * missing the registry refuses the plugin so contribution selection skips it.
  */
 export interface BundledPlugin {

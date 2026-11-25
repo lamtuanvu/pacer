@@ -1,6 +1,6 @@
 import {expect,test} from 'bun:test';
-import {launchEnv} from '../plugins/pacer-endpoints/launch-env';
-import {renderOpencodeConfig,type EndpointAccount} from '../plugins/pacer-endpoints/opencode-config';
+import {launchEnv} from '../examples/plugins/pacer-endpoints/launch-env';
+import {renderOpencodeConfig,type EndpointAccount} from '../examples/plugins/pacer-endpoints/opencode-config';
 test('launch config contains all managed accounts but only selected credential reference is returned',async()=>{
  const account:EndpointAccount={name:'selected-key',baseUrl:'https://owned.invalid/v1',keyRef:'endpoint:selected-key',models:[]};
  const other={...account,name:'other',keyRef:'endpoint:other'},writes:unknown[][]=[];

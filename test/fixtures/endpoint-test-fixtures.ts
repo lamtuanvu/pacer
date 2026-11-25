@@ -1,7 +1,7 @@
 /** Explicit test-only endpoint transport. Production always dispatches the registry child. */
 import {mkdirSync,mkdtempSync,readFileSync,rmSync,writeFileSync} from 'node:fs';
 import {join} from 'node:path';
-import {testTask} from '../../plugins/pacer-endpoints/test-task';
+import {testTask} from '../../examples/plugins/pacer-endpoints/test-task';
 import {projectEndpointAccounts} from '../../src/plugins/endpoint-adapter';
 import {readKey} from '../../src/endpoints/keys';
 import {execProcess,executorEnv,type ExecSpec,type ExecResult} from '../../src/exec/process';

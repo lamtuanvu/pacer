@@ -6,7 +6,7 @@ import { answerCapability } from "../src/plugins/host";
 import { manifestSchema } from "../src/plugins/protocol";
 import { fakeCtx } from "./helpers";
 import { afterEach, expect, test } from "bun:test";
-import { ollamaClassifier, parseLocalAnswer, promptFor } from "../plugins/pacer-classify/ollama";
+import { ollamaClassifier, parseLocalAnswer, promptFor } from "../examples/plugins/pacer-classify/ollama";
 import type { Question } from "../src/classify/types";
 
 const choice: Question = { type: "choice", id: "task_kind", instructions: "Choose the task kind", criteria: { tests: "Testing work", docs: "Documentation work" } };

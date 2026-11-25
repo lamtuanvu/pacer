@@ -1,7 +1,7 @@
 import {unavailableObservations} from "./fixtures/unavailable-observations";
 import { unavailableFilesystem } from "./fixtures/unavailable-filesystem";
 import {expect,test} from 'bun:test';
-import {handlers} from '../plugins/pacer-classify/index';
+import {handlers} from '../examples/plugins/pacer-classify/index';
 import type {HostClient} from '@pacer/plugin';
 const host:HostClient={ ...unavailableObservations, fs: unavailableFilesystem,http:async()=>{throw Error('unexpected HTTP')},secrets:{present:async()=>false},call:async()=>{throw Error('unexpected capability')},log:async()=>{},config:async()=>({})};
 const ask={adapter:'rules',config:{},state:'{"goal":"add tests"}',question:{type:'choice',id:'task_kind',instructions:'classify',criteria:{tests:'tests',default:'other'}},timeoutMs:0.5};

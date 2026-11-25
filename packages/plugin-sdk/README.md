@@ -123,8 +123,8 @@ export function usageHandler(
 
 The callback returns the full `UsageReading`; do not rebuild it from only its
 windows. Alternatives, evidence, availability, spending, errors and timestamps
-must survive transport. See the actual bundled [entrypoint](../../plugins/pacer-usage/index.ts)
-and [Claude reader](../../plugins/pacer-usage/claude.ts) for complete provider code.
+must survive transport. See the SDK example [entrypoint](../../examples/plugins/pacer-usage/index.ts)
+and [Claude reader](../../examples/plugins/pacer-usage/claude.ts) for complete provider code.
 The host retains aggregation, freshness/auth/exhausted marks, remote merging and
 its public cache; reactive and unmetered accounts remain host fast paths.
 

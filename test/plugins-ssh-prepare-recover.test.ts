@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PREPARE_RECOVER_SCRIPT, PREPARE_SCRIPT, prepareRecoverArgv } from "../plugins/pacer-ssh/probe";
+import { PREPARE_RECOVER_SCRIPT, PREPARE_SCRIPT, prepareRecoverArgv } from "../examples/plugins/pacer-ssh/probe";
 import { SCRIPTS } from "../src/remote/scripts";
 
 function fixture() {

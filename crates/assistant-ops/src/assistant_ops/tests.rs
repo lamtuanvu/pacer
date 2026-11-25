@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used)]
 use super::*;
 
-const STRATEGY: &str = "accounts:\n  claude: {kind: claude}\n  ep: {kind: endpoint, usage: unmetered, connection: {api: openai-compatible, base_url: \"http://127.0.0.1:1/v1\", key: none, models: [{id: m1, name: Model One, context: 1000, output: 100, tools: true}, {id: m2, context: 1000, output: 100, tools: false}]}}\n  bare: {kind: endpoint, usage: unmetered}\nplanner: claude-code#claude\nrunners: {\"opencode#ep\": {model: pacer-ep/m2}}\nrouting: [{default: [opencode#ep]}]\n";
+const STRATEGY: &str = "accounts:\n  claude: {kind: claude, home: /home/work}\n  ep: {kind: endpoint, usage: unmetered, connection: {api: openai-compatible, base_url: \"http://127.0.0.1:1/v1\", key: none, models: [{id: m1, name: Model One, context: 1000, output: 100, tools: true}, {id: m2, context: 1000, output: 100, tools: false}]}}\n  bare: {kind: endpoint, usage: unmetered}\nplanner: claude-code#claude\nrunners: {\"opencode#ep\": {model: pacer-ep/m2}}\nrouting: [{default: [opencode#ep]}]\n";
 
 fn ctx(dir: &tempfile::TempDir, env: &[(&str, &str)]) -> Ctx {
     Ctx::with(
@@ -119,11 +119,26 @@ fn strategy_endpoints_and_candidates_follow_endpoint_for() {
     assert!(!endpoint_ok(&strategy, "bare", None, false));
     assert!(!endpoint_ok(&strategy, "claude", None, false));
     assert!(!endpoint_ok(&strategy, "missing", None, false));
-    // The executor backend's agent CLI holds the connection: any endpoint account qualifies.
+    // The executor backend's agent CLI holds the connection: any endpoint
+    // account qualifies, and a Claude Code or Codex account qualifies when it
+    // has a config home (the strategy's `home` field) that ask-mode can drive.
     assert!(endpoint_ok(&strategy, "ep", None, true));
     assert!(endpoint_ok(&strategy, "bare", None, true));
-    assert!(!endpoint_ok(&strategy, "claude", None, true));
+    assert!(endpoint_ok(&strategy, "claude", None, true));
     assert!(!endpoint_ok(&strategy, "missing", None, true));
+    // A claude account without a config home cannot be driven by ask-mode.
+    let homeless = json!({
+        "accounts": { "claude": { "kind": "claude" }, "codex": { "kind": "codex" } },
+        "runners": {}
+    });
+    assert!(!endpoint_ok(&homeless, "claude", None, true));
+    assert!(!endpoint_ok(&homeless, "codex", None, true));
+    assert!(endpoint_ok(
+        &json!({ "accounts": { "codex": { "kind": "codex", "home": "/home/c" } }, "runners": {} }),
+        "codex",
+        None,
+        true
+    ));
     assert_eq!(
         Value::Array(candidates(&strategy)).to_string(),
         r#"[{"account":"ep","backend":"pacer","available":true,"liveTools":true,"models":[{"id":"m1","name":"Model One"},{"id":"m2","name":"m2"}],"runners":[{"id":"opencode#ep","model":"pacer-ep/m2"}],"isPlanner":false}]"#

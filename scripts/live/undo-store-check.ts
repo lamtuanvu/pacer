@@ -6,7 +6,7 @@ import { pacerArgv } from "../../src/install/self";
 import { restorePlannerInstall } from "../../src/plugins/planner-install";
 import { readManifest } from "../../src/install/manifest";
 import { pluginRegistry, shutdownPlugins } from "../../src/plugins";
-import { BUNDLED } from "../../plugins/bundled";
+import { BUNDLED } from "../../src/plugins/bundled";
 import { record, type Session } from "./core";
 
 /**
@@ -34,7 +34,7 @@ export async function exerciseUndoStore(session: Session): Promise<void> {
   pluginRegistry(ctx, {
     bundled: BUNDLED,
     spawnBundled: (_c, id) => ({
-      argv: [process.execPath, join(import.meta.dir, "../../src/cli.ts"), "plugin", "run", id],
+      argv: [process.execPath, join(import.meta.dir, "../../examples/plugins/run.ts"), id],
       cwd: home, env: { PATH: process.env.PATH },
     }),
   });

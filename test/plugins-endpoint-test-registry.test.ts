@@ -3,7 +3,7 @@ import {mkdtempSync,writeFileSync,readFileSync,existsSync,rmSync,realpathSync} f
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {makeCtx} from '../src/ctx';
-import {BUNDLED} from '../plugins/bundled';
+import {BUNDLED} from '../src/plugins/bundled';
 import {PluginRegistry} from '../src/plugins/registry';
 import {testManagedEndpoint} from '../src/plugins/endpoint-test';
 test('real endpoint plugin runs owned stub test with injected key and cleans disposable git repository',async()=>{
@@ -13,7 +13,7 @@ test('real endpoint plugin runs owned stub test with injected key and cleans dis
  const account={name:'owned',connection:{api:'openai-compatible',base_url:'http://endpoint.invalid/v1',key:'env:TEST_KEY',models:[]}};
  const runner={id:'opencode#owned',account:'owned',agent:'opencode',model:'pacer-owned/m',host:null};
  const bundle=BUNDLED.find(value=>value.manifest.id==='pacer-endpoints')!;
- const registry=new PluginRegistry({bundled:[bundle],spawnBundled:()=>({argv:[process.execPath,join(import.meta.dir,'../plugins/pacer-endpoints/index.ts')],cwd:root,env:{}})});
+ const registry=new PluginRegistry({bundled:[bundle],spawnBundled:()=>({argv:[process.execPath,join(import.meta.dir,'../examples/plugins/pacer-endpoints/index.ts')],cwd:root,env:{}})});
  try{
  expect(await testManagedEndpoint(ctx,{owned:account} as any,'owned',runner as any,registry)).toEqual({state:'ready',checked_at:new Date(ctx.now*1000).toISOString()});
  const repo=readFileSync(receipt,'utf8');expect(repo.startsWith(join(realpathSync(root),'endpoints','test-'))).toBe(true);expect(existsSync(repo)).toBe(false);

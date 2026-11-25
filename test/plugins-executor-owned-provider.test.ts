@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { handlers } from "../plugins/pacer-exec-direct/index";
+import { handlers } from "../examples/plugins/pacer-exec-direct/index";
 import { executorAttemptOutcome } from "../src/plugins/executor-protocol";
 
 const params = { task: { id: "t-fixture", rev: 2 }, attempt: 1, runDir: 1,

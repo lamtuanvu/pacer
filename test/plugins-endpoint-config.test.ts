@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { endpointKeyEnv, renderOpencodeConfig, type EndpointAccount } from "../plugins/pacer-endpoints/opencode-config";
+import { endpointKeyEnv, renderOpencodeConfig, type EndpointAccount } from "../examples/plugins/pacer-endpoints/opencode-config";
 
 const account: EndpointAccount = {
   name: "test-api", baseUrl: "https://example.test/v1", keyRef: "endpoint:test-api",

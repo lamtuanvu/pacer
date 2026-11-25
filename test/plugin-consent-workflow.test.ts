@@ -7,7 +7,7 @@ import { pluginRegistry } from "../src/plugins";
 import { workflowNames } from "../src/plugins/registry";
 import { pluginsConfig, setPluginGrant } from "../src/plugins/config";
 import { fakeCtx, tmpDir } from "./helpers";
-import { BUNDLED } from "../plugins/bundled";
+import { BUNDLED } from "../src/plugins/bundled";
 
 const contexts: ReturnType<typeof fakeCtx>[] = [];
 afterEach(async () => {

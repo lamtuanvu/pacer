@@ -1,0 +1,29 @@
+[package]
+name = "pacer-bundled"
+version = "0.0.0"
+publish = false
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+pacer-plugin = { path = "../plugin-sdk" }
+pacer-bundled-agent-session = { path = "../../plugins-rs/pacer-agent-session" }
+pacer-bundled-classify = { path = "../../plugins-rs/pacer-classify" }
+pacer-bundled-notify = { path = "../../plugins-rs/pacer-notify" }
+pacer-bundled-usage = { path = "../../plugins-rs/pacer-usage" }
+pacer-bundled-endpoints = { path = "../../plugins-rs/pacer-endpoints" }
+pacer-bundled-remote-caller = { path = "../../plugins-rs/pacer-remote-caller" }
+pacer-bundled-assistant = { path = "../../plugins-rs/pacer-assistant" }
+pacer-bundled-assistant-executor = { path = "../../plugins-rs/assistant-executor" }
+pacer-bundled-exec-orca = { path = "../../plugins-rs/pacer-exec-orca" }
+pacer-bundled-exec-direct = { path = "../../plugins-rs/pacer-exec-direct" }
+pacer-bundled-ssh = { path = "../../plugins-rs/pacer-ssh" }
+pacer-bundled-planners = { path = "../../plugins-rs/pacer-planners" }
+tokio.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true

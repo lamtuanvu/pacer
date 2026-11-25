@@ -1,4 +1,4 @@
-import { BUNDLED } from "../../plugins/bundled";
+import { BUNDLED } from "./bundled";
 import { pacerArgv } from "../install/self";
 import type { Ctx } from "../types";
 import { CoreError } from "../core/errors";
@@ -19,13 +19,16 @@ export function bundledPluginSpawn(c: Ctx, id: string, runtime: {executable:stri
     return { argv: [sibling.path], cwd: c.home, env: {} };
   }
   const source = Boolean(runtime.bunVersion) && /(^|\/)bun(?:\.exe)?$/.test(runtime.executable);
-  const cli = fileURLToPath(new URL("../cli.ts", import.meta.url));
-  const argv = !c.env.PACER_BIN && source ? [runtime.executable, cli] : pacerArgv(c.env);
-  // Never copy or evaluate the ambient selector. A source front needs only the
-  // already-running host's fixed runtime and module, not arbitrary child env.
-  const env = source && c.env.PACER_BIN && c.env.PACER_CORE_ARGV !== undefined
-    ? {PACER_CORE_ARGV:JSON.stringify([runtime.executable,cli])} : {};
-  return {argv:[...argv,"plugin","run",id],cwd:c.home,env};
+  // A source front runs the SDK example directly; a compiled front goes through
+  // the Rust `plugin run` door, which serves every shipped row natively. There
+  // is no selector env any more: the Rust door needs no TypeScript child.
+  // A Bun host always runs the source example directly: the compiled core no
+  // longer carries a TypeScript runner, so routing a source child through
+  // `pacer-core plugin run` would fail. Only a compiled host uses the Rust door.
+  const argv = source
+    ? [runtime.executable, fileURLToPath(new URL("../../examples/plugins/run.ts", import.meta.url)), id]
+    : [...pacerArgv(c.env), "plugin", "run", id];
+  return { argv, cwd: c.home, env: {} };
 }
 
 /** One registry per pacer home in this process; plugins spawn lazily on first call. */

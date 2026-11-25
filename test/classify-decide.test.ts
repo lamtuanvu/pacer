@@ -6,7 +6,7 @@ import { validateClassifier } from "../src/config/classifier";
 import { decide, TimeoutError, withTimeout } from "../src/classify/decide";
 import { appendDecision, decisionsFile, loggedState, newDecisionId, readDecisions } from "../src/classify/log";
 import { buildAdapters, type AdapterSet } from "../src/classify/registry";
-import { rulesClassifier as pluginRules } from "../plugins/pacer-classify/rules";
+import { rulesClassifier as pluginRules } from "../examples/plugins/pacer-classify/rules";
 const rulesClassifier = { ...pluginRules, ask: (state: string, question: import("../src/classify/types").Question) => pluginRules.ask(state, question, 3000) };
 import { QUESTIONS } from "../src/classify/state";
 import type { Answer, Classifier, DecisionEntry } from "../src/classify/types";

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { BUNDLED } from "../plugins/bundled";
+import { BUNDLED } from "../src/plugins/bundled";
 import { admit, ask, assistantGrantFor, cancel } from "../src/assistant/service";
 import { getTurn, readSettings, writeSettings } from "../src/assistant/store";
 import { createRedactor } from "../src/assistant/redact";

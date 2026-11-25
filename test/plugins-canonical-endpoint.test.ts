@@ -2,7 +2,7 @@ import {expect,test} from 'bun:test';
 import {mkdtempSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {BUNDLED} from '../plugins/bundled';
+import {BUNDLED} from '../src/plugins/bundled';
 import {PluginRegistry} from '../src/plugins/registry';
 import {makeCtx} from '../src/ctx';
 import {discoverEndpointModels} from '../src/plugins/endpoint-adapter';
@@ -10,7 +10,7 @@ test('canonical endpoint bundle scopes concurrent unsaved destinations and refus
  const root=mkdtempSync(join(tmpdir(),'pacer-canonical-endpoint-'));const seen:string[]=[];
  const server=Bun.serve({hostname:'127.0.0.1',port:0,fetch(request){seen.push(request.headers.get('authorization')??'');return Response.json({data:[{id:'owned'}]});}});
  const ctx=makeCtx({home:root,pacerHome:root});const bundle=BUNDLED.find(value=>value.manifest.id==='pacer-endpoints')!;
- const make=(bundled:typeof BUNDLED)=>new PluginRegistry({bundled,spawnBundled:()=>({argv:[process.execPath,join(import.meta.dir,'../plugins/pacer-endpoints/index.ts')],cwd:root,env:{}})});
+ const make=(bundled:typeof BUNDLED)=>new PluginRegistry({bundled,spawnBundled:()=>({argv:[process.execPath,join(import.meta.dir,'../examples/plugins/pacer-endpoints/index.ts')],cwd:root,env:{}})});
  const registry=make([bundle]),lookalike=make([{...bundle}]);
  try{
  const baseUrl=`http://127.0.0.1:${server.port}/v1`;

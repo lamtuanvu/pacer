@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { BUNDLED } from "../plugins/bundled";
-import { chatRequest, chatResult, respond, type RespondParams } from "../plugins/assistant/index";
+import { BUNDLED } from "../src/plugins/bundled";
+import { chatRequest, chatResult, respond, type RespondParams } from "../examples/plugins/assistant/index";
 import { assistantSecret } from "../src/assistant/service";
 import { readSettings, writeSettings } from "../src/assistant/store";
 import { PluginRegistry } from "../src/plugins/registry";

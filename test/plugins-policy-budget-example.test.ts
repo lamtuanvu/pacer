@@ -2,8 +2,8 @@ import { expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ObservationClient, PolicyTask } from '@pacer/plugin';
-import { createBudgetPolicy } from '../plugins/examples/pacer-policy-budget/budget';
-import { BUNDLED } from '../plugins/bundled';
+import { createBudgetPolicy } from '../examples/plugins/pacer-policy-budget/budget';
+import { BUNDLED } from '../src/plugins/bundled';
 import { readManifestFile } from '../src/plugins/manifest';
 
 function fixture(config: Record<string, unknown> = {}, count = 0) {
@@ -24,7 +24,7 @@ const decision = { decision: 'delegate', input: { goal: 'fixture', repo: '/fixtu
 const signal = () => new AbortController().signal;
 
 test('budget example is unbundled and declares only its four read capabilities', () => {
-  const path = join(import.meta.dir, '../plugins/examples/pacer-policy-budget/pacer-plugin.json');
+  const path = join(import.meta.dir, '../examples/plugins/pacer-policy-budget/pacer-plugin.json');
   expect(readManifestFile(path).ok).toBe(true);
   const manifest = JSON.parse(readFileSync(path, 'utf8'));
   expect(manifest.capabilities.map((c: { name: string }) => c.name).sort()).toEqual(['config.get', 'events.subscribe', 'log', 'tasks.read']);
@@ -84,11 +84,11 @@ test('built unbundled example uses actual negotiated host reads and vetoes at it
   const folder = join(pacerHome, 'plugins/pacer-policy-budget');
   mkdirSync(join(folder, 'dist'), { recursive: true });
   const entry = join(folder, 'dist/main.js');
-  const build = await Bun.build({ entrypoints: [join(import.meta.dir, '../plugins/examples/pacer-policy-budget/index.ts')], target: 'bun', outdir: join(folder, 'dist'), naming: 'main.js' });
+  const build = await Bun.build({ entrypoints: [join(import.meta.dir, '../examples/plugins/pacer-policy-budget/index.ts')], target: 'bun', outdir: join(folder, 'dist'), naming: 'main.js' });
   expect(build.success, build.logs.map(String).join('\n')).toBe(true);
   expect(readFileSync(entry, 'utf8').startsWith('#!/usr/bin/env bun\n')).toBe(true);
   chmodSync(entry, 0o755);
-  copyFileSync(join(import.meta.dir, '../plugins/examples/pacer-policy-budget/pacer-plugin.json'), join(folder, 'pacer-plugin.json'));
+  copyFileSync(join(import.meta.dir, '../examples/plugins/pacer-policy-budget/pacer-plugin.json'), join(folder, 'pacer-plugin.json'));
   writeFileSync(join(pacerHome, 'strategy.yaml'), JSON.stringify({ planner: 'codex', accounts: { codex: { kind: 'codex', usage: 'quota' } }, routing: [{ default: ['codex'] }], plugins: { installed: { 'pacer-policy-budget': { version: '0.1.0', capabilities: ['tasks.read', 'events.subscribe', 'config.get', 'log'] } }, config: { 'pacer-policy-budget': { N: 2 } } } }));
   const registry = pluginRegistry(ctx, { bundled: [], spawnBundled: () => { throw Error('example must remain unbundled'); } });
   const reports = await registry.doctor(ctx, 'pacer-policy-budget');

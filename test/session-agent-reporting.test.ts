@@ -2,7 +2,7 @@ import {expect,test} from 'bun:test';
 import {join} from 'node:path';
 import {readFileSync,writeFileSync,mkdirSync,symlinkSync} from 'node:fs';
 import {tmpDir,fakeCtx} from './helpers';
-import {prepare} from '../plugins/agent-session';
+import {prepare} from '../examples/plugins/agent-session';
 import {materializeAgentReporting} from '../src/session/agent-reporting';
 import {readReport,writeReport,reportCommand} from '../src/session/reports';
 import {createTask,readTask,updateTask} from '../src/tasks/store';

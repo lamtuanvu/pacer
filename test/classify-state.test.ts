@@ -8,7 +8,7 @@ import { fakeCtx } from "./helpers";
 import { afterEach, expect, test } from "bun:test";
 import { KINDS } from "../src/config/strategy";
 import type { TaskRecord, TaskResult } from "../src/tasks/types";
-import { HttpError, isLocalUrl, joinUrl, postJson } from "../plugins/pacer-classify/http";
+import { HttpError, isLocalUrl, joinUrl, postJson } from "../examples/plugins/pacer-classify/http";
 import {
   KIND_CRITERIA, QUESTIONS, difficultyState, guardEventId, guardState,
   parseState, redactState, resultCheckState, stateHash, taskKindState, withoutPlannerKind,

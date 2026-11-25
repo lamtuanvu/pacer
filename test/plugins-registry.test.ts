@@ -146,12 +146,12 @@ test("calls serialise unless the manifest is reentrant", async () => {
 }, 20000);
 
 test('only bundled peers receive the single host-issued source selector; installed env remains sealed',async()=>{
-  const {spawn}=await import('node:child_process');const {BUNDLED}=await import('../plugins/bundled');
+  const {spawn}=await import('node:child_process');const {BUNDLED}=await import('../src/plugins/bundled');
   const ctx=home();ctx.env.PACER_CORE_ARGV='raw-selector-marker';ctx.env.SECRET='private-env-marker';
   const captures:Record<string,string|undefined>[]=[];
   const capture=((file:string,args:string[],options:any)=>{captures.push({...options.env});return spawn(file,args,options);}) as typeof spawn;
   const bundle=BUNDLED.find(value=>value.manifest.id==='pacer-notify')!;
-  const r=new PluginRegistry({bundled:[bundle],spawn:capture,spawnBundled:()=>({argv:[process.execPath,join(import.meta.dir,'../plugins/pacer-notify/index.ts')],cwd:ctx.home,env:{PACER_CORE_ARGV:'host-issued-selector',SECRET:'private-env-marker'}})});registries.push(r);
+  const r=new PluginRegistry({bundled:[bundle],spawn:capture,spawnBundled:()=>({argv:[process.execPath,join(import.meta.dir,'../examples/plugins/pacer-notify/index.ts')],cwd:ctx.home,env:{PACER_CORE_ARGV:'host-issued-selector',SECRET:'private-env-marker'}})});registries.push(r);
   expect((await r.doctor(live(ctx),'pacer-notify'))[0]?.ok).toBe(true);
   expect(captures[0]).toEqual({PATH:ctx.env.PATH,HOME:ctx.home,PACER_HOME:ctx.pacerHome,PACER_PLUGIN_ID:'pacer-notify',PACER_PLUGIN_PROTOCOL:'1.12.0',PACER_CORE_ARGV:'host-issued-selector',BUN_RUNTIME_TRANSPILER_CACHE_PATH:''});
   await r.shutdown();

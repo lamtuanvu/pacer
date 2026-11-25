@@ -15,7 +15,7 @@ test('all notifier providers are selected by id rather than bundle priority', as
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { BUNDLED } from '../plugins/bundled';
+import { BUNDLED } from '../src/plugins/bundled';
 test('canonical notifier receives immutable host platform in hello and config.get', async () => {
   const root=mkdtempSync(join(tmpdir(),'pacer-notifier-config-'));
   const ctx=fakeCtx({home:root,pacerHome:join(root,'.pacer')});

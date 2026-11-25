@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { notifierResources } from '../src/plugins/notifier-resources';
-import { handlers } from '../plugins/pacer-notify';
+import { handlers } from '../examples/plugins/pacer-notify';
 
 test('host authorizes precisely the plugin notification vector with literal user arguments', async () => {
   for (const platform of ['darwin', 'linux', 'win32']) {

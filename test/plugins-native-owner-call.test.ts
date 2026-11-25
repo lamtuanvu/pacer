@@ -5,7 +5,7 @@ import { createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { HostClient } from "../packages/plugin-sdk/src";
-import { BUNDLED } from "../plugins/bundled";
+import { BUNDLED } from "../src/plugins/bundled";
 import { discoverEndpointModels, endpointLaunchSettings } from "../src/plugins/endpoint-adapter";
 import { relayOwner, type Relay } from "./fixtures/native-owner-relay";
 import { authed, ownerKey } from "./fixtures/owner-auth";
@@ -654,7 +654,7 @@ test("flag-on refuses hosts resources and oversized frames without dialing", asy
 });
 
 const endpoints = BUNDLED.find(plugin => plugin.manifest.id === "pacer-endpoints")!;
-const endpointScript = join(import.meta.dir, "..", "plugins", "pacer-endpoints", "index.ts");
+const endpointScript = join(import.meta.dir, "..", "examples", "plugins", "pacer-endpoints", "index.ts");
 // Answers hello and endpoint.launchEnv with `reply`, its @HOME@ replaced by the call's pacerHome.
 const launchScript = (reply: unknown) => `const reply=${JSON.stringify(JSON.stringify(reply))};const r=Bun.stdin.stream().getReader();let b='';const send=x=>console.log(JSON.stringify({jsonrpc:'2.0',...x}));for(;;){const {value,done}=await r.read();if(done)break;b+=new TextDecoder().decode(value);while(b.includes('\\n')){const i=b.indexOf('\\n'),m=JSON.parse(b.slice(0,i));b=b.slice(i+1);if(m.method==='plugin.hello')send({id:m.id,result:{protocol:m.params.protocol,id:'pacer-endpoints',version:m.params.manifest.version,contributes:['endpoint']}});else if(m.method==='endpoint.launchEnv')send({id:m.id,result:JSON.parse(reply.replaceAll('@HOME@',m.params.pacerHome))});}}`;
 const accounts = {
@@ -821,22 +821,42 @@ test("flag-on refuses non-empty credential bindings without dialing, and nothing
 
 const unavailable = (method: string) => ({ code: "plugin_unavailable", message: `${method} needs credential bindings, which the native process owner bridge does not carry` });
 
-// Only endpoint.launchEnv crosses with an empty list; these keyless calls keep the refusal they had before it did.
+// Only an endpoint launch and a keyless classifier with a real HTTP host cross with an empty list; this keyless
+// discovery call keeps the refusal it had before they did.
 test("flag-on keeps refusing keyless endpoint.models without dialing", async () => {
   const { ctx, registry, relay } = await bundledSetup(true);
   await expect(discoverEndpointModels(ctx, { baseUrl: "http://127.0.0.1:9/v1", timeoutMs: 500 }, registry)).rejects.toMatchObject(unavailable("endpoint.models"));
   expect(relay!.calls).toEqual([]);
 });
 
-test("flag-on keeps refusing keyless classifier.ask without dialing", async () => {
-  const classify = BUNDLED.find(plugin => plugin.manifest.id === "pacer-classify")!;
-  const { ctx, registry, relay } = await bundledSetup(true, { script: childScript }, classify);
+const classify = BUNDLED.find(plugin => plugin.manifest.id === "pacer-classify")!;
+// Answers hello as pacer-classify serving classifier, then each classifier.ask with a rules-style result.
+const classifyScript = `const r=Bun.stdin.stream().getReader();let b='';const send=x=>console.log(JSON.stringify({jsonrpc:'2.0',...x}));for(;;){const {value,done}=await r.read();if(done)break;b+=new TextDecoder().decode(value);while(b.includes('\\n')){const i=b.indexOf('\\n'),m=JSON.parse(b.slice(0,i));b=b.slice(i+1);if(m.method==='plugin.hello')send({id:m.id,result:{protocol:m.params.protocol,id:'pacer-classify',version:m.params.manifest.version,contributes:['classifier']}});else if(m.method==='classifier.ask')send({id:m.id,result:{value:'tests',confidence:0.7,latencyMs:0,costUsd:0}});}}`;
+const classifyResult = { value: "tests", confidence: 0.7, latencyMs: 0, costUsd: 0 };
+const classifyCall = (ctx: Ctx, registry: PluginRegistry, adapter: "ollama" | "jev", classifierConfig: unknown) => registry.call(ctx, "pacer-classify", "classifier.ask", {
+  adapter, state: "{}", question: { type: "yesno", id: "q", instructions: "q" }, timeoutMs: 1000, config: {},
+}, { deadlineMs: 2000, classifierConfig: classifierConfig as never });
+
+test("flag-on a keyless classifier carries its HTTP scope across and answers as flag-off; a keyed one stays refused", async () => {
   const keyless = validateClassifier({ adapters: { ollama: { base_url: "http://127.0.0.1:9/v1", model: "m" } } }, {});
-  for (const adapter of ["ollama", "rules"] as const) {
-    await expect(registry.call(ctx, "pacer-classify", "classifier.ask", {
-      adapter, state: "{}", question: { type: "yesno", id: "q", instructions: "q" }, timeoutMs: 1000, config: {},
-    }, { deadlineMs: 2000, classifierConfig: keyless })).rejects.toMatchObject(unavailable("classifier.ask"));
+  const outcomes = [];
+  for (const flag of [false, true]) {
+    const { ctx, registry, relay } = await bundledSetup(flag, { script: classifyScript }, classify);
+    outcomes.push(await outcome(classifyCall(ctx, registry, "ollama", keyless)));
+    if (relay) {
+      const [call] = relay.calls;
+      expect(call.method).toBe("classifier.ask");
+      expect(call.authority.resources.http.hosts).toEqual(["127.0.0.1"]);
+      expect(call.authority.owning).toBe(true);
+      expect(JSON.stringify(call)).not.toContain("credentialBindings");
+    }
   }
+  expect(outcomes[1]).toEqual(outcomes[0]);
+  expect(outcomes[0]).toEqual({ value: classifyResult });
+  // A keyed classifier still keeps its refusal, without dialing.
+  const keyed = validateClassifier({ default: "jev", adapters: { jev: { base_url: "http://127.0.0.1:9/v1", model: "m", key_env: "TYPESAFE_API_KEY" } } }, {});
+  const { ctx, registry, relay } = await bundledSetup(true, { script: classifyScript }, classify);
+  await expect(classifyCall(ctx, registry, "jev", keyed)).rejects.toMatchObject(unavailable("classifier.ask"));
   expect(relay!.calls).toEqual([]);
 });
 

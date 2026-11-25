@@ -67,13 +67,14 @@ describe("live guard (D3)", () => {
     await expect(main(["native-plugin-stdio", "--id", "missing", "--keep"])).rejects.toThrow("usage: live native-plugin-stdio");
     await expect(main(["native-stdio", "--id", "missing", "--stop-service"])).rejects.toThrow("--stop-service is only valid");
     await expect(main(["status", "--native-plugin-host"])).rejects.toThrow("--native-plugin-host is only valid for up");
-    await expect(up("plugin-host", undefined, tmpDir(), undefined, undefined, false, false, false, {}, false, true)).rejects.toThrow("requires --front-door rust");
+    await expect(main(["status", "--ts-plugin-host"])).rejects.toThrow("--ts-plugin-host is only valid for up");
+    await expect(up("plugin-host", undefined, tmpDir(), undefined, undefined, false, false, false, {}, false, "ts")).rejects.toThrow("requires --front-door rust");
   });
-  test("fixed plugin owner mode requires a healthy native-host sandbox and takes no inputs", async () => {
-    await expect(exerciseNativePluginOwner({ ...fixture(), frontDoor: "rust" })).rejects.toThrow("--native-plugin-host sandbox");
-    await expect(exerciseNativePluginOwner({ ...fixture(), frontDoor: "rust", nativePluginHost: true, nativeForwardOps: "*" })).rejects.toThrow("without forwarding");
-    await expect(exerciseNativePluginOwner({ ...fixture(), frontDoor: "rust", nativePluginHost: true })).rejects.toThrow("healthy sandbox");
-    await expect(exerciseNativePluginOwner({ ...fixture(), frontDoor: "rust", nativePluginHost: true, stopped: true })).rejects.toThrow("healthy sandbox");
+  test("fixed plugin owner mode requires a healthy native-owner sandbox and takes no inputs", async () => {
+    await expect(exerciseNativePluginOwner({ ...fixture(), frontDoor: "rust", pluginOwner: "ts" })).rejects.toThrow("not --ts-plugin-host");
+    await expect(exerciseNativePluginOwner({ ...fixture(), frontDoor: "rust", nativeForwardOps: "*" })).rejects.toThrow("without forwarding");
+    await expect(exerciseNativePluginOwner({ ...fixture(), frontDoor: "rust" })).rejects.toThrow("healthy sandbox");
+    await expect(exerciseNativePluginOwner({ ...fixture(), frontDoor: "rust", stopped: true })).rejects.toThrow("healthy sandbox");
     await expect(main(["native-plugin-owner", "--id", "missing", "--stop-service"])).rejects.toThrow("--stop-service is only valid");
     await expect(main(["native-plugin-owner", "--id", "missing", "--", "serve"])).rejects.toThrow("usage: live native-plugin-owner");
     await expect(main(["native-plugin-owner"])).rejects.toThrow("usage: live native-plugin-owner");

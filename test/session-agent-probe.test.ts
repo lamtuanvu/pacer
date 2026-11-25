@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { fakeCtx } from "./helpers";
 import { probeAgentSession } from "../src/session/agent-probe";
-import { capabilities } from "../plugins/agent-session";
+import { capabilities } from "../examples/plugins/agent-session";
 
 const codexHelp = "--config --cd --sandbox --add-dir --model --image --dangerously-bypass-hook-trust --no-daemon";
 test("a newer compatible CLI is supported using its actual account environment", async () => {

@@ -203,7 +203,7 @@ test('diagnostic summaries distinguish service failures and retain measured late
 
 test('configured Claude hooks explain account-folder mismatch without claiming missing hooks', async () => {
  const {claudeHookChecks} = await import('../src/install/doctor-hooks');
- const {editClaudeSettings} = await import('../plugins/pacer-planners/claude');
+ const {editClaudeSettings} = await import('../examples/plugins/pacer-planners/claude');
  const {diagnosticSummary, diagnosticGuidance} = await import('../src/view-model/diagnostics');
  const {mkdirSync, writeFileSync} = await import('node:fs');
  const {join} = await import('node:path');

@@ -1,9 +1,9 @@
 import {afterEach,expect,spyOn,test} from 'bun:test';
 import type{HostClient}from'@pacer/plugin';
-import {rulesClassifier}from'../plugins/pacer-classify/rules';
-import{ollamaClassifier,schemaFor,promptFor,parseLocalAnswer}from'../plugins/pacer-classify/ollama';
-import{jevClassifier,jevRequest,mapJevAnswer}from'../plugins/pacer-classify/jev';
-import type{Question}from'../plugins/pacer-classify/http';
+import {rulesClassifier}from'../examples/plugins/pacer-classify/rules';
+import{ollamaClassifier,schemaFor,promptFor,parseLocalAnswer}from'../examples/plugins/pacer-classify/ollama';
+import{jevClassifier,jevRequest,mapJevAnswer}from'../examples/plugins/pacer-classify/jev';
+import type{Question}from'../examples/plugins/pacer-classify/http';
 import{QUESTIONS}from'../src/classify/state';
 const restore:(()=>void)[]=[];
 afterEach(()=>{for(const f of restore.splice(0))f()});
