@@ -14,7 +14,7 @@ test("internal mode trusts only the internal token and keeps the bearer/cookie d
     const url = (p: string) => `http://127.0.0.1:${s.port}${p}`;
     const host = { host: `127.0.0.1:${s.port}` };
     expect((await fetch(url("/v3/hello"), { headers: { ...host, authorization: `Bearer ${s.token}` } })).status).toBe(401);
-    for (const path of ["/health", "/app/auth", "/_internal/app-page?status=401"]) {
+    for (const path of ["/health", "/app/auth", "/_internal/plugins"]) {
       expect((await fetch(url(path))).status).toBe(401);
     }
     const cookie = await fetch(url("/v3/hello"), { headers: {
@@ -39,14 +39,10 @@ test("internal mode trusts only the internal token and keeps the bearer/cookie d
     }
     // An unknown private POST follows the reference server's method refusal.
     expect((await fetch(url("/_internal/config-sync"), {method: "POST", headers: privateHeaders})).status).toBe(405);
-    const page = await fetch(url("/_internal/app-page?status=401&message=Session%20ended."), { headers: { ...host, authorization: `Bearer ${"i".repeat(64)}` } });
-    expect(page.status).toBe(401);
-    expect(await page.text()).toContain("Session ended.");
-    for (const status of ["1", "99999", "abc"]) {
-      const odd = await fetch(url(`/_internal/app-page?status=${status}&message=x`), { headers: { ...host, authorization: `Bearer ${"i".repeat(64)}` } });
-      expect(odd.status).toBe(500);
-      expect(await odd.text()).not.toContain("at ");
-    }
+    // The app error page endpoint is gone: pages render through the native front door now.
+    expect((await fetch(url("/_internal/app-page?status=1"), { headers: { ...host, authorization: `Bearer ${"i".repeat(64)}` } })).status).toBe(404);
+    const spa = await fetch(url("/app/"), { headers: { ...host, authorization: `Bearer ${"i".repeat(64)}` } });
+    expect(spa.status).toBe(200);
   } finally { s.stop(); }
 });
 

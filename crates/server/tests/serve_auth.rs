@@ -1,9 +1,12 @@
 #![allow(clippy::unwrap_used)]
 
-use axum::{body::to_bytes, http::Request};
+use axum::{
+    body::to_bytes,
+    http::{Request, StatusCode},
+};
 use pacer_foundation::Ctx;
 use pacer_server::serve::{
-    app_assets,
+    app_assets, app_codes, app_pages,
     auth::{self, AuthKind, Decision},
     sessions,
 };
@@ -38,7 +41,32 @@ async fn embedded_app_route_parity() {
         let req = builder.body(()).unwrap();
         let response = app_assets::route(&req);
         if row["forward"] == true {
-            assert!(response.is_none(), "{method} {path}");
+            if path == "/app/auth" {
+                // The sign-in hop is redeemed in serve::handle, not app_assets::route.
+                assert!(response.is_none(), "{method} {path}");
+            } else if path.starts_with("/app/") {
+                // Asset misses and unsupported methods now render the native page.
+                let (message, status) = if method == "POST" {
+                    ("Method not allowed.", StatusCode::METHOD_NOT_ALLOWED)
+                } else {
+                    ("Not found.", StatusCode::NOT_FOUND)
+                };
+                let response = response.unwrap_or_else(|| panic!("{method} {path}"));
+                let expected = app_pages::app_page(message, status);
+                assert_eq!(response.status(), expected.status(), "{method} {path}");
+                for (name, value) in expected.headers() {
+                    assert_eq!(
+                        response.headers().get(name),
+                        Some(value),
+                        "{method} {path}: {name}"
+                    );
+                }
+                let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+                let expected = to_bytes(expected.into_body(), usize::MAX).await.unwrap();
+                assert_eq!(body, expected, "{method} {path}");
+            } else {
+                assert!(response.is_none(), "{method} {path}");
+            }
             continue;
         }
         let response = response.unwrap();
@@ -218,7 +246,26 @@ async fn committed_auth_goldens() {
         }
         match auth::classify(&req.body(()).unwrap(), 4317, &token, &ctx) {
             Decision::Health => assert_eq!(path, "/health", "{name}"),
-            Decision::AppAuth => assert_eq!(path, "/app/auth", "{name}"),
+            Decision::AppAuth => {
+                assert_eq!(path, "/app/auth", "{name}");
+                // No code was supplied, so the native hop is the expired-link page.
+                assert!(!app_codes::redeem(&ctx, "").unwrap(), "{name}");
+                let page = app_pages::app_page(
+                    "This link has expired. Run `pacer open` again.",
+                    StatusCode::FORBIDDEN,
+                );
+                assert_eq!(
+                    page.status().as_u16() as u64,
+                    row["status"].as_u64().unwrap(),
+                    "{name}"
+                );
+                let body = to_bytes(page.into_body(), usize::MAX).await.unwrap();
+                assert_eq!(
+                    hex::encode(Sha256::digest(&body)),
+                    row["bodySha256"].as_str().unwrap(),
+                    "{name}"
+                );
+            }
             Decision::Forward { auth } => {
                 assert_eq!(row["status"], 200, "{name}");
                 assert_eq!(
@@ -236,11 +283,21 @@ async fn committed_auth_goldens() {
                     row["status"].as_u64().unwrap(),
                     "{name}"
                 );
-                // The core supplies /app/ error HTML through /_internal/app-page in production.
-                // These three classifier rows check status only; no core fetch is needed here.
-                if response.extensions().get::<auth::AppPage>().is_some() {
+                // App rejections now render natively: compare the page bytes to the golden.
+                if let Some(page) = response.extensions().get::<auth::AppPage>().cloned() {
                     assert!(path.starts_with("/app/"));
-                    assert!(row["bodySha256"].is_string());
+                    let page = app_pages::app_page(page.message, page.status);
+                    assert_eq!(
+                        page.status().as_u16() as u64,
+                        row["status"].as_u64().unwrap(),
+                        "{name}"
+                    );
+                    let body = to_bytes(page.into_body(), usize::MAX).await.unwrap();
+                    assert_eq!(
+                        hex::encode(Sha256::digest(&body)),
+                        row["bodySha256"].as_str().unwrap(),
+                        "{name}"
+                    );
                     continue;
                 }
                 let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
@@ -687,7 +744,7 @@ fn internal_routes_are_not_public() {
     let (_dir, ctx) = fixture();
     let token = auth::ensure_token(&ctx).unwrap();
     let req = Request::builder()
-        .uri("/_internal/app-page?status=1")
+        .uri("/_internal/plugins?status=1")
         .header("host", "127.0.0.1:4317")
         .header("authorization", format!("Bearer {token}"))
         .body(())

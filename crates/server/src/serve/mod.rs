@@ -1,6 +1,11 @@
 //! Public listener authentication. Listener and core forwarding are wired separately.
 pub mod app_assets;
+pub mod app_codes;
+pub mod app_pages;
 pub mod auth;
+#[cfg(test)]
+#[path = "tests/app_pages.rs"]
+mod app_pages_tests;
 pub mod core_child;
 pub mod discovery;
 #[cfg(test)]
@@ -114,24 +119,40 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
         auth::Decision::Health => return state.heartbeat.response(),
         auth::Decision::Reject(response) => {
             if let Some(page) = response.extensions().get::<auth::AppPage>() {
-                let Some(target) = state.core.target().await else {
-                    return proxy::unavailable(true);
-                };
-                let message: String = page.message.bytes().map(|b| format!("%{b:02X}")).collect();
-                let request = Request::builder()
-                    .uri(format!(
-                        "/_internal/app-page?status={}&message={message}",
-                        response.status().as_u16()
-                    ))
-                    .body(Body::empty());
-                return match request {
-                    Ok(request) => proxy::forward(request, target, auth::AuthKind::Bearer).await,
-                    Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
-                };
+                return app_pages::app_page(page.message, page.status);
             }
             return response;
         }
-        auth::Decision::AppAuth => auth::AuthKind::Bearer,
+        auth::Decision::AppAuth => {
+            // `/app/auth` is the sign-in hop: redeem the one-time code and set a
+            // session cookie from a same-origin page (src/serve/app-routes.ts:51-57).
+            if req.method() != axum::http::Method::GET {
+                return app_pages::app_page(
+                    "Method not allowed.",
+                    StatusCode::METHOD_NOT_ALLOWED,
+                );
+            }
+            let code = req
+                .uri()
+                .query()
+                .and_then(|query| {
+                    form_urlencoded::parse(query.as_bytes())
+                        .find(|(key, _)| key == "code")
+                        .map(|(_, value)| value.into_owned())
+                })
+                .unwrap_or_default();
+            return match app_codes::redeem(&ctx, &code) {
+                Ok(true) => match sessions::create(&ctx) {
+                    Ok(session) => app_pages::hop_page(&session),
+                    Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+                },
+                Ok(false) => app_pages::app_page(
+                    "This link has expired. Run `pacer open` again.",
+                    StatusCode::FORBIDDEN,
+                ),
+                Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+            };
+        }
         auth::Decision::Forward { auth } => auth,
     };
     // The core remains authoritative for task grants and scoped work sessions.
