@@ -3,7 +3,7 @@ import { stepMarkerFor, stepMarkerGlyph, runStatus } from "../../../../src/view-
 import { sentenceCase } from "../../../../src/view-model/run-board";
 import { Creature, PersonFigure, creatureHeight } from "./MascotArt";
 import { FIGURE, GAP_X, STATION_H, STATION_W, type BoardNode, type BoardZone, type LiveBoardLayout } from "./live-board-layout";
-import { nodeLabel, shortLabel } from "./live-board-model";
+import { graphStatusLabel, nodeLabel, shortLabel } from "./live-board-model";
 
 export interface CanvasAgent { taskId: string; nodeId: string; x: number; y: number; executor: string; label: string }
 
@@ -19,7 +19,7 @@ export function deskWords(n: { status: string; waitsOnYou: boolean }): { glyph: 
 export function zoneSummary(z: { versions: Array<{ version: number; status: string; stepCount: number }>; approved: number; drawn: number }): string {
   if (!z.versions.length) return "No plan yet";
   const latest = z.versions[z.versions.length - 1]!;
-  const head = `v${latest.version} ${latest.status} · ${latest.stepCount} ${latest.stepCount === 1 ? "step" : "steps"}`;
+  const head = `v${latest.version} ${graphStatusLabel(latest.status)} · ${latest.stepCount} ${latest.stepCount === 1 ? "step" : "steps"}`;
   if (!z.approved) return `${head} · not approved yet`;
   return `${head} · ${z.drawn} ${z.drawn === 1 ? "step" : "steps"} started`;
 }

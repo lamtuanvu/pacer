@@ -140,7 +140,7 @@ test("the position slider and Jump to end move the replay; the slider reads out 
     expect(domText(dom.container)).toContain("Position: event 10 of 19");
     expect(now(dom.container)).toBe("The planner drafts plan v1 (2 steps)");
     expect(attr(slider, "aria-valuetext")).toBe("Event 10 of 19: The planner drafts plan v1 (2 steps)");
-    expect(domText(dom.container)).toContain("v1 draft · 2 steps");
+    expect(domText(dom.container)).toContain("v1 proposed · 2 steps");
     await click(dom.container, "Jump to end");
     expect(now(dom.container)).toBe("Run done");
     // clicking an event in the list jumps to it
