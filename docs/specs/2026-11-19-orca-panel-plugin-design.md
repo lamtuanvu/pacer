@@ -35,8 +35,14 @@ tray for the common cases.
   An executor's question goes to the caller, the agent that delegated the task, so it reads "asked
   caller"; answering it yourself is an override inside the expanded row. "Needs you" lists only
   what is addressed to a person: a requested review (`task.request_review`) and messages for the
-  human. The header shows the planner's pace in one line; the status bar counts this worktree only.
-- Global lists (every repo's attention items, by-repo counts, who runs next, delegating from the
+  human. The header shows the planner's pace in one line.
+- Pacer-wide context stays small (maintainer request, 2026-11-25): an "All worktrees" box at the
+  bottom gives counts across every worktree (needs you, running, asked caller, queued, how many
+  worktrees), a pause if one is on, the enabled executors with their state, and an "Open pacer"
+  link. The status bar is pacer-wide too: the planner's usage, then needs-you and running across
+  every worktree ("pacer 94% · 3 need you · 6 running"), amber when something needs a person,
+  otherwise the pace tone.
+- Global lists (every repo's attention items, by-repo rows, who runs next, delegating from the
   panel, pause and mode controls) are out: they live in the pacer app.
 - The worker is an ordinary pacer v3 client: HTTP to a running `pacer serve`, the same bearer-token
   auth every other client (CLI, TUI, app) already uses. No pacer-side plugin registration, no

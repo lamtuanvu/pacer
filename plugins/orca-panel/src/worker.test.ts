@@ -4,12 +4,14 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { assert, mockHost, mountWorker, test } from 'orca/testing'
-import type { AttentionItem } from './pacer-client'
-import type { PanelSnapshot } from './protocol'
+import type { AttentionItem, PacerSnapshot, PacerTask } from './pacer-client'
+import type { PanelOverall, PanelSnapshot } from './protocol'
 import * as main from './worker'
 import {
   actionableItems,
+  executorSummary,
   filterAttention,
+  overallCounts,
   paceStatus,
   resetOpenDesktop,
   setOpenDesktop,
@@ -310,6 +312,15 @@ test('pacer.snapshot trims a realistic snapshot, hides snoozed items, matches or
             executor: null,
             updatedAt: at - 20,
           },
+          {
+            id: 'elsewhere',
+            rev: 1,
+            title: 'Running in another worktree',
+            state: 'running',
+            repo: { key: 'k2', label: 'other', path: '/other' },
+            executor: 'cursor',
+            updatedAt: at - 30,
+          },
         ],
         executors: [
           {
@@ -363,6 +374,10 @@ test('pacer.snapshot trims a realistic snapshot, hides snoozed items, matches or
     assert.equal(snapshot.tasks?.find((t) => t.id === 't1')?.orcaWorkspaceId, 'ws-wt')
     assert.equal((snapshot.tasks ?? []).every((t) => t.id !== 'tq' || t.state === 'queued'), true)
     assert.ok((snapshot.tasks ?? []).some((t) => t.id === 'tq'))
+    // The rows stay this worktree's; the pacer-wide counts (the 'live' review included) and executors cover every worktree.
+    assert.equal((snapshot.tasks ?? []).some((t) => t.id === 'elsewhere'), false)
+    assert.deepEqual(snapshot.overall, { needsYou: 1, running: 2, asked: 0, queued: 1, worktrees: 2 })
+    assert.deepEqual(snapshot.executors, [{ id: 'cursor', name: 'cursor', state: 'ready', tone: 'good' }])
     assert.ok((snapshot.tasks ?? []).some((t) => t.id === 't2'))
     await worker.deactivate()
   } finally {
@@ -429,58 +444,6 @@ test('orca.openWorkspace calls workspace.open', async () => {
   } finally {
     await pacer.dispose()
   }
-})
-
-test('status bar text/tone for each verdict including ahead/behind fix', () => {
-  const base: PanelSnapshot = {
-    connected: true,
-    at: 1,
-    focusedWorkspace: { path: '/repo', name: 'jawfish' },
-    planner: {
-      agent: 'Claude',
-      usedPct: 14,
-      pacePct: 12,
-      verdict: 'on_pace',
-      advice: 'On pace for the week',
-      mode: 'normal',
-      resetsAt: null,
-      window: 'week',
-      stale: false,
-    },
-    pause: null,
-    attention: [attentionItem('a'), attentionItem('b'), attentionItem('c')],
-  }
-  assert.deepEqual(
-    { text: paceStatus(base).text, tone: paceStatus(base).tone },
-    { text: 'pacer', tone: 'neutral' },
-  )
-  const ahead = {
-    ...base,
-    planner: { ...base.planner!, usedPct: 41, verdict: 'ahead', advice: 'Delegate everything you can' },
-    attention: [],
-  }
-  assert.deepEqual(
-    { text: paceStatus(ahead).text, tone: paceStatus(ahead).tone },
-    { text: 'pacer', tone: 'neutral' },
-  )
-  const behind = { ...base, planner: { ...base.planner!, verdict: 'behind' }, attention: [] }
-  assert.equal(paceStatus(behind).tone, 'neutral')
-  const outAt = Date.UTC(2026, 10, 24, 9, 0, 0) / 1000
-  const out = {
-    ...base,
-    focusedWorkspace: null,
-    planner: { ...base.planner!, usedPct: 100, verdict: 'out', resetsAt: outAt },
-    attention: [],
-  }
-  const outStatus = paceStatus(out)
-  assert.equal(outStatus.tone, 'danger')
-  assert.equal(outStatus.text, 'pacer 100%')
-  assert.deepEqual(paceStatus({ ...base, connected: false }), {
-    id: STATUS_ITEM,
-    text: 'pacer off',
-    tone: 'neutral',
-    tooltip: 'pacer is not running · open the pacer app to start it',
-  })
 })
 
 test('a snapshot-changing SSE event posts pacer.changed to open panels', async () => {
@@ -630,8 +593,9 @@ test('activation updates the status bar', async () => {
     await waitFor(() => statusBarCalls(host).length >= 1, 'the activation status bar update')
     const first = statusBarCalls(host)[0]
     assert.equal(first?.id, STATUS_ITEM)
-    assert.equal(first?.tone, 'success')
-    assert.match(first?.text ?? '', /^pacer 62%/)
+    // A review anywhere needs a person, so the bar warns even though pace is fine.
+    assert.equal(first?.tone, 'warning')
+    assert.equal(first?.text, 'pacer 62% · 1 need you')
     await worker.deactivate()
   } finally {
     await pacer.dispose()
@@ -697,44 +661,6 @@ test('uiOpenRoute covers review/session/settings/needs-you and answer tab', () =
   assert.equal(uiOpenRoute({ view: 'unknown' }), 'overview')
 })
 
-test('paceStatus: unknown usage, global count, ahead/on_pace tooltips', () => {
-  const base: PanelSnapshot = {
-    connected: true,
-    at: 1,
-    focusedWorkspace: null,
-    planner: null,
-    pause: null,
-    attention: [attentionItem('a'), attentionItem('b')],
-  }
-  assert.deepEqual(
-    { text: paceStatus(base).text, tone: paceStatus(base).tone },
-    { text: 'pacer', tone: 'neutral' },
-  )
-  const onPace = {
-    ...base,
-    focusedWorkspace: { path: '/repo', name: 'jawfish' },
-    planner: {
-      agent: 'Claude',
-      usedPct: 14,
-      pacePct: 12,
-      verdict: 'on_pace' as const,
-      advice: 'On pace for the week',
-      mode: 'normal',
-      resetsAt: null,
-      window: 'week',
-      stale: false,
-    },
-    attention: [],
-  }
-  assert.equal(paceStatus(onPace).tooltip, 'Connected')
-  const ahead = {
-    ...onPace,
-    planner: { ...onPace.planner, usedPct: 41, verdict: 'ahead' as const, advice: 'Slow down' },
-  }
-  assert.equal(paceStatus(ahead).tooltip, 'Connected')
-  assert.equal(paceStatus(ahead).text, 'pacer')
-})
-
 test("a not-connected refresh sets the status bar to 'pacer off'", async () => {
   let events: EventConnection | undefined
   const pacer = await startPacer({
@@ -762,22 +688,78 @@ test("a not-connected refresh sets the status bar to 'pacer off'", async () => {
   }
 })
 
-test('status bar counts match the panel: a caller-deciding task is not running, a review is a need', () => {
-  const repo = { key: 'k', label: 'r', path: '/w/gar' }
-  const task = (over: Record<string, unknown>) => ({ rev: 1, title: 't', repo, executor: 'cursor#cursor', updatedAt: 100, review: null, liveness: null, ...over })
-  const snapshot = {
-    connected: true,
-    at: 200,
-    focusedWorkspace: { path: '/w/gar', name: 'gar' },
-    planner: null,
-    pause: null,
-    tasks: [
-      task({ id: 'run', state: 'running' }),
-      task({ id: 'deciding', state: 'running', liveness: { stalled: false, reason: 'caller_decision', since: 150 } }),
-      task({ id: 'rev', state: 'done' }),
-    ],
-    attention: [{ ...attentionItem('r1'), kind: 'review', taskId: 'rev', repo }],
-  } as unknown as PanelSnapshot
-  const status = paceStatus(snapshot)
-  assert.deepEqual({ text: status.text, tone: status.tone }, { text: 'pacer · 1 need you · 1 running', tone: 'warning' })
+const plannerAt = (usedPct: number | null, verdict: string) => ({
+  agent: 'Claude', usedPct, pacePct: 50, verdict, advice: `advice ${verdict}`, mode: 'normal', resetsAt: null, window: 'week', stale: false,
+})
+const overallOf = (over: Partial<PanelOverall> = {}): PanelOverall => ({ needsYou: 0, running: 0, asked: 0, queued: 0, worktrees: 0, ...over })
+const wideBase: PanelSnapshot = { connected: true, at: 1, focusedWorkspace: { path: '/w/gar', name: 'gar' }, planner: null, pause: null, attention: [], tasks: [] }
+
+test('status bar is pacer-wide: pace, then needs-you and running across every worktree', () => {
+  const s = { ...wideBase, planner: plannerAt(94, 'ahead'), overall: overallOf({ needsYou: 3, running: 6, queued: 2, worktrees: 4 }) }
+  assert.deepEqual(
+    { text: paceStatus(s).text, tone: paceStatus(s).tone, tooltip: paceStatus(s).tooltip },
+    { text: 'pacer 94% · 3 need you · 6 running', tone: 'warning', tooltip: 'advice ahead · 3 need you · 6 running across all worktrees' },
+  )
+  // The focused worktree does not change the bar.
+  assert.equal(paceStatus({ ...s, focusedWorkspace: null }).text, 'pacer 94% · 3 need you · 6 running')
+  assert.equal(paceStatus({ ...s, focusedWorkspace: { path: '/w/empty', name: 'empty' }, tasks: [] }).text, 'pacer 94% · 3 need you · 6 running')
+})
+
+test('status bar tone follows pace when nothing needs a person', () => {
+  const at = (verdict: string) => paceStatus({ ...wideBase, planner: plannerAt(40, verdict), overall: overallOf({ running: 2 }) })
+  assert.deepEqual({ text: at('on_pace').text, tone: at('on_pace').tone }, { text: 'pacer 40% · 2 running', tone: 'success' })
+  assert.equal(at('behind').tone, 'success')
+  assert.equal(at('ahead').tone, 'warning')
+  assert.equal(at('out').tone, 'danger')
+  assert.equal(at('unknown').tone, 'neutral')
+})
+
+test('status bar without usage or counts, and when pacer is off', () => {
+  assert.deepEqual({ text: paceStatus(wideBase).text, tone: paceStatus(wideBase).tone, tooltip: paceStatus(wideBase).tooltip }, { text: 'pacer', tone: 'neutral', tooltip: 'Connected' })
+  assert.equal(paceStatus({ ...wideBase, overall: overallOf({ needsYou: 1 }) }).text, 'pacer · 1 need you')
+  assert.deepEqual(paceStatus({ ...wideBase, connected: false }), {
+    id: STATUS_ITEM,
+    text: 'pacer off',
+    tone: 'neutral',
+    tooltip: 'pacer is not running · open the pacer app to start it',
+  })
+})
+
+test('overallCounts: a person-addressed item is a need, a question or caller decision is asked, worktrees are distinct', () => {
+  const repoAt = (path: string) => ({ key: 'k', label: 'l', path })
+  const task = (id: string, path: string, over: Record<string, unknown> = {}) =>
+    ({ id, rev: 1, title: id, repo: repoAt(path), executor: 'cursor#cursor', state: 'running', updatedAt: 1, ...over }) as unknown as PacerTask
+  const tasks = [
+    task('run1', '/w/a'),
+    task('run2', '/w/b/'),
+    task('deciding', '/w/b', { liveness: { stalled: false, reason: 'caller_decision', since: 1 } }),
+    task('q', '/w/c', { state: 'needs_input' }),
+    task('queued', '/w/d', { state: 'queued' }),
+    task('reviewed', '/w/e', { state: 'done' }),
+    task('msg', '/w/a', { state: 'running' }),
+    task('old', '/w/f', { state: 'done' }),
+  ]
+  const attention = [
+    { ...attentionItem('r', null), kind: 'review', taskId: 'reviewed' },
+    { ...attentionItem('m', null), kind: 'message', taskId: 'msg' },
+    { ...attentionItem('qq', null), kind: 'question', taskId: 'q' },
+  ] as AttentionItem[]
+  assert.deepEqual(overallCounts(tasks, attention), { needsYou: 2, running: 2, asked: 2, queued: 1, worktrees: 5 })
+})
+
+test('executorSummary lists enabled executors in routing order and names shared agents by account', () => {
+  const ex = (id: string, agent: string, account: string, rank: number | 'planner', over: Record<string, unknown> = {}) =>
+    ({ id, agent, account, rank, state: 'ready', tone: 'good', sub: '', next: false, slots: { used: 0, max: 1 }, enabled: true, ...over })
+  const rows = executorSummary([
+    ex('claude', 'Claude', 'claude-code', 'planner'),
+    ex('cursor', 'Cursor', 'cursor', 2, { state: 'exhausted', tone: 'bad' }),
+    ex('opencode#oc-gofree', 'OpenCode', 'oc-gofree', 1),
+    ex('opencode#tse', 'OpenCode', 'tse', 3, { state: 'down', tone: 'weird' }),
+    ex('codex', 'Codex', 'codex', 4, { enabled: false }),
+  ] as unknown as PacerSnapshot['executors'])
+  assert.deepEqual(rows, [
+    { id: 'opencode#oc-gofree', name: 'OpenCode · oc-gofree', state: 'ready', tone: 'good' },
+    { id: 'cursor', name: 'Cursor', state: 'exhausted', tone: 'bad' },
+    { id: 'opencode#tse', name: 'OpenCode · tse', state: 'down', tone: 'muted' },
+  ])
 })

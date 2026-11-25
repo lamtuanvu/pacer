@@ -1,7 +1,6 @@
 // The plugin's own worker: a pacer v3 client feeding the panel (pacer.snapshot/pacer.act)
 // and the status bar item. Orca starts it when the plugin is enabled and keeps it running,
 // so the live loop (subscribeEvents + reconnect) runs without any panel open.
-import { activeTasks, classifyTask, needsYouItems } from './panel-view'
 import { spawn } from 'node:child_process'
 import { resolve as resolvePath } from 'node:path'
 import type { OrcaWorkerApi } from 'orca/worker'
@@ -14,7 +13,7 @@ import {
   type PacerSnapshot,
   type PacerTask,
 } from './pacer-client'
-import type { ActResult, AttentionRow, PanelSnapshot, PanelTask } from './protocol'
+import type { ActResult, AttentionRow, PanelExecutor, PanelOverall, PanelSnapshot, PanelTask } from './protocol'
 
 const SEQ_KEY = 'seq'
 const STATUS_ITEM = 'pacer-pace'
@@ -253,7 +252,8 @@ async function buildPanelSnapshot(
   const trimmedTasks = worktreeTasks.map(trimTask)
 
   // Attention items whose taskId is one of this worktree's tasks; actionableItems compatibility.
-  const filteredAttention = filterAttention(snapshot.attention, snapshot.at, snapshot.tasks)
+  const allAttention = filterAttention(snapshot.attention, snapshot.at, snapshot.tasks)
+  const filteredAttention = allAttention
     .filter((a) => !!a.taskId && taskIds.has(a.taskId))
     .map((item): AttentionRow => ({ ...item, repoLabel: item.repo?.label }))
 
@@ -280,7 +280,45 @@ async function buildPanelSnapshot(
     pause: snapshot.pause,
     attention: filteredAttention,
     tasks: trimmedTasks,
+    overall: overallCounts(snapshot.tasks, allAttention),
+    executors: executorSummary(snapshot.executors),
   }
+}
+
+/** Pacer-wide counts with the panel's own meaning of "needs you" (a review or a message for a person). */
+export function overallCounts(tasks: PacerTask[], attention: AttentionItem[]): PanelOverall {
+  const human = attention.filter((a) => a.kind === 'review' || a.kind === 'message')
+  const humanTaskIds = new Set(human.map((a) => a.taskId).filter(Boolean))
+  const worktrees = new Set<string>()
+  let running = 0
+  let asked = 0
+  let queued = 0
+  for (const t of tasks) {
+    const waitingOnPerson = humanTaskIds.has(t.id)
+    const callerDeciding = t.liveness?.reason === 'caller_decision'
+    if (t.state === 'running' && !waitingOnPerson && !callerDeciding) running++
+    else if (t.state === 'running' && !waitingOnPerson) asked++
+    else if (t.state === 'needs_input' && !waitingOnPerson) asked++
+    else if (t.state === 'queued') queued++
+    else if (!waitingOnPerson) continue
+    if (t.repo?.path) worktrees.add(normalizeRepoPath(t.repo.path))
+  }
+  return { needsYou: human.length, running, asked, queued, worktrees: worktrees.size }
+}
+
+/** Enabled executors (not the planner), in routing order; the agent name gets its account when two share it. */
+export function executorSummary(executors: PacerSnapshot['executors']): PanelExecutor[] {
+  const rows = executors
+    .filter((e) => e.rank !== 'planner' && e.enabled)
+    .sort((a, b) => Number(a.rank) - Number(b.rank))
+  const agentCount = new Map<string, number>()
+  for (const e of rows) agentCount.set(e.agent, (agentCount.get(e.agent) ?? 0) + 1)
+  return rows.map((e) => ({
+    id: e.id,
+    name: (agentCount.get(e.agent) ?? 0) > 1 ? `${e.agent} · ${e.account}` : e.agent,
+    state: e.state,
+    tone: (['good', 'info', 'warn', 'bad', 'muted'].includes(e.tone) ? e.tone : 'muted') as PanelExecutor['tone'],
+  }))
 }
 
 async function currentSnapshot(orca: OrcaWorkerApi): Promise<PanelSnapshot> {
@@ -305,7 +343,7 @@ function formatAbsLocal(at: number, now = Date.now() / 1000): string {
   return `${weekday} ${time}`
 }
 
-/** Status bar text/tone per the worktree contract. */
+/** Status bar: pacer-wide, whichever worktree is focused. */
 export function paceStatus(snapshot: PanelSnapshot): {
   id: string
   text: string
@@ -320,42 +358,32 @@ export function paceStatus(snapshot: PanelSnapshot): {
       tooltip: 'pacer is not running · open the pacer app to start it',
     }
   }
-  const hasFocus = !!snapshot.focusedWorkspace
-  if (!hasFocus) {
-    const planner = snapshot.planner
-    if (!planner || typeof planner.usedPct !== 'number') {
-      return { id: STATUS_ITEM, text: 'pacer', tone: 'neutral', tooltip: 'Connected' }
-    }
-    const verdict = planner.verdict ?? 'unknown'
-    const tone: StatusTone =
-      verdict === 'behind' || verdict === 'on_pace'
-        ? 'success'
-        : verdict === 'ahead'
-          ? 'warning'
-          : verdict === 'out'
-            ? 'danger'
-            : 'neutral'
-    const pct = Math.round(planner.usedPct)
-    return {
-      id: STATUS_ITEM,
-      text: `pacer ${pct}%`,
-      tone,
-      tooltip: planner.advice || verdict,
-    }
-  }
-
-  // Same counts as the panel's summary, so the bar and the panel never disagree.
-  const needsCount = needsYouItems(snapshot).length
-  const running = activeTasks(snapshot).filter((t) => classifyTask(t) === 'running').length
+  // Pace first, then what needs attention anywhere in pacer.
+  const planner = snapshot.planner
+  const pct = planner && typeof planner.usedPct === 'number' ? Math.round(planner.usedPct) : null
+  const verdict = planner?.verdict ?? 'unknown'
+  const paceTone: StatusTone =
+    verdict === 'behind' || verdict === 'on_pace'
+      ? 'success'
+      : verdict === 'ahead'
+        ? 'warning'
+        : verdict === 'out'
+          ? 'danger'
+          : 'neutral'
+  const overall = snapshot.overall
   const parts: string[] = []
-  if (needsCount > 0) parts.push(`${needsCount} need you`)
-  if (running > 0) parts.push(`${running} running`)
-  const text = parts.length ? `pacer · ${parts.join(' · ')}` : 'pacer'
+  if (overall?.needsYou) parts.push(`${overall.needsYou} need you`)
+  if (overall?.running) parts.push(`${overall.running} running`)
+  const head = pct == null ? 'pacer' : `pacer ${pct}%`
+  const text = parts.length ? `${head} · ${parts.join(' · ')}` : head
+  const tooltip = [pct == null ? null : planner?.advice || verdict, parts.length ? `${parts.join(' · ')} across all worktrees` : null]
+    .filter(Boolean)
+    .join(' · ')
   return {
     id: STATUS_ITEM,
     text,
-    tone: needsCount > 0 ? 'warning' : 'neutral',
-    tooltip: parts.length ? parts.join(' · ') : 'Connected',
+    tone: overall?.needsYou ? 'warning' : pct == null ? 'neutral' : paceTone,
+    tooltip: tooltip || 'Connected',
   }
 }
 
