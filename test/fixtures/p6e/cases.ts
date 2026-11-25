@@ -651,6 +651,30 @@ export function p6eCases(): any[] {
       raw: goneLedger,
       deliveries: { a: true },
     });
+    // Planner-owned run blocking items carry waitingOn too: they join the
+    // caller's group with stalled tasks instead of raising their own banner.
+    cases.push({
+      op: "notify",
+      now: goneAt,
+      level: "important",
+      items: [
+        stalled("a", 100),
+        {
+          ...item,
+          id: "run_budget:r-1",
+          kind: "budget_spent",
+          severity: "blocked",
+          title: "Run budget spent",
+          detail: "Budget spent",
+          since: 110,
+          raisedAt: 110,
+          notify: "important",
+          waitingOn: caller,
+        },
+      ],
+      raw: {},
+      deliveries: { a: true },
+    });
     // Same-task siblings are acked with the winner's delivery; a previously
     // stamped ack key suppresses its sibling on the next pass.
     const acked = [
