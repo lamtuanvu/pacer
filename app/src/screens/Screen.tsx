@@ -13,6 +13,7 @@ import { LazyInsights } from "./LazyInsights";
 import { LazyDispatch } from "./dispatch/LazyDispatch";
 import { LazyNewTask } from "./new-task/LazyNewTask";
 import { LazyRuns } from "./runs/LazyRuns";
+import { LazyLive } from "./runs/LazyLive";
 
 import { Sessions } from "./session/controller";
 import { LazyWorkspace } from "./workspace/LazyWorkspace";
@@ -29,6 +30,7 @@ function RouteScreen({route}:{route:Route}) {
  case 'dispatch': return <LazyDispatch view="home" query={route.query}/>;
  case 'review': return <LazyDispatch view="needs-you" query={route.query}/>;
  case 'runs': return <LazyRuns key={route.id ?? "list"} query={route.query} runId={route.id}/>;
+ case 'live': return <LazyLive key={`${route.id ?? "all"}:${route.view ?? ""}`} query={route.query} runId={route.id} view={route.view}/>;
  case 'sessions': return route.id ? <LazyTrace key={route.id} id={route.id} query={route.query}/> : <Sessions query={route.query}/>;
  case 'terminal': return <LazyWorkspace id={route.id} panel={route.panel} query={route.query}/>;
  case 'settings': return <LazySettings key={route.section ?? "general"} section={route.section} query={route.query}/>;
