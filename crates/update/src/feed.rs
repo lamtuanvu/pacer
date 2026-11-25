@@ -7,15 +7,11 @@ use crate::{
 };
 use pacer_foundation::js_semantics::js_trim;
 use serde_json::Value;
-use std::{
-    io::Read,
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 
 const TIMEOUT: Duration = Duration::from_millis(3000);
 const MAX_BYTES: u64 = 1024 * 1024;
-const MAX_REDIRECTS: usize = 5;
-const TIMED_OUT: &str = "update check timed out";
+pub(crate) const TIMED_OUT: &str = "update check timed out";
 const DEFAULT_URL: &str = "https://github.com/lamtuanvu/pacer/releases/latest/download/latest.json";
 const NIGHTLY_URL: &str =
     "https://raw.githubusercontent.com/lamtuanvu/pacer/desktop-updates/cli-nightly.json";
@@ -79,16 +75,10 @@ pub(crate) fn latest_for(
     }
 }
 
-/// `fetchText` then `JSON.parse` for one feed URL.
+/// `fetchText` then `JSON.parse` for one feed URL. The download itself (including
+/// `file://` reads and the byte cap) is `download::fetch_bytes`.
 fn read_feed(url: &str, deadline: Instant) -> Result<Value, String> {
-    let bytes = if url.starts_with("file://") {
-        read_file(url)?
-    } else {
-        fetch(url, deadline)?
-    };
-    if bytes.len() as u64 > MAX_BYTES {
-        return Err(failed(url, &format!("exceeds {MAX_BYTES} byte limit")));
-    }
+    let bytes = crate::download::fetch_bytes(url, MAX_BYTES, deadline)?;
     if Instant::now() >= deadline {
         return Err(TIMED_OUT.into());
     }
@@ -97,7 +87,7 @@ fn read_feed(url: &str, deadline: Instant) -> Result<Value, String> {
     parse_json(text)
 }
 
-fn failed(url: &str, detail: &str) -> String {
+pub(crate) fn failed(url: &str, detail: &str) -> String {
     format!("download failed: {url} ({detail})")
 }
 
@@ -125,7 +115,7 @@ pub(crate) fn normalize_base(base: &str) -> Result<String, String> {
 }
 
 /// `readFile(fileURLToPath(url))`, with Node's error wording.
-fn read_file(url: &str) -> Result<Vec<u8>, String> {
+pub(crate) fn read_file(url: &str) -> Result<Vec<u8>, String> {
     let parsed = url::Url::parse(url).map_err(|e| failed(url, &e.to_string()))?;
     let path = parsed.to_file_path().map_err(|()| {
         let platform = if cfg!(target_os = "macos") {
@@ -154,95 +144,6 @@ fn read_file(url: &str) -> Result<Vec<u8>, String> {
         };
         failed(url, &detail)
     })
-}
-
-/// `fetchBytes` over HTTP: manual redirects (HTTPS only, at most five), a 1 MiB cap.
-fn fetch(url: &str, deadline: Instant) -> Result<Vec<u8>, String> {
-    let mut current = url::Url::parse(url).map_err(|e| failed(url, &e.to_string()))?;
-    for hops in 0.. {
-        let remaining = deadline
-            .checked_duration_since(Instant::now())
-            .filter(|d| !d.is_zero())
-            .ok_or_else(|| TIMED_OUT.to_owned())?;
-        let agent = ureq::Agent::config_builder()
-            .max_redirects(0)
-            .http_status_as_error(false)
-            .timeout_global(Some(remaining))
-            .build()
-            .new_agent();
-        let mut response = agent
-            .get(current.as_str())
-            .call()
-            .map_err(|e| transport(url, e))?;
-        let status = response.status().as_u16();
-        if (300..400).contains(&status) {
-            let location = response
-                .headers()
-                .get("location")
-                .and_then(|v| v.to_str().ok())
-                .ok_or_else(|| failed(url, &format!("redirect HTTP {status} has no Location")))?;
-            if hops >= MAX_REDIRECTS {
-                return Err(failed(
-                    url,
-                    &format!("redirect limit ({MAX_REDIRECTS}) exceeded"),
-                ));
-            }
-            let next = current
-                .join(location)
-                .map_err(|e| failed(url, &e.to_string()))?;
-            if next.scheme() != "https" || !next.username().is_empty() || next.password().is_some()
-            {
-                return Err(failed(
-                    url,
-                    "redirect must target https:// without user info",
-                ));
-            }
-            current = next;
-            continue;
-        }
-        if !(200..300).contains(&status) {
-            return Err(failed(url, &format!("HTTP {status}")));
-        }
-        let declared = response
-            .headers()
-            .get("content-length")
-            .and_then(|v| v.to_str().ok())
-            .filter(|v| !v.is_empty() && v.bytes().all(|b| b.is_ascii_digit()))
-            .map(|v| v.parse::<f64>().unwrap_or(f64::INFINITY));
-        if declared.is_some_and(|n| n > MAX_BYTES as f64) {
-            return Err(failed(url, &format!("exceeds {MAX_BYTES} byte limit")));
-        }
-        let mut bytes = Vec::new();
-        response
-            .body_mut()
-            .as_reader()
-            .take(MAX_BYTES + 1)
-            .read_to_end(&mut bytes)
-            .map_err(|e| {
-                if Instant::now() >= deadline {
-                    TIMED_OUT.to_owned()
-                } else {
-                    failed(url, &e.to_string())
-                }
-            })?;
-        return Ok(bytes);
-    }
-    unreachable!("the redirect loop returns")
-}
-
-fn transport(url: &str, error: ureq::Error) -> String {
-    match &error {
-        ureq::Error::Timeout(_) => TIMED_OUT.into(),
-        ureq::Error::ConnectionFailed => failed(
-            url,
-            "Unable to connect. Is the computer able to access the url?",
-        ),
-        ureq::Error::Io(e) if e.kind() == std::io::ErrorKind::ConnectionRefused => failed(
-            url,
-            "Unable to connect. Is the computer able to access the url?",
-        ),
-        _ => failed(url, &error.to_string()),
-    }
 }
 
 /// `JSON.parse`, with JavaScriptCore's wording for the common failures.
