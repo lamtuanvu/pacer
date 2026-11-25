@@ -37,6 +37,7 @@ import { slotLimit, SLOT_STATES, localMachineGuard, slotBlock, slotUse } from ".
 import { readPause } from "../core/pause";
 import { drainQueue } from "./drain";
 import { onRunEnded } from "../messaging/turns";
+import { heldOpenForHuman } from "../messaging/participants";
 import { heldSettlement, userStopped } from "./held-report";
 import { type SpawnRunner } from "./api";
 import { createHash } from "node:crypto";
@@ -636,6 +637,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
       attemptedBackend = backend?.id ?? "direct";
       const localOwnerCandidate = !resuming && !deps.runAttempt && backend?.id === "direct" &&
         ctx.env.PACER_BACKEND !== "orca" && task.interactionMode !== "conversation" &&
+        !heldOpenForHuman(ctx, task) &&
         !resolveRunner(s, pick)?.host &&
         (!task.worktree || !!task.retryOf || task.attempts.length > 0) &&
         // A task whose earlier attempt ran on the built-in owner continues there: its receipts predate the provider.
@@ -658,6 +660,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
         !!localGit && !("error" in localGit);
       const remoteRunner = resolveRunner(s, pick);
       const ownedRemote = !deps.runAttempt && !work && task.interactionMode !== "conversation" &&
+        !heldOpenForHuman(ctx, task) &&
         ctx.env.PACER_BACKEND !== "orca" && !!remoteRunner?.host &&
         !!s.hosts[remoteRunner.host] && s.hosts[remoteRunner.host]!.session !== "full" &&
         validateExecution(s.execution).session !== "pty" && cfg.session !== "interactive" &&

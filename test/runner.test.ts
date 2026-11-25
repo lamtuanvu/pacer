@@ -4,13 +4,13 @@ import { expect, test } from "bun:test";
 import { validateStrategy } from "../src/config/strategy";
 import type { ProviderStatus } from "../src/engine/rank";
 import type { Status } from "../src/engine/status";
-import { chmodSync, writeFileSync, rmSync } from "node:fs";
+import { chmodSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { runAttempt } from "../src/exec/direct";
 import type { AttemptOutcome } from "../src/exec/direct";
 import { type RunnerDeps, runTask } from "../src/tasks/runner";
 import { taskStop } from "../src/tasks/api";
-import { writeReport, writeHeldReport } from "../src/session/reports";
+import { writeReport, writeHeldReport, readHeldReport, reportCommand, agentHook } from "../src/session/reports";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
 import { readAuthFailures } from "../src/usage/auth";
 import { readMarks } from "../src/usage/reactive";
@@ -316,6 +316,45 @@ test("a user stop of a held interactive root with a report keeps the outcome", a
   const r2 = await runTask(ctx, withoutReport.id, d2);
   expect(r2.state).toBe("stopped");
   expect(r2.result?.status).toBe("stopped");
+});
+
+test("a held non-conversation root's report survives native hooks; a user stop settles done", async () => {
+  // `pacer delegate --interactive` run by a person is interactive with a human origin, but not a
+  // conversation and not an agent-delegated task. Its explicit completion must not end the live
+  // terminal: only the user ending the session settles it, keeping that completion for review.
+  const ctx = fakeCtx();
+  const t = newTask(ctx);
+  updateTask(ctx, t.id, current => {
+    current.origin = "human"; current.source = "ui";
+    current.interactive = true; current.interactionMode = "delegated";
+  });
+  const d = deps({});
+  d.runAttempt = async () => {
+    const dir = join(ctx.pacerHome, "runs", t.id, "1");
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    writeFileSync(join(dir, "interactive.json"), JSON.stringify({ reportToken: "held-token" }), { mode: 0o600 });
+    updateTask(ctx, t.id, current => {
+      current.state = "running";
+      current.run = { dir, attempt: 1, executor: "codex", startedAt: 1, mode: "current",
+        workdir: t.brief.repo, logFile: join(dir, "log"), session: "interactive" };
+    });
+    // pacer report done, written from the executor's launch environment.
+    const reportCtx = { ...ctx, env: { ...ctx.env, PACER_RUN_DIR: dir, PACER_REPORT_TOKEN: "held-token" } };
+    expect(reportCommand(["--status", "done", "--summary", "agent finished the interactive lane"], reportCtx).code).toBe(0);
+    expect(readHeldReport(dir, 1)).toMatchObject({ status: "done" });
+    // Native hooks keep reporting activity; they cannot overwrite the per-attempt completion.
+    agentHook(dir, { hook_event_name: "PostToolUse" });
+    agentHook(dir, { hook_event_name: "Stop" });
+    expect(readHeldReport(dir, 1)).toMatchObject({ status: "done", summary: "agent finished the interactive lane" });
+    // The report alone does not end a human-held root: the terminal is still live.
+    expect(readTask(ctx, t.id)?.state).toBe("running");
+    // The user ends the session; finish keeps the reported outcome instead of a bare stop.
+    taskStop(ctx, t.id);
+    return outcomeFor("codex", 0, false, "agent finished the interactive lane");
+  };
+  const r = await runTask(ctx, t.id, d);
+  expect(r.state).toBe("done");
+  expect(r.result).toMatchObject({ status: "done", report: expect.stringContaining("agent finished the interactive lane") });
 });
 
 test("a stop during verification preserves the report and verification", async () => {
