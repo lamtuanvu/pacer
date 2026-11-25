@@ -1,8 +1,9 @@
 // The plugin's own worker: a pacer v3 client feeding the panel (pacer.snapshot/pacer.act)
 // and the status bar item. Orca starts it when the plugin is enabled and keeps it running,
 // so the live loop (subscribeEvents + reconnect) runs without any panel open.
-import { execFile, spawn } from 'node:child_process'
-import { dirname, resolve as resolvePath } from 'node:path'
+import { activeTasks, classifyTask, needsYouItems } from './panel-view'
+import { spawn } from 'node:child_process'
+import { resolve as resolvePath } from 'node:path'
 import type { OrcaWorkerApi } from 'orca/worker'
 import {
   callOp,
@@ -13,7 +14,7 @@ import {
   type PacerSnapshot,
   type PacerTask,
 } from './pacer-client'
-import type { ActResult, AttentionRow, PanelSnapshot, PanelTask, RepoRef } from './protocol'
+import type { ActResult, AttentionRow, PanelSnapshot, PanelTask } from './protocol'
 
 const SEQ_KEY = 'seq'
 const STATUS_ITEM = 'pacer-pace'
@@ -24,15 +25,10 @@ const RECONNECT_MS = 500
 const NOT_CONNECTED: PanelSnapshot = {
   connected: false,
   at: 0,
-  focusedRepo: null,
+  focusedWorkspace: null,
   planner: null,
   pause: null,
-  repos: [],
   attention: [],
-  running: [],
-  queued: [],
-  doneToday: [],
-  executors: [],
 }
 
 type StatusTone = 'neutral' | 'accent' | 'success' | 'warning' | 'danger'
@@ -48,40 +44,6 @@ export function setOpenDesktop(fn: OpenDesktop): void {
 
 export function resetOpenDesktop(): void {
   openDesktopFn = defaultOpenDesktop
-}
-
-/** Resolve a worktree's owning repo via `git rev-parse --git-common-dir`; injected in tests. */
-export type GitCommonDir = (workspacePath: string) => Promise<string | null>
-
-async function defaultGitCommonDir(workspacePath: string): Promise<string | null> {
-  try {
-    const stdout = await new Promise<string>((resolve, reject) => {
-      execFile(
-        'git',
-        ['-C', workspacePath, 'rev-parse', '--path-format=absolute', '--git-common-dir'],
-        { timeout: 2000, encoding: 'utf8' },
-        (error, out) => {
-          if (error) reject(error)
-          else resolve(out)
-        },
-      )
-    })
-    const common = stdout.trim()
-    if (!common) return null
-    return dirname(common)
-  } catch {
-    return null
-  }
-}
-
-let gitCommonDirFn: GitCommonDir = defaultGitCommonDir
-
-export function setGitCommonDir(fn: GitCommonDir): void {
-  gitCommonDirFn = fn
-}
-
-export function resetGitCommonDir(): void {
-  gitCommonDirFn = defaultGitCommonDir
 }
 
 /** Strip trailing slashes and resolve for cheap path equality. */
@@ -202,82 +164,17 @@ export function filterAttention(items: AttentionItem[], at: number, tasks: Pacer
     .sort(attentionOrder)
 }
 
-function inScope(repoKey: string | null, repo: RepoRef | null | undefined): boolean {
-  return repoKey === null || !repo || repo.key === repoKey
-}
-
-/** In-flight running work only (queued is a separate section). */
-export function selectRunning(tasks: PacerTask[], repoKey: string | null): PacerTask[] {
-  return tasks.filter(
-    (t) =>
-      t.state !== 'queued' &&
-      (t.state === 'running' || !!t.activeAgentSessions) &&
-      !t.dismissed &&
-      inScope(repoKey, t.repo),
-  )
-}
-
-/** Queued tasks waiting for a slot or for resume. */
-export function selectQueued(tasks: PacerTask[], repoKey: string | null): PacerTask[] {
-  return tasks.filter((t) => t.state === 'queued' && !t.dismissed && inScope(repoKey, t.repo))
-}
-
-export function selectDoneToday(tasks: PacerTask[], since: number | undefined, repoKey: string | null): PacerTask[] {
-  if (since === undefined) return []
-  return tasks
-    .filter(
-      (t) =>
-        t.source !== 'onboarding' &&
-        t.state !== 'running' &&
-        t.state !== 'queued' &&
-        !t.activeAgentSessions &&
-        t.updatedAt >= since &&
-        inScope(repoKey, t.repo),
-    )
-    .sort((a, b) => b.updatedAt - a.updatedAt)
-}
-
-function trimTask(task: PacerTask, orcaByPath: Map<string, string>): PanelTask {
-  const worktree = task.worktree ?? null
-  const orcaWorkspaceId = worktree ? orcaByPath.get(normalizeRepoPath(worktree)) : undefined
-  return {
-    id: task.id,
-    rev: task.rev,
-    title: task.title,
-    repo: task.repo,
-    repoLabel: task.repo?.label,
-    executor: task.executor,
-    state: task.state,
-    phase: task.progress?.phase,
-    attemptStartedAt: task.attemptStartedAt,
-    updatedAt: task.updatedAt,
-    review: task.review ?? null,
-    liveness: task.liveness ?? null,
-    worktree,
-    ...(orcaWorkspaceId ? { orcaWorkspaceId } : {}),
-  }
-}
-
-type WorkspaceRow = { id: string; path: string; projectId?: string | null }
-type ProjectRow = { id: string; path: string }
+type WorkspaceRow = { id: string; name?: string; path: string; projectId?: string | null }
 
 async function listWorkspaces(orca: OrcaWorkerApi): Promise<WorkspaceRow[]> {
   try {
     const list = await orca.host.call('workspace.list')
     return list.workspaces.map((w) => ({
       id: w.id,
+      name: w.name,
       path: w.path,
       projectId: w.projectId ?? null,
     }))
-  } catch {
-    return []
-  }
-}
-
-async function listProjects(orca: OrcaWorkerApi): Promise<ProjectRow[]> {
-  try {
-    const list = await orca.host.call('project.list')
-    return list.projects.map((p) => ({ id: p.id, path: p.path }))
   } catch {
     return []
   }
@@ -295,78 +192,71 @@ async function focusedWorkspacePath(orca: OrcaWorkerApi): Promise<string | null>
   }
 }
 
-/**
- * Match the focused Orca workspace to a pacer RepoRef: exact path, then project.list path via
- * workspace.projectId, then git common-dir owner. Stops at the first hit; never throws.
- */
-export async function resolveFocusedRepo(
-  repos: RepoRef[],
-  focusedPath: string | null,
-  workspaces: WorkspaceRow[],
-  projects: ProjectRow[],
-  gitCommonDir: GitCommonDir = gitCommonDirFn,
-): Promise<RepoRef | null> {
-  if (focusedPath === null) return null
-  const findByPath = (path: string): RepoRef | null => {
-    const want = normalizeRepoPath(path)
-    return repos.find((r) => normalizeRepoPath(r.path) === want) ?? null
-  }
-
-  const exact = findByPath(focusedPath)
-  if (exact) return exact
-
-  const focusedNorm = normalizeRepoPath(focusedPath)
-  const workspace = workspaces.find((w) => normalizeRepoPath(w.path) === focusedNorm)
-  if (workspace?.projectId) {
-    const project = projects.find((p) => p.id === workspace.projectId)
-    if (project) {
-      const viaProject = findByPath(project.path)
-      if (viaProject) return viaProject
-    }
-  }
-
-  try {
-    const commonDir = await gitCommonDir(focusedPath)
-    if (commonDir) {
-      const viaGit = findByPath(commonDir)
-      if (viaGit) return viaGit
-    }
-  } catch {
-    // git failure → no match; never throw from resolution
-  }
-  return null
-}
-
 async function buildPanelSnapshot(
   snapshot: PacerSnapshot,
   focusedPath: string | null,
   workspaces: WorkspaceRow[],
-  projects: ProjectRow[],
 ): Promise<PanelSnapshot> {
-  // Task Open worktree: exact worktree path only. Repo Open in Orca: exact repo path only.
   const orcaByPath = new Map(workspaces.map((w) => [normalizeRepoPath(w.path), w.id]))
-  const focusedRepo = await resolveFocusedRepo(snapshot.repos, focusedPath, workspaces, projects)
-  const attention = filterAttention(snapshot.attention, snapshot.at, snapshot.tasks).map(
-    (item): AttentionRow => ({ ...item, repoLabel: item.repo?.label }),
-  )
-  const runningAll = selectRunning(snapshot.tasks, null).map((t) => trimTask(t, orcaByPath))
-  const queuedAll = selectQueued(snapshot.tasks, null).map((t) => trimTask(t, orcaByPath))
-  const doneAll = selectDoneToday(snapshot.tasks, snapshot.today?.since, null).map((t) =>
-    trimTask(t, orcaByPath),
-  )
-  const repos = snapshot.repos.map((repo) => {
-    const needsYou = attention.filter((a) => !a.repo || a.repo.key === repo.key).length
-    const running = runningAll.filter((t) => t.repo?.key === repo.key).length
-    const doneToday = doneAll.filter((t) => t.repo?.key === repo.key).length
-    const orcaWorkspaceId = orcaByPath.get(normalizeRepoPath(repo.path))
+  const focusedWorkspace = focusedPath
+    ? {
+        path: focusedPath,
+        name:
+          workspaces.find((w) => normalizeRepoPath(w.path) === normalizeRepoPath(focusedPath))?.name ??
+          workspaces.find((w) => normalizeRepoPath(w.path) === normalizeRepoPath(focusedPath))?.id ??
+          focusedPath.split('/').filter(Boolean).pop() ??
+          focusedPath,
+      }
+    : null
+
+  // A task belongs to this worktree when its repo.path equals the focused workspace path.
+  const worktreeTasks = focusedPath
+    ? snapshot.tasks.filter((t) => {
+        const p = t.repo?.path
+        return typeof p === 'string' && normalizeRepoPath(p) === normalizeRepoPath(focusedPath)
+      })
+    : []
+  const taskIds = new Set(worktreeTasks.map((t) => t.id))
+
+  // Next executor name for queued rows (first enabled non-planner with a free slot).
+  const nextExecutorName = (() => {
+    const row = snapshot.executors
+      .filter((e) => e.rank !== 'planner' && e.enabled)
+      .sort((a, b) => Number(a.rank) - Number(b.rank))
+      .find((e) => e.slots.used < e.slots.max)
+    return row ? `${row.agent}` : null
+  })()
+
+  const trimTask = (task: PacerTask): PanelTask => {
+    const base = task.worktree ?? null
+    const orcaWorkspaceId = base ? orcaByPath.get(normalizeRepoPath(base)) : undefined
     return {
-      ...repo,
-      needsYou,
-      running,
-      doneToday,
+      id: task.id,
+      rev: task.rev,
+      title: task.title,
+      repo: task.repo,
+      repoLabel: task.repo?.label,
+      executor: task.executor,
+      state: task.state,
+      phase: task.progress?.phase,
+      attemptStartedAt: task.attemptStartedAt,
+      updatedAt: task.updatedAt,
+      review: task.review ?? null,
+      liveness: task.liveness ?? null,
+      worktree: base,
       ...(orcaWorkspaceId ? { orcaWorkspaceId } : {}),
+      question: (task as { question?: string | null }).question ?? null,
+      nextExecutor: task.state === 'queued' ? nextExecutorName : null,
     }
-  })
+  }
+
+  const trimmedTasks = worktreeTasks.map(trimTask)
+
+  // Attention items whose taskId is one of this worktree's tasks; actionableItems compatibility.
+  const filteredAttention = filterAttention(snapshot.attention, snapshot.at, snapshot.tasks)
+    .filter((a) => !!a.taskId && taskIds.has(a.taskId))
+    .map((item): AttentionRow => ({ ...item, repoLabel: item.repo?.label }))
+
   const planner = snapshot.planner
     ? {
         agent: snapshot.planner.agent,
@@ -381,36 +271,15 @@ async function buildPanelSnapshot(
         stale: snapshot.planner.stale,
       }
     : null
-  const executors = snapshot.executors
-    .filter((row) => row.rank !== 'planner')
-    .slice()
-    .sort((a, b) => Number(a.rank) - Number(b.rank))
-    .map((row) => ({
-      id: row.id,
-      agent: row.agent,
-      account: row.account,
-      rank: row.rank,
-      state: row.state,
-      tone: row.tone,
-      sub: row.sub,
-      reason: row.reason,
-      next: row.next,
-      slots: row.slots,
-      enabled: row.enabled,
-      ...(row.untested ? { untested: true as const } : {}),
-    }))
+
   return {
     connected: true,
     at: snapshot.at,
-    focusedRepo,
+    focusedWorkspace,
     planner,
     pause: snapshot.pause,
-    repos,
-    attention,
-    running: runningAll,
-    queued: queuedAll,
-    doneToday: doneAll,
-    executors,
+    attention: filteredAttention,
+    tasks: trimmedTasks,
   }
 }
 
@@ -419,12 +288,11 @@ async function currentSnapshot(orca: OrcaWorkerApi): Promise<PanelSnapshot> {
   if (endpoint === null) return NOT_CONNECTED
   const snapshot = await getSnapshot(endpoint)
   if ('error' in snapshot) return NOT_CONNECTED
-  const [focusedPath, workspaces, projects] = await Promise.all([
+  const [focusedPath, workspaces] = await Promise.all([
     focusedWorkspacePath(orca),
     listWorkspaces(orca),
-    listProjects(orca),
   ])
-  return buildPanelSnapshot(snapshot, focusedPath, workspaces, projects)
+  return buildPanelSnapshot(snapshot, focusedPath, workspaces)
 }
 
 function formatAbsLocal(at: number, now = Date.now() / 1000): string {
@@ -437,7 +305,7 @@ function formatAbsLocal(at: number, now = Date.now() / 1000): string {
   return `${weekday} ${time}`
 }
 
-/** Status bar text/tone/tooltip per the StatusBar design board + fixed verdict mapping. */
+/** Status bar text/tone per the worktree contract. */
 export function paceStatus(snapshot: PanelSnapshot): {
   id: string
   text: string
@@ -452,63 +320,42 @@ export function paceStatus(snapshot: PanelSnapshot): {
       tooltip: 'pacer is not running · open the pacer app to start it',
     }
   }
-  const focusedKey = snapshot.focusedRepo?.key ?? null
-  const needsYouHere = snapshot.attention.filter(
-    (a) => focusedKey === null || !a.repo || a.repo.key === focusedKey,
-  ).length
-  const needsYouGlobal = snapshot.attention.length
-  const needsCount = focusedKey !== null ? needsYouHere : needsYouGlobal
-  const planner = snapshot.planner
-  if (!planner || typeof planner.usedPct !== 'number') {
-    return {
-      id: STATUS_ITEM,
-      text: 'pacer',
-      tone: 'neutral',
-      tooltip: needsCount > 0 ? `${needsCount} need you` : 'Connected',
+  const hasFocus = !!snapshot.focusedWorkspace
+  if (!hasFocus) {
+    const planner = snapshot.planner
+    if (!planner || typeof planner.usedPct !== 'number') {
+      return { id: STATUS_ITEM, text: 'pacer', tone: 'neutral', tooltip: 'Connected' }
     }
-  }
-  const verdict = planner.verdict ?? 'unknown'
-  // behind/on_pace good; ahead warn; out bad — src/view-model/words.ts paceStatus
-  const tone: StatusTone =
-    verdict === 'behind' || verdict === 'on_pace'
-      ? 'success'
-      : verdict === 'ahead'
-        ? 'warning'
-        : verdict === 'out'
-          ? 'danger'
-          : 'neutral'
-  if (verdict === 'out') {
-    const until = planner.resetsAt ? formatAbsLocal(planner.resetsAt) : ''
+    const verdict = planner.verdict ?? 'unknown'
+    const tone: StatusTone =
+      verdict === 'behind' || verdict === 'on_pace'
+        ? 'success'
+        : verdict === 'ahead'
+          ? 'warning'
+          : verdict === 'out'
+            ? 'danger'
+            : 'neutral'
+    const pct = Math.round(planner.usedPct)
     return {
       id: STATUS_ITEM,
-      text: until ? `pacer out · ${until}` : 'pacer out',
+      text: `pacer ${pct}%`,
       tone,
-      tooltip: `${planner.agent} is out until ${until || 'reset'} · executors keep running`,
+      tooltip: planner.advice || verdict,
     }
   }
-  const pct = Math.round(planner.usedPct)
-  if (verdict === 'ahead') {
-    return {
-      id: STATUS_ITEM,
-      text: `pacer ${pct}% · ahead`,
-      tone,
-      tooltip: planner.advice || 'Ahead of pace',
-    }
-  }
-  const countSuffix = needsCount > 0 ? ` · ${needsCount}` : ''
-  const where =
-    focusedKey !== null && snapshot.focusedRepo
-      ? ` in ${snapshot.focusedRepo.label}`
-      : ''
-  const paceWord = verdict === 'behind' ? 'Plenty left' : 'On pace for the week'
+
+  // Same counts as the panel's summary, so the bar and the panel never disagree.
+  const needsCount = needsYouItems(snapshot).length
+  const running = activeTasks(snapshot).filter((t) => classifyTask(t) === 'running').length
+  const parts: string[] = []
+  if (needsCount > 0) parts.push(`${needsCount} need you`)
+  if (running > 0) parts.push(`${running} running`)
+  const text = parts.length ? `pacer · ${parts.join(' · ')}` : 'pacer'
   return {
     id: STATUS_ITEM,
-    text: `pacer ${pct}%${countSuffix}`,
-    tone,
-    tooltip:
-      needsCount > 0
-        ? `${paceWord} · ${needsCount} need you${where}`
-        : planner.advice || paceWord,
+    text,
+    tone: needsCount > 0 ? 'warning' : 'neutral',
+    tooltip: parts.length ? parts.join(' · ') : 'Connected',
   }
 }
 
