@@ -19,9 +19,9 @@ Node, not Bun). Opening an Orca worktree uses host `workspace.open` and needs th
 
 ## Limitations
 
-- **Accept/Reject `expect_rev`:** when the reviewed task is no longer in `running` or `doneToday`
-  (for example finished before `today.since`), Accept/Reject omit `expect_rev`. The service treats
-  it as optional; a conflict surfaces as "Already handled elsewhere".
+- **Accept/Reject `expect_rev`:** Accept/Reject omit `expect_rev` when the service no longer
+  tracks the reviewed task. The service treats it as optional; a conflict surfaces as "Already
+  handled elsewhere".
 - **`tab:"answer"` deep links:** query forms (`needs-you?answer=<id>`) are rejected on
   `pacer://` (early `?` guard in `logic.rs`). Answer intents map to
   `pacer://sessions/<id>/answer`, which the desktop deep-link handler accepts.

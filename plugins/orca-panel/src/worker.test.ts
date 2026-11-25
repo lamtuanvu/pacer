@@ -11,12 +11,7 @@ import {
   actionableItems,
   filterAttention,
   paceStatus,
-  resetGitCommonDir,
   resetOpenDesktop,
-  resolveFocusedRepo,
-  selectQueued,
-  selectRunning,
-  setGitCommonDir,
   setOpenDesktop,
   uiOpenRoute,
 } from './worker'
@@ -365,53 +360,14 @@ test('pacer.snapshot trims a realistic snapshot, hides snoozed items, matches or
     assert.equal(snapshot.connected, true)
     assert.equal(snapshot.focusedWorkspace?.path, '/repo')
     assert.deepEqual(snapshot.attention.map((a) => a.id).sort(), [])
-    assert.equal(snapshot.running[0]?.orcaWorkspaceId, 'ws-wt')
-    assert.equal(snapshot.running.every((t) => t.state !== 'queued'), true)
-    assert.equal(snapshot.queued.length, 1)
-    assert.equal(snapshot.queued[0]?.id, 'tq')
-    assert.equal(snapshot.executors.length, 0)
-    assert.equal(snapshot.doneToday[0]?.id, 't2')
+    assert.equal(snapshot.tasks?.find((t) => t.id === 't1')?.orcaWorkspaceId, 'ws-wt')
+    assert.equal((snapshot.tasks ?? []).every((t) => t.id !== 'tq' || t.state === 'queued'), true)
+    assert.ok((snapshot.tasks ?? []).some((t) => t.id === 'tq'))
+    assert.ok((snapshot.tasks ?? []).some((t) => t.id === 't2'))
     await worker.deactivate()
   } finally {
     await pacer.dispose()
   }
-})
-
-test('S16: selectRunning excludes queued; selectQueued returns only queued', () => {
-  const tasks = [
-    {
-      id: 'r',
-      rev: 1,
-      title: 'R',
-      state: 'running',
-      repo: { key: 'k', label: 'k', path: '/k' },
-      updatedAt: 1,
-    },
-    {
-      id: 'q',
-      rev: 1,
-      title: 'Q',
-      state: 'queued',
-      repo: { key: 'k', label: 'k', path: '/k' },
-      updatedAt: 2,
-    },
-    {
-      id: 'd',
-      rev: 1,
-      title: 'D',
-      state: 'done',
-      repo: { key: 'k', label: 'k', path: '/k' },
-      updatedAt: 3,
-    },
-  ]
-  assert.deepEqual(
-    selectRunning(tasks, null).map((t) => t.id),
-    ['r'],
-  )
-  assert.deepEqual(
-    selectQueued(tasks, null).map((t) => t.id),
-    ['q'],
-  )
 })
 
 test('pacer.act returns result and conflict', async () => {
@@ -492,12 +448,7 @@ test('status bar text/tone for each verdict including ahead/behind fix', () => {
       stale: false,
     },
     pause: null,
-    repos: [],
     attention: [attentionItem('a'), attentionItem('b'), attentionItem('c')],
-    running: [],
-    queued: [],
-    doneToday: [],
-    executors: [],
   }
   assert.deepEqual(
     { text: paceStatus(base).text, tone: paceStatus(base).tone },
@@ -753,12 +704,7 @@ test('paceStatus: unknown usage, global count, ahead/on_pace tooltips', () => {
     focusedWorkspace: null,
     planner: null,
     pause: null,
-    repos: [],
     attention: [attentionItem('a'), attentionItem('b')],
-    running: [],
-    queued: [],
-    doneToday: [],
-    executors: [],
   }
   assert.deepEqual(
     { text: paceStatus(base).text, tone: paceStatus(base).tone },
@@ -816,101 +762,6 @@ test("a not-connected refresh sets the status bar to 'pacer off'", async () => {
   }
 })
 
-test('L1: resolveFocusedRepo matches via projectId and git common dir', async () => {
-  const repos = [{ key: 'k1', label: 'pacer', path: '/main/checkout' }]
-  const worktree = '/orca-ws/model-routing/jawfish'
-  const viaProject = await resolveFocusedRepo(
-    repos,
-    worktree,
-    [{ id: 'ws-wt', path: worktree, projectId: 'proj-1' }],
-    [{ id: 'proj-1', path: '/main/checkout' }],
-    async () => {
-      throw new Error('git should not run when projectId matches')
-    },
-  )
-  assert.equal(viaProject?.key, 'k1')
-
-  const viaGit = await resolveFocusedRepo(
-    repos,
-    worktree,
-    [{ id: 'ws-wt', path: worktree, projectId: null }],
-    [],
-    async () => '/main/checkout',
-  )
-  assert.equal(viaGit?.key, 'k1')
-
-  const none = await resolveFocusedRepo(
-    repos,
-    worktree,
-    [{ id: 'ws-wt', path: worktree, projectId: null }],
-    [],
-    async () => null,
-  )
-  assert.equal(none, null)
-
-  const gitFails = await resolveFocusedRepo(
-    repos,
-    worktree,
-    [],
-    [],
-    async () => {
-      throw new Error('boom')
-    },
-  )
-  assert.equal(gitFails, null)
-
-  const exact = await resolveFocusedRepo(repos, '/main/checkout', [], [], async () => '/should-not-matter')
-  assert.equal(exact?.key, 'k1')
-})
-
-test('L1: focused worktree resolves via project.list in pacer.snapshot', async () => {
-  setGitCommonDir(async () => {
-    throw new Error('git should not run when projectId matches')
-  })
-  const pacer = await startPacer({
-    snapshot: () =>
-      snapshotWith({
-        repos: [{ key: 'k1', label: 'pacer', path: '/main/checkout' }],
-      }),
-  })
-  try {
-    const host = hostWithFocusedWorkspace('/orca-ws/jawfish', {}, [], {
-      focusedProjectId: 'proj-1',
-      projects: [{ id: 'proj-1', name: 'pacer', kind: 'git', hostId: 'local', path: '/main/checkout' }],
-    })
-    const worker = await mountWorker(main, { host })
-    const snapshot = (await worker.request('pacer.snapshot')) as PanelSnapshot
-    assert.equal(snapshot.focusedWorkspace?.path, '/orca-ws/jawfish')
-    await worker.deactivate()
-  } finally {
-    resetGitCommonDir()
-    await pacer.dispose()
-  }
-})
-
-test('L1: focused worktree resolves via injected git common dir when projectId absent', async () => {
-  setGitCommonDir(async (path) => {
-    assert.equal(path, '/orca-ws/jawfish')
-    return '/main/checkout'
-  })
-  const pacer = await startPacer({
-    snapshot: () =>
-      snapshotWith({
-        repos: [{ key: 'k1', label: 'pacer', path: '/main/checkout' }],
-      }),
-  })
-  try {
-    const host = hostWithFocusedWorkspace('/orca-ws/jawfish')
-    const worker = await mountWorker(main, { host })
-    const snapshot = (await worker.request('pacer.snapshot')) as PanelSnapshot
-    assert.equal(snapshot.focusedWorkspace?.path, '/orca-ws/jawfish')
-    await worker.deactivate()
-  } finally {
-    resetGitCommonDir()
-    await pacer.dispose()
-  }
-})
-
 test('status bar counts match the panel: a caller-deciding task is not running, a review is a need', () => {
   const repo = { key: 'k', label: 'r', path: '/w/gar' }
   const task = (over: Record<string, unknown>) => ({ rev: 1, title: 't', repo, executor: 'cursor#cursor', updatedAt: 100, review: null, liveness: null, ...over })
@@ -920,17 +771,12 @@ test('status bar counts match the panel: a caller-deciding task is not running, 
     focusedWorkspace: { path: '/w/gar', name: 'gar' },
     planner: null,
     pause: null,
-    repos: [],
     tasks: [
       task({ id: 'run', state: 'running' }),
       task({ id: 'deciding', state: 'running', liveness: { stalled: false, reason: 'caller_decision', since: 150 } }),
       task({ id: 'rev', state: 'done' }),
     ],
     attention: [{ ...attentionItem('r1'), kind: 'review', taskId: 'rev', repo }],
-    running: [],
-    queued: [],
-    doneToday: [],
-    executors: [],
   } as unknown as PanelSnapshot
   const status = paceStatus(snapshot)
   assert.deepEqual({ text: status.text, tone: status.tone }, { text: 'pacer · 1 need you · 1 running', tone: 'warning' })

@@ -46,7 +46,6 @@ function snap(over: Partial<PanelSnapshot> = {}): PanelSnapshot {
       stale: false,
     },
     pause: null,
-    repos: [],
     attention: [
       {
         id: 'r1',
@@ -91,8 +90,6 @@ function snap(over: Partial<PanelSnapshot> = {}): PanelSnapshot {
         notify: 'important',
       },
     ],
-    running: [],
-    queued: [],
     tasks: [
       {
         id: 't-review',
@@ -197,8 +194,6 @@ function snap(over: Partial<PanelSnapshot> = {}): PanelSnapshot {
         worktree: '/repo',
       },
     ],
-    doneToday: [],
-    executors: [],
     ...over,
   }
 }

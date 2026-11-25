@@ -176,11 +176,10 @@ Would count as failure even if it technically runs:
   `orca`-free view-model that carries the actual tested logic), and their tests. No
   machine-specific paths in anything tracked.
 - **Scoping:** the worker calls `workspace.readContext` (capability `workspace:read`) for the
-  focused workspace, resolves its path via `workspace.list`/`project.list`, and matches it against
-  pacer's own `repos[].path` (from `snapshot.get`) to find that repo's `key`. Attention items,
-  counts and the status badge filter to that `key`. When no workspace is focused or its path
-  matches no known repo, the panel falls back to the global queue and says so (never a silent
-  empty list that looks like "nothing to do").
+  focused workspace and reads its path via `workspace.list`. A task belongs to the focused worktree
+  when its repo.path equals the focused Orca workspace path (trailing slashes normalised).
+  Attention items, counts and the status badge filter to that worktree. When no workspace is
+  focused, the panel shows nothing (never a silent global queue that looks like "nothing to do").
 - **Install UX:** pacer ships `pacer orca-panel install` / `pacer orca-panel update`, which shell
   out to `orca plugin install <this-plugin's-folder-or-repo>` / `orca plugin update <plugin-id>` on
   the user's behalf — the "convenience command" option, chosen over staying hands-off. This

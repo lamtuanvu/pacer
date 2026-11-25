@@ -1,17 +1,10 @@
 // The panel <-> worker contract, declared once: src/panel.ts and src/worker.ts both read it.
-import type { AttentionItem, PacerExecutor, PacerPause, PacerPlanner } from './pacer-client'
+import type { AttentionItem, PacerPause, PacerPlanner } from './pacer-client'
 
 /** An attention item as the panel sees it: the item's own repo's human label attached. */
 export type AttentionRow = AttentionItem & { repoLabel?: string }
 
 export type RepoRef = { key: string; label: string; path: string }
-
-export type PanelRepo = RepoRef & {
-  needsYou: number
-  running: number
-  doneToday: number
-  orcaWorkspaceId?: string
-}
 
 export type PanelTask = {
   id: string
@@ -45,11 +38,6 @@ export type PanelPlanner = {
   stale: boolean
 }
 
-export type PanelExecutor = Pick<
-  PacerExecutor,
-  'id' | 'agent' | 'account' | 'rank' | 'state' | 'tone' | 'sub' | 'reason' | 'next' | 'slots' | 'enabled'
-> & { untested?: true }
-
 /** Trimmed snapshot the worker builds from /v3/snapshot. The panel filters by scope. */
 export type PanelSnapshot = {
   connected: boolean
@@ -58,14 +46,8 @@ export type PanelSnapshot = {
   focusedWorkspace?: { path: string; name: string } | null
   planner: PanelPlanner | null
   pause: PacerPause | null
-  repos: PanelRepo[]
   attention: AttentionRow[]
   tasks?: PanelTask[]
-  running: PanelTask[]
-  /** Queued tasks (state queued); shown in their own section, not inside Running. */
-  queued: PanelTask[]
-  doneToday: PanelTask[]
-  executors: PanelExecutor[]
 }
 
 export type ActResult =

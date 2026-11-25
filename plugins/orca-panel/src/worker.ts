@@ -2,8 +2,8 @@
 // and the status bar item. Orca starts it when the plugin is enabled and keeps it running,
 // so the live loop (subscribeEvents + reconnect) runs without any panel open.
 import { activeTasks, classifyTask, needsYouItems } from './panel-view'
-import { execFile, spawn } from 'node:child_process'
-import { dirname, resolve as resolvePath } from 'node:path'
+import { spawn } from 'node:child_process'
+import { resolve as resolvePath } from 'node:path'
 import type { OrcaWorkerApi } from 'orca/worker'
 import {
   callOp,
@@ -14,7 +14,7 @@ import {
   type PacerSnapshot,
   type PacerTask,
 } from './pacer-client'
-import type { ActResult, AttentionRow, PanelSnapshot, PanelTask, RepoRef } from './protocol'
+import type { ActResult, AttentionRow, PanelSnapshot, PanelTask } from './protocol'
 
 const SEQ_KEY = 'seq'
 const STATUS_ITEM = 'pacer-pace'
@@ -28,12 +28,7 @@ const NOT_CONNECTED: PanelSnapshot = {
   focusedWorkspace: null,
   planner: null,
   pause: null,
-  repos: [],
   attention: [],
-  running: [],
-  queued: [],
-  doneToday: [],
-  executors: [],
 }
 
 type StatusTone = 'neutral' | 'accent' | 'success' | 'warning' | 'danger'
@@ -49,40 +44,6 @@ export function setOpenDesktop(fn: OpenDesktop): void {
 
 export function resetOpenDesktop(): void {
   openDesktopFn = defaultOpenDesktop
-}
-
-/** Resolve a worktree's owning repo via `git rev-parse --git-common-dir`; injected in tests. */
-export type GitCommonDir = (workspacePath: string) => Promise<string | null>
-
-async function defaultGitCommonDir(workspacePath: string): Promise<string | null> {
-  try {
-    const stdout = await new Promise<string>((resolve, reject) => {
-      execFile(
-        'git',
-        ['-C', workspacePath, 'rev-parse', '--path-format=absolute', '--git-common-dir'],
-        { timeout: 2000, encoding: 'utf8' },
-        (error, out) => {
-          if (error) reject(error)
-          else resolve(out)
-        },
-      )
-    })
-    const common = stdout.trim()
-    if (!common) return null
-    return dirname(common)
-  } catch {
-    return null
-  }
-}
-
-let gitCommonDirFn: GitCommonDir = defaultGitCommonDir
-
-export function setGitCommonDir(fn: GitCommonDir): void {
-  gitCommonDirFn = fn
-}
-
-export function resetGitCommonDir(): void {
-  gitCommonDirFn = defaultGitCommonDir
 }
 
 /** Strip trailing slashes and resolve for cheap path equality. */
@@ -203,64 +164,7 @@ export function filterAttention(items: AttentionItem[], at: number, tasks: Pacer
     .sort(attentionOrder)
 }
 
-function inScope(repoKey: string | null, repo: RepoRef | null | undefined): boolean {
-  return repoKey === null || !repo || repo.key === repoKey
-}
-
-/** In-flight running work only (queued is a separate section). */
-export function selectRunning(tasks: PacerTask[], repoKey: string | null): PacerTask[] {
-  return tasks.filter(
-    (t) =>
-      t.state !== 'queued' &&
-      (t.state === 'running' || !!t.activeAgentSessions) &&
-      !t.dismissed &&
-      inScope(repoKey, t.repo),
-  )
-}
-
-/** Queued tasks waiting for a slot or for resume. */
-export function selectQueued(tasks: PacerTask[], repoKey: string | null): PacerTask[] {
-  return tasks.filter((t) => t.state === 'queued' && !t.dismissed && inScope(repoKey, t.repo))
-}
-
-export function selectDoneToday(tasks: PacerTask[], since: number | undefined, repoKey: string | null): PacerTask[] {
-  if (since === undefined) return []
-  return tasks
-    .filter(
-      (t) =>
-        t.source !== 'onboarding' &&
-        t.state !== 'running' &&
-        t.state !== 'queued' &&
-        !t.activeAgentSessions &&
-        t.updatedAt >= since &&
-        inScope(repoKey, t.repo),
-    )
-    .sort((a, b) => b.updatedAt - a.updatedAt)
-}
-
-function trimTask(task: PacerTask, orcaByPath: Map<string, string>): PanelTask {
-  const worktree = task.worktree ?? null
-  const orcaWorkspaceId = worktree ? orcaByPath.get(normalizeRepoPath(worktree)) : undefined
-  return {
-    id: task.id,
-    rev: task.rev,
-    title: task.title,
-    repo: task.repo,
-    repoLabel: task.repo?.label,
-    executor: task.executor,
-    state: task.state,
-    phase: task.progress?.phase,
-    attemptStartedAt: task.attemptStartedAt,
-    updatedAt: task.updatedAt,
-    review: task.review ?? null,
-    liveness: task.liveness ?? null,
-    worktree,
-    ...(orcaWorkspaceId ? { orcaWorkspaceId } : {}),
-  }
-}
-
 type WorkspaceRow = { id: string; name?: string; path: string; projectId?: string | null }
-type ProjectRow = { id: string; path: string }
 
 async function listWorkspaces(orca: OrcaWorkerApi): Promise<WorkspaceRow[]> {
   try {
@@ -271,15 +175,6 @@ async function listWorkspaces(orca: OrcaWorkerApi): Promise<WorkspaceRow[]> {
       path: w.path,
       projectId: w.projectId ?? null,
     }))
-  } catch {
-    return []
-  }
-}
-
-async function listProjects(orca: OrcaWorkerApi): Promise<ProjectRow[]> {
-  try {
-    const list = await orca.host.call('project.list')
-    return list.projects.map((p) => ({ id: p.id, path: p.path }))
   } catch {
     return []
   }
@@ -297,53 +192,10 @@ async function focusedWorkspacePath(orca: OrcaWorkerApi): Promise<string | null>
   }
 }
 
-/**
- * Match the focused Orca workspace to a pacer RepoRef: exact path, then project.list path via
- * workspace.projectId, then git common-dir owner. Stops at the first hit; never throws.
- */
-export async function resolveFocusedRepo(
-  repos: RepoRef[],
-  focusedPath: string | null,
-  workspaces: WorkspaceRow[],
-  projects: ProjectRow[],
-  gitCommonDir: GitCommonDir = gitCommonDirFn,
-): Promise<RepoRef | null> {
-  if (focusedPath === null) return null
-  const findByPath = (path: string): RepoRef | null => {
-    const want = normalizeRepoPath(path)
-    return repos.find((r) => normalizeRepoPath(r.path) === want) ?? null
-  }
-
-  const exact = findByPath(focusedPath)
-  if (exact) return exact
-
-  const focusedNorm = normalizeRepoPath(focusedPath)
-  const workspace = workspaces.find((w) => normalizeRepoPath(w.path) === focusedNorm)
-  if (workspace?.projectId) {
-    const project = projects.find((p) => p.id === workspace.projectId)
-    if (project) {
-      const viaProject = findByPath(project.path)
-      if (viaProject) return viaProject
-    }
-  }
-
-  try {
-    const commonDir = await gitCommonDir(focusedPath)
-    if (commonDir) {
-      const viaGit = findByPath(commonDir)
-      if (viaGit) return viaGit
-    }
-  } catch {
-    // git failure → no match; never throw from resolution
-  }
-  return null
-}
-
 async function buildPanelSnapshot(
   snapshot: PacerSnapshot,
   focusedPath: string | null,
   workspaces: WorkspaceRow[],
-  projects: ProjectRow[],
 ): Promise<PanelSnapshot> {
   const orcaByPath = new Map(workspaces.map((w) => [normalizeRepoPath(w.path), w.id]))
   const focusedWorkspace = focusedPath
@@ -420,23 +272,14 @@ async function buildPanelSnapshot(
       }
     : null
 
-  const running = selectRunning(worktreeTasks, null).map(trimTask)
-  const queued = selectQueued(worktreeTasks, null).map(trimTask)
-  const doneToday = selectDoneToday(worktreeTasks, snapshot.today?.since, null).map(trimTask)
-
   return {
     connected: true,
     at: snapshot.at,
     focusedWorkspace,
     planner,
     pause: snapshot.pause,
-    repos: [],
     attention: filteredAttention,
-    running,
-    queued,
     tasks: trimmedTasks,
-    doneToday,
-    executors: [],
   }
 }
 
@@ -445,12 +288,11 @@ async function currentSnapshot(orca: OrcaWorkerApi): Promise<PanelSnapshot> {
   if (endpoint === null) return NOT_CONNECTED
   const snapshot = await getSnapshot(endpoint)
   if ('error' in snapshot) return NOT_CONNECTED
-  const [focusedPath, workspaces, projects] = await Promise.all([
+  const [focusedPath, workspaces] = await Promise.all([
     focusedWorkspacePath(orca),
     listWorkspaces(orca),
-    listProjects(orca),
   ])
-  return buildPanelSnapshot(snapshot, focusedPath, workspaces, projects)
+  return buildPanelSnapshot(snapshot, focusedPath, workspaces)
 }
 
 function formatAbsLocal(at: number, now = Date.now() / 1000): string {
