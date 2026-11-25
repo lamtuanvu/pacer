@@ -3,10 +3,11 @@ import { chmodSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync 
 import { dirname, join } from "node:path";
 import { callOp } from "../src/api/ops";
 import { toApiError } from "../src/api/protocol";
-import { shutdownPlugins } from "../src/plugins";
-import { pluginRegistry } from "../src/plugins";
+import { pluginRegistry, shutdownPlugins } from "../src/plugins";
+import { setPluginDisabled, setPluginGrant } from "../src/plugins/config";
 import { pluginLogPath } from "../src/plugins/host";
 import { workflowDefinitionsReplyBytes, workflowDefinitionsReplyFits } from "../src/plugins/workflow-protocol";
+import { pluginNativeRequest } from "../src/serve/plugin-native";
 import {
   addDefinition, getDefinition, getDefinitionPrompt, isDefinitionDisabled, listDefinitionPrompts, listDefinitions,
   setPluginDefinitionsDisabled, workflowDatabase,
@@ -363,6 +364,41 @@ test("re-enable clears workflow_defs.disabled for that plugin", async () => {
   expect(isDefinitionDisabled(ctx, "fx-ren/feature@1")).toBe(false);
 }, 30000);
 
+test("native changed(reset) syncs workflows like TypeScript enable", async () => {
+  const ctx = home();
+  installWorkflowPlugin(ctx, "fx-nat", [{
+    name: "feature", version: 1, source: MINIMAL("fx-nat/feature"), prompts: {},
+  }]);
+  // Simulate Rust plugin.enable: write grant/disabled, then notify Core via changed(reset).
+  await setPluginGrant(ctx, "fx-nat", { version: "1.0.0", capabilities: [], workflows: ["feature"] });
+  await setPluginDisabled(ctx, "fx-nat", false);
+  expect(getDefinition(ctx, "fx-nat/feature@1")).toBeNull();
+  const out = await pluginNativeRequest(ctx, { kind: "changed", id: "fx-nat", reset: true, invalidate: false });
+  expect(out.error).toBeUndefined();
+  const deadline = Date.now() + 10000;
+  while (Date.now() < deadline) {
+    if (getDefinition(ctx, "fx-nat/feature@1")) break;
+    await Bun.sleep(50);
+  }
+  expect(getDefinition(ctx, "fx-nat/feature@1")).toMatchObject({ id: "fx-nat/feature", version: 1 });
+  expect(listDefinitions(ctx)).toEqual(expect.arrayContaining([
+    expect.objectContaining({ id: "fx-nat/feature", origin: "plugin:fx-nat@1.0.0", disabled: false }),
+  ]));
+}, 30000);
+
+test("native changed without reset disables workflows when the plugin is not live", async () => {
+  const ctx = home();
+  installWorkflowPlugin(ctx, "fx-ndis", [{
+    name: "feature", version: 1, source: MINIMAL("fx-ndis/feature"), prompts: {},
+  }]);
+  await enable(ctx, "fx-ndis");
+  expect(isDefinitionDisabled(ctx, "fx-ndis/feature@1")).toBe(false);
+  await setPluginDisabled(ctx, "fx-ndis", true);
+  const out = await pluginNativeRequest(ctx, { kind: "changed", id: "fx-ndis", reset: false, invalidate: false });
+  expect(out.error).toBeUndefined();
+  expect(isDefinitionDisabled(ctx, "fx-ndis/feature@1")).toBe(true);
+}, 30000);
+
 test("uninstall leaves definitions disabled; new runs are refused", async () => {
   const ctx = home();
   const repo = gitRepo();
@@ -398,7 +434,6 @@ test("out-of-band strategy.yaml re-enable allows start while disabled flag stays
   }]);
   await enable(ctx, "fx-oob");
   // Disable via the config API (strategy.yaml plugins.disabled) so the grant stays recorded.
-  const { setPluginDisabled } = await import("../src/plugins/config");
   await setPluginDisabled(ctx, "fx-oob", true);
   pluginRegistry(ctx).list(ctx);
   reconcilePluginWorkflowFlags(ctx);
@@ -504,7 +539,6 @@ edges: [[choose, done]]
 
 test("choose_workflow refuses when the plugin grant no longer covers the target", async () => {
   const ctx = home();
-  const { setPluginGrant } = await import("../src/plugins/config");
   const router = `
 id: fx-gr/router
 version: 1

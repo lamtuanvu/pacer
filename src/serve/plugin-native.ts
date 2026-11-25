@@ -74,11 +74,6 @@ const request = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("stop"), id: z.string() }).strict(),
   z.object({ kind: z.literal("changed"), id: z.string(), reset: z.boolean(), invalidate: z.boolean() }).strict(),
   z.object({ kind: z.literal("publish"), op: operation }).strict(),
-  // Native plugin.enable/disable/remove mirror TypeScript registry side effects for
-  // workflow definitions (phase 7): page `workflow.definitions` after enable, and
-  // mark contributed defs disabled on disable/remove.
-  z.object({ kind: z.literal("workflow_sync"), id: z.string() }).strict(),
-  z.object({ kind: z.literal("workflow_disable"), id: z.string() }).strict(),
   z.object({
     kind: z.literal("log"),
     id: z.string(),
@@ -179,26 +174,30 @@ export async function pluginNativeRequest(ctx: Ctx, raw: unknown, o: { stdio?: b
         await reg.nativeStop(ctx, p.id);
         break;
       case "changed":
-        if (p.reset) reg.nativeReset(ctx, p.id);
+        // Parity with TypeScript registry.enable / disable / remove: native mutations
+        // edit config then notify Core via changed. Enable always sets reset; sync
+        // plugin-contributed workflows. When the plugin is no longer live, disable
+        // its origin definitions (disable/remove; harmless for settings/visibility).
+        if (p.reset) {
+          reg.nativeReset(ctx, p.id);
+          const manifest = reg.manifestOf(ctx, p.id);
+          if (manifest && Object.hasOwn(manifest.contributes, "workflow")) {
+            const { syncPluginWorkflows } = await import("../workflow/plugin-sync");
+            void syncPluginWorkflows(ctx, p.id).catch(error => {
+              appendPluginLog(ctx, p.id, "workflow", error instanceof Error ? error.message : String(error));
+            });
+          }
+        }
         if (p.invalidate) reg.invalidatePlugin(ctx, p.id);
+        if (!p.reset) {
+          const info = reg.list(ctx).find(entry => entry.id === p.id);
+          const { disablePluginWorkflows, pluginWorkflowsAreLive } = await import("../workflow/plugin-sync");
+          if (!pluginWorkflowsAreLive(info, reg.manifestOf(ctx, p.id))) disablePluginWorkflows(ctx, p.id);
+        }
         break;
       case "publish":
         if (["plugin.enable", "plugin.disable", "plugin.remove", "plugin.ui.visibility", "plugin.settings.set"].includes(p.op)) await publishConfigChange(ctx, "plugins");
         break;
-      case "workflow_sync":
-      case "workflow_disable": {
-        const workflow = await import("../workflow/plugin-sync");
-        if (p.kind === "workflow_sync") {
-          // Match registry.enable: fire-and-forget so the native enable reply is not gated
-          // on paging; callers that need the defs wait on workflow.list (conformance).
-          void workflow.syncPluginWorkflows(ctx, p.id).catch(error => {
-            appendPluginLog(ctx, p.id, "workflow", error instanceof Error ? error.message : String(error));
-          });
-        } else {
-          workflow.disablePluginWorkflows(ctx, p.id);
-        }
-        break;
-      }
       case "log": appendPluginLog(ctx, p.id, p.level ?? "stderr", p.message); break;
       case "crashed":
         // Only the owner this Core's door runs supervises children it could see die.

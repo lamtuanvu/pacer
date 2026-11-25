@@ -47,6 +47,7 @@ import { RemoteRunIO } from "../remote/run-io";
 import { readRunLiveness } from "../supervisor/run";
 import type { Ctx } from "../types";
 import { taskDatabase, createTask, listTasksWhere, readTask, updateTask, withTaskLock } from "./store";
+import { isRecordedStopPending } from "./recorded-stop-pending";
 import { type Brief, type ManagedSkipReason, TERMINAL_STATES, type TaskRecord, type WorktreeRequest } from "./types";
 import { messagingOverrideSchema, userStartedGrants } from "../messaging/types";
 import { callerParticipant } from "../messaging/participants";
@@ -512,6 +513,34 @@ async function superviseTaskRecord(ctx: Ctx, t: TaskRecord, spawn: SpawnRunner, 
   const handedOver = t.handover?.state === "handed-over";
   if (!["queued", "running"].includes(t.state) && !(t.state === "stopped" && handedOver)) return t;
   const id = t.id;
+  // Attempt already recorded (runner finished before stop reconcile): settle without
+  // inspectOwnedExecutorRun, which denies when attempts.length + 1 !== attempt or run is null.
+  if (t.executorProvider && isRecordedStopPending(t, alive)) {
+    return withTaskLock(ctx, id, () => {
+      const latest = readTask(ctx, id);
+      if (!latest || latest.rev !== t.rev) return latest ?? t;
+      if (!latest.executorProvider || !isRecordedStopPending(latest, alive)) return latest;
+      return updateTask(ctx, id, current => {
+        const deadline = current.stopPending?.reason === "deadline";
+        const last = current.attempts[current.attempts.length - 1];
+        delete current.stopPending;
+        delete current.pendingAttempt;
+        delete current.childPid;
+        delete current.runnerPid;
+        current.state = deadline ? "failed" : "stopped";
+        current.result = {
+          status: deadline ? "failed" : "stopped",
+          executor: last?.executor ?? current.executor ?? null,
+          model: last?.model ?? null,
+          files: "",
+          report: deadline
+            ? "Executor deadline reached; recorded attempt already settled"
+            : "Executor exited after stop was requested",
+          backend: current.backend ?? "direct",
+        };
+      });
+    });
+  }
   if (t.state === "running" && t.executorProvider && t.stopPending && t.run &&
     !t.startIntent && !t.childPid &&
     !existsSync(`${t.run.dir}/pid`) && !existsSync(`${t.run.dir}/exit`)) {
