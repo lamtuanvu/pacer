@@ -817,6 +817,7 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
       return { code: 0, out: "", err: "", keepAlive: true };
     }
     case "serve": {
+      process.env.PACER_SERVE = "1";
       if (rest.includes("--help") || rest.includes("-h")) return { code: 0, out: `usage: pacer serve [--port <n>]\n\nLocal HTTP service (default port ${DEFAULT_PORT}).`, err: "" };
       const { opts } = parseFlags(rest, ["internal"]);
       const internal = opts.internal === true;
