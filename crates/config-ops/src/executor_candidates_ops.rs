@@ -85,7 +85,14 @@ fn models(catalog: &Map<String, Value>, id: &str) -> Vec<Value> {
 
 /// Provider ids and names only; connection ids and methods are ignored.
 async fn signed_in(ctx: &Ctx) -> Option<Vec<(String, String)>> {
-    let argv = ["opencode", "auth", "list", "--format", "json"];
+    let argv = [
+        "opencode",
+        "auth",
+        "list",
+        "--standalone",
+        "--format",
+        "json",
+    ];
     let (code, stdout) = run(ctx, &argv, Duration::from_secs(15)).await?;
     if code != 0 {
         return None;

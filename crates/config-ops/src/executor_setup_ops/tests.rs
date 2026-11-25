@@ -33,7 +33,7 @@ async fn connect_names_the_sign_in_command_after_zod_checks() {
         executor_setup_connect(&ctx, json!({"provider": "acme"}))
             .await
             .unwrap(),
-        json!({"connected": false, "command": "opencode auth login acme"})
+        json!({"connected": false, "command": "opencode auth login --standalone acme"})
     );
     assert_eq!(
         executor_setup_connect(&ctx, json!({"provider": "-x", "key": ""}))

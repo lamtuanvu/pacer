@@ -18,7 +18,7 @@ import { Button, ButtonLink, TextAction } from "../../ds/Button";
 import type { Account } from "../../model/accounts";
 import { AGENT_KINDS, REMOTE_AGENTS, accountRequired, agentStepProblem, agents, blankAgentDraft, furthestAgentStep, type AgentDraft } from "../../model/wizard";
 import { useDraft, useTaskContext } from "../task-shared";
-import { OpencodeSetup } from "./OpencodeSetup";
+import { OpencodeSetup, ProviderModelPicker } from "./OpencodeSetup";
 import { useDialogs } from "../../ds/useDialogs";
 import { Feedback, Field, latestJob, ResourceState, SettingsBoard, useOperation, useResource, useScoped, words } from "./shared";
 export const executorId = ({ agent, account, host }: { agent: string; account: string; host: string }) =>
@@ -62,7 +62,13 @@ export function AddExecutor({ host: prefillHost = "", initialDraft = {}, initial
       ...(draft.model ? { model: draft.model } : {}), ...(kinds.length ? { kinds } : {}), max_tasks: Number(draft.maxTasks), test: true });
     if (r) patch({ createdId: (r.data as { id: string }).id, jobId: r.jobId ?? "" });
   }
-  const accountModels = accounts.data?.find(a => a.name === draft.account)?.connection?.models ?? [];
+  const selectedAccount = accounts.data?.find(a => a.name === draft.account);
+  const accountModels = selectedAccount?.connection?.models ?? [];
+  // An OpenCode provider account runs one of its provider's models; it has no agent default to fall back on.
+  const provider = draft.agent === "opencode" && selectedAccount?.source === "opencode" ? selectedAccount.provider ?? "" : "";
+  // An account that already names one of its provider's models runs that model when none is chosen.
+  const accountModel = provider && selectedAccount?.model?.startsWith(`${provider}/`) ? selectedAccount.model : "";
+  const modelProblem = provider && !locked && !accountModel && !draft.model.startsWith(`${provider}/`) ? "Choose a model." : null;
   const modelOptions = [{ value: "", label: "Agent default" }, ...accountModels.map(m => ({ value: m.id, label: m.name ?? m.id }))];
   if (draft.model && !modelOptions.some(m => m.value === draft.model)) modelOptions.push({ value: draft.model, label: draft.model });
   const [detectionStatus, setDetectionStatus] = useState('');
@@ -115,7 +121,7 @@ export function AddExecutor({ host: prefillHost = "", initialDraft = {}, initial
           {!accountRequired(draft.agent) ? <RadioChoices layout="options" name="agent-own-account" label="Account" value="own" onChange={() => {}} options={[{ value: "own", label: <><span className="u3-agent"><AgentMark agent={draft.agent} size={16} labelled={false} /><strong>{name}’s own signed-in account</strong></span><span className="u3-muted">Uses the agent’s own sign-in. pacer never copies it.</span></> }]} /> : <>
             <p className="u3-muted">Two executors can share an account; they share its quota.</p>
             <ResourceState resource={accounts} empty="No accounts yet. Add one below.">
-              {compatible.length ? <RadioChoices layout="options" name="agent-account" label="Account" value={draft.account} onChange={account => patch({ account })}
+              {compatible.length ? <RadioChoices layout="options" name="agent-account" label="Account" value={draft.account} onChange={account => patch({ account, model: "" })}
                 options={compatible.map(account => ({ value: account.name, label: <><span className="u3-agent"><AgentMark agent={agentKey(markAgent(draft.agent, account.name)) ?? "opencode"} size={16} labelled={false} /><strong>{account.name}</strong></span><span className="u3-muted">{name}’s own sign-in · {accountStatus(account).label}</span></> }))} /> : <p>No accounts for this agent yet.</p>}
             </ResourceState>
             {draft.agent === "opencode" && !urlForm
@@ -145,7 +151,10 @@ export function AddExecutor({ host: prefillHost = "", initialDraft = {}, initial
         </>}
         {step === 4 && <>
           <div className="u3-step-heading"><SectionHeading variant="headline" id="agent-step-heading" tabIndex={-1}>Model, then a test task</SectionHeading><p className="u3-muted">The agent is Ready only after a real task passes.</p></div>
-          <SettingRow label="Model"><ChoicePicker className="u3-model-picker" disabled={locked} value={draft.model} options={modelOptions} onValueChange={model => patch({ model })} /></SettingRow>
+          <SettingRow label="Model">{provider
+            ? <ProviderModelPicker provider={provider} disabled={locked} value={draft.model} onChange={model => patch({ model })}
+              {...(accountModel ? { placeholder: `${accountModel.slice(provider.length + 1)} (account default)` } : {})} />
+            : <ChoicePicker className="u3-model-picker" disabled={locked} value={draft.model} options={modelOptions} onValueChange={model => patch({ model })} />}</SettingRow>
           <SettingRow label="Good at" description={kinds.length ? "Added to these task kinds’ routing rules." : "Added to the rule for everything else."}>
             <div className="u3-actions" role="group" aria-label="Good at">{AGENT_KINDS.map(([kind, label]) => <FilterChip key={kind} disabled={locked} selected={kinds.includes(kind)}
               onClick={() => patch({ kinds: (kinds.includes(kind) ? kinds.filter(k => k !== kind) : [...kinds, kind]).join(",") })}>{label}</FilterChip>)}</div>
@@ -155,13 +164,13 @@ export function AddExecutor({ host: prefillHost = "", initialDraft = {}, initial
           {job ? <CheckList unboxed label="Test task" items={job.steps.map(s => ({ id: s.name, label: settingsText(s.name), state: s.state, note: s.detail ? settingsText(s.detail) : undefined }))} /> : <p className="u3-muted">Creates a scratch worktree, asks the agent for a small change, then checks the result.</p>}
           {job?.error && <p role="alert">{job.error.message}{job.error.hint && ` · ${job.error.hint}`}</p>}
           {ready && <p role="status"><strong>{executorLabel(draft.createdId)} is ready.</strong> Test task passed.</p>}
-          {!ready && <div className="u3-actions"><Button variant="primary" busy={action.busy || job?.state === "running"} onClick={() => void finish()} disabled={!!action.unavailable}>{job?.state === "running" ? "Running test task…" : locked ? job ? "Run test task again" : "Run test task" : "Add agent and run test task"}</Button></div>}
+          {!ready && <div className="u3-actions"><Button variant="primary" busy={action.busy || job?.state === "running"} onClick={() => void finish()} disabled={!!action.unavailable || !!modelProblem}>{job?.state === "running" ? "Running test task…" : locked ? job ? "Run test task again" : "Run test task" : "Add agent and run test task"}</Button></div>}
           </div>
         </>}
         {resumeError && <p role="status">{resumeError}</p>}
         <Feedback action={action} />
         <div className="u3-footer">
-          <span className="u3-muted">{problem ?? `Step ${step} of 4 · Your draft is kept if you leave${locked ? "; agent added; test before Ready" : ""}`}</span>
+          <span className="u3-muted">{problem ?? (step === 4 ? modelProblem : null) ?? `Step ${step} of 4 · Your draft is kept if you leave${locked ? "; agent added; test before Ready" : ""}`}</span>
           {ready ? <>
             <Button onClick={() => { action.clear(); setResumed(undefined); setResumeError(""); setUrlForm(false); setDraft({ ...blankAgentDraft }); }}>Add another agent</Button>
             <ButtonLink variant="primary" href={scoped("#/settings/executors")} onClick={clearDraft}>Open agents</ButtonLink>

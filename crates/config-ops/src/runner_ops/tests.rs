@@ -395,3 +395,52 @@ async fn add_declares_routes_and_refuses_duplicates() {
     assert_eq!(dup.message, "kinds must be a nonempty set");
     assert!(dup.hint.is_none());
 }
+
+#[tokio::test]
+async fn add_refuses_an_opencode_provider_account_without_its_model() {
+    let dir = tempfile::tempdir().unwrap();
+    let c = ctx(&dir, &[]);
+    let strategy = "planner: claude-code\naccounts:\n  claude: {kind: claude}\n  go: {kind: endpoint, source: opencode, provider: opencode-go, usage: metered}\nrunners:\n  claude-code: {}\n";
+    fs::write(dir.path().join("strategy.yaml"), strategy).unwrap();
+    for model in [None, Some("glm-5.3")] {
+        let mut params = json!({"agent":"opencode","account":"go","test":false});
+        if let Some(model) = model {
+            params["model"] = json!(model);
+        }
+        let error = runner_add(&c, params).await.unwrap_err();
+        assert_eq!(
+            error.message,
+            "opencode#go needs a model: choose one of opencode-go's models (opencode-go/<model>)"
+        );
+        assert_eq!(
+            error.hint.as_deref(),
+            Some("Choose a model, then add the agent again.")
+        );
+    }
+    assert_eq!(
+        fs::read_to_string(dir.path().join("strategy.yaml")).unwrap(),
+        strategy
+    );
+    let out = runner_add(
+        &c,
+        json!({"agent":"opencode","account":"go","test":false,"model":"opencode-go/glm-5.3"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(out, json!({"id":"opencode#go"}));
+}
+
+#[tokio::test]
+async fn add_accepts_an_opencode_provider_account_with_its_own_model() {
+    let dir = tempfile::tempdir().unwrap();
+    let c = ctx(&dir, &[]);
+    fs::write(
+        dir.path().join("strategy.yaml"),
+        "planner: claude-code\naccounts:\n  claude: {kind: claude}\n  go: {kind: endpoint, source: opencode, provider: opencode-go, model: opencode-go/kimi-k3, usage: metered}\nrunners:\n  claude-code: {}\n",
+    )
+    .unwrap();
+    let out = runner_add(&c, json!({"agent":"opencode","account":"go","test":false}))
+        .await
+        .unwrap();
+    assert_eq!(out, json!({"id":"opencode#go"}));
+}

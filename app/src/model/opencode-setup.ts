@@ -41,6 +41,13 @@ export function searchCandidates<T extends { provider: string; name: string }>(l
 /** The catalog's usage type, or "Usage unknown" when it has no answer (the user picks one later). */
 export const usagePill = (u: { usage: UsageKind; known?: boolean }) => u.known === false ? USAGE_UNKNOWN : USAGE_KIND_WORDS[u.usage];
 
+/** The first free account name for a provider, as `suggestName` in `src/core/opencode-setup.ts` picks it. */
+export function freeAccountName(provider: string, taken: readonly string[]): string {
+  const base = provider.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "") || "opencode";
+  let name = base;
+  for (let i = 2; taken.includes(name); i++) name = `${base}-${i}`;
+  return name;
+}
 export interface ModelLike { id: string; context: number; output: number; tools: boolean }
 export interface AddInput {
   candidate: { group: Group; provider: string; base_url?: string };

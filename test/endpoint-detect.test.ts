@@ -21,7 +21,7 @@ const noServers = (async () => { throw Error("refused"); }) as unknown as typeof
 test("signed-in providers come from auth list ids and names only", async () => {
   const {ctx, calls} = ctxWith({"opencode auth list": {code: 0, stdout: authJson}});
   expect(await signedInProviders(ctx)).toEqual([{id: "openrouter", name: "OpenRouter"}]);
-  expect(calls[0]).toEqual(["opencode", "auth", "list", "--format", "json"]);
+  expect(calls[0]).toEqual(["opencode", "auth", "list", "--standalone", "--format", "json"]);
 });
 
 test("auth list failure is reported as unknown, not an error", async () => {
@@ -56,13 +56,13 @@ test("without opencode only local servers are offered", async () => {
 
 test("opencode model ids are read for one provider", async () => {
   // The real CLI rejects a positional provider arg ("Unexpected positional argument"), so pacer
-  // lists all models with `opencode models` and filters by the "<provider>/" prefix.
-  const {ctx} = ctxWith({"opencode models": {code: 0, stdout: "openrouter/qwen/qwen3-coder\nopenrouter/z-ai/glm-5.3\nanthropic/claude-opus-4-5\n"}});
+  // lists all models with `opencode models --standalone` and filters by the "<provider>/" prefix.
+  const {ctx} = ctxWith({"opencode models --standalone": {code: 0, stdout: "openrouter/qwen/qwen3-coder\nopenrouter/z-ai/glm-5.3\nanthropic/claude-opus-4-5\n"}});
   expect(await opencodeModelIds(ctx, "openrouter")).toEqual(["qwen/qwen3-coder", "z-ai/glm-5.3"]);
 });
 
 test("failed opencode model listing returns null, not empty array", async () => {
-  const {ctx} = ctxWith({"opencode models": {code: 1, stdout: ""}});
+  const {ctx} = ctxWith({"opencode models --standalone": {code: 1, stdout: ""}});
   expect(await opencodeModelIds(ctx, "openrouter")).toBeNull();
 });
 

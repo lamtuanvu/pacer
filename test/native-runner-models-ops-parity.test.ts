@@ -388,7 +388,7 @@ const writeNamed = (home: string, name: string) => {
   writeFileSync(strategyFile(home), NODE_JOINED);
 };
 
-const NOTES = { fail: "opencode could not list models for acme", empty: "opencode lists no models for acme; check opencode auth list" };
+const NOTES = { fail: "opencode could not list models for acme", empty: "opencode lists no models for acme; check opencode auth list --standalone" };
 const cases: Case[] = [
   { name: "reads and refusals", steps: refusals, native: true },
   { name: "saves", steps: saves, native: true },

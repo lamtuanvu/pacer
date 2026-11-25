@@ -4,7 +4,7 @@ import { accountNeedsSignIn } from "../../../src/view-model/words";
 export interface Model { id: string; name?: string; context?: number; output?: number; tools?: boolean }
 export interface Account {
   usageCheck?: { action: "probe" | "refresh" | "unsupported" | "unmetered"; consentRequired: boolean; description: string };
-  name: string; kind: string; folder?: string; source?: string; quotaSource?: string | null; signedIn?: boolean | null; signin_command?: string; runners?: string[];
+  name: string; kind: string; folder?: string; source?: string; provider?: string | null; model?: string | null; quotaSource?: string | null; signedIn?: boolean | null; signin_command?: string; runners?: string[];
   state?: string | { state?: string; detail?: string }; detail?: string;
   connection?: { base_url_host?: string; key?: string; models: Model[]; checked_at?: string | number };
   /** The account's one usage record (ADR 0030); every surface renders usageView over it. */
