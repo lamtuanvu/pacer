@@ -8,6 +8,20 @@ import { fileURLToPath } from "node:url";
 
 const registries = new Map<string, PluginRegistry>();
 
+/**
+ * Only the long-lived serve process publishes plugin runtime state (ready/idle) and UI
+ * invalidations into the shared outbox. This is an explicit, process-local opt-in: it is
+ * never read from `process.env` or `process.argv`, both of which a serve child inherits
+ * and would otherwise turn into a second publisher. Every other process defaults to false.
+ */
+let serveRegistry = false;
+
+/** Mark this process as serve before plugins start. Also updates registries created during startup. */
+export function markServeRegistry(): void {
+  serveRegistry = true;
+  for (const r of registries.values()) r.setPublishRuntimeState(true);
+}
+
 /** Preserve front/wrapper routing while binding development children to this source core. */
 export function bundledPluginSpawn(c: Ctx, id: string, runtime: {executable:string;bunVersion?:string} = {executable:process.execPath,bunVersion:process.versions.bun}) {
   const bundled = BUNDLED.find(plugin => plugin.manifest.id === id);
@@ -32,7 +46,10 @@ export function bundledPluginSpawn(c: Ctx, id: string, runtime: {executable:stri
 export function pluginRegistry(ctx: Ctx, dependencies?:RegistryDeps): PluginRegistry {
   let r = registries.get(ctx.pacerHome);
   if (!r) {
-    r = new PluginRegistry(dependencies??{ bundled: BUNDLED, spawnBundled: bundledPluginSpawn });
+    const deps: RegistryDeps = dependencies
+      ? { ...dependencies, publishRuntimeState: dependencies.publishRuntimeState ?? serveRegistry }
+      : { bundled: BUNDLED, spawnBundled: bundledPluginSpawn, publishRuntimeState: serveRegistry };
+    r = new PluginRegistry(deps);
     registries.set(ctx.pacerHome, r);
   }
   return r;

@@ -52,6 +52,45 @@ test("a passive (non-serve) registry does not publish plugin lifecycle events", 
   expect(pluginEvents).toHaveLength(0);
 });
 
+test("serve-marked registry publishes ready/failing; a child with serve's env does not", async () => {
+  const ctx = home();
+  installFixture("crasher", join(ctx.pacerHome, "plugins"));
+
+  // The serve startup path marks its registry explicitly (publishRuntimeState: true).
+  const serve = registry();
+  await serve.enable(ctx, "fx-crasher", true);
+  await serve.doctor(live(ctx), "fx-crasher");
+  for (let i = 0; i < 3; i++) {
+    await serve.call(live(ctx), "fx-crasher", "diagnostic.ping", {});
+    await Bun.sleep(150);
+  }
+  const serveStates = eventsSince(ctx, 0, 3).events
+    .filter(e => e.type === "plugin" && (e.data as { id: string }).id === "fx-crasher")
+    .map(e => (e.data as { state: string }).state);
+  expect(serveStates).toContain("ready");
+  expect(serveStates).toContain("failing");
+  await serve.shutdown();
+
+  // A child spawned by serve copies serve's environment. Under the old env/argv
+  // detection (PACER_SERVE=1 inherited) it became a second publisher; now the opt-in
+  // is process-local, so the same env does not make it publish lifecycle events.
+  const childCtx = { ...ctx, env: { ...ctx.env, PACER_SERVE: "1" } };
+  installFixture("good", join(ctx.pacerHome, "plugins"));
+  const before = eventsSince(ctx, 0, 3).last;
+  const child = new PluginRegistry({ bundled: [], spawnBundled: () => { throw new Error("no bundled plugins"); }, sleep: async () => {}, publishRuntimeState: false });
+  registries.push(child);
+  await child.enable(childCtx, "fx-good", true);
+  await child.doctor(live(childCtx), "fx-good").catch(() => {});
+  await Bun.sleep(60); // let any mistaken async publish land before asserting silence
+  await child.shutdown();
+  const childStates = eventsSince(ctx, before, 3).events
+    .filter(e => e.type === "plugin" && (e.data as { id: string }).id === "fx-good")
+    .map(e => (e.data as { state: string }).state);
+  expect(childStates).not.toContain("starting");
+  expect(childStates).not.toContain("ready");
+  expect(childStates).not.toContain("idle");
+});
+
 test("discovery lists installed plugins with their static states", async () => {
   const ctx = home();
   for (const f of ["good", "old-protocol", "bad-manifest", "mismatch"] as const) installFixture(f, join(ctx.pacerHome, "plugins"));

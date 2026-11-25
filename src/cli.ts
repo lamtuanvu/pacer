@@ -60,7 +60,7 @@ import { accountCmd, runnerCmd } from "./commands/accounts";
 import { makeCtx } from "./ctx";
 import { computeStatus, displayName } from "./engine/status";
 import { runMcpStdio } from "./mcp/server";
-import { shutdownPlugins } from "./plugins";
+import { markServeRegistry, shutdownPlugins } from "./plugins";
 import { holdOwnerKey } from "./plugins/host-bridge";
 import { CORE_SECRETS_ENV, CORE_SECRETS_STDIN, LEGACY_CORE_SECRETS, legacyCoreSecrets, readCoreSecrets, scrubCoreSecrets, type CoreSecrets } from "./core-secrets";
 import { runStdio } from "./api/stdio";
@@ -817,7 +817,9 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
       return { code: 0, out: "", err: "", keepAlive: true };
     }
     case "serve": {
-      process.env.PACER_SERVE = "1";
+      // Explicit process-local opt-in only: a serve child inherits the environment,
+      // so env/argv detection would make it a second runtime-state publisher.
+      markServeRegistry();
       if (rest.includes("--help") || rest.includes("-h")) return { code: 0, out: `usage: pacer serve [--port <n>]\n\nLocal HTTP service (default port ${DEFAULT_PORT}).`, err: "" };
       const { opts } = parseFlags(rest, ["internal"]);
       const internal = opts.internal === true;
