@@ -1,6 +1,6 @@
 [package]
 name = "pacer-plugin"
-version = "0.5.0"
+version = "0.6.0"
 publish = true
 description = "The Rust plugin SDK for pacer, implementing the @pacer/plugin wire contract."
 readme = "README.md"
@@ -13,6 +13,7 @@ rust-version.workspace = true
 
 [features]
 testing = []
+install = ["dep:sha2", "dep:jiff", "dep:toml", "dep:icu_collator"]
 
 [dependencies]
 pacer-plugin-agent-session-protocol = { path = "../plugin-agent-session-protocol", version = "0.4.0" }
@@ -27,6 +28,10 @@ serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 tokio-util = { workspace = true, features = ["rt"] }
+sha2 = { version = "0.10", optional = true }
+jiff = { version = "0.2", optional = true }
+toml = { version = "0.8", optional = true }
+icu_collator = { version = "=2.4.0", features = ["unstable"], optional = true }
 
 [lints]
 workspace = true
@@ -34,3 +39,23 @@ workspace = true
 [[test]]
 name = "harness"
 required-features = ["testing"]
+
+[[test]]
+name = "install_blocks"
+required-features = ["install", "testing"]
+
+[[test]]
+name = "install_helpers"
+required-features = ["install", "testing"]
+
+[[test]]
+name = "install_jsonc"
+required-features = ["install", "testing"]
+
+[[test]]
+name = "install_hookjson"
+required-features = ["install", "testing"]
+
+[[test]]
+name = "install_undo"
+required-features = ["install", "testing"]

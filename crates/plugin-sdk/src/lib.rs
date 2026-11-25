@@ -2,6 +2,8 @@
 
 mod error;
 mod host;
+#[cfg(feature = "install")]
+pub mod install;
 mod serve;
 #[cfg(feature = "testing")]
 pub mod testing;

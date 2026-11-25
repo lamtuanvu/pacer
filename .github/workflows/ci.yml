@@ -625,6 +625,8 @@ jobs:
           cargo test --locked --bin pacer --manifest-path desktop/src-tauri/Cargo.toml
       - name: Test Rust plugin SDK harness feature
         run: cargo test -p pacer-plugin --features testing --locked
+      - name: Test Rust plugin SDK install feature
+        run: cargo test -p pacer-plugin --features install,testing --locked
       - name: Plugin conformance through the Rust front door
         run: |
           cargo build -p pacer -p pacer-fixtures --locked

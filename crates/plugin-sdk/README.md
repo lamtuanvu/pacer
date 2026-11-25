@@ -24,6 +24,25 @@ Plugins need a `tokio` runtime (see the `serve` method) and a
 [the plugin protocol](../../docs/plugin-protocol.md) for the wire contract and the
 manifest schema.
 
+### The `install` feature
+
+`pacer_plugin::install` contains the plugin-side helpers used to plan planner
+integrations: managed blocks, JSONC and hook-file editing, undo ownership
+records, staging (`InstallPlan`, `PreparedPlannerBuilder`) and host transport
+(`create_planner_io`, `read_planner_prior`). It is a library: it does not write
+files, run commands on its own or switch any plugin. The host owns commit,
+compensation and recovery. `txn` and `journal` stay host-side.
+
+```
+pacer-plugin = { path = "../plugin-sdk", features = ["install"] }
+```
+
+The feature pulls in `sha2`, `jiff`, `toml` and `icu_collator`. Offsets in JSONC
+errors are UTF-16, matching JavaScript; editing spans are kept in bytes. Key
+order on serialized documents follows ECMAScript own-property order, and
+managed-content fingerprints sort keys with the ICU root collator, as
+`String.prototype.localeCompare` does in the TypeScript SDK.
+
 ## Usage
 
 A plugin is a subprocess the host starts lazily. Register handlers that answer
