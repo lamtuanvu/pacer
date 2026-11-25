@@ -40,7 +40,7 @@ export function TestsAndPr({ runId, data, questions, canAnswer, api, onAnswered,
                 const st = evidenceStatusLabel(s.status);
                 return (
                   <li key={s.name} className="rv-box" data-surface={s.name} data-status={s.status}>
-                    <span className="rv-row"><strong className="rv-grow rv-clip" title={s.name}>{s.name}</strong><Pill tone={st.tone}><span aria-hidden="true">{st.glyph} </span>{st.label}</Pill></span>
+                    <span className="rv-row"><strong className="rv-grow rv-clip">{s.name}</strong><Pill tone={st.tone}><span aria-hidden="true">{st.glyph} </span>{st.label}</Pill></span>
                     {s.steps.length ? <ol className="rv-ol" aria-label={`Steps for ${s.name}`}>{s.steps.map((t, i) => <li key={i} className="rv-text">{t}</li>)}</ol> : null}
                     {s.artifacts.length ? <span className="rv-row">{s.artifacts.map(a => <ArtifactLink key={a.id} runId={runId} artifact={a} />)}</span> : null}
                     {s.missingArtifacts.length ? <p className="rv-cap">{s.missingArtifacts.length} attached file{s.missingArtifacts.length === 1 ? "" : "s"} could not be found.</p> : null}

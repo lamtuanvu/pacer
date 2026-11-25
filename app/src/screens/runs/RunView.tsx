@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { RunDetail } from "../../../../src/dashboard/screens/types";
 import {
-  boardAvailability, conversationRail, executionWaves, pausedReasonLabel, pickSpecArtifact, artifactMetas,
+  boardAvailability, conversationRail, orchestratorNeedsAttention, executionWaves, pausedReasonLabel, pickSpecArtifact, artifactMetas,
   reviewerPanels, sentenceCase, stripSteps, testsAndPr, type BoardChild, type BoardInput, type BoardMessage, type BoardQuestion,
 } from "../../../../src/view-model/run-board";
 import {
@@ -58,24 +58,28 @@ export function RunView({ runId, query, fetchText }: { runId: string; query: Rou
   const headingRef = useRef<HTMLHeadingElement>(null);
   const seen = useRef<string | null>(null);
 
+  const mounted = useRef(true);
+  const loadSeq = useRef(0);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  /** Latest load wins: a response that arrives after a newer load started (or after unmount) is dropped. */
   const load = async () => {
+    const mine = ++loadSeq.current;
     const listed = await refreshRunsList(api, storeRef.current, ops);
     const next = await refreshRunDetail(api, listed, runId, ops);
-    setStore(next);
+    if (mounted.current && mine === loadSeq.current) setStore(next);
   };
+  useEffect(() => {
+    // A different run in the same instance starts from its own overview.
+    setBoard("overview");
+    setAnnounce("");
+  }, [runId]);
   useEffect(() => {
     if (seen.current !== runId) {
       seen.current = runId;
       void markRunSeen(api, runId, ops);
     }
-    let active = true;
-    void (async () => {
-      const listed = await refreshRunsList(api, storeRef.current, ops);
-      const next = await refreshRunDetail(api, listed, runId, ops);
-      if (active) setStore(next);
-    })();
-    return () => { active = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- storeRef carries the latest store
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load reads the latest store through a ref
   }, [api, ops, runId, state.connectionRevision, state.invalidations.runs, state.invalidations.attention]);
 
   const detailState = store.details[runId];
@@ -139,7 +143,7 @@ export function RunView({ runId, query, fetchText }: { runId: string; query: Rou
   const waits = snapRun?.waits_on ?? (openQuestions.length ? "you" : status.label === "Waiting" ? "orchestrator" : "-");
   const orch = isObj(run?.orchestrator) ? run!.orchestrator as { state?: string; planner?: string; reason?: string; next_wake_at?: number } : undefined;
   const orchLine = sentenceCase(orchestratorBlock(orch, now));
-  const orchBlocked = /limit|budget spent|blocked/i.test(orchLine);
+  const orchAttention = orchestratorNeedsAttention(orch);
   const createdAt = typeof run?.createdAt === "number" ? run.createdAt : 0;
   const unavailable = !ops.has("run.get");
   const backHref = withQuery("#/runs", query);
@@ -170,6 +174,12 @@ export function RunView({ runId, query, fetchText }: { runId: string; query: Rou
           <Button size="sm" onClick={() => { void load(); }}>Try again</Button>
         </Alert>
       )}
+      {detailState?.error && raw && (
+        <Alert tone="warning" title="This run may be out of date">
+          <p>The last refresh failed, so you are seeing the version loaded earlier.</p>
+          <Button size="sm" onClick={() => { void load(); }}>Try again</Button>
+        </Alert>
+      )}
       {!unavailable && !raw && !detailState?.error && <p className="rv-cap" role="status">Loading run…</p>}
       {view && run && <>
         <div className="rv-facts" aria-label="Run facts" role="group">
@@ -181,20 +191,20 @@ export function RunView({ runId, query, fetchText }: { runId: string; query: Rou
           <span className="rv-fact">Started {runAge(createdAt, now)}</span>
         </div>
         {pausedReason ? <Alert tone="warning" title={pausedReasonLabel(pausedReason)}><p>Steps already running finish; nothing new starts until the run resumes.</p></Alert> : null}
-        {orchBlocked
-          ? <Alert tone="warning" title="Planner"><p data-orchestrator>{orchLine}</p></Alert>
-          : <p className="rv-cap" data-orchestrator>Planner: {orchLine}</p>}
+        {orchAttention
+          ? <Alert tone="warning" title={orch?.state === "retrying" ? "The planner is retrying" : "The planner is blocked"}><p data-orchestrator>{orchLine}</p></Alert>
+          : <p className="rv-cap" data-orchestrator>{orchLine}</p>}
 
         {offered.length > 1 ? (
           <div className="rv-boards" role="group" aria-label="Run boards">
-            {offered.map(id => <BoardButton key={id} active={active === id} onClick={() => setBoard(id)}>{BOARD_LABELS[id]}</BoardButton>)}
+            {offered.map(id => <BoardButton key={id} active={active === id} onClick={() => { setBoard(id); setAnnounce(`${BOARD_LABELS[id]} board shown`); }}>{BOARD_LABELS[id]}</BoardButton>)}
           </div>
         ) : null}
 
         {requestedMeta ? (
           <section className="rv-section" aria-label="Artifact">
             <h2 className="rv-title">{requestedMeta.label}</h2>
-            <ArtifactText runId={runId} artifact={requestedMeta} fetchText={fetchText} />
+            <ArtifactText runId={runId} artifact={requestedMeta} revision={detailState?.stamp} fetchText={fetchText} />
           </section>
         ) : null}
 
@@ -213,7 +223,7 @@ export function RunView({ runId, query, fetchText }: { runId: string; query: Rou
         </>}
         {active === "brainstorm" && orchTaskId ? (
           <BrainstormBoard runId={runId} taskId={orchTaskId} spec={specArtifact} questions={openQuestions.filter(q => !/publish/i.test(q.stepId ?? ""))}
-            canAnswer={canAnswer} api={api} onAnswered={answered} onConflict={reloadQuestion} fetchText={fetchText} />
+            canAnswer={canAnswer} api={api} onAnswered={answered} onConflict={reloadQuestion} fetchText={fetchText} revision={detailState?.stamp} />
         ) : null}
         {active === "review" && <ReviewerPanel panels={reviewerPanels(view.input.detail, view.input.decisions)} />}
         {active === "execution" && <ExecutionWaves data={executionWaves(view.input)} now={now} />}

@@ -25,7 +25,7 @@ export function OrchestratorLane({ taskId }: { taskId: string }) {
   );
 }
 
-export function BrainstormBoard({ runId, taskId, spec, questions, canAnswer, api, onAnswered, onConflict, fetchText }: {
+export function BrainstormBoard({ runId, taskId, spec, questions, canAnswer, api, onAnswered, onConflict, fetchText, revision }: {
   runId: string;
   taskId: string;
   spec: ArtifactMeta | undefined;
@@ -36,6 +36,8 @@ export function BrainstormBoard({ runId, taskId, spec, questions, canAnswer, api
   onAnswered: () => void;
   onConflict: () => void;
   fetchText?: FetchText;
+  /** Bumps on each run reload so the spec text is read again. */
+  revision?: number;
 }) {
   return (
     <div className="rv-section">
@@ -55,7 +57,7 @@ export function BrainstormBoard({ runId, taskId, spec, questions, canAnswer, api
           {spec
             ? <>
                 <p className="rv-cap">Latest version: <ArtifactLink runId={runId} artifact={spec} /></p>
-                <ArtifactText runId={runId} artifact={spec} fetchText={fetchText} />
+                <ArtifactText runId={runId} artifact={spec} revision={revision} fetchText={fetchText} />
               </>
             : <p className="rv-cap">The spec appears here as the planner writes it.</p>}
         </section>

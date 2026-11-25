@@ -52,22 +52,23 @@ const TEXT_MIME = /^(text\/|application\/(json|x-yaml|yaml))/i;
 const INLINE_MAX = 256 * 1024;
 
 /** The forming spec (or any text artifact) shown as text; other types fall back to the link. */
-export function ArtifactText({ runId, artifact, fetchText = defaultFetchText }: { runId: string; artifact: ArtifactMeta; fetchText?: FetchText }) {
-  const [state, setState] = useState<{ text?: string; error?: string }>({});
+export function ArtifactText({ runId, artifact, revision, fetchText = defaultFetchText }: { runId: string; artifact: ArtifactMeta; fetchText?: FetchText; revision?: number }) {
+  const [state, setState] = useState<{ id?: string; text?: string; error?: string }>({});
   const inline = TEXT_MIME.test(artifact.mime) && artifact.size <= INLINE_MAX;
   useEffect(() => {
     if (!inline) return;
     let active = true;
-    setState({});
+    // Keep the text on screen while a newer copy is read (no flicker); a different file starts empty.
+    setState(prev => prev.id === artifact.id ? prev : { id: artifact.id });
     fetchText(artifactUrl(runId, artifact.id)).then(
-      text => { if (active) setState({ text }); },
-      (e: unknown) => { if (active) setState({ error: e instanceof Error ? e.message : "The file could not be read." }); },
+      text => { if (active) setState({ id: artifact.id, text }); },
+      (e: unknown) => { if (active) setState({ id: artifact.id, error: e instanceof Error ? e.message : "The file could not be read." }); },
     );
     return () => { active = false; };
-  }, [runId, artifact.id, artifact.size, inline]);
+  }, [runId, artifact.id, artifact.size, revision, inline]);
   if (!inline) return <p className="rv-cap">This file is not shown here. <ArtifactLink runId={runId} artifact={artifact} /></p>;
   if (state.error) return <Alert tone="error" title="Couldn't open the file"><p>{state.error}</p></Alert>;
-  if (state.text === undefined) return <p className="rv-cap" role="status">Loading {artifact.label}…</p>;
+  if (state.text === undefined || state.id !== artifact.id) return <p className="rv-cap" role="status">Loading {artifact.label}…</p>;
   return <pre className="rv-spec" tabIndex={0} aria-label={artifact.label}>{state.text}</pre>;
 }
 

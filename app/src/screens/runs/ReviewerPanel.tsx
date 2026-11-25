@@ -23,7 +23,7 @@ function Panel({ panel }: { panel: ReviewerPanelData }) {
         {panel.lanes.map(lane => (
           <li key={lane.branch} className="rv-box" data-reviewer={lane.branch}>
             <span className="rv-row">
-              <strong className="rv-grow rv-clip" title={lane.branch}>{lane.branch}</strong>
+              <strong className="rv-grow rv-clip">{lane.branch}</strong>
               <StepState marker={lane.marker} status={lane.status} />
             </span>
             {lane.verdict ? <span className="rv-row"><Verdict verdict={lane.verdict} /></span> : null}
