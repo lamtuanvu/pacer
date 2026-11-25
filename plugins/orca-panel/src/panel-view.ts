@@ -148,6 +148,15 @@ export function taskStatusText(task: PanelTask, now: number): string {
 }
 
 
+/** Colour of a row's short status: amber when it waits on someone or stalls, red when it failed. */
+export function taskStatusTone(task: PanelTask): 'warn' | 'bad' | 'muted' {
+  const c = classifyTask(task)
+  if (c === 'asked' || c === 'caller-deciding') return 'warn'
+  if (c === 'failed') return 'bad'
+  if (c === 'running' && task.liveness?.stalled) return 'warn'
+  return 'muted'
+}
+
 export function stalledMinutes(since: number, now: number): number {
   return Math.max(1, Math.round((now - since) / 60))
 }

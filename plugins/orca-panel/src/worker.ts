@@ -1,6 +1,7 @@
 // The plugin's own worker: a pacer v3 client feeding the panel (pacer.snapshot/pacer.act)
 // and the status bar item. Orca starts it when the plugin is enabled and keeps it running,
 // so the live loop (subscribeEvents + reconnect) runs without any panel open.
+import { activeTasks, classifyTask, needsYouItems } from './panel-view'
 import { execFile, spawn } from 'node:child_process'
 import { dirname, resolve as resolvePath } from 'node:path'
 import type { OrcaWorkerApi } from 'orca/worker'
@@ -501,11 +502,9 @@ export function paceStatus(snapshot: PanelSnapshot): {
     }
   }
 
-  const taskIds = new Set((snapshot.tasks ?? []).map((t) => t.id))
-  const needsCount = snapshot.attention.filter(
-    (a) => !!a.taskId && taskIds.has(a.taskId) && (a.kind === 'review' || a.kind === 'message'),
-  ).length
-  const running = (snapshot.tasks ?? []).filter((t) => t.state === 'running').length
+  // Same counts as the panel's summary, so the bar and the panel never disagree.
+  const needsCount = needsYouItems(snapshot).length
+  const running = activeTasks(snapshot).filter((t) => classifyTask(t) === 'running').length
   const parts: string[] = []
   if (needsCount > 0) parts.push(`${needsCount} need you`)
   if (running > 0) parts.push(`${running} running`)

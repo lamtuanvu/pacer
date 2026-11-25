@@ -910,3 +910,28 @@ test('L1: focused worktree resolves via injected git common dir when projectId a
     await pacer.dispose()
   }
 })
+
+test('status bar counts match the panel: a caller-deciding task is not running, a review is a need', () => {
+  const repo = { key: 'k', label: 'r', path: '/w/gar' }
+  const task = (over: Record<string, unknown>) => ({ rev: 1, title: 't', repo, executor: 'cursor#cursor', updatedAt: 100, review: null, liveness: null, ...over })
+  const snapshot = {
+    connected: true,
+    at: 200,
+    focusedWorkspace: { path: '/w/gar', name: 'gar' },
+    planner: null,
+    pause: null,
+    repos: [],
+    tasks: [
+      task({ id: 'run', state: 'running' }),
+      task({ id: 'deciding', state: 'running', liveness: { stalled: false, reason: 'caller_decision', since: 150 } }),
+      task({ id: 'rev', state: 'done' }),
+    ],
+    attention: [{ ...attentionItem('r1'), kind: 'review', taskId: 'rev', repo }],
+    running: [],
+    queued: [],
+    doneToday: [],
+    executors: [],
+  } as unknown as PanelSnapshot
+  const status = paceStatus(snapshot)
+  assert.deepEqual({ text: status.text, tone: status.tone }, { text: 'pacer · 1 need you · 1 running', tone: 'warning' })
+})

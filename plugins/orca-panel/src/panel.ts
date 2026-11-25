@@ -18,6 +18,7 @@ import {
   summaryText,
   taskGlyph,
   taskStatusText,
+  taskStatusTone,
   worktreeTasks,
   type PanelEvent,
   type PanelState,
@@ -161,6 +162,7 @@ function renderNeedsRow(item: AttentionRow, model: Extract<ReturnType<typeof pan
     const when = absoluteTime(item.since, now)
     const exec = executorShortLabel(item.executor)
     detail.append(el('span', undefined, [item.detail, exec, when].filter(Boolean).join(' · ')))
+    ;(detail.lastChild as HTMLElement).style.cssText = 'font-size:12px;line-height:16px;color:var(--ink-secondary);'
     const actions = el('div')
     actions.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;'
     // Accept/Reject for review
@@ -206,7 +208,7 @@ function renderTaskRow(task: PanelTask, model: Extract<ReturnType<typeof panelMo
   title.style.cssText = 'flex-grow:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'
   btn.append(title)
   const status = el('span', undefined, taskStatusText(task, now))
-  const stColor = taskStatusText(task, now).startsWith('no output') ? 'var(--warn-fg)' : taskStatusText(task,now).startsWith('failed') ? 'var(--bad-fg)' : 'var(--ink-muted)'
+  const stColor = { warn: 'var(--warn-fg)', bad: 'var(--bad-fg)', muted: 'var(--ink-muted)' }[taskStatusTone(task)]
   status.style.cssText = `flex:none;font-size:12px;color:${stColor};`
   btn.append(status)
   rowWrap.append(btn)

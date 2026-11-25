@@ -21,6 +21,7 @@ import {
   summaryText,
   taskGlyph,
   taskStatusText,
+  taskStatusTone,
   worktreeTasks,
   type PanelEvent,
 } from './panel-view'
@@ -372,4 +373,14 @@ test('absolute time', () => {
   const now = Date.UTC(2026, 10, 22, 12, 0, 0) / 1000
   const today = Date.UTC(2026, 10, 22, 15, 21, 0) / 1000
   assert.equal(absoluteTime(today, now, tz), '15:21')
+})
+
+test('status tone: amber for asked, caller deciding and stalled; red for failed; muted otherwise', () => {
+  const base = { rev: 1, title: 't', repo, executor: 'cursor', updatedAt: 1, review: null }
+  assert.equal(taskStatusTone({ ...base, id: 'a', state: 'needs_input', question: 'q', liveness: null }), 'warn')
+  assert.equal(taskStatusTone({ ...base, id: 'b', state: 'running', liveness: { stalled: false, reason: 'caller_decision', since: 1 } }), 'warn')
+  assert.equal(taskStatusTone({ ...base, id: 'c', state: 'running', liveness: { stalled: true, reason: 'no_progress', since: 1 } }), 'warn')
+  assert.equal(taskStatusTone({ ...base, id: 'd', state: 'failed', liveness: null }), 'bad')
+  assert.equal(taskStatusTone({ ...base, id: 'e', state: 'running', liveness: null }), 'muted')
+  assert.equal(taskStatusTone({ ...base, id: 'f', state: 'queued', liveness: null }), 'muted')
 })
