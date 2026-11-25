@@ -1,5 +1,14 @@
 /** Compiled desktop bundle and code-signing identifiers. No runtime value selects them. */
+import { realpathSync } from "node:fs";
+import { resolve } from "node:path";
 import { compiledNativeFixture } from "./native-fixture";
+
+/** Moved from the retired native identity module; still used by the update manager. */
+export function isBundledExecutable(execPath: string): boolean {
+  const bundled = (path: string) => /\.app\/Contents\/(?:Resources|MacOS)\/.+/i.test(path);
+  if (bundled(resolve(execPath))) return true;
+  try { return bundled(realpathSync(execPath)); } catch { return false; }
+}
 
 export type DesktopIdentifiers = {
   readonly desktop: string;

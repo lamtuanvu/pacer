@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
 import { parsePlistDictionary } from "../../src/service";
-import { verifyDesktopExecutable, verifyNativeLibrary } from "./desktop";
+import { verifyDesktopExecutable } from "./desktop";
 import { verifyPairBinding } from "../../src/update/desktop/build-identity";
 import { validateDesktopTar } from "./desktop-tar";
 import type { DesktopArch, VerifiedDesktopApp } from "./desktop-feed";
@@ -84,7 +84,7 @@ export async function inspectDesktopDiskImage<T>(bytes: Uint8Array, inspect: (ap
     else rmSync(directory, { recursive: true, force: true });
   }
 }
-const SIGNED_COMPONENTS = [["Contents/MacOS/pacer", "dev.pacer.desktop"], ["Contents/Resources/pacer", "dev.pacer.cli"], ["Contents/Resources/pacer-update-helper", "dev.pacer.desktop.update-helper"], ["Contents/Frameworks/libpacer-native.dylib", "dev.pacer.desktop.native-shim"]] as const;
+const SIGNED_COMPONENTS = [["Contents/MacOS/pacer", "dev.pacer.desktop"], ["Contents/Resources/pacer", "dev.pacer.cli"], ["Contents/Resources/pacer-update-helper", "dev.pacer.desktop.update-helper"]] as const;
 /**
  * Signature checks for one extracted app. Any compiled certificate pin means the
  * archive is an interim (or bridge) release: each component must satisfy the
@@ -110,7 +110,7 @@ export function verifyAppPairBinding(app: string, metadata: { cliLayout?: string
   } else if (metadata.cliLayout !== undefined || metadata.pairManifestVersion !== undefined || existsSync(pairPath) || existsSync(core)) throw Error("Invalid legacy desktop pair");
 }
 async function verifyApp(app: string, arch: DesktopArch, pins: SignerPins): Promise<VerifiedDesktopApp> {
-  for (const [file] of SIGNED_COMPONENTS) (file.endsWith(".dylib") ? verifyNativeLibrary : verifyDesktopExecutable)(readFileSync(join(app, file)), arch);
+  for (const [file] of SIGNED_COMPONENTS) verifyDesktopExecutable(readFileSync(join(app, file)), arch);
   for (const check of signedAppChecks(app, pins)) await command(check);
   if (!pins.signingCertSha1) {
     for (const [file, identifier] of SIGNED_COMPONENTS) {

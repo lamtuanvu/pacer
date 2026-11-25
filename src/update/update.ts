@@ -1,6 +1,6 @@
 import { realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { isBundledExecutable } from "./desktop/identity";
+import { isBundledExecutable } from "./desktop/bundle-identity";
 import { refreshIntegrations, refreshStrategy } from "../commands/update-refresh";
 import { restartAfterUpdate } from "../service";
 import { restartAroundWork } from "../service/upgrade";

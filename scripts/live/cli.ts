@@ -5,8 +5,6 @@ import { exerciseIntegrations } from "./integrations";
 import { copyFileSync, chmodSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { atomicWrite, down, environmentScript, healthy, loadSession, readEvidence, record, renderReport, run, sandboxEnv, sessions, up } from "./core";
-import { cleanupOta, exerciseOta, prepareOta } from "./ota";
-import { buildOtaFixtures } from "./ota-build";
 import { desktop, tui } from "./surfaces";
 import { executorRefusal } from "./guard";
 import { exerciseStrictGuard } from "./strict-guard";
@@ -27,13 +25,6 @@ const usage = `usage: bun run live <command> [--id <id>]
                                   --real-keychain uses the login Keychain instead of a security stub;
                                   fixture options need --native-test-ops;
                                   --native-plugin-host starts the service with PACER_NATIVE_PLUGIN_HOST=1
-  ota prepare --from-app <path> --to-app <path>
-                                  copy disposable OTA bundles (requires --id)
-  ota build [--signer cert] [--initial-layout bridge|paired] [--fixture-continue-old-service] [--baseline-process-type Background|Standard] [--baseline-request-stages] [--cargo-target-dir <dir>]
-                                  compile isolated signed native fixtures (requires --id);
-                                  cert signs with a disposable pinned certificate
-  ota exercise --scenario <name>  run a fixed native fixture scenario (requires --id)
-  ota cleanup                    remove recorded OTA copies (requires --id)
   targets|inspect|act|wait|assert|capture|doctor --surface web|tray|tui|desktop --json
                                   inspect and control sandbox UI
   doctor --surface desktop --request-accessibility
@@ -93,9 +84,8 @@ export async function main(argv: string[], outer: NodeJS.ProcessEnv = process.en
     else positionals.push(arg);
   }
   const id = options.get("--id");
-  if (command !== "ota" && ["--from-app", "--to-app", "--scenario", "--signer", "--initial-layout", "--baseline-process-type", "--cargo-target-dir"].some(key => options.has(key))) throw Error("OTA options require the ota command");
-  if (flags.has("--fixture-continue-old-service") && command !== "ota") throw Error("Fixture old-service choice requires OTA build");
-  if (flags.has("--baseline-request-stages") && command !== "ota") throw Error("Baseline request stages require OTA build");
+  if (["--from-app", "--to-app", "--scenario", "--signer", "--initial-layout", "--baseline-process-type", "--cargo-target-dir"].some(key => options.has(key))) throw Error("OTA options are no longer supported");
+  if (flags.has("--fixture-continue-old-service") || flags.has("--baseline-request-stages")) throw Error("OTA fixture options are no longer supported");
   if (options.has("--seed") && command !== "up") throw Error("--seed is only valid for up");
   if (options.has("--front-door") && command !== "up") throw Error("--front-door is only valid for up");
   if (flags.has("--real-keychain") && command !== "up") throw Error("--real-keychain is only valid for up");
@@ -129,35 +119,6 @@ export async function main(argv: string[], outer: NodeJS.ProcessEnv = process.en
     const armed = armSessionStreamFault(session.root, mode as StreamFaultMode);
     record(session, { kind: "note", text: `Armed one-use pacer-ssh stream fault ${armed.mode} (${armed.id})` });
     console.log(JSON.stringify(armed));
-    return 0;
-  }
-  if (command === "ota") {
-    if (!id || positionals.length !== 1 || forwarded.length || [...flags].some(flag => !["--fixture-continue-old-service", "--baseline-request-stages"].includes(flag))) throw Error("usage: live ota build|prepare|exercise|cleanup --id <id>");
-    const action = positionals[0];
-    if (flags.has("--fixture-continue-old-service") && action !== "build") throw Error("Fixture old-service choice requires OTA build");
-    if (flags.has("--baseline-request-stages") && action !== "build") throw Error("Baseline request stages require OTA build");
-    const allowed = action === "prepare" ? ["--id", "--from-app", "--to-app"] : action === "exercise" ? ["--id", "--scenario"] : action === "build" ? ["--id", "--signer", "--initial-layout", "--baseline-process-type", "--cargo-target-dir"] : ["--id"];
-    if ([...options.keys()].some(key => !allowed.includes(key))) throw Error("Unsupported OTA option");
-    if (action === "prepare") {
-      if (!options.has("--from-app") || !options.has("--to-app")) throw Error("OTA prepare requires --from-app and --to-app");
-      await prepareOta(id, options.get("--from-app")!, options.get("--to-app")!);
-    } else if (action === "exercise") {
-      if (!options.has("--scenario")) throw Error("OTA exercise requires --scenario");
-      await exerciseOta(id, options.get("--scenario")!);
-    } else if (action === "build") {
-      const signer = options.get("--signer") ?? "adhoc";
-      if (signer !== "adhoc" && signer !== "cert") throw Error("OTA build --signer must be adhoc or cert");
-      const layout = options.get("--initial-layout") ?? "bridge";
-      if (layout !== "bridge" && layout !== "paired") throw Error("OTA build --initial-layout must be bridge or paired");
-      if (flags.has("--fixture-continue-old-service") && layout !== "paired") throw Error("Fixture old-service choice requires paired layout");
-      const priority = options.get("--baseline-process-type") ?? "Background";
-      if (priority !== "Background" && priority !== "Standard") throw Error("--baseline-process-type must be Background or Standard");
-      if (priority === "Standard" && layout !== "paired") throw Error("Standard baseline requires paired layout");
-      if (flags.has("--fixture-continue-old-service") && priority === "Standard" && !flags.has("--baseline-request-stages")) throw Error("Fixture Standard old-service choice requires paired Standard request stages");
-      await buildOtaFixtures(id, signer, layout, flags.has("--fixture-continue-old-service"), priority, flags.has("--baseline-request-stages"), options.get("--cargo-target-dir"));
-    }
-    else if (action === "cleanup") await cleanupOta(id);
-    else throw Error("Unsupported OTA action");
     return 0;
   }
   if (command === "upgrade") {

@@ -25,9 +25,6 @@ const core = JSON.stringify([process.execPath, join(import.meta.dir, "../src/cli
 const OPS = [
   "desktop.capture.register", "desktop.capture.targets", "desktop.capture.request",
   "desktop.capture.claim", "desktop.capture.complete", "desktop.capture.result",
-  "desktop.update.status", "desktop.update.check", "desktop.update.download",
-  "desktop.update.restart", "desktop.update.cancel", "desktop.update.adopt",
-  "desktop.update.adoptCancel", "desktop.update.configure",
 ].join(",");
 const STRATEGY = "planner: claude-code\nproviders:\n  claude-code: {usage: quota}\n  codex: {}\nrouting:\n  - default: [codex]\n";
 let driver: string | undefined;
@@ -109,13 +106,6 @@ const ERRORS: [string, unknown][] = [
   ] }],
   ["desktop.capture.complete", { request_id: "r", worker_token: "z", error: "nope" }],
   ["desktop.capture.result", {}],
-  ["desktop.update.status", {}], ["desktop.update.status", { installationId: "-" }], ["desktop.update.status", { x: 1 }],
-  ["desktop.update.status", null],
-  ["desktop.update.check", {}], ["desktop.update.check", { installationId: "a", requestId: "b", expectRevision: -1 }],
-  ["desktop.update.restart", { installationId: "a", requestId: "b", expectRevision: 0, version: "x" }],
-  ["desktop.update.configure", { installationId: "a", requestId: "b", expectRevision: 0, autoDownload: "y" }],
-  ["desktop.update.configure", null],
-  ["desktop.update.cancel", {}], ["desktop.update.adopt", 5], ["desktop.update.adoptCancel", "s"],
 ];
 
 test("native desktop capture and update ops reject invalid params like TypeScript", async () => {
@@ -142,31 +132,6 @@ test("native requests carry the validated params to Core", () => {
   expect(nativeResult(dir, "desktop.capture.register", { client_id: "c", worker_token: "a".repeat(64), extra: 1 }, { echo: true }).result)
     .toEqual({ op: "desktop.capture.register", params: { client_id: "c", worker_token: "a".repeat(64) } });
 });
-
-test("native desktop update ops answer the unavailable runtime like TypeScript when no desktop is connected", async () => {
-  // DX1: `desktop.update.*` is native (no core bridge). With no native
-  // authority connected, both the Rust runtime and the TypeScript runtime
-  // answer a valid request with the same `unavailable` error (service.ts:81).
-  const dir = home();
-  const ctx = fakeCtx({ home: dir, pacerHome: join(dir, ".pacer"), now: 1_700_000_000, which: () => null });
-  const CASES: [string, unknown][] = [
-    ["desktop.update.status", { installationId: "abc" }],
-    ["desktop.update.check", { installationId: "a", requestId: "b", expectRevision: 0 }],
-    ["desktop.update.download", { installationId: "a", requestId: "b", expectRevision: 0 }],
-    ["desktop.update.restart", { installationId: "a", requestId: "b", expectRevision: 0, version: "1.2.3" }],
-    ["desktop.update.cancel", { installationId: "a", requestId: "b", expectRevision: 0 }],
-    ["desktop.update.adopt", { installationId: "a", requestId: "b", expectRevision: 0 }],
-    ["desktop.update.adoptCancel", { installationId: "a", requestId: "b", expectRevision: 0 }],
-    ["desktop.update.configure", { installationId: "a", requestId: "b", expectRevision: 0, autoDownload: true }],
-  ];
-  for (const [op, params] of CASES) {
-    let want: unknown;
-    try { want = { result: await callOp(ctx, op as never, params) }; } catch (error) { want = { error: toApiError(error) }; }
-    expect(want).toHaveProperty("error");
-    expect((want as { error: { code: string } }).error.code).toBe("not_allowed");
-    expect(nativeResult(dir, op, params, { result: "unused" })).toEqual(want);
-  }
-}, 120000);
 
 test("desktop capture bridge refuses other operations; update is no longer a bridge", async () => {
   const ctx = fakeCtx({ which: () => null });
@@ -196,11 +161,7 @@ test.skipIf(!front)("stdio desktop capture and update errors match forced forwar
   // params are rejected before the trace, so only the valid (non-error)
   // capture requests carry a capture marker.
   expect(runs[1]!.flatMap(run => run.markers)).toEqual([]);
-  expect(runs[0]![0]!.markers).toEqual(
-    (ERRORS as [string, unknown][]).flatMap(([op], i) =>
-      op.startsWith("desktop.update.") ? [`native ${op} ${i + 2}`] : [],
-    ),
-  );
+  expect(runs[0]![0]!.markers).toEqual([]);
   expect(runs[0]!.slice(1).map(run => run.markers)).toEqual([
     ["native desktop.capture.targets 2"],
     ["native desktop.capture.targets 2"],
@@ -264,7 +225,6 @@ test.skipIf(!front)("HTTP desktop capture and update errors match forced forward
   expect(sorted(results[1]!.markers)).toEqual([]);
   expect(sorted(results[0]!.markers)).toEqual(sorted([
     "native desktop.capture.targets", "native desktop.capture.targets",
-    ...(ERRORS as [string, unknown][]).filter(([op]) => op.startsWith("desktop.update.")).map(([op]) => `native ${op}`),
   ]));
   const bodies = results[1]!.bodies as { status: number; body: { result?: unknown; error?: { code?: string } } }[];
   expect(bodies.slice(0, 2).map(b => b.status)).toEqual([200, 200]);

@@ -42,8 +42,8 @@ test("desktop doctor passes bounded helper input diagnostics without changing re
     mock.module(${JSON.stringify(join(directory, "desktop.ts"))}, () => ({ nativeCommand: async request => {
       requests.push(request); return { accessibility: true, screen_capture: true, input_diagnostics: diagnostic };
     }}));
-    mock.module(${JSON.stringify(join(directory, "ota-binding.ts"))}, () => ({
-      resolveDesktopControlBinding: async () => ({source:"ota",identity:{pid:123,start_identity:"owned"},windows}),
+    mock.module(${JSON.stringify(join(directory, "binding.ts"))}, () => ({
+      resolveDesktopControlBinding: async () => ({source:"ordinary",identity:{pid:123,start_identity:"owned"},windows}),
       assertSameControlBinding: () => {},
     }));
     const { desktopDoctor } = await import(${JSON.stringify(join(directory, "doctor.ts"))});
