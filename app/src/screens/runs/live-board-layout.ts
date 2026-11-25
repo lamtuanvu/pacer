@@ -92,12 +92,20 @@ export interface LiveBoardLayout {
 const byStart = (a: RunStepRow, b: RunStepRow) => a.startedAt - b.startedAt || a.stepId.localeCompare(b.stepId) || (a.branch ?? "").localeCompare(b.branch ?? "");
 
 /** The latest attempt per (step, branch). */
+/** The later attempt wins; equal attempts go by start time, then task id, then status, so the same rows in any order draw the same board. */
+function newerRow(a: RunStepRow, b: RunStepRow): boolean {
+  return a.attempt !== b.attempt ? a.attempt > b.attempt
+    : a.startedAt !== b.startedAt ? a.startedAt > b.startedAt
+      : (a.taskId ?? "") !== (b.taskId ?? "") ? (a.taskId ?? "") > (b.taskId ?? "")
+        : a.status >= b.status;
+}
+
 function latestRows(rows: RunStepRow[]): RunStepRow[] {
   const best = new Map<string, RunStepRow>();
   for (const row of rows) {
     const key = `${row.stepId}\0${row.branch ?? ""}`;
     const prev = best.get(key);
-    if (!prev || row.attempt > prev.attempt || (row.attempt === prev.attempt && row.startedAt >= prev.startedAt)) best.set(key, row);
+    if (!prev || newerRow(row, prev)) best.set(key, row);
   }
   return [...best.values()].sort(byStart);
 }

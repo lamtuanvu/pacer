@@ -176,7 +176,7 @@ test("the event list marks played, now and next in words, and exposes one polite
   try {
     await click(dom.container, "Step forward");
     await click(dom.container, "Step forward");
-    const labels = all(dom.container as Node).filter(n => attr(n, "data-event") !== null).map(n => text(all(n).find(x => x.tagName === "button")!).trim());
+    const labels = all(dom.container as Node).filter(n => attr(n, "data-event") !== null).map(n => text(all(n).find(x => attr(x, "class")?.includes("lb-item-state"))!).trim());
     expect(labels.slice(0, 4)).toEqual(["Played", "Now", "Next", "Next"]);
     const nowEl = must(all(dom.container as Node).find(n => attr(n, "data-now") !== null), "now");
     expect(attr(nowEl, "role")).toBe("status");
@@ -192,5 +192,57 @@ test("the replay names executors with the shared label (codex reads Codex), not 
     expect(t).toContain("Codex leaves api");
     expect(t).not.toContain("codex joins");
     expect(t).toContain("oc-glm joins and takes brainstorm");      // an id the shared label does not know is shown as it is
+  } finally { await done(dom); }
+});
+
+const active = (dom: { doc: unknown }) => (dom.doc as { activeElement: Node | null }).activeElement;
+const activeText = (dom: { doc: unknown }) => { const a = active(dom); return a ? text(a).trim() : null; };
+
+test("each event button says which event it jumps to; none is named Next, which Step forward would clash with", async () => {
+  const { dom } = await open();
+  try {
+    const names = all(dom.container as Node).filter(n => attr(n, "data-event") !== null).map(n => attr(all(n).find(x => x.tagName === "button")!, "aria-label"));
+    expect(names).toHaveLength(19);
+    expect(names[0]).toBe("Go to event 1: Run started: Ship the board");
+    expect(new Set(names).size).toBe(19);
+    expect(names.every(n => n?.startsWith("Go to event "))).toBe(true);
+    // the visible label is contained in the accessible name (WCAG label in name)
+    const visible = text(all(dom.container as Node).find(n => attr(n, "data-event") === "2")!.childNodes!.find(c => (c as Node).tagName === "button") as Node).trim();
+    expect(visible).toBe("Event 3");
+    expect(names[2]!.toLowerCase()).toContain(visible.toLowerCase());
+    expect(all(dom.container as Node).filter(n => n.tagName === "button" && text(n).trim() === "Next")).toHaveLength(0);
+  } finally { await done(dom); }
+});
+
+test("Play and Pause is one pattern: the label changes and there is no aria-pressed", async () => {
+  const { dom } = await open(journeyFixture(), 400);
+  try {
+    expect(attr(button(dom.container, "Play"), "aria-pressed")).toBeNull();
+    await click(dom.container, "Play");
+    expect(attr(button(dom.container, "Pause"), "aria-pressed")).toBeNull();
+  } finally { await done(dom); }
+});
+
+test("a playback button that disables itself hands keyboard focus to Play instead of dropping it", async () => {
+  const { dom } = await open();
+  try {
+    await click(dom.container, "Jump to end");
+    await act(async () => { await tick(); });
+    expect(activeText(dom)).toBe("Play again");
+    await click(dom.container, "Restart");
+    await act(async () => { await tick(); });
+    expect(activeText(dom)).toBe("Play");
+    // stepping back to the start disables Step back: same
+    await click(dom.container, "Step forward");
+    await click(dom.container, "Step back");
+    await act(async () => { await tick(); });
+    expect(activeText(dom)).toBe("Play");
+    // stepping forward onto the last event disables Step forward
+    await click(dom.container, "Jump to end");
+    await click(dom.container, "Restart");
+    await act(async () => { await tick(); });
+    for (let i = 0; i < 19; i++) await click(dom.container, "Step forward");
+    await act(async () => { await tick(); });
+    expect(activeText(dom)).toBe("Play again");
   } finally { await done(dom); }
 });

@@ -3,7 +3,7 @@ import { stepMarkerFor, stepMarkerGlyph, runStatus } from "../../../../src/view-
 import { sentenceCase } from "../../../../src/view-model/run-board";
 import { Creature, PersonFigure, creatureHeight } from "./MascotArt";
 import { FIGURE, GAP_X, STATION_H, STATION_W, type BoardNode, type BoardZone, type LiveBoardLayout } from "./live-board-layout";
-import { graphStatusLabel, nodeLabel, shortLabel } from "./live-board-model";
+import { graphStatusLabel, nodeLabel } from "./live-board-model";
 
 /** `executor` is the identity that seeds the creature; `name` is what the screen says. */
 export interface CanvasAgent { taskId: string; nodeId: string; x: number; y: number; executor: string; name: string; label: string }
@@ -24,6 +24,20 @@ export function zoneSummary(z: { versions: Array<{ version: number; status: stri
   const size = `${latest.stepCount} ${latest.stepCount === 1 ? "step" : "steps"}`;
   const state = z.approved ? ` · ${z.drawn} started` : " · not approved yet";
   return `v${latest.version} ${graphStatusLabel(latest.status)} · ${size}${state}${prev ? ` · v${prev.version} ${graphStatusLabel(prev.status)}` : ""}`;
+}
+
+/**
+ * SVG text that is cut by its box, not by a character count (UI-11): the whole text is drawn and a clipPath the size of the
+ * box hides what does not fit; the full text is also the element's <title>, so a pointer hover and an SVG reader get all of it.
+ */
+function ClippedText({ id, x, y, width, className, text }: { id: string; x: number; y: number; width: number; className: string; text: string }) {
+  // ids come from step names: keep only characters that are safe inside url(#...)
+  const cid = id.replace(/[^A-Za-z0-9_-]/g, c => `_${c.charCodeAt(0).toString(16)}`);
+  id = cid;
+  return <>
+    <clipPath id={id}><rect x={x} y={y - 18} width={Math.max(0, width)} height={26} /></clipPath>
+    <text className={className} x={x} y={y} clip-path={`url(#${id})`}><title>{text}</title>{text}</text>
+  </>;
 }
 
 export interface CanvasProps {
@@ -65,7 +79,7 @@ export function BoardCanvas(p: CanvasProps) {
         <rect className="lb-station-box" width={STATION_W} height={STATION_H} />
         <Creature identity={p.plannerIdentity} x={12} y={STATION_H - creatureHeight(40) - 10} size={40} planner />
         <text className="lb-station-label" x={72} y={34}>Planner</text>
-        <text className="lb-station-note" x={72} y={52}>{shortLabel(p.plannerNote, 14)}</text>
+        <ClippedText id={`${p.markerId}-clip-planner`} className="lb-station-note" x={72} y={52} width={STATION_W - 72 - 8} text={p.plannerNote} />
       </g>
       {person && personAt === null ? (
         <g transform={`translate(${person.x} ${person.y})`} data-station="person">
@@ -81,7 +95,7 @@ export function BoardCanvas(p: CanvasProps) {
         return (
           <g key={z.id} data-zone={z.id}>
             <rect className={`lb-zone${(p.zoneApproved ? p.zoneApproved(z) : z.approved > 0) ? " lb-zone--filled" : ""}`} x={z.x} y={z.y} width={z.w} height={z.h} rx="8" />
-            <text className="lb-zone-label" x={z.x + 12} y={z.y + 20}>Generated plan · {shortLabel(z.stepId, 20)}</text>
+            <ClippedText id={`${p.markerId}-clip-zone-${z.id}`} className="lb-zone-label" x={z.x + 12} y={z.y + 20} width={z.w - 24} text={`Generated plan · ${z.stepId}`} />
             <text className="lb-zone-note" x={z.x + 12} y={z.y + 38}>{line}</text>
           </g>
         );
@@ -89,7 +103,7 @@ export function BoardCanvas(p: CanvasProps) {
       {layout.bands.filter(b => shownBands.has(b.id)).map(b => (
         <g key={b.id}>
           <rect className="lb-band" x={b.x} y={b.y} width={b.w} height={b.h} rx="8" />
-          <text className="lb-band-label" x={b.x + 12} y={b.y + 18}>Fan-out · {shortLabel(b.stepId, 18)} · {b.lanes} {b.lanes === 1 ? "lane" : "lanes"}</text>
+          <ClippedText id={`${p.markerId}-clip-band-${b.id}`} className="lb-band-label" x={b.x + 12} y={b.y + 18} width={b.w - 24} text={`Fan-out · ${b.stepId} · ${b.lanes} ${b.lanes === 1 ? "lane" : "lanes"}`} />
         </g>
       ))}
       {layout.edges.filter(e => endShown(e.from) && endShown(e.to)).map(e => {
@@ -102,7 +116,7 @@ export function BoardCanvas(p: CanvasProps) {
         return (
           <g key={n.id} className={`lb-desk lb-desk--${words.cls}`} data-node={n.id} transform={`translate(${n.x} ${n.y})`}>
             <rect className="lb-desk-box" width={n.w} height={n.h} />
-            <text className="lb-desk-label" x={10} y={22}>{shortLabel(nodeLabel(n))}</text>
+            <ClippedText id={`${p.markerId}-clip-desk-${n.id}`} className="lb-desk-label" x={10} y={22} width={n.w - 20} text={nodeLabel(n)} />
             <text className="lb-desk-state" x={agent ? FIGURE + 18 : 10} y={n.h - 16}>{words.glyph} {words.label}</text>
           </g>
         );

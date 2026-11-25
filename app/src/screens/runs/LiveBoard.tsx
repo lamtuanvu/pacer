@@ -24,7 +24,7 @@ import { BoardCanvas, deskWords, plannerNoteFor, zoneSummary } from "./BoardCanv
 import { BoardViewport } from "./BoardViewport";
 import { layoutLiveBoard } from "./live-board-layout";
 import { executorName, executorOf, layoutInputFromDetail, nodeLabel } from "./live-board-model";
-import { CHANNEL_HINTS, CHANNEL_LABELS, messageTargets, sendToTargets, type MessageChannel } from "./live-board-messages";
+import { CHANNEL_HINTS, CHANNEL_LABELS, messageTargets, sendToTargets, summarizeSend, type MessageChannel } from "./live-board-messages";
 import { liveHref, runViewHref, sessionHref } from "./live-links";
 import { useRunDetail } from "./run-data";
 
@@ -60,6 +60,7 @@ export function LiveBoard({ runId, query, outputPollMs }: { runId: string; query
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState("");
   const [sendError, setSendError] = useState("");
+  const messageRef = useRef<HTMLTextAreaElement>(null);
   const now = state.snapshot?.at ?? Date.now() / 1000;
   const raw = detail?.run ?? null;
   const run = isObj(raw) ? raw : null;
@@ -120,15 +121,13 @@ export function LiveBoard({ runId, query, outputPollMs }: { runId: string; query
     const call = runner ? <T,>(op: string, params?: unknown) => runner.call<T>(op, params) : api.call.bind(api);
     const outcome = await sendToTargets((to, b) => call("msg.send", { to, body: b }), targets.to, text);
     setSending(false);
-    if (!outcome.failed.length) {
+    const summary = summarizeSend(outcome.results);
+    if (summary.stored) {
       setBody("");
-      setSent(channel === "planner" ? "Message sent to the planner."
-        : channel === "whisper" ? "Message sent to the agent."
-          : `Message sent to ${outcome.sent.length} ${outcome.sent.length === 1 ? "recipient" : "recipients"}.`);
-    } else {
-      setSendError(`${outcome.failed.length} of ${targets.to.length} could not be reached: ${outcome.failed[0]!.message}`);
-      if (outcome.sent.length) setSent(`Sent to ${outcome.sent.length}.`);
+      // Send disables itself once the box is empty; focus goes back to the box, not nowhere.
+      queueMicrotask(() => messageRef.current?.focus());
     }
+    if (summary.problem) setSendError(summary.text); else setSent(summary.text);
     void load();
   };
 
@@ -152,7 +151,7 @@ export function LiveBoard({ runId, query, outputPollMs }: { runId: string; query
         <div className="lb-links">
           <ButtonLink typography="board" size="sm" href={runViewHref(runId, query)}>Run view</ButtonLink>
           <ButtonLink typography="board" size="sm" href={liveHref(runId, "journey", query)}>Replay journey</ButtonLink>
-          <ButtonLink typography="board" size="sm" href={liveHref(undefined, undefined, query)}>All runs</ButtonLink>
+          <ButtonLink typography="board" size="sm" href={liveHref(undefined, undefined, query)}>Several runs</ButtonLink>
         </div>
       </header>
     </PageHead>
@@ -205,7 +204,7 @@ export function LiveBoard({ runId, query, outputPollMs }: { runId: string; query
             <ul className="lb-list">
               {agents.map(a => (
                 <li key={a.taskId} className="lb-item">
-                  <Button size="sm" variant={selected === a.taskId ? "secondary" : "quiet"} aria-pressed={selected === a.taskId} onClick={() => openAgent(a.taskId)}>
+                  <Button size="sm" variant={selected === a.taskId ? "secondary" : "quiet"} aria-pressed={selected === a.taskId} aria-label={`Open live output of ${a.name} on ${a.label}`} onClick={() => openAgent(a.taskId)}>
                     Open live output
                   </Button>
                   <span className="lb-item-name">{a.name}</span>
@@ -238,8 +237,8 @@ export function LiveBoard({ runId, query, outputPollMs }: { runId: string; query
                 <RadioChoices label="Agent" name={`${markerId}-agent`} value={whisperTask} onChange={setWhisper}
                   options={agents.map(a => ({ value: a.taskId, label: `${a.name} · ${a.label}` }))} />
               ) : null}
-              <Field label="Message">
-                <TextArea value={body} rows={3} maxLength={4000} onInput={e => setBody((e.currentTarget as HTMLTextAreaElement).value)} />
+              <Field label="Your message">
+                <TextArea ref={messageRef} value={body} rows={3} maxLength={4000} onInput={e => setBody((e.currentTarget as HTMLTextAreaElement).value)} />
               </Field>
               <div className="lb-row">
                 <Button type="submit" size="sm" variant="secondary" disabled={sending || !body.trim()}>

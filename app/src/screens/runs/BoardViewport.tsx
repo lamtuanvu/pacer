@@ -82,8 +82,13 @@ export function BoardViewport({ content, resetKey, markerId, ariaLabel, children
         <Button size="sm" onClick={() => act({ type: "zoom", factor: ZOOM_STEP })}>Zoom in</Button>
         <Button size="sm" variant="quiet" onClick={() => act({ type: "fit" })}>Fit board</Button>
         <span className="lb-cap" data-zoom>{pct}%</span>
+        {/* The same pans the arrow keys make, for people who cannot drag or use the keyboard on the board */}
+        <Button size="sm" variant="quiet" onClick={() => act(keyAction({ key: "ArrowLeft" }))}>Pan left</Button>
+        <Button size="sm" variant="quiet" onClick={() => act(keyAction({ key: "ArrowRight" }))}>Pan right</Button>
+        <Button size="sm" variant="quiet" onClick={() => act(keyAction({ key: "ArrowUp" }))}>Pan up</Button>
+        <Button size="sm" variant="quiet" onClick={() => act(keyAction({ key: "ArrowDown" }))}>Pan down</Button>
       </div>
-      <p className="lb-cap" id={`${markerId}-hint`}>Drag to pan. With the board focused, arrow keys pan (Shift for further), + and - zoom, 0 fits the board.</p>
+      <p className="lb-cap" id={`${markerId}-hint`}>Drag to pan, or use the pan buttons. With the board focused, arrow keys pan (Shift for further), + and - zoom, 0 fits the board.</p>
       <p className="sr-only" role="status" aria-live="polite">{announce}</p>
       <div
         ref={viewportRef}
