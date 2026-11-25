@@ -13,7 +13,7 @@ test("layout snapshot: a plain chain draws only the steps that have rows, left t
   const l = layoutLiveBoard(plainInput);
   expect(place(l)).toEqual(["brainstorm|desk|0,140", "approve_spec|desk|248,140|you"]);
   expect(l.edges.map(e => e.id)).toEqual(["brainstorm>approve_spec"]);
-  expect(l.person).toMatchObject({ at: "approve_spec", x: 380, y: 100 });
+  expect(l.person).toMatchObject({ at: "approve_spec", x: 380, y: 172 });
   expect([l.width, l.height]).toEqual([424, 216]);
 });
 
@@ -155,4 +155,21 @@ test("a zone's line names the newest version, how many of its steps started, and
   expect(zoneSummary(z)).toBe("v2 approved · 4 steps · 3 started · v1 rejected");
   expect(zoneSummary({ versions: [{ version: 1, status: "proposed", stepCount: 1 }], approved: 0, drawn: 0 })).toBe("v1 proposed · 1 step · not approved yet");
   expect(zoneSummary({ versions: [], approved: 0, drawn: 0 })).toBe("No plan yet");
+});
+
+test("the person stands inside the waiting desk, bottom right, clear of the desk's label and of any agent at its left", () => {
+  const l = layoutLiveBoard(plainInput);
+  const desk = l.nodes.find(n => n.id === "approve_spec")!;
+  expect(l.person.x).toBeGreaterThanOrEqual(desk.x);
+  expect(l.person.x + l.person.w).toBeLessThanOrEqual(desk.x + desk.w);
+  expect(l.person.y + l.person.h).toBeLessThanOrEqual(desk.y + desk.h);
+  // a lane that waits on the person gets the person inside the lane, not on its neighbour
+  const lanes = layoutLiveBoard({ ...fanoutInput, steps: fanoutInput.steps.map(s => s.branch === "ux" ? { ...s, status: "waiting" } : s), openQuestions: [{ stepId: "review", branch: "ux" }] });
+  const ux = lanes.nodes.find(n => n.id === "review:ux")!;
+  expect(lanes.person.at).toBe("review:ux");
+  for (const n of lanes.nodes.filter(x => x.id !== "review:ux")) {
+    const overlap = !(lanes.person.x + lanes.person.w <= n.x || n.x + n.w <= lanes.person.x || lanes.person.y + lanes.person.h <= n.y || n.y + n.h <= lanes.person.y);
+    expect(overlap).toBe(false);
+  }
+  expect(lanes.person.y).toBeGreaterThanOrEqual(ux.y);
 });

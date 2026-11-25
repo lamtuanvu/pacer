@@ -83,7 +83,7 @@ export interface LiveBoardLayout {
   /** One place per running agent: a running step with a task, once per task. */
   agents: BoardAgent[];
   planner: BoardStation;
-  /** The person's place: beside the first step that waits on them, else at home next to the planner. */
+  /** The person's place: low on the right of the first desk that waits on them (agents stand low on the left), else at home next to the planner. */
   person: BoardStation & { at: string | null };
   width: number;
   height: number;
@@ -289,7 +289,7 @@ export function layoutLiveBoard(input: LayoutInput): LiveBoardLayout {
   const planner: BoardStation = { x: 0, y: 0, w: STATION_W, h: STATION_H };
   const firstWaiting = nodes.filter(n => n.waitsOnYou).sort((a, b) => a.x - b.x || a.y - b.y || a.id.localeCompare(b.id))[0];
   const person = firstWaiting
-    ? { x: firstWaiting.x + firstWaiting.w - FIGURE - 8, y: firstWaiting.y - FIGURE - 4, w: FIGURE, h: FIGURE, at: firstWaiting.id }
+    ? { x: firstWaiting.x + firstWaiting.w - FIGURE - 8, y: firstWaiting.y + firstWaiting.h - FIGURE - 8, w: FIGURE, h: FIGURE, at: firstWaiting.id }
     : { x: STATION_W + GAP_X, y: 0, w: STATION_W, h: STATION_H, at: null };
   const right = Math.max(STATION_W + GAP_X + STATION_W, ...nodes.map(n => n.x + n.w), ...bands.map(b => b.x + b.w), ...zones.map(z => z.x + z.w));
   const bottom = Math.max(ORIGIN_Y, ...nodes.map(n => n.y + n.h), ...bands.map(b => b.y + b.h), ...zones.map(z => z.y + z.h));
