@@ -1,13 +1,13 @@
 {
   "schema": 1,
-  "version": "0.18.2",
-  "notes": "### Changed\n\n- Release 0.18.1 (#1280).\n\n### Fixed\n\n- Publish the workflow protocol crate before the SDK (#1281) (release).\n- Remove Workspace list page; onboarding gates first run only (#1263) (app).",
-  "pub_date": "2026-11-25T05:42:58.000Z",
+  "version": "0.18.3",
+  "notes": "### Changed\n\n- Release 0.18.2 (#1283).\n\n### Fixed\n\n- Accept the workflow protocol crate in the archive check (#1284) (release).",
+  "pub_date": "2026-11-25T07:04:18.000Z",
   "platforms": {
     "darwin-aarch64": {
-      "url": "https://github.com/lamtuanvu/pacer/releases/download/v0.18.2/desktop-pacer-0.18.2-darwin-aarch64.app.tar.gz",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRWkZsUWI2SWt6Z1VGazBXT0hRUW9NTEpIVytUSjlvTXBKbUNMdEplQ05neCtwbHhyQVd6bTFFMnNaRG00RENEUXFsa1FCRm5tSmtibi9Bb0tRT0EvbC8wcHllMDhIQXdjPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1NTg2NjY2CWZpbGU6ZGVza3RvcC1wYWNlci0wLjE4LjItZGFyd2luLWFhcmNoNjQuYXBwLnRhci5negl2ZXJzaW9uOjAuMTguMgpBY3ZOUDJVd1Jzak1KOWFVREh3TnZVS2hvdUtwUFV4NjlWNnIvSm8rNTYwdjMvSndtWENNbmdpVTJWUGc5Q1U5WnZSbUJhT2hTcTU4Z2dQWG4wU3ZDdz09Cg==",
-      "sha256": "7ea7cfbe03eb87206fbbfe4b29d71e48f0d2975e00105047ca9d0812491d3c1d",
+      "url": "https://github.com/lamtuanvu/pacer/releases/download/v0.18.3/desktop-pacer-0.18.3-darwin-aarch64.app.tar.gz",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRWkZsUWI2SWt6Z2RVZDczbHJtMzRNeUVCTzhHdzU0anE5SDlyODIvdnNoVnplNUdCNTFQM09VVWF2NDRHY3AwQUY2ZTN6MjZvWFJRVlgvKzE1QzdReUpXZENGcVJ1ckFNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1NTkxNjM2CWZpbGU6ZGVza3RvcC1wYWNlci0wLjE4LjMtZGFyd2luLWFhcmNoNjQuYXBwLnRhci5negl2ZXJzaW9uOjAuMTguMwovQjVLVytEd0JlZ2VhWjQvNzZYRDBvZUpUWDBtdVlnbHdPUUc4d0lGZTJOMVFQMThYSzRZN1pydm9BbzZmUjF3WjU2Tlp4TUd3c1AyRk82L1dTaFVCZz09Cg==",
+      "sha256": "a93d2e9429bb5d9a1e26321dc94b4328c71638b7c2ba5d22c4d9748ea48d83aa",
       "bundleId": "dev.pacer.desktop",
       "protocolMajors": [
         3
@@ -16,9 +16,9 @@
       "rollbackCompatible": true
     },
     "darwin-x86_64": {
-      "url": "https://github.com/lamtuanvu/pacer/releases/download/v0.18.2/desktop-pacer-0.18.2-darwin-x86_64.app.tar.gz",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRWkZsUWI2SWt6Z1o0cHhEcFNrK25CbUdUWHVMMHUySUhGNUQ5cVN3Z094U2MvSjNqYTBUOW4vNEVyZTcxdzJ6enVQTGlBd1BDMy9jeGtmbWJVdGFXMUZKeGZoOXJtNHc4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1NTg2NjU0CWZpbGU6ZGVza3RvcC1wYWNlci0wLjE4LjItZGFyd2luLXg4Nl82NC5hcHAudGFyLmd6CXZlcnNpb246MC4xOC4yCnFjR3M4ODcwUklhdXZ2SjVmd3hka2RWTEtWbWp5RjFNaFBBZkl2dXRuMGlkVEJPbHF3NTNtTUNBNFkyeElVOTFBWk13NmRMbktUeGJSSDR1bDFIZUJBPT0K",
-      "sha256": "589e7f8625b819b31f73c6801de63b358099549e56d0d09724c61ec6e9a1e7ec",
+      "url": "https://github.com/lamtuanvu/pacer/releases/download/v0.18.3/desktop-pacer-0.18.3-darwin-x86_64.app.tar.gz",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRWkZsUWI2SWt6Z1JLbjdNeXUyZGFaVEN3T0llMmp2b2JRRkM4NXdXcHQwcWkvQnB3eTZzUjRsRk01NXpPOXNJbzVoWUJUdkFPQzNJejZObXJTaDdzOVc4TXdOdVk3bmdrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1NTkxOTA3CWZpbGU6ZGVza3RvcC1wYWNlci0wLjE4LjMtZGFyd2luLXg4Nl82NC5hcHAudGFyLmd6CXZlcnNpb246MC4xOC4zCmh0TDlHWGJDSTA4cmpLUDl1ZlphaDFOL212YjZVSlluUGVIR1YyanlVQU9SVVBBajB0VEZIMko0eFFoZE0zTUFlb1IyWTlJUWZvaHpqTyt1UWpnNEFRPT0K",
+      "sha256": "67170f7822ddb133a129e2ff820e26b4ae4f9fad5d5e83dc4d74e5304da5de5d",
       "bundleId": "dev.pacer.desktop",
       "protocolMajors": [
         3
