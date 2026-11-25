@@ -4,6 +4,17 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.18.2] - 2026-11-25
+
+### Changed
+
+- Release 0.18.1 (#1280).
+
+### Fixed
+
+- Publish the workflow protocol crate before the SDK (#1281) (release).
+- Remove Workspace list page; onboarding gates first run only (#1263) (app).
+
 ## [0.18.1] - 2026-11-25
 
 ### Changed
