@@ -18,6 +18,7 @@ import type { EntityData } from "./envelope";
 import { drainQueue } from "../tasks/drain";
 import type { SpawnRunner } from "../tasks/api";
 import { sessionTaskData } from "../session/link";
+import { terminalLivenessEvents } from "../terminal/workspace";
 import { withTimeout } from "../core/path-probe";
 import { resolveTask } from "../tasks/resolution";
 import { loadOrcaState } from "../exec/orca/state";
@@ -257,7 +258,11 @@ export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps,opts:PumpOp
     rotateActivity(ctx);
     await drainQueue(ctx, opts.spawnRunner).catch(() => {});
   }
-  const latest=readLatest(ctx),out:OutboxEvent[]=[]; let st:Status;
+  const latest=readLatest(ctx),out:OutboxEvent[]=[];
+  // A registry shell can exit with no other API write; push the liveness change instead of
+  // making clients poll terminal.list to discover it.
+  out.push(...terminalLivenessEvents(ctx));
+  let st:Status;
   try{st=taskOnly?statusPasses.get(ctx.pacerHome)!:await deps.status(ctx);}catch(e){const body=clip(e instanceof Error?e.message:String(e),LIMITS.body),prev=latest.alerts.find(a=>a.key==="status-error");
     if(prev?.body!==body)out.push(alert({key:"status-error",level:"error",title:"Status could not be refreshed",body,error:body,at:ctx.now})); if(out.length)await deps.publish(ctx,out); return [...lifecycleEvents,...expiredEvents,...out];}
   if (!taskOnly) statusPasses.set(ctx.pacerHome, st);

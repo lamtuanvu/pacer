@@ -3,7 +3,9 @@ import { createSession } from "../src/serve/app-auth";
 import { startServer } from "../src/serve/http";
 import { callOp, opNames } from "../src/api/ops";
 import { fakeCtx } from "./helpers";
-import { createTerminal, terminalDirectory } from "../src/terminal/workspace";
+import { createTerminal, listTerminals, resetTerminalObservation, terminalDirectory, terminalLivenessEvents } from "../src/terminal/workspace";
+import { readOutboxSince } from "../src/link/store";
+import { parseOutboxEvent } from "../src/link/envelope";
 import { Recording } from "../src/session/recording";
 import { FrameType, WireDecoder, wire } from "../src/session/framing";
 import { writeFileSync } from "node:fs";
@@ -30,6 +32,51 @@ test("terminal operations create one shell, list it, rename with a revision and 
     const active = all.find(t => t.id === created.id);
     if (active) await callOp(ctx, "terminal.close", { id: active.id, expect_rev: active.rev });
   }
+});
+
+test("terminal create, rename and close publish terminal entity events", async () => {
+  const ctx = fakeCtx({ env: { ...process.env } });
+  resetTerminalObservation(ctx.pacerHome);
+  const terminalEvents = () => readOutboxSince(ctx, 0).flatMap(entry => {
+    const event = parseOutboxEvent(entry.envelope);
+    return event?.type === "entity" && event.data.kind === "terminal" ? [event.data] : [];
+  });
+  const created = await callOp(ctx, "terminal.create", { request_id: "events-shell", kind: "shell", cwd: ctx.home }) as { id: string; rev: number; title: string };
+  try {
+    expect(terminalEvents()).toEqual([{ kind: "terminal", id: created.id, value: expect.objectContaining({ id: created.id, title: created.title }) }]);
+    const renamed = await callOp(ctx, "terminal.rename", { id: created.id, title: "Renamed", expect_rev: created.rev }) as { rev: number };
+    expect(terminalEvents().map(event => event.id)).toEqual([created.id, created.id]);
+    expect(terminalEvents()[1]?.value).toMatchObject({ id: created.id, title: "Renamed", rev: renamed.rev });
+    await callOp(ctx, "terminal.close", { id: created.id, expect_rev: renamed.rev });
+    expect(terminalEvents()[2]).toEqual({ kind: "terminal", id: created.id, removed: true });
+  } finally {
+    const active = (await callOp(ctx, "terminal.list", {}) as { id: string; rev: number }[]).find(tab => tab.id === created.id);
+    if (active) await callOp(ctx, "terminal.close", { id: active.id, expect_rev: active.rev });
+  }
+});
+
+test("a failed terminal launch publishes the failed state before refusing", async () => {
+  const ctx = fakeCtx({ env: { ...process.env } });
+  resetTerminalObservation(ctx.pacerHome);
+  await expect(createTerminal(ctx, { requestId: "failed-launch", kind: "shell", cwd: ctx.home }, { start: () => ({ error: "boom" }) })).rejects.toMatchObject({ code: "not_allowed" });
+  const events = readOutboxSince(ctx, 0).flatMap(entry => parseOutboxEvent(entry.envelope));
+  expect(events).toHaveLength(1);
+  expect(events[0]).toMatchObject({ type: "entity", data: { kind: "terminal", value: { live: false } } });
+});
+
+test("a registry shell exit produces one pushed liveness event", async () => {
+  const ctx = fakeCtx({ env: { ...process.env } });
+  resetTerminalObservation(ctx.pacerHome);
+  const created = await createTerminal(ctx, { requestId: "exit-shell", kind: "shell", cwd: ctx.home }, { start: () => ({ pid: 99999999 }) });
+  // The first observation is a baseline; an exit file is what the session host writes on shell exit.
+  expect(terminalLivenessEvents(ctx)).toEqual([]);
+  writeFileSync(join(terminalDirectory(ctx, created.id), "exit"), "7");
+  // A refetch racing the pump must not consume the exit signal.
+  await listTerminals(ctx);
+  const events = terminalLivenessEvents(ctx);
+  expect(events).toEqual([{ type: "entity", data: { kind: "terminal", id: created.id, value: expect.objectContaining({ id: created.id, live: false, exit: 7 }) } }]);
+  expect(terminalLivenessEvents(ctx)).toEqual([]);
+  await callOp(ctx, "terminal.close", { id: created.id, expect_rev: created.rev });
 });
 
 test("terminal operations reject argv and executor-role callers", async () => {

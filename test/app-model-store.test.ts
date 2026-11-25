@@ -38,6 +38,16 @@ test("only reset requires a snapshot; reconnect retains content and config inval
   expect(reduceStore(config, { type: "session-ended" }).sessionEnded).toBe(true);
 });
 
+test("a terminal entity event bumps only the terminal invalidation and announces itself in hello", () => {
+  const hello = reduceStore(initialState(), { type: "hello", hello: { pacer: "1", protocol: "3.0.0", ops: [], events: ["terminal"] } as any });
+  expect(hello.features.terminalEvents).toBe(true);
+  const start = reduceStore(reduceStore(initialState(), { type: "snapshot", snapshot }), { type: "hello", hello: { pacer: "1", protocol: "3.0.0", ops: [], events: ["terminal"] } as any });
+  const terminal = reduceStore(start, { type: "event", event: { seq: 6, at: 1, type: "terminal", data: { id: "shell-1", removed: true } } });
+  expect(terminal.invalidations).toEqual({ terminal: 1 });
+  expect(terminal.snapshot?.seq).toBe(6);
+  expect(reduceStore(reduceStore(start, { type: "hello", hello: { pacer: "1", protocol: "3.0.0", ops: [], events: [] } as any }), { type: "event", event: { seq: 6, at: 1, type: "terminal", data: { id: "shell-1" } } }).features.terminalEvents).toBe(false);
+});
+
 test("browser API uses cookie credentials and typed operation errors", async () => {
   const calls: RequestInit[] = [];
   const mock = spyOn(globalThis, "fetch").mockImplementation((async (_url: string | URL | Request, init?: RequestInit) => {
