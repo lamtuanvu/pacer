@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { existsSync, mkdirSync, realpathSync, writeFileSync, symlinkSync, unlinkSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, realpathSync, writeFileSync, symlinkSync, unlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fakeCtx, tmpDir } from "./helpers";
 import { NativeControlBridge, verifyPairedNativeServiceOwner, assertNativeServiceLaunch, assertNativeProcessCoverage, assertLegacyNativeServiceLayout } from "../src/update/desktop/native-provider";
@@ -241,6 +241,26 @@ test("a missing paired launch capability stages no command directory and reports
   expect(existsSync(commands)).toBe(false);
   await expect(factory.open(installation.id, new AbortController().signal)).rejects.toThrow(/refused/);
   expect(existsSync(commands)).toBe(false);
+});
+
+test("a refused Root spawn removes the staged command directory", async () => {
+  const f = fixture();
+  const { createNativePipeFactory } = await import("../src/update/desktop/native-provider");
+  const { inspectInstallation } = await import("../src/update/desktop/identity");
+  const { helperRefused } = await import("../src/update/desktop/native-helper-errors");
+  const installation = await inspectInstallation(f.ctx, f.app);
+  const session = { installation, service: f.root, alive: () => true };
+  const factory = createNativePipeFactory(
+    () => f.ctx,
+    { sessions: () => [session], reverify: async () => {} } as never,
+    f.authority as never,
+    f.owner,
+    { spawn() { throw helperRefused(); } },
+  );
+  const commands = join(f.ctx.pacerHome, "desktop-updates/native", installation.id, "commands");
+  await expect(factory.open(installation.id, new AbortController().signal)).rejects.toThrow(/refused/);
+  expect(existsSync(commands)).toBe(true);
+  expect(readdirSync(commands)).toHaveLength(0);
 });
 
 test("authenticated shutdown targets Root and invokes the paired control callback after ack", async () => {

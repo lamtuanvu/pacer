@@ -434,17 +434,20 @@ fn assess_execution(app: &Path) -> Result<(), OtaError> {
 type Assessor = std::sync::Arc<dyn Fn(&std::path::Path) -> Result<(), OtaError> + Send + Sync>;
 
 /// Whether this compiled trust requires a Gatekeeper assessment (`spctl --assess`)
-/// when verifying a downloaded bundle. Developer ID (Apple Team ID) releases
-/// require it. Self-signed (cert-pin-only) releases rely on the pinned
-/// certificate and the Ed25519 updater signature instead: Gatekeeper always
-/// rejects code signed with the interim self-signed certificate, so an assessment
-/// would reject every valid self-signed release (the interim design's "Self"
-/// signer: never call spctl). Derived from the compiled `ReleaseTrust` pins,
-/// never from runtime input or the package. Fixture trust has no signer and is
-/// therefore never assessed.
+/// when verifying a downloaded bundle. Fail closed: assess Team-ID-only (Developer
+/// ID) trust and any other or unknown signer. Fixture trust is never assessed. The
+/// self-signed-only and both-pin bridge builds are signed with the interim
+/// self-signed certificate, which Gatekeeper always rejects, so they skip the
+/// assessment and rely on the pinned certificate, the static code requirement and
+/// the Ed25519 signature — the same rule release verification uses
+/// (`scripts/release/desktop-verify.ts` runs `spctl` only when no certificate pin is
+/// present). Derived from compiled trust, never from runtime input or the package.
 #[cfg(target_os = "macos")]
 fn requires_gatekeeper_assessment(trust: &super::trust::ReleaseTrust) -> bool {
-    matches!(trust.signer(), Some("apple" | "both"))
+    if trust.fixture_policy().is_some() {
+        return false;
+    }
+    !matches!(trust.signer(), Some("self" | "both"))
 }
 
 #[cfg(target_os = "macos")]
@@ -775,6 +778,37 @@ mod tests {
             Err(OtaError::Identity)
         );
         assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn both_pin_bridge_trust_skips_the_gatekeeper_assessment() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let calls = std::sync::Arc::new(AtomicUsize::new(0));
+        let assess = {
+            let calls = calls.clone();
+            Some(std::sync::Arc::new(move |_path: &std::path::Path| {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            }) as Assessor)
+        };
+        // The bridge release pins both signers but is signed with the interim
+        // self-signed certificate, so spctl would reject it just like a self-only
+        // build. Release verification skips spctl for the same dual-pin build.
+        let trust = super::super::trust::ReleaseTrust::from_production(
+            &public_key(),
+            Some("ABCDE12345"),
+            Some("2C5405FB6D2906AE2049D59B9DF5D42661997922"),
+        )
+        .unwrap();
+        assert_eq!(trust.signer(), Some("both"));
+        assert!(!requires_gatekeeper_assessment(&trust));
+        let updater = updater_with_assessor(trust, assess);
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(
+            updater.run_assessment(&dir.path().join("pacer.app")),
+            Ok(())
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
     }
     #[cfg(target_os = "macos")]
     #[test]

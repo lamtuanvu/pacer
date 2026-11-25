@@ -1266,6 +1266,26 @@ impl<T> std::ops::Deref for PendingConnection<T> {
     }
 }
 
+/// Inputs for the pure `native_reuse_allowed` decision.
+pub(crate) struct NativeReuse<'a> {
+    pub(crate) alive: bool,
+    pub(crate) maintenance: bool,
+    pub(crate) reconnect_plan: bool,
+    pub(crate) service: Option<&'a pacer_desktop::ota::native::ProcessIdentity>,
+    pub(crate) registered: Option<&'a pacer_desktop::ota::native::ProcessIdentity>,
+}
+
+/// A retained native connection may be reused only while it is still live, ordinary,
+/// and bound to the very same verified service process that is registered now. A
+/// restart, reinstall, hand-off or dead connection must establish fresh authority.
+pub(crate) fn native_reuse_allowed(input: NativeReuse<'_>) -> bool {
+    input.alive
+        && !input.maintenance
+        && !input.reconnect_plan
+        && input.service.is_some()
+        && input.service == input.registered
+}
+
 /// One verified native connection attempt (bounded retries), off the async runtime.
 async fn connect_native(
     handle: AppHandle,
@@ -1310,16 +1330,23 @@ async fn connect_native(
             // same verified service process. A restart, reinstall or hand-off must
             // establish fresh authority instead of inheriting this control session.
             if let Some(existing) = reuse.as_ref() {
-                if existing.alive()
-                    && !existing.maintenance_active()
-                    && existing.reconnect_plan().is_none()
-                    && existing.service == registered.process
-                {
+                if native_reuse_allowed(NativeReuse {
+                    alive: existing.alive(),
+                    maintenance: existing.maintenance_active(),
+                    reconnect_plan: existing.reconnect_plan().is_some(),
+                    service: Some(&existing.service),
+                    registered: Some(&registered.process),
+                }) {
                     return Ok(PendingConnection::new(
                         std::sync::Arc::clone(existing),
                         |native| native.close(),
                     ));
                 }
+                // This connection points at a process that is no longer registered.
+                // Close it before connecting fresh: the reader thread holds an Arc,
+                // so dropping the shell's reference alone would leave it published
+                // and keep native authority open toward the replaced service.
+                existing.close();
             }
             pacer_desktop::ota::control::NativeConnection::connect_adoption(
                 &registered.endpoint(),
@@ -1719,16 +1746,21 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
         let maintenance_launch = ticket.is_some() || adoption.is_some();
         // On an ordinary reconnect, a live native connection kept from the previous
         // session is preferred: connect_native reuses it only if the same verified
-        // service process is still registered.
+        // service process is still registered. Take it out of the published shell
+        // state first, so a connection that cannot be reused is never left pointing
+        // at a service that is no longer the registered one.
         let reuse = if maintenance_launch {
             None
         } else {
-            app.state::<Shell>().native.lock().unwrap().clone()
+            app.state::<Shell>().native.lock().unwrap().take()
         };
+        // `connect_native` consumes `reuse`; keep a handle so even a spawn failure
+        // closes the retained connection rather than leaking its reader thread.
+        let retained_on_spawn_failure = reuse.clone();
         if !maintenance_launch {
             supervision = Some((user_home.clone(), home.clone(), port, trust.clone()));
         }
-        let native = connect_native(
+        let native = match connect_native(
             handle,
             user_home.clone(),
             home.clone(),
@@ -1738,7 +1770,16 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
             adoption,
             reuse,
         )
-        .await?;
+        .await
+        {
+            Ok(native) => native,
+            Err(error) => {
+                if let Some(old) = retained_on_spawn_failure {
+                    old.close();
+                }
+                return Err(error);
+            }
+        };
         match native {
             Ok(native) => {
                 *app.state::<Shell>().native_update_error.lock().unwrap() = None;
@@ -2945,6 +2986,33 @@ mod tests {
         let mut input = ordinary(Some("stopped"));
         input.connection_reconnect_plan = true;
         assert!(!retain_native_on_session_end(input));
+    }
+
+    #[test]
+    fn a_retained_native_connection_is_only_reused_for_the_registered_process() {
+        use super::{native_reuse_allowed, NativeReuse};
+        use pacer_desktop::ota::native::ProcessIdentity;
+        let registered = ProcessIdentity { pid: 42, boot_id: "boot".into(), birth: "birth".into() };
+        let same = registered.clone();
+        let replaced = ProcessIdentity { pid: 43, ..registered.clone() };
+        fn input<'a>(service: Option<&'a ProcessIdentity>, registered: &'a ProcessIdentity) -> NativeReuse<'a> {
+            NativeReuse { alive: true, maintenance: false, reconnect_plan: false, service, registered: Some(registered) }
+        }
+        // Same verified process: the retained control session may be published again.
+        assert!(native_reuse_allowed(input(Some(&same), &registered)));
+        // A different service incarnation must never inherit native authority, even
+        // when the retained connection is still alive and otherwise healthy.
+        assert!(!native_reuse_allowed(input(Some(&replaced), &registered)));
+        assert!(!native_reuse_allowed(input(None, &registered)));
+        let mut rejected = input(Some(&same), &registered);
+        rejected.alive = false;
+        assert!(!native_reuse_allowed(rejected));
+        let mut rejected = input(Some(&same), &registered);
+        rejected.maintenance = true;
+        assert!(!native_reuse_allowed(rejected));
+        let mut rejected = input(Some(&same), &registered);
+        rejected.reconnect_plan = true;
+        assert!(!native_reuse_allowed(rejected));
     }
 
     #[tokio::test]

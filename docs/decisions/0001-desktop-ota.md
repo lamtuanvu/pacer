@@ -54,7 +54,7 @@ Until the project holds an Apple Developer ID, production builds may pin a proje
 
 - Every role's requirement is its exact identifier ANDed with the configured signer alternatives.
 - Self-signed builds run without hardened runtime, because library validation refuses a dylib whose self-signed certificate carries no Team ID. They are not notarized.
-- The runtime OTA validation (`verify`) performs a Gatekeeper `spctl --assess` only when the compiled trust pins an Apple Team ID (Developer ID path, including the bridge when the Team ID pin is present). On the self-signed-only (cert-pin) path it is skipped: Gatekeeper always rejects the interim certificate, and the pinned certificate plus the Ed25519 updater signature already establish identity (the design's "Self" signer never calls `spctl`).
+- Note added 2026-11-25: the runtime OTA validation (`verify`) applies Gatekeeper `spctl --assess` to Team-ID-only (Developer ID) trust and fails closed for any other or unknown signer. It skips the assessment for self-signed-only (`self`) and both-pin bridge (`both`) trust, because both are signed with the interim self-signed certificate, which Gatekeeper always rejects; the pinned certificate, static code requirement and Ed25519 updater signature establish identity instead. This is consistent with release verification (`scripts/release/desktop-verify.ts`), which runs `spctl` only when no certificate pin is present. Fixture trust is never assessed.
 - Library validation is never disabled through an entitlement.
 - The Ed25519 updater signature, feed and both-architecture gate are unchanged.
 

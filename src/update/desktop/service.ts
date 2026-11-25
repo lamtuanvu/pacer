@@ -140,12 +140,13 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
   /** Back off after a failed/interrupted check, with a hard attempt budget. Never arms installs. */
   const armCheckRetry = (id: string, immediate = false) => {
     const prior = checkRetries.get(id);
-    const count = Math.min((prior?.count ?? 0) + 1, CHECK_RETRY_DELAYS.length);
-    const retryAt = immediate ? clock.monotonicMs() : clock.monotonicMs() + CHECK_RETRY_DELAYS[count - 1]! + jitter();
+    // All three delays (1, 5 and 15 minutes) are reachable; only the next failure
+    // spends the budget and falls back to the normal daily cadence.
+    const count = Math.min((prior?.count ?? 0) + 1, CHECK_RETRY_DELAYS.length + 1);
+    const daily = count > CHECK_RETRY_DELAYS.length;
+    const retryAt = clock.monotonicMs() + (daily ? 86_400_000 : immediate ? 0 : CHECK_RETRY_DELAYS[count - 1]! + jitter());
     checkRetries.set(id, { count, retryAt });
-    // Once the budget is spent, the neutral error stays until the person checks again;
-    // re-evaluate only at the normal daily cadence, not in a tight loop.
-    nextCheck.set(id, count < CHECK_RETRY_DELAYS.length ? retryAt : clock.monotonicMs() + 86_400_000);
+    nextCheck.set(id, retryAt);
   };
   const clearCheckRetry = (id: string) => { checkRetries.delete(id); };
   /** A newly connected desktop is a fresh chance to finish a check that was interrupted by closure. */
@@ -250,7 +251,7 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
           persist({ ...restored, phase: restored.phase === "ready" ? "ready" : "error", error: {
             code: transient ? CHECK_UNAVAILABLE : "update_failed",
             // The adapter's own wording is a diagnostic; the view model shows plain copy for these.
-            message: transient ? "Couldn't check for updates. Pacer will try again automatically." : message,
+            message: transient ? "Couldn't check for updates. Check your connection, then try again." : message,
           } });
           if (request.command === "check") armCheckRetry(id);
           else {
@@ -408,7 +409,7 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
       const interruptedCheck = value.phase === "checking";
       persist({ ...value, phase: "error", error: {
         code: interruptedCheck ? CHECK_INTERRUPTED : "interrupted",
-        message: interruptedCheck ? "Couldn't check for updates. Pacer will try again automatically." : "Desktop update network operation was interrupted",
+        message: interruptedCheck ? "Couldn't check for updates. Check your connection, then try again." : "Desktop update network operation was interrupted",
       } });
       // A check interrupted by service/desktop reconciliation gets a bounded automatic retry;
       // an interrupted download/install never does (its durable transaction stays with recovery).

@@ -2218,8 +2218,10 @@ export function createNativePipeFactory(
         try {
           child = parentHelpers.spawn({ schema: 1, path: helper, sha256, version: helperIdentity.version });
         } catch (error) {
-          // A refusal means no helper was handed over: drop the staged copy so
-          // a later check cannot trip over a leftover command directory.
+          // No helper was accepted: clear the staged image on any spawn error,
+          // including a retired channel after rights were handed over. Its pipes
+          // are closed and recovery helpers are never staged, so no live helper
+          // needs this copy and a later check cannot trip over the directory.
           if (staged) rmSync(staged, { recursive: true, force: true });
           throw error;
         }

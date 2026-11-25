@@ -23,7 +23,7 @@ function deferred<T>() { let resolve!: (v:T) => void; const promise = new Promis
 function fixture(options: { autoDownload?:boolean; ownership?: "managed"|"attached"; hold?: Promise<void>; holdDownload?: Promise<void>; afterAuthorized?: Promise<void>; authorize?: Promise<boolean>; late?: boolean; lostAck?: boolean; reservation?: Promise<void>; outcome?: "committed"|"restored"|"recovery-failed"; attempted?: boolean; publish?: (status: UpdateStatus) => Promise<void>; release?: () => Promise<void>; rejectChannel?: boolean } = {}) {
   const ctx = fakeCtx(); mkdirSync(ctx.pacerHome);
   const installation: Installation = { id: "desktop", appPath: "/tmp/private-desktop.app", bundleId:"dev.pacer.desktop", ownerUid:process.getuid?.()??0, arch:"aarch64", pacerHome:ctx.pacerHome, port:7433, serviceLabel:"com.pacer.serve", ownership:options.ownership??"managed", version:"1.0.0" };
-  const closed=deferred<void>(); let visible=!options.late; let alive=true, boot="boot-1", now=100;
+  const closed=deferred<void>(); let visible=!options.late; let alive=true, boot="boot-1", now=100, reconnects=0;
   const session: VerifiedNativeSession = { installation, desktopClientId:"native-desktop", sessionId:"native-session", bootId:boot,
     desktop:{pid:101,bootId:boot,birth:"desktop-birth"},service:{pid:102,bootId:boot,birth:"service-birth"}, alive:()=>alive, closed:closed.promise };
   const reserveEntered=deferred<void>();
@@ -63,7 +63,7 @@ function fixture(options: { autoDownload?:boolean; ownership?: "managed"|"attach
   return {ctx,runtime,session,native,factory,unbind,commands,raw,calls,publications,scheduled,reserveEntered:reserveEntered.promise,
     register(){visible=true;},
     seedPending(phase:"waiting"|"reserved"|"installing"){const value=readUpdate(ctx,"desktop");const ready=writeUpdate(ctx,{...value,phase:"ready",candidate,downloadedBytes:10,totalBytes:10,checkedAt:100},value.revision);const waiting=requestRestart(ready,{installationId:"desktop",requestId:"old-restart",expectRevision:ready.revision,version:candidate.version,clientId:"native-desktop"},boot);writeUpdate(ctx,{...waiting,phase},ready.revision);},
-    stopDesktop(){alive=false;closed.resolve();},reconnectDesktop(){currentSession={...session,sessionId:"native-session-2"};alive=true;visible=true;},setBoot(value:string){boot=value;},setNow(value:number){now=value;},
+    stopDesktop(){alive=false;closed.resolve();},reconnectDesktop(){currentSession={...session,sessionId:`native-session-${++reconnects+1}`};alive=true;visible=true;},setBoot(value:string){boot=value;},setNow(value:number){now=value;},
     request(id:string){return{installationId:"desktop",requestId:id,expectRevision:runtime.status("desktop").revision};},
     async ready(){await runtime.start();await runtime.check(this.request("check"));await runtime.settled();if(runtime.status("desktop").phase!=="ready"){await runtime.download(this.request("download"));await runtime.settled();}},
   };
@@ -355,6 +355,81 @@ test("transient checks back off, while explicit checks bypass the retry timer",a
   await f.runtime.start();await f.runtime.tick();await f.runtime.settled();expect(opens).toBe(1);
   f.setNow(159);await f.runtime.tick();expect(opens).toBe(1);f.setNow(161);await f.runtime.tick();await f.runtime.settled();expect(opens).toBe(2);
   await f.runtime.check(f.request("manual"));await f.runtime.settled();expect(opens).toBe(3);expect(JSON.stringify(f.runtime.status("desktop"))).not.toContain("private helper failure");
+});
+
+test("check retries reach all three backoffs and then fall back to the daily cadence", async () => {
+  const f=fixture({autoDownload:false}); let opens=0;
+  f.factory.open=async()=>{opens++;throw Error("helper unavailable");};
+  await f.runtime.start(); await f.runtime.tick(); await f.runtime.settled();
+  expect(opens).toBe(1);
+  // Failure 1 waits 1 minute, failure 2 waits 5, failure 3 waits 15: all three
+  // CHECK_RETRY_DELAYS entries are reachable instead of jumping to 24 h on failure 3.
+  for (const [at,expected] of [[159,1],[161,2],[460,2],[461,3],[1360,3],[1361,4]] as const) {
+    f.setNow(at); await f.runtime.tick(); await f.runtime.settled();
+    expect(opens).toBe(expected);
+  }
+  // The fourth failure spends the budget: the next automatic check is a day later.
+  expect(readUpdate(f.ctx,"desktop").error?.code).toBe("check_unavailable");
+  f.setNow(87760); await f.runtime.tick(); expect(opens).toBe(4);
+  f.setNow(87761); await f.runtime.tick(); await f.runtime.settled(); expect(opens).toBe(5);
+  expect(f.runtime.status("desktop").error?.message).not.toContain("helper unavailable");
+});
+
+test("a reconnect retry stops once the check budget is spent", async () => {
+  const f=fixture({autoDownload:false}); let opens=0;
+  f.factory.open=async()=>{opens++;throw Error("helper unavailable");};
+  await f.runtime.start(); await f.runtime.tick(); await f.runtime.settled();
+  expect(opens).toBe(1);
+  f.setNow(161); await f.runtime.tick(); await f.runtime.settled();
+  expect(opens).toBe(2);
+  // A fresh native session can spend the last retry immediately.
+  f.reconnectDesktop(); await f.runtime.tick(); await f.runtime.settled();
+  expect(opens).toBe(3);
+  // Once the three retries are used, further reconnects do not re-arm them.
+  f.reconnectDesktop(); await f.runtime.tick(); await f.runtime.settled();
+  expect(opens).toBe(3);
+});
+
+test("download and install failures never arm a check retry", async () => {
+  const download=fixture(); const openDownload=download.factory.open; let attempts=0;
+  download.factory.open=async(...args)=>{if(++attempts===2)throw Error("download helper failed");return openDownload(...args);};
+  await download.runtime.start();
+  await download.runtime.check(download.request("check")); await download.runtime.settled();
+  // The download launch was attempted and refused; no command frame was written.
+  expect(attempts).toBe(2);
+  expect(download.runtime.status("desktop").error?.code).toBe("update_failed");
+  download.reconnectDesktop(); await download.runtime.tick(); await download.runtime.settled();
+  expect(attempts).toBe(2);
+  expect(JSON.stringify(download.runtime.status("desktop"))).not.toContain("helper failed");
+
+  const install=fixture({late:true}); install.seedPending("installing");
+  install.factory.open=async()=>{throw Error("install helper failed");};
+  await install.runtime.start(); install.register();
+  await install.runtime.tick(); await install.runtime.settled();
+  expect(install.runtime.status("desktop").phase).toBe("recovery-failed");
+  install.reconnectDesktop(); await install.runtime.tick(); await install.runtime.settled();
+  expect(install.commands).toEqual([]);
+  expect(JSON.stringify(install.runtime.status("desktop"))).not.toContain("helper failed");
+});
+
+test("service stop aborts an in-flight check and download", async () => {
+  const checkHold=deferred<void>(), f=fixture({autoDownload:false,hold:checkHold.promise});
+  await f.runtime.start();
+  void f.runtime.check(f.request("check"));
+  for (let i=0;i<100 && f.commands.length===0;i++) await Bun.sleep(0);
+  f.runtime.stop(); checkHold.resolve(); await f.runtime.settled();
+  expect(f.calls).toContain("abort");
+  // The aborted operation persists no result after shutdown.
+  expect(readUpdate(f.ctx,"desktop").error).toBeNull();
+
+  const downloadHold=deferred<void>(), g=fixture({holdDownload:downloadHold.promise});
+  await g.runtime.start();
+  void g.runtime.check(g.request("check"));
+  for (let i=0;i<100 && g.commands.length<2;i++) await Bun.sleep(0);
+  expect(g.commands.map(c=>c.command)).toEqual(["check","download"]);
+  g.runtime.stop(); downloadHold.resolve(); await g.runtime.settled();
+  expect(g.calls.filter(call=>call==="abort")).toHaveLength(1);
+  expect(readUpdate(g.ctx,"desktop").error).toBeNull();
 });
 
 test("an interrupted check is retried automatically on the next desktop session", async () => {

@@ -87,7 +87,7 @@ test("tray indicator opens shared update state only when a relevant public statu
   expect(desktopUpdateIndicator([desktopStatus({ phase: "ready", target: "0.2.4", actions: ["restart"] })])).toMatchObject({ label: "Update ready", route: "/settings/updates" });
 });
 test("unchecked and future additive phases remain truthful and readable", () => {
-  expect(desktopUpdateView(desktopStatus()).label).toBe("Not checked");
+  expect(desktopUpdateView(desktopStatus()).label).toBe("Not checked yet");
   expect(desktopUpdateView(desktopStatus({ checkedAt: 10 })).label).toBe("Up to date");
   expect(desktopUpdateView(desktopStatus({ phase: "future-phase" as any, actions: [] })).label).toBe("Update status unavailable");
 });
@@ -163,7 +163,34 @@ test('interrupted and transient checks are neutral, plain-language and offer a c
     expect(view.detail).not.toContain('adapter');
     expect(view.detail).not.toContain(error.message);
     expect(view.detail).toContain('try again');
+    expect(view.detail).toContain('Check for updates');
+    expect(view.detail).not.toContain('Pacer');
+    expect(view.detail).not.toContain('automatically');
+    expect(view.glyph).toBe('?');
   }
+});
+
+test('refused and retired parent-channel wording is internal and never rendered raw', () => {
+  for (const message of [
+    'Desktop update helper launch was refused by the parent channel',
+    'Native parent helper launch was refused',
+    'Native parent helper channel is retired; restart the service to recover',
+  ]) {
+    const view = desktopUpdateView(desktopStatus({ phase: 'error', actions: ['check'], error: { code: 'update_failed', message } }));
+    expect(view.detail).not.toContain(message);
+    expect(view.detail).not.toContain('parent channel');
+    expect(view.detail).not.toContain('retired');
+    expect(view.detail).toBe("The update couldn't finish. Check again when you're ready.");
+  }
+});
+
+test('a self-retrying neutral check failure is not the top attention indicator', () => {
+  const neutral = desktopStatus({ phase: 'error', actions: ['check'], error: { code: 'check_unavailable', message: "Couldn't check for updates. Check your connection, then try again." } });
+  expect(desktopUpdateIndicator([neutral])).toBeNull();
+  const ready = desktopStatus({ phase: 'ready', target: '0.2.4', actions: ['restart'] });
+  expect(desktopUpdateIndicator([neutral, ready])?.label).toBe('Update ready');
+  const failed = desktopStatus({ phase: 'error', actions: ['check'], error: { code: 'verification_failed', message: 'Signature verification failed' } });
+  expect(desktopUpdateIndicator([neutral, failed])?.label).toBe('Update needs attention');
 });
 
 test('real update failures keep the red attention state without adapter internals', () => {

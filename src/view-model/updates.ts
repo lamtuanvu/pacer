@@ -22,12 +22,12 @@ const interruptedCheck = (error: UpdateStatus["error"]) => !!error && (
   (error.code === "update_failed" && interruptedAdapterMessages.has(error.message))
 );
 /** Adapter internals are diagnostics, never user-facing copy. Service-authored hints stay visible. */
-const internalAdapterMessage = (message: string) => /^(Verified )?desktop update adapter |^desktop update could not be verified$/i.test(message);
+const internalAdapterMessage = (message: string) => /^(Verified )?desktop update adapter |^Desktop update helper launch was refused( by the parent channel)?|^Native parent helper (launch was refused|channel is retired)|^desktop update could not be verified$/i.test(message);
 
 /** Presentation never grants authority: every control still needs an advertised action. */
 export function desktopUpdateView(update: UpdateStatus): DesktopUpdateView {
   const states: Record<UpdateStatus["phase"], [string, Status["tone"], string, string]> = {
-    idle: [update.target ? "Update available" : update.checkedAt === null ? "Not checked" : "Up to date", update.target ? "info" : "neutral", update.target ? "↓" : update.checkedAt === null ? "…" : "✓", update.target ? "An update is available to download." : "Check for a newer version of pacer."],
+    idle: [update.target ? "Update available" : update.checkedAt === null ? "Not checked yet" : "Up to date", update.target ? "info" : "neutral", update.target ? "↓" : update.checkedAt === null ? "…" : "✓", update.target ? "An update is available to download." : "Check for a newer version of pacer."],
     checking: ["Checking for updates", "info", "…", "Looking for a new version."],
     downloading: ["Downloading update", "info", "↓", update.totalBytes && update.totalBytes > 0 ? `${Math.min(100, Math.max(0, Math.floor(update.downloadedBytes / update.totalBytes * 100)))}% downloaded. You can keep working.` : "Downloading the update. You can keep working."],
     ready: ["Update ready", "info", "↑", "The update is downloaded. Restart when you're ready."],
@@ -46,8 +46,11 @@ export function desktopUpdateView(update: UpdateStatus): DesktopUpdateView {
   };
   let [label, tone, glyph, detail] = states[update.phase] ?? ["Update status unavailable", "neutral", "?", "Refresh the status or use a compatible desktop app."];
   // Never render the persisted adapter message: it is internal detail, not an update failure.
+  // `?` is the neutral "not done, not failed" glyph; `…` would read as still working.
+  // Copy names the advertised button and stays true when automatic checks are off or
+  // the retry budget is spent.
   if (update.phase === "error" && interruptedCheck(update.error)) {
-    [label, tone, glyph, detail] = ["Couldn't check for updates", "neutral", "…", "Pacer couldn't finish the update check. It will try again automatically, or you can check again now."];
+    [label, tone, glyph, detail] = ["Couldn't check for updates", "neutral", "?", "pacer couldn't check for updates. Check your connection, then choose Check for updates to try again."];
   }
   if (update.ownership === "attached" && update.phase === "idle" && update.actions.length === 0) detail = "This desktop is connected to an externally managed service. Update that service separately.";
   const adoption = update.adoption;
@@ -99,7 +102,10 @@ export function updateIntent(makeId: () => string = () => `ui_${crypto.randomUUI
 }
 
 export function desktopUpdateIndicator(updates: UpdateStatus[] = []) {
-  const update = updates.find(item => ["recovery-failed", "error", "restored"].includes(item.phase) || item.adoption?.phase === "recovery-failed") ?? updates.find(item => !["idle", "complete"].includes(item.phase) || item.target || (item.adoption && !["available", "cancelled", "committed"].includes(item.adoption.phase)));
+  // A check that could not complete but retries on its own is neutral: rank it like
+  // idle, never as the top attention item across the app. Real failures stay ranked.
+  const ranked = updates.filter(item => item.phase !== "error" || !interruptedCheck(item.error));
+  const update = ranked.find(item => ["recovery-failed", "error", "restored"].includes(item.phase) || item.adoption?.phase === "recovery-failed") ?? ranked.find(item => !["idle", "complete"].includes(item.phase) || item.target || (item.adoption && !["available", "cancelled", "committed"].includes(item.adoption.phase)));
   return update ? { ...desktopUpdateView(update), route: "/settings/updates" } : null;
 }
 
