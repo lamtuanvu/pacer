@@ -75,8 +75,9 @@ const liveFixture: Fixture = {
 
 const logChunk = (stdout: string, over: Record<string, unknown> = {}) => ({ stdout, stderr: "", next: { stdout: stdout.length, stderr: 0 }, done: false, source: "s1", ...over });
 
-async function open(fixture: Fixture = liveFixture, ops = ALL_OPS, handlers: Parameters<typeof apiFor>[2] = {}, pollMs = 20) {
+async function open(fixture: Fixture = liveFixture, ops = ALL_OPS, handlers: Parameters<typeof apiFor>[2] = {}, pollMs = 20, prepare?: (dom: ReturnType<typeof installDom>) => void) {
   const dom = installDom();
+  prepare?.(dom);
   const calls: Calls = { ops: [] };
   const api = apiFor(fixture, calls, handlers);
   await mount(dom, (
@@ -256,6 +257,29 @@ test("clicking an agent opens its live output from task.log; the output follows 
     expect(domText(dom.container)).toContain("Live output closed");
     const active = (dom.doc as unknown as { activeElement: Node | null }).activeElement;
     expect(active && attr(active, "data-agent")).toBe("t_a");
+  } finally { await done(dom); }
+});
+
+test("opening an agent scrolls its output into view without moving focus off the agent", async () => {
+  const scrolled: Array<{ label: string; options: unknown }> = [];
+  const { dom } = await open(liveFixture, ALL_OPS, { "task.log": () => logChunk("x\n", { done: true }) }, 20, d => {
+    const spy = (n: Record<string, unknown>) => { n.scrollIntoView = (options: unknown) => scrolled.push({ label: String((n as { attrs: Record<string, string> }).attrs["aria-label"]), options }); return n as never; };
+    const make = d.doc.createElement.bind(d.doc), makeNS = d.doc.createElementNS.bind(d.doc);
+    d.doc.createElement = (tag: string) => spy(make(tag) as unknown as Record<string, unknown>);
+    d.doc.createElementNS = (ns: string, tag: string) => spy(makeNS(ns, tag) as unknown as Record<string, unknown>);
+  });
+  try {
+    expect(scrolled).toEqual([]);
+    const agent = must(byAttr(dom.container, "data-agent", "t_a"), "agent");
+    await act(async () => { clickEl(agent); });
+    await until(() => scrolled.length > 0, 2000);
+    expect(scrolled).toEqual([{ label: "Live output: oc-glm on review · architecture", options: { block: "nearest" } }]);
+    // nothing in the panel took keyboard focus
+    await act(async () => { await tick(); });
+    expect((dom.doc as unknown as { activeElement: Node | null }).activeElement).toBeNull();
+    // polling updates do not scroll again
+    await new Promise(resolve => setTimeout(resolve, 80));
+    expect(scrolled).toHaveLength(1);
   } finally { await done(dom); }
 });
 

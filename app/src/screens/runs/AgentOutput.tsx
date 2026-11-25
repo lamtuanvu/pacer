@@ -1,5 +1,5 @@
 /** An agent's live output on the Live board: follows `task.log` (the `/v3/tasks/<id>/log` read) until the task is done. */
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import type { BrowserApi } from "../../data/api";
 import { Alert } from "../../ds/Alert";
 import { Button, ButtonLink } from "../../ds/Button";
@@ -17,6 +17,9 @@ export function AgentOutput({ api, taskId, executor, stepLabel, sessionHref, onC
 }) {
   const [out, setOut] = useState<OutputState>({ text: "", phase: "loading" });
   const [attempt, retry] = useState(0);
+  const panel = useRef<HTMLElement>(null);
+  // The panel opens below the board; bring it into view without moving focus off the agent that opened it.
+  useEffect(() => { panel.current?.scrollIntoView?.({ block: "nearest" }); }, [taskId]);
   useEffect(() => {
     let active = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -49,7 +52,7 @@ export function AgentOutput({ api, taskId, executor, stepLabel, sessionHref, onC
   }, [api, taskId, pollMs, attempt]);
   const status = out.phase === "loading" ? "Reading output…" : out.phase === "live" ? "Following live output" : out.phase === "done" ? "Task finished; this is its full output" : "";
   return (
-    <section className="lb-section" aria-label={`Live output: ${executor} on ${stepLabel}`}>
+    <section ref={panel} className="lb-section" aria-label={`Live output: ${executor} on ${stepLabel}`}>
       <div className="lb-row">
         <h2 className="lb-title">Live output</h2>
         <span className="lb-cap">{executor} · {stepLabel}</span>
