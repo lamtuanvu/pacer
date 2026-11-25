@@ -63,7 +63,7 @@ export async function readDesktopUpdateConnection(host: DesktopHost = desktopHos
   if (!invoke) return null;
   const value = await invoke("desktop_update_connection", { supports: ["service-takeover"] }) as Record<string, unknown> | null;
   if (!value || !["connecting", "available", "unavailable", "unsupported"].includes(value.state as string) ||
-      value.reason === undefined ||
+      (value.reason !== null && typeof value.reason !== "string") ||
       (value.terminalCommandDifferent !== undefined && typeof value.terminalCommandDifferent !== "boolean") ||
       (value.state !== "unavailable" && value.reason !== null)) throw Error("Desktop update connection unavailable");
   // A newer desktop may add reasons or error kinds; degrade them instead of losing the whole view.
@@ -72,7 +72,7 @@ export async function readDesktopUpdateConnection(host: DesktopHost = desktopHos
     reason: value.reason === null ? null
       : KNOWN_REASONS.includes(value.reason as string) ? value.reason as DesktopUpdateConnection["reason"] : "connection",
   };
-  if (result.reason === "connection" && KNOWN_ERRORS.includes(value.error as string)) result.error = value.error as DesktopUpdateConnection["error"];
+  if (value.reason === "connection" && KNOWN_ERRORS.includes(value.error as string)) result.error = value.error as DesktopUpdateConnection["error"];
   if (value.terminalCommandDifferent !== undefined) result.terminalCommandDifferent = value.terminalCommandDifferent as boolean;
   return result;
 }

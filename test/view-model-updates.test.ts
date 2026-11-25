@@ -12,8 +12,8 @@ test("connection failures name the error kind and keep the generic copy when it 
   const generic = desktopConnectionView({ state: "unavailable", reason: "connection" }).detail;
   expect(generic).toContain("verified desktop update connection");
   const expected = {
-    busy: "update lock", timeout: "did not answer in time", unavailable: "native update helper",
-    io: "read or write its update files", invalid: "record is damaged", interrupted: "was interrupted",
+    busy: "still in progress", timeout: "did not answer in time", unavailable: "could not reach the service",
+    io: "connection to the service failed", invalid: "message pacer could not read", interrupted: "was interrupted",
     "recovery-failed": "could not restore the previous version",
   } as const;
   for (const [error, text] of Object.entries(expected)) {

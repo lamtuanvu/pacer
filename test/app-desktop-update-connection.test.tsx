@@ -84,5 +84,8 @@ test("handshake and future reasons or error kinds degrade without losing the vie
   expect(unknownError).toEqual({ state: "unavailable", reason: "connection" });
   expect(renderToString(<DesktopUpdateConnection connection={unknownError}/>)).toContain("verified desktop update connection");
   expect(await read({ state: "unavailable", reason: "connection", error: "busy" })).toEqual({ state: "unavailable", reason: "connection", error: "busy" });
+  expect(await read({ state: "unavailable", reason: "from-the-future", error: "busy" })).toEqual({ state: "unavailable", reason: "connection" });
+  expect(await read({ state: "unavailable", reason: "handshake", error: "busy" })).toEqual({ state: "unavailable", reason: "handshake" });
+  for (const reason of [5, {}, true]) await expect(read({ state: "unavailable", reason })).rejects.toThrow("update connection");
   await expect(read({ state: "bogus", reason: "handshake" })).rejects.toThrow("update connection");
 });
