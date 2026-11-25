@@ -1275,6 +1275,7 @@ async fn connect_native(
     trust: pacer_desktop::ota::trust::ReleaseTrust,
     ticket: Option<pacer_desktop::ota::control::LaunchTicket>,
     adoption: Option<pacer_desktop::ota::control::AdoptionReconnectPlan>,
+    reuse: Option<std::sync::Arc<pacer_desktop::ota::control::NativeConnection>>,
 ) -> Result<
     Result<PendingConnection<std::sync::Arc<pacer_desktop::ota::control::NativeConnection>>, pacer_desktop::ota::OtaError>,
     String,
@@ -1305,6 +1306,21 @@ async fn connect_native(
             let registered = pacer_desktop::ota::control::inspect_registered_service(
                 &user_home, &home, port, &trust,
             )?;
+            // A retained connection is reused only while it still points at the very
+            // same verified service process. A restart, reinstall or hand-off must
+            // establish fresh authority instead of inheriting this control session.
+            if let Some(existing) = reuse.as_ref() {
+                if existing.alive()
+                    && !existing.maintenance_active()
+                    && existing.reconnect_plan().is_none()
+                    && existing.service == registered.process
+                {
+                    return Ok(PendingConnection::new(
+                        std::sync::Arc::clone(existing),
+                        |native| native.close(),
+                    ));
+                }
+            }
             pacer_desktop::ota::control::NativeConnection::connect_adoption(
                 &registered.endpoint(),
                 &trust,
@@ -1317,6 +1333,32 @@ async fn connect_native(
     })
     .await
     .map_err(|_| "Native service verification failed".to_owned())
+}
+
+/// Inputs for the pure `retain_native_on_session_end` decision.
+pub(crate) struct NativeRetention<'a> {
+    pub(crate) end_reason: Option<&'a str>,
+    pub(crate) shell_maintenance: bool,
+    pub(crate) shell_adoption: bool,
+    pub(crate) connection_alive: bool,
+    pub(crate) connection_maintenance: bool,
+    pub(crate) connection_reconnect_plan: bool,
+}
+
+/// A web session can end on a transient event-stream timeout ("stopped") or a slow
+/// heartbeat while the signed-in service is unchanged. The native update connection
+/// owns its own authenticated control session, and the helper is parented by the
+/// service rather than by the web session. Keeping this connection alive across the
+/// reconnect means the service never sees a native session close and never cancels an
+/// in-flight check or download. Maintenance/adoption hand-offs, an expired session,
+/// an explicit service move, or a dead connection still tear it down.
+pub(crate) fn retain_native_on_session_end(input: NativeRetention<'_>) -> bool {
+    input.end_reason == Some("stopped")
+        && input.connection_alive
+        && !input.shell_maintenance
+        && !input.shell_adoption
+        && !input.connection_maintenance
+        && !input.connection_reconnect_plan
 }
 
 /// When should a signed-in ordinary launch try to restore native update authority?
@@ -1356,7 +1398,7 @@ async fn supervise_native(app: &AppHandle, supervision: Option<NativeSupervision
             delay = Duration::from_secs(2);
             continue;
         }
-        match connect_native(app.clone(), user_home.clone(), home.clone(), port, trust.clone(), None, None).await {
+        match connect_native(app.clone(), user_home.clone(), home.clone(), port, trust.clone(), None, None, None).await {
             Ok(Ok(native)) => {
                 // An ordinary launch carries no readiness proof; the signed-in page already
                 // completed its own check, so only acknowledge after startup is ready.
@@ -1675,6 +1717,14 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
             .cloned();
         let adoption = app.state::<Shell>().adoption.lock().unwrap().clone();
         let maintenance_launch = ticket.is_some() || adoption.is_some();
+        // On an ordinary reconnect, a live native connection kept from the previous
+        // session is preferred: connect_native reuses it only if the same verified
+        // service process is still registered.
+        let reuse = if maintenance_launch {
+            None
+        } else {
+            app.state::<Shell>().native.lock().unwrap().clone()
+        };
         if !maintenance_launch {
             supervision = Some((user_home.clone(), home.clone(), port, trust.clone()));
         }
@@ -1686,6 +1736,7 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
             trust.clone(),
             ticket,
             adoption,
+            reuse,
         )
         .await?;
         match native {
@@ -1737,11 +1788,31 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
         _ = supervise_native(app, supervision) => Err("stopped".into()),
         _ = shell.expired.notified() => Err(if shell.diagnosis.lock().unwrap().as_ref().is_some_and(|d| d.page == "takeover") { "takeover" } else { "sessionExpired" }.into()),
     };
-    if let Some(native) = shell.native.lock().unwrap().take() {
-        if let Some(plan) = native.reconnect_plan() {
-            *shell.adoption.lock().unwrap() = Some(plan);
+    let native_state = {
+        let guard = shell.native.lock().unwrap();
+        guard.as_ref().map(|native| {
+            (
+                native.alive(),
+                native.maintenance_active(),
+                native.reconnect_plan().is_some(),
+            )
+        })
+    };
+    let retain = retain_native_on_session_end(NativeRetention {
+        end_reason: result.as_ref().err().map(String::as_str),
+        shell_maintenance: shell.maintenance.load(Ordering::SeqCst),
+        shell_adoption: shell.adoption.lock().unwrap().is_some(),
+        connection_alive: native_state.is_some_and(|(alive, _, _)| alive),
+        connection_maintenance: native_state.is_some_and(|(_, maintenance, _)| maintenance),
+        connection_reconnect_plan: native_state.is_some_and(|(_, _, plan)| plan),
+    });
+    if !retain {
+        if let Some(native) = shell.native.lock().unwrap().take() {
+            if let Some(plan) = native.reconnect_plan() {
+                *shell.adoption.lock().unwrap() = Some(plan);
+            }
+            native.close();
         }
-        native.close();
     }
     shell.navigation.lock().unwrap().invalidate();
     result
@@ -2838,6 +2909,44 @@ pub async fn run(app: AppHandle) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn transient_web_session_end_keeps_the_native_update_connection() {
+        use super::{retain_native_on_session_end, NativeRetention};
+        fn ordinary(reason: Option<&str>) -> NativeRetention<'_> {
+            NativeRetention {
+                end_reason: reason,
+                shell_maintenance: false,
+                shell_adoption: false,
+                connection_alive: true,
+                connection_maintenance: false,
+                connection_reconnect_plan: false,
+            }
+        }
+        // The 15 s event-stream timeout is the observed hiccup; a slow heartbeat
+        // reports the same "stopped" reason.
+        assert!(retain_native_on_session_end(ordinary(Some("stopped"))));
+        // A clean end, an expired sign-in, a service move or a native drop is not
+        // a transient web-session hiccup.
+        for reason in [None, Some("sessionExpired"), Some("takeover"), Some("outdatedService"), Some("consent-takeover-ready"), Some("diagnose")] {
+            assert!(!retain_native_on_session_end(ordinary(reason)), "{reason:?} must tear down the native connection");
+        }
+        let mut input = ordinary(Some("stopped"));
+        input.connection_alive = false;
+        assert!(!retain_native_on_session_end(input));
+        let mut input = ordinary(Some("stopped"));
+        input.shell_maintenance = true;
+        assert!(!retain_native_on_session_end(input));
+        let mut input = ordinary(Some("stopped"));
+        input.shell_adoption = true;
+        assert!(!retain_native_on_session_end(input));
+        let mut input = ordinary(Some("stopped"));
+        input.connection_maintenance = true;
+        assert!(!retain_native_on_session_end(input));
+        let mut input = ordinary(Some("stopped"));
+        input.connection_reconnect_plan = true;
+        assert!(!retain_native_on_session_end(input));
+    }
+
     #[tokio::test]
     async fn health_gateway_http_bodies_respect_connection_history() {
         use std::io::{Read, Write};

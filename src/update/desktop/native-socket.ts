@@ -19,6 +19,7 @@ import {
 } from "node:fs";
 import { dirname } from "node:path";
 import { FrameDecoder, encodeFrame } from "./adapter";
+import { helperRefused } from "./native-helper-errors";
 import { loadNativeShim, NATIVE_SHIM_SYMBOLS } from "./native-shim";
 import { compiledSignerPins } from "./native-os";
 import { compiledNativeFixture } from "./native-fixture";
@@ -163,6 +164,9 @@ export function requestParentHelper(channel: number, request: {
   const pid = helperShim.symbols.pacer_request_helper(
     channel, ptr(bytes), bytes.length, ptr(descriptors),
   );
+  // -2 is a clean E refusal: no rights were delivered and the channel stays
+  // usable. Every other non-PID result is a transport failure.
+  if (pid === -2) throw helperRefused();
   if (pid <= 1) throw Error("Native parent helper spawn unavailable");
   return { pid, stdin: descriptors[0], stdout: descriptors[1], control: descriptors[2] };
 }

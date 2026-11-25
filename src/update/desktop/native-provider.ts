@@ -18,6 +18,7 @@ import {
 /** Private service composition. Public client registration cannot reach this channel. */
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import type { ParentHelperSpawner } from "./native-parent-helper";
+import { helperRefused } from "./native-helper-errors";
 import {
   closeSync,
   chmodSync,
@@ -32,6 +33,7 @@ import {
   openSync,
   readFileSync,
   realpathSync,
+  rmSync,
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { z } from "zod";
@@ -2132,7 +2134,11 @@ export function createNativePipeFactory(
                 (preparation && existsSync(preparation)))
             ? nativeRecoveryHelper(ctx, installationId, record.transactionId)
             : null;
+      // Check launch capability before staging anything: no command directory
+      // or helper copy is created when Root cannot hand off a helper.
+      if (owner && (!parentHelpers || signal.aborted)) throw helperRefused();
       let directory = realpathSync(ctx.pacerHome);
+      let staged: string | undefined;
       for (const part of recovery
         ? []
         : [
@@ -2159,6 +2165,7 @@ export function createNativePipeFactory(
         )
           throw denied();
       }
+      if (!recovery) staged = directory;
       const helperIdentity =
         recovery?.identity ??
         (await nativeHelperIdentity(ctx, session.installation));
@@ -2181,7 +2188,10 @@ export function createNativePipeFactory(
       if (owner) {
         // Immutable bridge helpers require the logical service to be their real
         // kernel parent. The authenticated Root supplies the fixed bootstrap.
-        if (!parentHelpers || signal.aborted) throw denied();
+        if (signal.aborted) {
+          if (staged) rmSync(staged, { recursive: true, force: true });
+          throw helperRefused();
+        }
         const hashFd = openSync(helper, constants.O_RDONLY | constants.O_NOFOLLOW);
         let sha256: string;
         try {
@@ -2198,7 +2208,21 @@ export function createNativePipeFactory(
           }
           sha256 = hash.digest("hex");
         } finally { closeSync(hashFd); }
-        const child = parentHelpers.spawn({ schema: 1, path: helper, sha256, version: helperIdentity.version });
+        // Defence in depth for the narrowing above: the early capability check
+        // already refuses, but never spawn without a channel even if it changes.
+        if (!parentHelpers) {
+          if (staged) rmSync(staged, { recursive: true, force: true });
+          throw helperRefused();
+        }
+        let child: ReturnType<ParentHelperSpawner["spawn"]>;
+        try {
+          child = parentHelpers.spawn({ schema: 1, path: helper, sha256, version: helperIdentity.version });
+        } catch (error) {
+          // A refusal means no helper was handed over: drop the staged copy so
+          // a later check cannot trip over a leftover command directory.
+          if (staged) rmSync(staged, { recursive: true, force: true });
+          throw error;
+        }
         let accepted = false;
         const abort = () => { if (!accepted) child.abort(); };
         signal.addEventListener("abort", abort, { once: true });

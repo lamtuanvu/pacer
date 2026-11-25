@@ -146,3 +146,37 @@ test('a completed service change does not hide a later downloaded update',async(
  const view=desktopUpdateView(desktopStatus({phase:'ready',target:'0.2.4',actions:['restart'],adoption:adoptionStatus({phase:'committed',resultingInstallationId:'new-id'})}));
  expect(view.label).toBe('Update ready');expect(view.primary).toBe('Restart to update');
 });
+
+test('interrupted and transient checks are neutral, plain-language and offer a check again action', () => {
+  for (const error of [
+    { code: 'check_unavailable', message: "Couldn't check for updates. Pacer will try again automatically." },
+    { code: 'check_interrupted', message: "Couldn't check for updates. Pacer will try again automatically." },
+    { code: 'update_failed', message: 'Desktop update adapter operation was cancelled' },
+    { code: 'update_failed', message: 'Desktop update adapter closed before successful completion' },
+    { code: 'update_failed', message: 'Desktop update adapter operation timed out' },
+    { code: 'update_failed', message: 'Verified desktop update adapter is unavailable' },
+  ]) {
+    const view = desktopUpdateView(desktopStatus({ phase: 'error', actions: ['check', 'retry'], error }));
+    expect(view.label).toBe("Couldn't check for updates");
+    expect(view.tone).toBe('neutral');
+    expect(view.primary).toBe('Check for updates');
+    expect(view.detail).not.toContain('adapter');
+    expect(view.detail).not.toContain(error.message);
+    expect(view.detail).toContain('try again');
+  }
+});
+
+test('real update failures keep the red attention state without adapter internals', () => {
+  for (const error of [
+    { code: 'verification_failed', message: 'Signature verification failed' },
+    { code: 'disk', message: 'Not enough disk space' },
+    { code: 'pre_handoff', message: 'Desktop update adapter could not complete the operation' },
+    { code: 'update_failed', message: 'Desktop update adapter could not complete the operation' },
+  ]) {
+    const view = desktopUpdateView(desktopStatus({ phase: 'error', actions: ['check', 'retry'], error }));
+    expect(view.tone).toBe('bad');
+    expect(view.label).toBe('Update needs attention');
+    expect(view.detail).not.toContain('Desktop update adapter');
+  }
+  expect(desktopUpdateView(desktopStatus({ phase: 'recovery-failed', actions: [] })).tone).toBe('bad');
+});

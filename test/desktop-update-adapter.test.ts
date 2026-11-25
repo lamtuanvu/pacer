@@ -7,6 +7,7 @@ import {
   type VerifiedPipeFactory,
 } from "../src/update/desktop/adapter";
 import type { Candidate, Installation } from "../src/update/desktop/types";
+import { helperRefused, helperRetired } from "../src/update/desktop/native-helper-errors";
 
 const identity = { version: "1.0.0", bundleId: "dev.pacer.desktop", arch: "aarch64" as const };
 const candidate: Candidate = { version: "1.1.0", arch: "aarch64", sha256: "a".repeat(64), signature: "test-signature", url: "https://example.invalid/1.1.0.tar.gz", protocolMajors: [3], rollbackCompatible: true, notes: "Release" };
@@ -327,6 +328,25 @@ test("a bound helper error before hello is a remote refusal, not a protocol reje
     const unbound = harness(), rejected = runAdapterCommand(unbound.factory, check); const sent = await unbound.opened;
     unbound.send(sent, { kind: "error", code: "verification", ...change }, 0);
     await fails(rejected, "protocol");
+  }
+});
+
+test("a refused helper launch and a retired channel are distinct adapter failures", async () => {
+  for (const [error, reason, message] of [
+    [helperRefused(), "helper-denied", "helper launch was refused"],
+    [helperRetired(), "channel-retired", "channel is retired"],
+  ] as const) {
+    const factory: VerifiedPipeFactory = {
+      capabilities: new Set(["check"]),
+      open: async () => { throw error; },
+    };
+    const promise = runAdapterCommand(factory, check);
+    try { await promise; throw Error("expected adapter failure"); }
+    catch (caught) {
+      expect(caught).toBeInstanceOf(AdapterError);
+      expect(caught).toMatchObject({ reason, handoff: "none" });
+      expect((caught as AdapterError).message).toContain(message);
+    }
   }
 });
 

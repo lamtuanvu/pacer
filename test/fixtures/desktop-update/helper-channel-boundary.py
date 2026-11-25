@@ -61,7 +61,21 @@ class Boundary(unittest.TestCase):
   for mode in ['missing','extra','truncated','reversed','regular','none']:self.assertEqual(self.exchange(rights_mode=mode),-1)
  def test_rejects_invalid_markers_zero_pid_and_error_with_rights(self):
   for data in[b'X\0\0\0\1',b'H\0\0\0\0',b'E\0\0\0\0']:self.assertEqual(self.exchange(payload=data),-1)
- def test_error_without_rights_fails_closed(self):self.assertEqual(self.exchange(payload=b'E\0\0\0\0',rights_mode='none'),-1)
+ def test_error_without_rights_fails_closed(self):self.assertEqual(self.exchange(payload=b'E\0\0\0\0',rights_mode='none'),-2)
+ def test_clean_refusal_leaves_channel_open_for_next_request(self):
+  a,b=socket.socketpair();out=(ctypes.c_int*4)(-1,-1,-1,-1);errors=[]
+  def server():
+   try:
+    for _ in range(2):
+     size=struct.unpack('>I',b.recv(4,socket.MSG_WAITALL))[0];b.recv(size,socket.MSG_WAITALL)
+     b.sendall(b'E'+bytes(4))
+   except BaseException as e:errors.append(e)
+  t=threading.Thread(target=server);t.start();request=b'{"schema":1}'
+  try:
+   self.assertEqual(self.request(a.fileno(),request,len(request),out),-2)
+   self.assertEqual(self.request(a.fileno(),request,len(request),out),-2)
+   t.join(2);self.assertFalse(t.is_alive());self.assertFalse(errors);self.assertEqual(list(out),[-1]*4)
+  finally:a.close();b.close()
  def test_invalid_request_length_initializes_output(self):
   a,b=socket.socketpair();out=(ctypes.c_int*4)(7,7,7,7)
   try:

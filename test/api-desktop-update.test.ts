@@ -20,7 +20,7 @@ const candidate: Candidate = { version: "1.1.0", arch: "aarch64", sha256: "a".re
 const cleanups: (() => void)[] = [];
 afterEach(() => { for (const fn of cleanups.splice(0)) fn(); });
 function deferred<T>() { let resolve!: (v:T) => void; const promise = new Promise<T>(r=>{resolve=r;}); return {promise,resolve}; }
-function fixture(options: { autoDownload?:boolean; ownership?: "managed"|"attached"; hold?: Promise<void>; afterAuthorized?: Promise<void>; authorize?: Promise<boolean>; late?: boolean; lostAck?: boolean; reservation?: Promise<void>; outcome?: "committed"|"restored"|"recovery-failed"; attempted?: boolean; publish?: (status: UpdateStatus) => Promise<void>; release?: () => Promise<void>; rejectChannel?: boolean } = {}) {
+function fixture(options: { autoDownload?:boolean; ownership?: "managed"|"attached"; hold?: Promise<void>; holdDownload?: Promise<void>; afterAuthorized?: Promise<void>; authorize?: Promise<boolean>; late?: boolean; lostAck?: boolean; reservation?: Promise<void>; outcome?: "committed"|"restored"|"recovery-failed"; attempted?: boolean; publish?: (status: UpdateStatus) => Promise<void>; release?: () => Promise<void>; rejectChannel?: boolean } = {}) {
   const ctx = fakeCtx(); mkdirSync(ctx.pacerHome);
   const installation: Installation = { id: "desktop", appPath: "/tmp/private-desktop.app", bundleId:"dev.pacer.desktop", ownerUid:process.getuid?.()??0, arch:"aarch64", pacerHome:ctx.pacerHome, port:7433, serviceLabel:"com.pacer.serve", ownership:options.ownership??"managed", version:"1.0.0" };
   const closed=deferred<void>(); let visible=!options.late; let alive=true, boot="boot-1", now=100;
@@ -28,7 +28,8 @@ function fixture(options: { autoDownload?:boolean; ownership?: "managed"|"attach
     desktop:{pid:101,bootId:boot,birth:"desktop-birth"},service:{pid:102,bootId:boot,birth:"service-birth"}, alive:()=>alive, closed:closed.promise };
   const reserveEntered=deferred<void>();
   const calls:string[]=[], commands:AdapterCommand[]=[], raw:Record<string,unknown>[]=[], publications:unknown[]=[], scheduled:{delay:number;callback:()=>void}[]=[];
-  const native: NativeAuthorityProvider = { sessions:()=>visible?[session]:[], subscribe:()=>()=>{}, reverify:async()=>{if(!alive)throw Error("gone");},
+  let currentSession = session;
+  const native: NativeAuthorityProvider = { sessions:()=>visible?[currentSession]:[], subscribe:()=>()=>{}, reverify:async()=>{if(!alive)throw Error("gone");},
     authorizeInstall:async()=>options.authorize ? options.authorize : true,
     verifyOutcome:async(_s,_r,outcome)=>({ installation:{ ...installation, version:outcome==="committed"?candidate.version:installation.version }, attempted:options.attempted??true }),
     broadcastEvent: async () => {},
@@ -45,7 +46,7 @@ function fixture(options: { autoDownload?:boolean; ownership?: "managed"|"attach
         // A helper from before channels fails the strict shape check and exits without a frame.
         if(options.rejectChannel&&"channel" in (value as object)){out.close();exited.resolve(1);continue;}
         command=parseAdapterCommand(value);commands.push(command);emit({kind:"hello",version:"1.0.0",bundleId:"dev.pacer.desktop",arch:"aarch64"});
-        await options.hold;
+        await (command.command==="download" && options.holdDownload ? options.holdDownload : options.hold);
         if(command.command==="check"){emit({kind:"checked",candidate});finish();}
         if(command.command==="download"){emit({kind:"progress",downloadedBytes:5,totalBytes:10});emit({kind:"downloaded",candidate,downloadedBytes:10,totalBytes:10});finish();}
         if(command.command==="recover"){emit({kind:"outcome",outcome:options.outcome??"committed"});finish();}
@@ -62,7 +63,7 @@ function fixture(options: { autoDownload?:boolean; ownership?: "managed"|"attach
   return {ctx,runtime,session,native,factory,unbind,commands,raw,calls,publications,scheduled,reserveEntered:reserveEntered.promise,
     register(){visible=true;},
     seedPending(phase:"waiting"|"reserved"|"installing"){const value=readUpdate(ctx,"desktop");const ready=writeUpdate(ctx,{...value,phase:"ready",candidate,downloadedBytes:10,totalBytes:10,checkedAt:100},value.revision);const waiting=requestRestart(ready,{installationId:"desktop",requestId:"old-restart",expectRevision:ready.revision,version:candidate.version,clientId:"native-desktop"},boot);writeUpdate(ctx,{...waiting,phase},ready.revision);},
-    stopDesktop(){alive=false;closed.resolve();},setBoot(value:string){boot=value;},setNow(value:number){now=value;},
+    stopDesktop(){alive=false;closed.resolve();},reconnectDesktop(){currentSession={...session,sessionId:"native-session-2"};alive=true;visible=true;},setBoot(value:string){boot=value;},setNow(value:number){now=value;},
     request(id:string){return{installationId:"desktop",requestId:id,expectRevision:runtime.status("desktop").revision};},
     async ready(){await runtime.start();await runtime.check(this.request("check"));await runtime.settled();if(runtime.status("desktop").phase!=="ready"){await runtime.download(this.request("download"));await runtime.settled();}},
   };
@@ -354,6 +355,61 @@ test("transient checks back off, while explicit checks bypass the retry timer",a
   await f.runtime.start();await f.runtime.tick();await f.runtime.settled();expect(opens).toBe(1);
   f.setNow(159);await f.runtime.tick();expect(opens).toBe(1);f.setNow(161);await f.runtime.tick();await f.runtime.settled();expect(opens).toBe(2);
   await f.runtime.check(f.request("manual"));await f.runtime.settled();expect(opens).toBe(3);expect(JSON.stringify(f.runtime.status("desktop"))).not.toContain("private helper failure");
+});
+
+test("an interrupted check is retried automatically on the next desktop session", async () => {
+  const f = fixture({ late: true, autoDownload: false });
+  const value = readUpdate(f.ctx, "desktop");
+  writeUpdate(f.ctx, { ...value, phase: "checking", error: null }, value.revision);
+  await f.runtime.start();
+  expect(f.runtime.listStatuses()).toEqual([]);
+  f.register();
+  await f.runtime.tick(); await f.runtime.settled();
+  expect(readUpdate(f.ctx, "desktop").error?.code).toBe("check_interrupted");
+  expect(f.commands).toEqual([]);
+  // The next tick retries without a user click, at the current revision with a fresh request ID.
+  await f.runtime.tick(); await f.runtime.settled();
+  expect(f.commands.map(c => c.command)).toEqual(["check"]);
+  expect(f.raw[0]).toMatchObject({ command: "check" });
+  expect(readUpdate(f.ctx, "desktop")).toMatchObject({ phase: "idle", error: null });
+});
+
+test("a check in flight during desktop closure finishes instead of being cancelled", async () => {
+  const hold = deferred<void>();
+  const f = fixture({ autoDownload: false, hold: hold.promise });
+  await f.runtime.start();
+  void f.runtime.check(f.request("check"));
+  for (let i = 0; i < 100 && f.commands.length === 0; i++) await Bun.sleep(0);
+  // The copied helper is parented by the service, so closing the desktop session
+  // must not abort its pipe: no raw adapter message and no error state.
+  f.stopDesktop(); hold.resolve();
+  await f.runtime.settled();
+  const status = f.runtime.status("desktop");
+  expect(status.phase).toBe("idle");
+  expect(status.error).toBeNull();
+  expect(JSON.stringify(status)).not.toContain("cancelled");
+  expect(JSON.stringify(status)).not.toContain("adapter");
+  f.reconnectDesktop();
+  await f.runtime.tick(); await f.runtime.settled();
+  expect(f.commands.map(c => c.command)).toEqual(["check"]);
+});
+
+test("a download in flight during desktop closure survives reconnect and stays ready", async () => {
+  const hold = deferred<void>();
+  const f = fixture({ holdDownload: hold.promise });
+  await f.runtime.start();
+  void f.runtime.check(f.request("check"));
+  for (let i = 0; i < 100 && f.commands.length < 2; i++) await Bun.sleep(0);
+  expect(f.commands.map(c => c.command)).toEqual(["check", "download"]);
+  // Reconciliation on the new native session must not discard the active download.
+  f.stopDesktop(); f.reconnectDesktop();
+  await f.runtime.tick();
+  hold.resolve();
+  await f.runtime.settled();
+  expect(readUpdate(f.ctx, "desktop").phase).toBe("ready");
+  expect(f.runtime.status("desktop").error).toBeNull();
+  expect(f.calls).not.toContain("abort");
+  expect(f.commands.map(c => c.command)).toEqual(["check", "download"]);
 });
 
 test("failed startup stays unavailable and never arms automatic work",async()=>{

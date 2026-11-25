@@ -10,8 +10,24 @@ import { ApiError } from "../app/src/data/api";
 import type { UpdateStatus } from "../src/update/desktop/types";
 const api = { call: async <T,>() => ({} as T), hello: async () => ({ protocol: "3.0.0", pacer: "0.2.3", ops: [], events: [] }), snapshot: async () => ({ protocol: "3.0.0", seq: 0, snapshot: emptySnapshot() }) };
 const render = (status: UpdateStatus, ops = status.actions.map(action => `desktop.update.${action}`), connected = true) => renderToString(<TaskContext.Provider value={{ api, state: { ...initialState(), connected, features: { readModel: true, ops: new Set(ops) }, snapshot: { ...emptySnapshot(), desktopUpdates: [status] } } }}><DesktopUpdate status={status}/></TaskContext.Provider>);
+test("an unchecked desktop says Not checked yet instead of Last checked Not checked", () => {
+  const html = render(desktopStatus({ checkedAt: null, actions: ["check"] }));
+  expect(html).toContain("Not checked yet");
+  expect(html).not.toContain("Last checked Not checked");
+  expect(render(desktopStatus({ checkedAt: 10, actions: ["check"] }))).toContain("Last checked");
+});
+test("an interrupted check is neutral on screen and never shows adapter internals", () => {
+  const html = render(desktopStatus({ phase: "error", actions: ["check", "retry"], error: {
+    code: "check_unavailable", message: "Desktop update adapter operation was cancelled",
+  } }));
+  expect(html).toContain("Couldn't check for updates");
+  expect(html).toContain("Check for updates");
+  expect(html).not.toContain("Update needs attention");
+  expect(html).not.toContain("Desktop update adapter");
+});
+
 test("desktop ready renders one primary action, checked time and safely escaped release notes", () => {
-  const html = render(desktopStatus({ phase: "ready", target: "0.2.4", actions: ["restart", "check", "configure"], releaseNotes: '<img src=x onerror="alert(1)">' }));
+  const html = render(desktopStatus({ phase: "ready", target: "0.2.4", checkedAt: 10, actions: ["restart", "check", "configure"], releaseNotes: '<img src=x onerror="alert(1)">' }));
   expect(html).toContain("Restart to update"); expect(html).toContain("0.2.3 → 0.2.4");
   expect(html).toContain("&lt;img"); expect(html).not.toContain("<img");
   expect(html.match(/pc-btn--primary/g)).toHaveLength(1); expect(html).toContain('aria-live="polite"'); expect(html).toContain("Last checked");

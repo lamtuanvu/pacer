@@ -3,12 +3,13 @@ import { z } from "zod";
 import { CoreError } from "../../core/errors";
 import { isVersion } from "../version";
 import { DESKTOP_IDENTIFIERS } from "./bundle-identity";
+import { NativeHelperError } from "./native-helper-errors";
 import type { Candidate, Installation } from "./types";
 import type { UpdateChannel } from "../channel";
 
 export const MAX_FRAME_BYTES = 256 * 1024;
 export type HandoffState = "none" | "uncertain" | "acknowledged";
-export type AdapterFailure = "unavailable" | "protocol" | "closed" | "cancelled" | "timeout" | "remote";
+export type AdapterFailure = "unavailable" | "protocol" | "closed" | "cancelled" | "timeout" | "remote" | "helper-denied" | "channel-retired";
 const messages: Record<AdapterFailure, string> = {
   unavailable: "Verified desktop update adapter is unavailable",
   protocol: "Desktop update adapter protocol was rejected",
@@ -16,6 +17,8 @@ const messages: Record<AdapterFailure, string> = {
   cancelled: "Desktop update adapter operation was cancelled",
   timeout: "Desktop update adapter operation timed out",
   remote: "Desktop update adapter could not complete the operation",
+  "helper-denied": "Desktop update helper launch was refused by the parent channel",
+  "channel-retired": "Native parent helper channel is retired; restart the service to recover",
 };
 /** The check that rejected a helper stream. Only enumerated values and integers, never frame payloads. */
 export type AdapterRejection = {
@@ -329,7 +332,13 @@ export async function runAdapterCommand(factory: VerifiedPipeFactory | undefined
       if (["recover", "recover-adoption"].includes(command.command)) handoff = "uncertain";
       await writer.write(bytes);
       if (!stopped) progressDeadline();
-    } catch { fail("closed"); }
+    } catch (error) {
+      if (error instanceof NativeHelperError) {
+        fail(error.kind === "refused" ? "helper-denied" : "channel-retired");
+      } else {
+        fail("closed");
+      }
+    }
   })();
   return completion;
 }

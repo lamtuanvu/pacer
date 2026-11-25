@@ -5,6 +5,25 @@ export type DesktopAction = Exclude<UpdateStatus["actions"][number], "retry">;
 const labels: Record<DesktopAction, string> = { check: "Check for updates", download: "Download update", restart: "Restart to update", cancel: "Cancel update", configure: "Download updates automatically", adopt: "Use the desktop service", adoptCancel: "Cancel service change" };
 export type DesktopUpdateView = Status & { detail: string; primary: string | null; action: DesktopAction | null; cancellable: boolean };
 
+/**
+ * An interrupted or transient CHECK is not a failed update. The service persists these codes
+ * (and, from older builds, the raw adapter messages below); none are user-facing copy. Real
+ * failures — verification, disk, a failed install, uncertain recovery — stay in the red state.
+ */
+const interruptedCheckCodes = new Set(["check_unavailable", "check_interrupted"]);
+const interruptedAdapterMessages = new Set([
+  "Verified desktop update adapter is unavailable",
+  "Desktop update adapter closed before successful completion",
+  "Desktop update adapter operation was cancelled",
+  "Desktop update adapter operation timed out",
+]);
+const interruptedCheck = (error: UpdateStatus["error"]) => !!error && (
+  interruptedCheckCodes.has(error.code) ||
+  (error.code === "update_failed" && interruptedAdapterMessages.has(error.message))
+);
+/** Adapter internals are diagnostics, never user-facing copy. Service-authored hints stay visible. */
+const internalAdapterMessage = (message: string) => /^(Verified )?desktop update adapter |^desktop update could not be verified$/i.test(message);
+
 /** Presentation never grants authority: every control still needs an advertised action. */
 export function desktopUpdateView(update: UpdateStatus): DesktopUpdateView {
   const states: Record<UpdateStatus["phase"], [string, Status["tone"], string, string]> = {
@@ -21,10 +40,15 @@ export function desktopUpdateView(update: UpdateStatus): DesktopUpdateView {
     complete: ["Updated", "good", "✓", "The updated app is ready."],
     "rolling-back": ["Restoring the previous version", "warn", "…", "The update couldn't start. Restoring your previous version."],
     restored: ["Previous version restored", "warn", "!", "The update couldn't start. Your previous version has been restored."],
-    error: ["Update needs attention", "bad", "!", update.error?.message || "The update couldn't finish. Check again when you're ready."],
+    error: ["Update needs attention", "bad", "!", update.error?.message && !internalAdapterMessage(update.error.message)
+      ? update.error.message : "The update couldn't finish. Check again when you're ready."],
     "recovery-failed": ["Recovery needs attention", "bad", "!", "An update didn't finish, and pacer couldn't put the previous version back on its own. Your tasks and settings are safe. Keep this app installed and leave the files in your pacer folder as they are: pacer needs them to recover. Quit pacer, then report the problem at github.com/lamtuanvu/pacer/issues."],
   };
   let [label, tone, glyph, detail] = states[update.phase] ?? ["Update status unavailable", "neutral", "?", "Refresh the status or use a compatible desktop app."];
+  // Never render the persisted adapter message: it is internal detail, not an update failure.
+  if (update.phase === "error" && interruptedCheck(update.error)) {
+    [label, tone, glyph, detail] = ["Couldn't check for updates", "neutral", "…", "Pacer couldn't finish the update check. It will try again automatically, or you can check again now."];
+  }
   if (update.ownership === "attached" && update.phase === "idle" && update.actions.length === 0) detail = "This desktop is connected to an externally managed service. Update that service separately.";
   const adoption = update.adoption;
   if (update.ownership === "attached" && adoption && ["available", "cancelled"].includes(adoption.phase) && update.actions.includes("adopt")) {

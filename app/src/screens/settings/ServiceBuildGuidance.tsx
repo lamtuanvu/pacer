@@ -2,6 +2,8 @@ export type BuildDiagnostic = 'unverified' | 'mismatch' | 'legacy' | 'unknown';
 
 /** Fixed desktop-owned copy: service claims are never rendered as markup or authority. */
 export function ServiceBuildGuidance({ diagnostic, connected, serviceVersion }: { diagnostic: BuildDiagnostic; connected: boolean; serviceVersion?: string | null }) {
+  // Claims match and the desktop is connected: there is no ownership or reconciliation problem to report.
+  if (connected && diagnostic === 'unverified') return null;
   const detail = !connected ? 'Reconnecting; the service core descriptor comparison may be out of date.'
     : diagnostic === 'mismatch' ? 'The bundled and service core descriptor claims differ.'
     : diagnostic === 'unverified' ? 'The bundled and service core descriptor claims match.'
