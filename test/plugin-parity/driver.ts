@@ -15,7 +15,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
-import { BUNDLED } from "../../plugins/bundled";
+import { BUNDLED } from "../../src/plugins/bundled";
 
 export interface HelloOptions {
   config?: Record<string, unknown>;
@@ -75,7 +75,7 @@ export interface Transcript {
 }
 
 const repo = resolve(dirname(new URL(import.meta.url).pathname), "..", "..");
-const cli = join(repo, "src", "cli.ts");
+const runner = join(repo, "examples", "plugins", "run.ts");
 
 /** The six features the registry offers every plugin (src/plugins/registry.ts, hello). */
 export const REGISTRY_FEATURES = [
@@ -109,7 +109,7 @@ export function owned(method: string): boolean {
 }
 
 export function tsArgv(id: string): string[] {
-  return [process.execPath, cli, "plugin", "run", id];
+  return [process.execPath, runner, id];
 }
 
 /** `[PACER_TEST_FRONT_DOOR, plugin, run, id]`; null when unset; throws when parity is required. */
@@ -361,7 +361,6 @@ function childEnv(env: Record<string, string | undefined>): Record<string, strin
     PATH: env.PATH ?? "",
     PACER_NO_UPDATE_CHECK: "1",
     TZ: "Asia/Ho_Chi_Minh",
-    PACER_CORE_ARGV: JSON.stringify([process.execPath, cli]),
   };
 }
 

@@ -4,7 +4,7 @@ import { afterEach, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { HostClient } from "@pacer/plugin";
-import { handlers, manifest as notifierManifest } from "../plugins/pacer-notify/index";
+import { handlers, manifest as notifierManifest } from "../examples/plugins/pacer-notify/index";
 import { createCallAuthority, type CallAuthority } from "../src/plugins/authority";
 import { prepareSpawnAuthority } from "../src/plugins/capability-spawn";
 import { answerCapability } from "../src/plugins/host";

@@ -9,10 +9,10 @@ import { cachedFetch } from "../src/usage/cache";
 
 import { writeFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
-import * as byteplus from "../plugins/pacer-usage/byteplus";
-import * as metered from "../plugins/pacer-usage/metered";
-import * as claude from "../plugins/pacer-usage/claude";
-import type { ReaderContext } from "../plugins/pacer-usage/reader-types";
+import * as byteplus from "../examples/plugins/pacer-usage/byteplus";
+import * as metered from "../examples/plugins/pacer-usage/metered";
+import * as claude from "../examples/plugins/pacer-usage/claude";
+import type { ReaderContext } from "../examples/plugins/pacer-usage/reader-types";
 import type { ProviderCfg } from "../src/config/strategy";
 
 const now = 1791633600;
@@ -73,10 +73,10 @@ test("plugin Claude uses host-selected files, newest nonfuture snapshot, and sou
 
 import { readCodex as originalCodex } from "../src/usage/codex";
 import { CursorStore } from "../src/usage/cursors";
-import { readCodex } from "../plugins/pacer-usage/codex";
+import { readCodex } from "../examples/plugins/pacer-usage/codex";
 import { appendFile, stat, readFile, rename } from "node:fs/promises";
 import { join } from "node:path";
-import type { FileInfo } from "../plugins/pacer-usage/reader-types";
+import type { FileInfo } from "../examples/plugins/pacer-usage/reader-types";
 
 function codexContext(ctx: ReturnType<typeof fakeCtx>): ReaderContext {
   const stores = new Map<string, CursorStore<unknown>>();

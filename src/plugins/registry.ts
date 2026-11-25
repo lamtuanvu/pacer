@@ -6,7 +6,7 @@ import {POLICY_CAPABILITY_METHODS, POLICY_OBSERVATIONS_FEATURE, POLICY_REDACTION
 import { plannerBorrow, type PlannerResources } from "./planner-resources";
 import { endpointHttpScopes } from "./endpoint-authority";
 import { prepareCredentialBindings, type CredentialBinding } from "./credential-bindings";
-import { BUNDLED } from "../../plugins/bundled";
+import { BUNDLED } from "./bundled";
 import { EMPTY_PLUGINS, loadStrategy, MissingStrategyError } from "../config/strategy";
 import { validateClassifier, type ClassifierConfig } from "../config/classifier";
 import { classifierCredentialBindings, classifierPluginConfig, classifierSnapshot } from "./classifier-config";

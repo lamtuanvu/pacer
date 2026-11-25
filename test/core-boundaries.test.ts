@@ -23,7 +23,7 @@ test("src/core imports no Orca-specific module (ARCH-4, P8)", () => {
 });
 
 test("the bundled Orca executor imports no host code and builds no Orca argv", () => {
-  const plugin = files(join(import.meta.dir, "..", "plugins", "pacer-exec-orca"));
+  const plugin = files(join(import.meta.dir, "..", "examples", "plugins", "pacer-exec-orca"));
   expect(plugin.length).toBeGreaterThan(0);
   for (const f of plugin) {
     const text = readFileSync(f, "utf8");
@@ -35,8 +35,8 @@ test("the bundled Orca executor imports no host code and builds no Orca argv", (
 
 test("only the plugin host imports the bundled plugin list", () => {
   const src = join(import.meta.dir, "..", "src");
-  const allowed = new Set([join(src, "plugins", "index.ts"), join(src, "plugins", "run.ts"), join(src, "plugins", "registry.ts"), join(src, "core", "plugins.ts")]);
-  const offenders = files(src).filter(f => !allowed.has(f) && /from\s+["'][^"']*\/plugins\/bundled["']/.test(readFileSync(f, "utf8")));
+  const allowed = new Set([join(src, "plugins", "index.ts"), join(src, "plugins", "bundled.ts"), join(src, "plugins", "registry.ts"), join(src, "core", "plugins.ts")]);
+  const offenders = files(src).filter(f => !allowed.has(f) && /plugins\/bundled["']/.test(readFileSync(f, "utf8")));
   expect(offenders).toEqual([]);
 });
 

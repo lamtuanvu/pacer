@@ -3,12 +3,12 @@
  * TypeScript installer so the Rust `tests/fixtures/texts.json` is byte-equal.
  * Run without flags to regenerate, with `--check` to verify.
  */
-import { PACER_SKILL } from "../../plugins/pacer-planners/skill";
-import { codexMcpBlock } from "../../plugins/pacer-planners/codex";
+import { PACER_SKILL } from "../../examples/plugins/pacer-planners/skill";
+import { codexMcpBlock } from "../../examples/plugins/pacer-planners/codex";
 import {
   editClaudeSettings,
   editStatuslineScript,
-} from "../../plugins/pacer-planners/claude";
+} from "../../examples/plugins/pacer-planners/claude";
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 

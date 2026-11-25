@@ -5,16 +5,16 @@ import {
   type InstallEnv,
   type Txn,
 } from "../src/install/txn";
-import type { PlannerBuilder } from "../plugins/pacer-planners/types";
+import type { PlannerBuilder } from "../examples/plugins/pacer-planners/types";
 export {
   installClaude,
   editStatuslineScript,
-} from "../plugins/pacer-planners/claude";
-export { installCodex, codexMcpBlock } from "../plugins/pacer-planners/codex";
-export { installCursor } from "../plugins/pacer-planners/cursor";
+} from "../examples/plugins/pacer-planners/claude";
+export { installCodex, codexMcpBlock } from "../examples/plugins/pacer-planners/codex";
+export { installCursor } from "../examples/plugins/pacer-planners/cursor";
 export { opencodeDir, opencodeConfigPath } from "../src/install/opencode";
 import { opencodeDir } from "../src/install/opencode";
-import { installOpencodeFiles } from "../plugins/pacer-planners/opencode";
+import { installOpencodeFiles } from "../examples/plugins/pacer-planners/opencode";
 /** Legacy in-process transaction oracle for pure installer fixture comparisons only. */
 export async function runInstall(
   env: InstallEnv,
@@ -69,7 +69,7 @@ import {
 import { readInstallFile, writeInstallFile } from "../src/install/atomic";
 import { lstatSync, rmSync } from "node:fs";
 import { preparePlannerUninstallFiles } from "../packages/plugin-sdk/src/install/uninstall";
-import { removeClaudeMcp } from "../plugins/pacer-planners/claude";
+import { removeClaudeMcp } from "../examples/plugins/pacer-planners/claude";
 /** Execute shared SDK file undo against isolated unit fixtures; transport ownership is tested separately. */
 export async function uninstallPlanner(
   ctx: InstallEnv["ctx"],

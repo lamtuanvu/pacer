@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { HostClient } from "@pacer/plugin";
-import { discoverModels } from "../plugins/pacer-endpoints/models";
+import { discoverModels } from "../examples/plugins/pacer-endpoints/models";
 
 const reply = (body: unknown, status = 200) => ({ status, headers: {}, body: JSON.stringify(body) });
 for (const [name, body, expected] of [

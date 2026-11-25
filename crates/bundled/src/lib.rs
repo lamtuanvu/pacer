@@ -4,13 +4,15 @@ use pacer_plugin::Plugin;
 #[derive(Clone, Copy)]
 pub struct Bundled {
     pub id: &'static str,
-    /// The manifest JSON, byte-equal to the TypeScript runtime manifest (test/plugin-parity/manifests.test.ts).
+    /// The manifest JSON, sourced from `plugins-rs/<id>/manifest.json` (the single source of truth).
     pub manifest: &'static str,
-    /// `None`: still TypeScript; `pacer plugin run <id>` execs `pacer-core plugin run <id>`.
+    /// `None`: the row is still TypeScript (`pacer-dev`, out of scope for M3 C13);
+    /// `pacer plugin run <id>` execs `pacer-core plugin run <id>` for it. Every
+    /// shipped row is native.
     pub run: Option<fn() -> Plugin>,
 }
 
-/// Same order as `plugins/bundled.ts:16-38` (without the sibling-executable row).
+/// Same order as `src/plugins/bundled.ts` (without the sibling-executable row).
 /// Kept single-line (`rustfmt::skip`) so `test/plugin-parity/manifests.test.ts`
 /// can parse the ids with `/Bundled \{ id: "([^"]+)"/` as the plan requires.
 #[rustfmt::skip]
@@ -38,13 +40,20 @@ pub fn native(id: &str) -> Option<fn() -> Plugin> {
     find(id).and_then(|b| b.run)
 }
 
+/// True for a known bundled row that has no native runner (currently only
+/// `pacer-dev`). Unknown ids are false: they are not a TypeScript fallback.
+pub fn is_typescript(id: &str) -> bool {
+    find(id).is_some_and(|b| b.run.is_none())
+}
+
 /// (id, manifest JSON) for every bundled row, in table order.
 pub fn manifests() -> impl Iterator<Item = (&'static str, &'static str)> {
     TABLE.iter().map(|b| (b.id, b.manifest))
 }
 
 /// Serve a native bundled plugin on this process's stdio until stdin closes.
-/// `None` when `id` is unknown or still TypeScript. Builds a current-thread tokio runtime.
+/// `None` when `id` is unknown or the one still-TypeScript row. Builds a
+/// current-thread tokio runtime.
 pub fn serve_stdio(id: &str) -> Option<std::io::Result<()>> {
     let run = native(id)?;
     let runtime = match tokio::runtime::Builder::new_current_thread()

@@ -41,7 +41,7 @@ def select(paths):
                 result["e2e"] = True
             if path.startswith("conformance/"):
                 result["rust"] = True
-        elif path.startswith(("plugins/", "packages/")):
+        elif path.startswith(("plugins/", "examples/plugins/", "packages/")):
             result["bun"] = result["rust"] = result["codeql"] = result["e2e"] = True
         elif path.startswith("desktop/"):
             # Native presentation and bundle parity also have Bun tests. Desktop

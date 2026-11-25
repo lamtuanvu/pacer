@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { capabilities, prepare, attachment, delegationControl } from "../plugins/agent-session/index";
+import { capabilities, prepare, attachment, delegationControl } from "../examples/plugins/agent-session/index";
 
 test("delegation adapters describe native blocking paths without certifying them",()=>{
   expect(delegationControl({agent:"claude-code",version:"2.1.281"})).toMatchObject({mechanism:"hook",entryPoints:["Agent","Task"]});
@@ -98,7 +98,7 @@ for (const agent of ["codex", "claude-code", "opencode"]) {
 }
 
 test("identity mechanisms belong to the adapter and never select the latest session", async () => {
-  const {identity} = await import('../plugins/agent-session');
+  const {identity} = await import('../examples/plugins/agent-session');
   expect(identity({agent:'claude-code',version:'2.1.281',taskId:'task'})).toMatchObject({kind:'assigned',id:expect.stringMatching(/^[a-f0-9-]{36}$/)});
   expect(identity({agent:'opencode',version:'2.1.2',taskId:'task'})).toEqual({kind:'command',argv:['opencode','api','--standalone','session.create','--data','{"title":"pacer task","agent":"build"}'],idPath:['data','id']});
   expect(identity({agent:'opencode',version:'2.1.2',taskId:'task',sessionId:'ses_exact'})).toMatchObject({kind:'command',argv:['opencode','api','--standalone','session.get','--param','sessionID=ses_exact'],idPath:['data','id']});

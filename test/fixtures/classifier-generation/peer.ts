@@ -1,5 +1,5 @@
 import { serve, stdinLines } from '../../../packages/plugin-sdk/src/index';
-import { manifest } from '../../../plugins/pacer-classify/manifest';
+import { manifest } from '../../../examples/plugins/pacer-classify/manifest';
 let hello: unknown;
 async function* input() {
   for await (const line of stdinLines()) {

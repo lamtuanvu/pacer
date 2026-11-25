@@ -3,7 +3,7 @@ import { unavailableFilesystem } from "./fixtures/unavailable-filesystem";
 import { expect, test, spyOn } from 'bun:test';
 import { PluginError } from '@pacer/plugin';
 import type { HostClient } from '@pacer/plugin';
-import { handlers, manifest } from '../plugins/pacer-notify';
+import { handlers, manifest } from '../examples/plugins/pacer-notify';
 const note = { key: 'task:owned:1', title: 'Task done', body: 'fix login', url: '/app/#/review/owned' };
 interface Spawn { code: number; stdout?: string; stderr?: string; timedOut?: boolean }
 function fixture(platform: unknown = 'darwin', spawn: (params: any) => Promise<Spawn> = async () => ({ code: 0, stdout: '', stderr: '', timedOut: false })) {

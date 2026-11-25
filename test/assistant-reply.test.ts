@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { BUNDLED } from "../plugins/bundled";
+import { BUNDLED } from "../src/plugins/bundled";
 import { createCallAuthority } from "../src/plugins/authority";
 import { answerCapability, pluginLogPath } from "../src/plugins/host";
 import { bundledPluginSpawn, pluginRegistry } from "../src/plugins/index";

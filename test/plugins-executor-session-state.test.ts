@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { manifest } from "../plugins/pacer-exec-direct/manifest";
+import { manifest } from "../examples/plugins/pacer-exec-direct/manifest";
 import { answerDetachedInspect } from "../src/plugins/capability-detached-inspect";
 import { createCallAuthority } from "../src/plugins/authority";
 import { inspectOwnedExecutorSession } from "../src/plugins/executor-session-state";
@@ -28,8 +28,8 @@ function fixture() {
       mode: "current", workdir: home, logFile: join(dir, "stdout") };
   });
   const registry = new PluginRegistry({ bundled: [{ manifest: manifestSchema.parse(manifest),
-    main: () => import("../plugins/pacer-exec-direct/index") }],
-  spawnBundled: () => ({ argv: [process.execPath, join(import.meta.dir, "../plugins/pacer-exec-direct/index.ts")], cwd: home, env: ctx.env }) });
+    main: () => import("../examples/plugins/pacer-exec-direct/index") }],
+  spawnBundled: () => ({ argv: [process.execPath, join(import.meta.dir, "../examples/plugins/pacer-exec-direct/index.ts")], cwd: home, env: ctx.env }) });
   return { home, ctx, task, dir, registry };
 }
 

@@ -1,13 +1,12 @@
 /**
- * Manifest generator for the Rust bundled plugin table (M3 C0a).
+ * Manifest parity check for the bundled plugin table (M3 C13).
  *
- * Imports the TypeScript runtime BUNDLED rows and writes each manifest as
- * pretty-printed JSON + "\n", byte-equal to what test/plugin-parity
- * reads. Targets `plugins-rs/<id>/manifest.json` once that directory exists
- * (i.e. after the plugin is ported), otherwise `crates/bundled/manifests/`.
- * Never hand-edit the generated files; run this script (or its --check form).
+ * The JSON files are now the source of truth; this script keeps serving the
+ * `--check` form used by the slice acceptance command. It compares each
+ * BUNDLED row's manifest with its `plugins-rs/<id>/manifest.json` (or the
+ * remaining `crates/bundled/manifests/` fallback for pacer-dev).
  */
-import { BUNDLED } from "../../plugins/bundled";
+import { BUNDLED } from "../../src/plugins/bundled";
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 

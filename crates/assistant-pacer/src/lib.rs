@@ -15,7 +15,7 @@ pub use reply::{plugin, reply};
 use pacer_plugin::Manifest;
 
 /// Manifest for the bundled native plugin. Single source of truth: `manifest.json` next to this crate
-/// (also imported by `plugins/bundled.ts`).
+/// (also imported by `src/plugins/bundled.ts`).
 pub fn manifest() -> Manifest {
     match serde_json::from_str(include_str!("../manifest.json")) {
         Ok(value) => Manifest(value),

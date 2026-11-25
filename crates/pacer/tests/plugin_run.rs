@@ -28,24 +28,123 @@ fn expected_bin() -> String {
 }
 
 #[test]
-fn plugin_run_runs_in_rust_and_hands_the_id_to_core() {
+fn plugin_run_hands_only_the_typescript_fallback_to_core() {
     let dir = tempfile::tempdir().unwrap();
     let mut cmd = pacer();
     cmd.env(
         "PACER_CORE_ARGV",
         serde_json::to_string(&[fake_core(&dir), "prefix".to_string()]).unwrap(),
     );
-    // pacer-planners is still TypeScript; the Rust front door must hand it to
-    // pacer-core, which the fake core here stubs out (exit 7).
-    let o = cmd
-        .args(["plugin", "run", "pacer-planners"])
-        .output()
-        .unwrap();
+    // pacer-dev is the one bundled row with no Rust port yet; it keeps the
+    // narrow core fallback. Every shipped row is served natively instead.
+    let o = cmd.args(["plugin", "run", "pacer-dev"]).output().unwrap();
     assert_eq!(o.status.code(), Some(7));
     assert_eq!(
         String::from_utf8(o.stdout).unwrap(),
-        format!("prefix|plugin|run|pacer-planners|BIN={}|", expected_bin())
+        format!("prefix|plugin|run|pacer-dev|BIN={}|", expected_bin())
     );
+}
+
+#[test]
+fn unknown_bundled_id_exits_2_with_message() {
+    // No core argv and no pacer-core beside the binary: an unknown id must be
+    // answered by the front door itself, not forwarded to a TypeScript core.
+    let o = pacer()
+        .args(["plugin", "run", "not-a-bundled-plugin"])
+        .output()
+        .unwrap();
+    assert_eq!(o.status.code(), Some(2));
+    assert_eq!(String::from_utf8(o.stdout).unwrap(), "");
+    assert_eq!(
+        String::from_utf8(o.stderr).unwrap(),
+        "pacer: no bundled plugin not-a-bundled-plugin\n"
+    );
+}
+
+/// Send one `plugin.hello` to a native bundled plugin with no core argv and no
+/// pacer-core beside the binary. The front door answers it entirely in Rust.
+fn hello_without_core(id: &str) -> serde_json::Value {
+    let manifest: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(format!(
+            "{}/../../plugins-rs/{id}/manifest.json",
+            env!("CARGO_MANIFEST_DIR")
+        ))
+        .unwrap(),
+    )
+    .unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let offer = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "plugin.hello",
+        "params": {
+            "protocol": "1.11.0",
+            "features": [
+                "chunkedResults", "httpBodyChunks", "fileWriteChunks",
+                "plannerInstallTransactions", "policyObservations", "policyRedactionMetadata"
+            ],
+            "pacer": "0.0.0-test",
+            "manifest": manifest,
+            "config": {},
+            "grants": []
+        }
+    });
+    let mut child = Command::new(env!("CARGO_BIN_EXE_pacer"))
+        .env_clear()
+        .env("HOME", dir.path())
+        .env("PACER_HOME", dir.path().join(".pacer"))
+        .env("PATH", "/usr/bin:/bin")
+        .args(["plugin", "run", id])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    {
+        use std::io::Write;
+        let mut stdin = child.stdin.take().unwrap();
+        stdin.write_all(offer.to_string().as_bytes()).unwrap();
+        stdin.write_all(b"\n").unwrap();
+        drop(stdin);
+    }
+    let output = child.wait_with_output().unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let line = stdout
+        .lines()
+        .find(|l| l.contains(&format!("\"id\":\"{id}\"")))
+        .unwrap_or_else(|| panic!("hello reply missing for {id}; stdout:\n{stdout}"));
+    serde_json::from_str(line).unwrap()
+}
+
+#[test]
+fn plugin_run_needs_no_core() {
+    let ids = [
+        "pacer-planners",
+        "pacer-endpoints",
+        "pacer-notify",
+        "pacer-classify",
+        "pacer-usage",
+        "pacer-agent-session",
+        "pacer-assistant",
+        "assistant-executor",
+        "pacer-ssh",
+        "pacer-remote-caller",
+        "pacer-exec-direct",
+        "pacer-exec-orca",
+    ];
+    let binary = env!("CARGO_BIN_EXE_pacer");
+    let sibling = std::path::Path::new(binary).with_file_name("pacer-core");
+    assert!(!sibling.exists(), "fixture must not stage a pacer-core");
+    for id in ids {
+        let reply = hello_without_core(id);
+        assert_eq!(reply["result"]["id"], id);
+    }
 }
 
 #[test]

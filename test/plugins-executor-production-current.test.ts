@@ -9,7 +9,7 @@ import { issueOwnedWorktreeGrant } from "../src/plugins/executor-worktree";
 import { createCallAuthority } from "../src/plugins/authority";
 import { answerCapability } from "../src/plugins/host";
 import { answerDetachedStop } from "../src/plugins/capability-detached-stop";
-import { manifest as directManifest } from "../plugins/pacer-exec-direct/manifest";
+import { manifest as directManifest } from "../examples/plugins/pacer-exec-direct/manifest";
 import { manifestSchema } from "../src/plugins/protocol";
 
 const parsedDirectManifest = manifestSchema.parse(directManifest);

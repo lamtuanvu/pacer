@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { manifest as sshManifest } from "../plugins/pacer-ssh/manifest";
+import { manifest as sshManifest } from "../examples/plugins/pacer-ssh/manifest";
 import { holdOwnerKey } from "../src/plugins/host-bridge";
 import { issueConfiguredHostPrepare } from "../src/plugins/host-prepare-issuer";
 import { issueConfiguredHostReport } from "../src/plugins/host-report-issuer";
@@ -17,7 +17,7 @@ import { front, makeHome, ownerOn, serve, type Home } from "./native-plugin-door
 // (STOP, REPORT, host check) and the remote stop run under flag-on exactly as flag-off. Staged-input
 // legs stay refused flag-on because the native process owner bridge does not carry a staged command.
 
-const cli = join(import.meta.dir, "..", "src", "cli.ts");
+const runner = join(import.meta.dir, "..", "examples", "plugins", "run.ts");
 const cleanups: (() => Promise<unknown> | void)[] = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
 
@@ -26,8 +26,8 @@ const SSH = (log: string) => `#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\nnonce=
 
 function deps() {
   return {
-    bundled: [{ manifest: manifestSchema.parse(sshManifest), main: () => import("../plugins/pacer-ssh/index") }],
-    spawnBundled: () => ({ argv: [process.execPath, cli, "plugin", "run", "pacer-ssh"], cwd: process.cwd(), env: {} }),
+    bundled: [{ manifest: manifestSchema.parse(sshManifest), main: () => import("../examples/plugins/pacer-ssh/index") }],
+    spawnBundled: () => ({ argv: [process.execPath, runner, "pacer-ssh"], cwd: process.cwd(), env: {} }),
   };
 }
 

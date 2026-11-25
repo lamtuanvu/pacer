@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { handlers } from "../plugins/pacer-ssh/index";
-import { sessionPipeArgv } from "../plugins/pacer-ssh/probe";
+import { handlers } from "../examples/plugins/pacer-ssh/index";
+import { sessionPipeArgv } from "../examples/plugins/pacer-ssh/probe";
 import type { HostClient } from "@pacer/plugin";
 
 const runDir = "/home/test/.pacer-remote/runs/t-20261027-010000-abcd/1";

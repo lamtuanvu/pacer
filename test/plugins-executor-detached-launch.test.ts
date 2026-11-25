@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { manifest } from "../plugins/pacer-exec-direct/manifest";
+import { manifest } from "../examples/plugins/pacer-exec-direct/manifest";
 import { fakeCtx } from "./helpers";
 import { PluginRegistry } from "../src/plugins/registry";
 import { manifestSchema } from "../src/plugins/protocol";
@@ -28,8 +28,8 @@ const fixture = () => {
     requestedExecutor: "codex", timeoutS: 60 });
   updateTask(ctx, task.id, value => { value.state = "running"; value.executor = "codex"; value.executorProvider = "pacer-exec-direct"; });
   const registry = new PluginRegistry({ bundled: [{ manifest: manifestSchema.parse(manifest),
-    main: () => import("../plugins/pacer-exec-direct/index") }],
-  spawnBundled: () => ({ argv: [process.execPath, join(import.meta.dir, "../plugins/pacer-exec-direct/index.ts")], cwd: home, env: ctx.env }) });
+    main: () => import("../examples/plugins/pacer-exec-direct/index") }],
+  spawnBundled: () => ({ argv: [process.execPath, join(import.meta.dir, "../examples/plugins/pacer-exec-direct/index.ts")], cwd: home, env: ctx.env }) });
   return { home, ctx, task, registry };
 };
 

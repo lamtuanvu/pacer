@@ -32,7 +32,7 @@ import {
   SESSION_PIPE_SCRIPT,
   QUESTION_SCRIPT,
   CODEX_USAGE_SCRIPT,
-} from "../../plugins/pacer-ssh/probe";
+} from "../../examples/plugins/pacer-ssh/probe";
 
 const repoRoot = resolve(import.meta.dir, "..", "..");
 const fixture = resolve(repoRoot, "plugins-rs", "pacer-ssh", "tests", "fixtures", "scripts.json");

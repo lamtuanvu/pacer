@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { callOp } from "../src/api/ops";
 import { toApiError } from "../src/api/protocol";
 import { KINDS } from "../src/config/strategy";
-import { BUNDLED } from "../plugins/bundled";
+import { BUNDLED } from "../src/plugins/bundled";
 import { shutdownPlugins, pluginRegistry } from "../src/plugins";
 import { canAutoDecide } from "../src/workflow/auto";
 import { startRun, defaultEngineDeps } from "../src/workflow/engine";

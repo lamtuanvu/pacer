@@ -27,7 +27,7 @@ test('canonical protocol negotiates notifier delivery and accepts notifier manif
   expect(manifestSchema.safeParse({id:'pacer-notify',version:'0.1.0',publisher:'pacer',host:'>=1.6.0',contributes:{notifier:{kinds:['os']}}}).success).toBe(true);
 });
 
-import { BUNDLED } from '../plugins/bundled';
+import { BUNDLED } from '../src/plugins/bundled';
 test('notifier is present in the compiled bundle catalog', () => {
   expect(BUNDLED.find(b => b.manifest.id === 'pacer-notify')?.manifest.contributes.notifier).toEqual({kinds:['os']});
 });

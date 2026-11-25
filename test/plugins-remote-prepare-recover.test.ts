@@ -11,7 +11,7 @@ import { pluginRegistry } from "../src/plugins";
 import { admitOwnedRemotePrepare } from "../src/plugins/executor-remote-prepare";
 import { answerOwnedRemotePrepare } from "../src/plugins/executor-remote-prepare-host";
 import { createCallAuthority } from "../src/plugins/authority";
-import { manifest as directManifest } from "../plugins/pacer-exec-direct/manifest";
+import { manifest as directManifest } from "../examples/plugins/pacer-exec-direct/manifest";
 import { manifestSchema } from "../src/plugins/protocol";
 import { answerOwnedRemoteClaim } from "../src/plugins/executor-remote-claim";
 import { answerOwnedRemoteStart, answerOwnedRemotePoll, answerOwnedRemoteOutput,

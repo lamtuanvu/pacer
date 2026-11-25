@@ -29,6 +29,8 @@ export async function pluginsCmd(args: string[], ctx: Ctx): Promise<Result> {
   const [verb, ...rest] = args;
   if (verb !== undefined && ORCA_VERBS.includes(verb)) return pluginCli(args, ctx);
   try {
+    // Narrow fallback for the one still-TypeScript bundled plugin (pacer-dev).
+    // Every shipped row is served by the Rust `plugin run` door before it gets here.
     if (verb === "run") {
       if (rest.length !== 1) return { code: 2, out: "", err: "usage: pacer plugin run <id>" };
       const code = await runBundledPlugin(rest[0]);

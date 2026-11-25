@@ -5,7 +5,7 @@ import { createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { HostClient } from "../packages/plugin-sdk/src";
-import { BUNDLED } from "../plugins/bundled";
+import { BUNDLED } from "../src/plugins/bundled";
 import { discoverEndpointModels, endpointLaunchSettings } from "../src/plugins/endpoint-adapter";
 import { relayOwner, type Relay } from "./fixtures/native-owner-relay";
 import { authed, ownerKey } from "./fixtures/owner-auth";
@@ -654,7 +654,7 @@ test("flag-on refuses hosts resources and oversized frames without dialing", asy
 });
 
 const endpoints = BUNDLED.find(plugin => plugin.manifest.id === "pacer-endpoints")!;
-const endpointScript = join(import.meta.dir, "..", "plugins", "pacer-endpoints", "index.ts");
+const endpointScript = join(import.meta.dir, "..", "examples", "plugins", "pacer-endpoints", "index.ts");
 // Answers hello and endpoint.launchEnv with `reply`, its @HOME@ replaced by the call's pacerHome.
 const launchScript = (reply: unknown) => `const reply=${JSON.stringify(JSON.stringify(reply))};const r=Bun.stdin.stream().getReader();let b='';const send=x=>console.log(JSON.stringify({jsonrpc:'2.0',...x}));for(;;){const {value,done}=await r.read();if(done)break;b+=new TextDecoder().decode(value);while(b.includes('\\n')){const i=b.indexOf('\\n'),m=JSON.parse(b.slice(0,i));b=b.slice(i+1);if(m.method==='plugin.hello')send({id:m.id,result:{protocol:m.params.protocol,id:'pacer-endpoints',version:m.params.manifest.version,contributes:['endpoint']}});else if(m.method==='endpoint.launchEnv')send({id:m.id,result:JSON.parse(reply.replaceAll('@HOME@',m.params.pacerHome))});}}`;
 const accounts = {

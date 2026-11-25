@@ -3,7 +3,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdirSync, readFileSync, statSync, writeFileSync, existsSync, chmodSync } from "node:fs";
 import { join } from "node:path";
 import { loadStrategy } from "../src/config/strategy";
-import { renderOpencodeConfig as renderPluginConfig } from "../plugins/pacer-endpoints/opencode-config";
+import { renderOpencodeConfig as renderPluginConfig } from "../examples/plugins/pacer-endpoints/opencode-config";
 import { projectEndpointAccounts, writeEndpointConfig } from "../src/plugins/endpoint-adapter";
 const renderOpencodeConfig = (strategy: ReturnType<typeof loadStrategy>) => renderPluginConfig(projectEndpointAccounts(strategy.accounts));
 const writeOpencodeConfig = (ctx: ReturnType<typeof fakeCtx>) => writeEndpointConfig(ctx, loadStrategy(ctx).accounts);

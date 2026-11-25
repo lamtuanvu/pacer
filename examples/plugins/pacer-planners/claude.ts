@@ -9,7 +9,7 @@ import {
   shellCommand,
   type UndoOp,
 } from "@pacer/plugin/install";
-import { InstallError } from "../../packages/plugin-sdk/src/install/plan";
+import { InstallError } from "../../../packages/plugin-sdk/src/install/plan";
 import { installSkill } from "./skill";
 import { policyText } from "./policy";
 import type { PlannerBuilder } from "./types";

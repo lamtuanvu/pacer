@@ -7,7 +7,7 @@ import { manifestSchema } from "../src/plugins/protocol";
 import { afterEach, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { jevClassifier, jevRequest, mapJevAnswer } from "../plugins/pacer-classify/jev";
+import { jevClassifier, jevRequest, mapJevAnswer } from "../examples/plugins/pacer-classify/jev";
 import { readSecrets, secret } from "../src/classify/secrets";
 import type { Question } from "../src/classify/types";
 import { fakeCtx } from "./helpers";

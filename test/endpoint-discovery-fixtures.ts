@@ -1,6 +1,6 @@
 /** Test-only fetch adapter for pure endpoint plugin behavior; never a runtime fallback. */
 import { PluginError } from "@pacer/plugin";
-import { discoverModels as pluginDiscover } from "../plugins/pacer-endpoints/models";
+import { discoverModels as pluginDiscover } from "../examples/plugins/pacer-endpoints/models";
 import type { Ctx } from "../src/types";
 export type FakeDiscoveryFetch = (url: string, init?: RequestInit) => Promise<Response>;
 export function discoveryFromFetch(request: FakeDiscoveryFetch = fetch) {

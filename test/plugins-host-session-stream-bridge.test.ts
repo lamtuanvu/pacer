@@ -16,7 +16,7 @@ test("host streams one persisted full-session run through the bundled provider",
   mkdirSync(providerDir, { recursive: true }); mkdirSync(bin, { recursive: true });
   symlinkSync(join(import.meta.dir, "..", "node_modules"), join(home, "node_modules"), "dir");
   for (const file of ["index.ts", "manifest.ts", "probe.ts", "session-stream.ts", "pacer-plugin.json"])
-    copyFileSync(join(import.meta.dir, "..", "plugins", "pacer-ssh", file), join(providerDir, file));
+    copyFileSync(join(import.meta.dir, "..", "examples", "plugins", "pacer-ssh", file), join(providerDir, file));
   chmodSync(join(providerDir, "index.ts"), 0o755);
   writeFileSync(ssh, "#!/bin/sh\nprintf '__PACER_BEGIN__\\nviewer output'\n", { mode: 0o755 });
   writeFileSync(join(pacerHome, "strategy.yaml"),
@@ -72,7 +72,7 @@ test("viewer cancellation retires the pinned SSH child without a direct fallback
   mkdirSync(providerDir, { recursive: true }); mkdirSync(bin, { recursive: true });
   symlinkSync(join(import.meta.dir, "..", "node_modules"), join(home, "node_modules"), "dir");
   for (const file of ["index.ts", "manifest.ts", "probe.ts", "session-stream.ts", "pacer-plugin.json"])
-    copyFileSync(join(import.meta.dir, "..", "plugins", "pacer-ssh", file), join(providerDir, file));
+    copyFileSync(join(import.meta.dir, "..", "examples", "plugins", "pacer-ssh", file), join(providerDir, file));
   chmodSync(join(providerDir, "index.ts"), 0o755);
   writeFileSync(ssh, `#!/bin/sh\nprintf '%s' "$$" > '${pidFile}'\nexec sleep 30\n`, { mode: 0o755 });
   writeFileSync(join(pacerHome, "strategy.yaml"),
@@ -108,7 +108,7 @@ test("viewer streams use their own pool and never starve ordinary plugin calls",
   mkdirSync(providerDir, { recursive: true }); mkdirSync(bin, { recursive: true }); mkdirSync(pids);
   symlinkSync(join(import.meta.dir, "..", "node_modules"), join(home, "node_modules"), "dir");
   for (const file of ["index.ts", "manifest.ts", "probe.ts", "session-stream.ts", "pacer-plugin.json"])
-    copyFileSync(join(import.meta.dir, "..", "plugins", "pacer-ssh", file), join(providerDir, file));
+    copyFileSync(join(import.meta.dir, "..", "examples", "plugins", "pacer-ssh", file), join(providerDir, file));
   chmodSync(join(providerDir, "index.ts"), 0o755);
   writeFileSync(ssh, `#!/bin/sh\n: > '${pids}/'"$$"\nexec sleep 30\n`, { mode: 0o755 });
   writeFileSync(join(pacerHome, "strategy.yaml"),

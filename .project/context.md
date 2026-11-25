@@ -14,13 +14,13 @@ pacer paces AI coding work across subscription budgets. A planner plans and revi
 | `src/api/` | Versioned protocol (`protocol.ts`, now 3.0.0), operation registry (`ops.ts`), HTTP and stdio JSON-RPC transports, `v2-compat` adapter, read model |
 | `src/serve/`, `src/service/` | The local service: HTTP/SSE/WebSocket, app auth and panel. Installed under launchd or as a systemd user unit. |
 | `src/core/`, `src/engine/`, `src/tasks/`, `src/strategy/`, `src/config/` | Domain core: ranking, slots, verdicts, tasks, strategy and config. `CoreError` lives in `src/core/errors.ts`. |
-| `src/usage/` | Usage broker: cache, aggregation, auth/exhausted marks and remote merge; quota and metered readers live in `plugins/pacer-usage/` |
+| `src/usage/` | Usage broker: cache, aggregation, auth/exhausted marks and remote merge; quota and metered readers live in `plugins-rs/pacer-usage/` (native) with the reference source in `examples/plugins/pacer-usage/` |
 | `src/attention/`, `src/activity/`, `src/notify/`, `src/jobs/` | Attention, activity log (JSONL, mode 0600), notifications (host policy/ledger, notifier plugin delivery), jobs |
 | `src/exec/`, `src/supervisor/`, `src/remote/`, `src/session/` | Execution backends (direct, Orca), supervised runs and worktrees, SSH remote hosts, PTY live sessions |
-| `src/endpoints/`, `src/install/`, `src/mcp/`, `src/update/` | Endpoint account/key/state adapters (vendor behavior lives in `plugins/pacer-endpoints/`), planner hook installers, MCP server, self-update |
+| `src/endpoints/`, `src/install/`, `src/mcp/`, `src/update/` | Endpoint account/key/state adapters (vendor behavior lives in `plugins-rs/pacer-endpoints/` (native) with the reference source in `examples/plugins/pacer-endpoints/`), planner hook installers, MCP server, self-update |
 | `src/dashboard/`, `src/render/`, `src/view-model/` | TUI, status line and tables, shared view vocabulary |
 | `src/plugins/` | Plugin host: protocol schemas, manifest, registry and lifecycle, stdio subprocess transport, capability broker, `pacer plugin run` |
-| `plugins/` | Bundled reference plugins (`plugins/bundled.ts`), compiled into the binary |
+| `plugins-rs/`, `examples/plugins/` | Native bundled plugin implementations (`plugins-rs/<id>/`, table in `crates/bundled/src/lib.rs`); the TypeScript sources stay as SDK examples in `examples/plugins/` (parity reference, not shipped). `plugins/` retains only non-bundled items (`orca-panel`, `pacer-dev`, publishers). |
 | `packages/plugin-sdk/` | `@pacer/plugin`, the plugin-side runtime (bun workspace) |
 | `conformance/` | Host-neutral plugin conformance suite and fixture plugins; run by `test/plugin-conformance.test.ts` |
 | `src/link/`, `src/console/` | Remnants of the transport retired in 3.0 (see open decisions) |

@@ -2,7 +2,7 @@ import { test, expect, afterEach } from 'bun:test';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { BUNDLED } from '../plugins/bundled';
+import { BUNDLED } from '../src/plugins/bundled';
 import { PluginRegistry } from '../src/plugins/registry';
 import { validateClassifier } from '../src/config/classifier';
 import type { CallAuthority } from '../src/plugins/authority';

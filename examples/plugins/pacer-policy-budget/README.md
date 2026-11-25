@@ -9,11 +9,11 @@ Use Pacer protocol 1.6 with negotiated observation support and Bun on `PATH`.
 From this repository after installing its dependencies:
 
 ```sh
-bun run plugins/examples/pacer-policy-budget/build.ts
+bun run examples/plugins/pacer-policy-budget/build.ts
 pacer_example_home="${PACER_HOME:-$HOME/.pacer}"
 mkdir -p "$pacer_example_home/plugins/pacer-policy-budget/dist"
-cp plugins/examples/pacer-policy-budget/pacer-plugin.json "$pacer_example_home/plugins/pacer-policy-budget/"
-cp plugins/examples/pacer-policy-budget/dist/main.js "$pacer_example_home/plugins/pacer-policy-budget/dist/"
+cp examples/plugins/pacer-policy-budget/pacer-plugin.json "$pacer_example_home/plugins/pacer-policy-budget/"
+cp examples/plugins/pacer-policy-budget/dist/main.js "$pacer_example_home/plugins/pacer-policy-budget/dist/"
 chmod +x "$pacer_example_home/plugins/pacer-policy-budget/dist/main.js"
 pacer plugin enable pacer-policy-budget --yes
 pacer plugin doctor pacer-policy-budget --json

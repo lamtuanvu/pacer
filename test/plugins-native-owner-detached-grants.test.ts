@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { manifest } from "../plugins/pacer-exec-direct/manifest";
+import { manifest } from "../examples/plugins/pacer-exec-direct/manifest";
 import type { CoreError } from "../src/core/errors";
 import { inspectOwnedExecutorSession } from "../src/plugins/executor-session-state";
 import { stopOwnedExecutorAttempt } from "../src/plugins/executor-stop";
@@ -13,7 +13,7 @@ import { createTask, readTask, updateTask } from "../src/tasks/store";
 import { relayOwner, type Relay } from "./fixtures/native-owner-relay";
 import { fakeCtx } from "./helpers";
 
-const direct = join(import.meta.dir, "..", "plugins", "pacer-exec-direct", "index.ts");
+const direct = join(import.meta.dir, "..", "examples", "plugins", "pacer-exec-direct", "index.ts");
 // Answers hello as the direct executor, then each call by sending every capability request in turn (with @TASK@ the
 // call's own task) under the call's capability metadata, writing what it got to `file`, and replying with `reply`.
 const askScript = (template: [string, unknown][], file: string, reply: unknown) => `const template=${JSON.stringify(JSON.stringify(template))},file=${JSON.stringify(file)},reply=${JSON.stringify(reply)};const r=Bun.stdin.stream().getReader();let b='';const send=x=>console.log(JSON.stringify({jsonrpc:'2.0',...x}));let call,meta,asks=[],answers=[];const ask=()=>{if(answers.length<asks.length)return send({id:900+answers.length,method:asks[answers.length][0],params:asks[answers.length][1],...(meta?{_meta:meta}:{})});require('node:fs').writeFileSync(file,JSON.stringify(answers));send({id:call,result:reply});};for(;;){const {value,done}=await r.read();if(done)break;b+=new TextDecoder().decode(value);while(b.includes('\\n')){const i=b.indexOf('\\n'),m=JSON.parse(b.slice(0,i));b=b.slice(i+1);if(m.method==='plugin.hello')send({id:m.id,result:{protocol:m.params.protocol,id:'pacer-exec-direct',version:m.params.manifest.version,contributes:['executor']}});else if(m.method&&m.id!==undefined){call=m.id;meta=m._meta;asks=JSON.parse(template.replaceAll('@TASK@',m.params.taskId));answers=[];ask();}else if(m.id>=900){answers.push(m.error?{code:m.error.data?.code,message:m.error.message}:{value:m.result});ask();}}}`;
@@ -40,7 +40,7 @@ async function fixture(flag: boolean, asks?: [string, unknown][], reply?: unknow
   });
   const answers = join(home, "answers.json");
   const argv = asks ? [process.execPath, "-e", askScript(asks, answers, reply)] : [process.execPath, direct];
-  const registry = new PluginRegistry({ bundled: [{ manifest: manifestSchema.parse(manifest), main: () => import("../plugins/pacer-exec-direct/index") }],
+  const registry = new PluginRegistry({ bundled: [{ manifest: manifestSchema.parse(manifest), main: () => import("../examples/plugins/pacer-exec-direct/index") }],
     spawnBundled: () => ({ argv, cwd: home, env: { PATH: env.PATH } }), eventPumpMs: 0 });
   const relay: Relay | undefined = flag ? await relayOwner(path) : undefined;
   cleanups.push(async () => {

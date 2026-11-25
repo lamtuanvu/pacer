@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, s
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fakeCtx } from "./helpers";
-import { manifest } from "../plugins/pacer-exec-direct/manifest";
+import { manifest } from "../examples/plugins/pacer-exec-direct/manifest";
 import { PluginRegistry } from "../src/plugins/registry";
 import { manifestSchema } from "../src/plugins/protocol";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
@@ -21,8 +21,8 @@ test("owned direct plugin call executes only the exact host-issued local process
   const task = createTask(ctx, { brief: { goal: "fixture", repo: home }, kind: null,
     requestedExecutor: "codex", timeoutS: 60 });
   updateTask(ctx, task.id, t => { t.state = "running"; t.executor = "codex"; t.executorProvider = "pacer-exec-direct"; });
-  const registry = new PluginRegistry({ bundled: [{ manifest: manifestSchema.parse(manifest), main: () => import("../plugins/pacer-exec-direct/index") }],
-    spawnBundled: () => ({ argv: [process.execPath, join(import.meta.dir, "../plugins/pacer-exec-direct/index.ts")], cwd: home, env: ctx.env }) });
+  const registry = new PluginRegistry({ bundled: [{ manifest: manifestSchema.parse(manifest), main: () => import("../examples/plugins/pacer-exec-direct/index") }],
+    spawnBundled: () => ({ argv: [process.execPath, join(import.meta.dir, "../examples/plugins/pacer-exec-direct/index.ts")], cwd: home, env: ctx.env }) });
   try {
     const marker = join(home, "effect.txt");
     const argv = ["bun", "-e", `await Bun.write(${JSON.stringify(marker)}, "ran"); process.stdout.write("owned stdout\\n"); process.stderr.write("owned stderr\\n")`];
