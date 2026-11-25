@@ -528,8 +528,15 @@ orca.plugin.on('pacer.changed', (e: { snapshot: PanelSnapshot }) => {
   dispatch({ type: 'snapshot', snapshot: e.snapshot })
 })
 
-void orca.plugin.request('pacer.snapshot').then((snap: PanelSnapshot) => {
-  dispatch({ type: 'snapshot', snapshot: snap })
-}).catch(() => dispatch({ type: 'load-error' }))
+// The worker can be restarting (reinstall, update); keep asking until it answers, as the card promises.
+function loadSnapshot(): void {
+  orca.plugin.request('pacer.snapshot').then((snap: PanelSnapshot) => {
+    dispatch({ type: 'snapshot', snapshot: snap })
+  }).catch(() => {
+    dispatch({ type: 'load-error' })
+    setTimeout(loadSnapshot, 3000)
+  })
+}
+loadSnapshot()
 
 export {}
