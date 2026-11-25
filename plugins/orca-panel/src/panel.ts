@@ -142,8 +142,10 @@ function renderHeader(snapshot: PanelSnapshot): HTMLElement {
 function renderNeedsRow(item: AttentionRow, model: Extract<ReturnType<typeof panelModel>, { kind: 'ready' }>, now: number): HTMLElement {
   const isOpen = state.ui.expandedTaskId === `need:${item.id}`
   const row = el('div', 'pc-needs-row')
+  row.dataset.row = `need:${item.id}`
   const btn = el('button', 'row')
   btn.type = 'button'
+  btn.dataset.focus = 'toggle'
   btn.setAttribute('aria-expanded', isOpen ? 'true' : 'false')
   btn.addEventListener('click', () => dispatch({ type: 'toggle-task', id: isOpen ? null : `need:${item.id}` }))
   const glyph = el('span', undefined, '◐')
@@ -176,7 +178,8 @@ function renderNeedsRow(item: AttentionRow, model: Extract<ReturnType<typeof pan
       } }))
       actions.append(button('Reject', { size: 'sm', onClick: () => {
         const pendingKey = `att:${item.id}:reject`
-        dispatch({ type: 'ask-confirm', confirm: { key: pendingKey, text: 'Reject this result?', confirmLabel: 'Reject it', cancelLabel: 'Keep it', successText: 'Rejected', run: { kind: 'act', op: 'task.review', params: { id: taskId, verdict: 'reject', ...(expect != null ? { expect_rev: expect } : {}) }, pendingKey } } })
+        const who = executorShortLabel(item.executor) ?? 'The executor'
+        dispatch({ type: 'ask-confirm', confirm: { key: pendingKey, text: `Reject this result? ${who} is told it was rejected; the worktree stays for a retry.`, confirmLabel: 'Reject it', cancelLabel: 'Keep it', successText: 'Rejected', run: { kind: 'act', op: 'task.review', params: { id: taskId, verdict: 'reject', ...(expect != null ? { expect_rev: expect } : {}) }, pendingKey } } })
       } }))
     }
     // service actions
@@ -188,16 +191,36 @@ function renderNeedsRow(item: AttentionRow, model: Extract<ReturnType<typeof pan
       } }))
     }
     detail.append(actions)
+    const confirmBox = renderConfirm(`att:${item.id}:`)
+    if (confirmBox) detail.append(confirmBox)
     row.append(detail)
   }
   return row
 }
 
+/** The in-row confirm (Stop, Reject) for the pending action whose key starts with `prefix`. */
+function renderConfirm(prefix: string): HTMLElement | null {
+  const confirm = state.ui.confirm
+  if (!confirm || !confirm.key.startsWith(prefix)) return null
+  const box = el('div', undefined)
+  box.style.cssText = 'display:flex;flex-direction:column;gap:8px;padding:10px 12px;border-radius:8px;background:var(--surface-lane);'
+  box.append(el('p', undefined, confirm.text))
+  ;(box.lastChild as HTMLElement).style.margin = '0'
+  const acts = el('div')
+  acts.style.cssText = 'display:flex;gap:8px;'
+  acts.append(button(confirm.confirmLabel, { size: 'sm', onClick: () => void runRequest(confirm.run, confirm.successText) }))
+  acts.append(button(confirm.cancelLabel, { size: 'sm', variant: 'ghost', onClick: () => dispatch({ type: 'cancel-confirm' }) }))
+  box.append(acts)
+  return box
+}
+
 function renderTaskRow(task: PanelTask, model: Extract<ReturnType<typeof panelModel>, { kind: 'ready' }>, now: number): HTMLElement {
   const isOpen = state.ui.expandedTaskId === task.id
   const rowWrap = el('div', 'pc-task-row')
+  rowWrap.dataset.row = task.id
   const btn = el('button', 'row')
   btn.type = 'button'
+  btn.dataset.focus = 'toggle'
   btn.setAttribute('aria-expanded', isOpen ? 'true' : 'false')
   btn.addEventListener('click', () => dispatch({ type: 'toggle-task', id: isOpen ? null : task.id }))
   const g = taskGlyph(task)
@@ -334,19 +357,8 @@ function renderTaskRow(task: PanelTask, model: Extract<ReturnType<typeof panelMo
       detail.append(actions)
     }
 
-    // confirm render
-    const confirm = state.ui.confirm
-    if (confirm && confirm.key.startsWith(`run:${task.id}`)) {
-      const box = el('div', undefined)
-      box.style.cssText = 'display:flex;flex-direction:column;gap:8px;padding:10px 12px;border-radius:8px;background:var(--surface-lane);'
-      box.append(el('p', undefined, confirm.text))
-      const acts = el('div')
-      acts.style.cssText = 'display:flex;gap:8px;'
-      acts.append(button(confirm.confirmLabel, { size: 'sm', onClick: () => void runRequest(confirm.run, confirm.successText) }))
-      acts.append(button(confirm.cancelLabel, { size: 'sm', variant: 'ghost', onClick: () => dispatch({ type: 'cancel-confirm' }) }))
-      box.append(acts)
-      detail.append(box)
-    }
+    const confirmBox = renderConfirm(`run:${task.id}:`)
+    if (confirmBox) detail.append(confirmBox)
     rowWrap.append(detail)
   }
   return rowWrap
@@ -424,10 +436,12 @@ function renderReady(model: Extract<ReturnType<typeof panelModel>, { kind: 'read
 
   // Done
   const doneSection = el('section')
+  doneSection.dataset.row = 'done'
   doneSection.setAttribute('aria-label', 'Done')
   doneSection.style.cssText = 'display:flex;flex-direction:column;gap:6px;'
   const doneBtn = el('button', 'row')
   doneBtn.type = 'button'
+  doneBtn.dataset.focus = 'toggle'
   doneBtn.style.cssText = 'padding:4px 0;min-height:28px;'
   doneBtn.setAttribute('aria-expanded', state.ui.doneOpen ? 'true' : 'false')
   doneBtn.addEventListener('click', () => dispatch({ type: 'toggle-done' }))
@@ -506,6 +520,8 @@ function renderModel(model: ReturnType<typeof panelModel>, now: number): HTMLEle
         dispatch({ type: 'begin', pendingKey })
         void runRequest({ kind: 'act', op: 'ui.open', params: { view: 'overview' }, pendingKey })
       } }))
+      card.append(el('p', 'pc-caption', 'No app on this machine? Start it from a terminal:'))
+      card.append(el('code', 'pc-code-box', 'pacer serve'))
       main.append(card)
       shell.append(main)
       return shell
@@ -515,10 +531,48 @@ function renderModel(model: ReturnType<typeof panelModel>, now: number): HTMLEle
   }
 }
 
+/** Where focus was before a re-render: its row, and the control within it (toggle, textarea, or button by label). */
+type FocusMark = { row: string | null; key: string; start: number | null; end: number | null }
+
+function focusMark(): FocusMark | null {
+  const active = document.activeElement
+  if (!(active instanceof HTMLElement) || !root?.contains(active)) return null
+  const row = active.closest<HTMLElement>('[data-row]')?.dataset.row ?? null
+  if (active instanceof HTMLTextAreaElement) return { row, key: 'textarea', start: active.selectionStart, end: active.selectionEnd }
+  return { row, key: active.dataset.focus ?? `label:${active.textContent ?? ''}`, start: null, end: null }
+}
+
+function restoreFocus(mark: FocusMark): void {
+  if (root === null) return
+  const scope = mark.row ? root.querySelector<HTMLElement>(`[data-row="${CSS.escape(mark.row)}"]`) : root
+  if (!scope) return
+  let target: HTMLElement | null = null
+  if (mark.key === 'textarea') target = scope.querySelector('textarea')
+  else if (mark.key.startsWith('label:')) {
+    const label = mark.key.slice('label:'.length)
+    target = Array.from(scope.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent === label && !b.disabled) ?? null
+  } else target = scope.querySelector(`[data-focus="${CSS.escape(mark.key)}"]`)
+  // The control went away (confirm closed, answer sent): fall back to the row's own toggle.
+  target ??= scope.querySelector<HTMLElement>('[data-focus="toggle"]')
+  if (!target) return
+  target.focus()
+  if (target instanceof HTMLTextAreaElement && mark.start != null && mark.end != null) target.setSelectionRange(mark.start, mark.end)
+}
+
+let prevAnsweringId: string | null = null
+
 function render(): void {
   if (root === null) return
+  const mark = focusMark()
   const now = Date.now() / 1000
   root.replaceChildren(renderModel(panelModel(state, now), now))
+  const answering = state.ui.answeringTaskId ?? null
+  if (answering && answering !== prevAnsweringId) {
+    root.querySelector<HTMLTextAreaElement>(`[data-row="${CSS.escape(answering)}"] textarea`)?.focus()
+  } else if (mark) {
+    restoreFocus(mark)
+  }
+  prevAnsweringId = answering
 }
 
 // orca global is provided by host; declare for TS
