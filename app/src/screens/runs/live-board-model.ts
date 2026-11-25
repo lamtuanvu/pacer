@@ -1,6 +1,7 @@
 /** Turns `run.get` detail into the Live board's layout input and the text the board is described by. */
 import type { RunGraphSummary, RunStepRow } from "../../../../src/dashboard/screens/types";
 import type { RunDetailState } from "../../data/runs";
+import { executorLabel } from "../../../../src/view-model/words";
 import type { BoardNode, LayoutChild, LayoutDefinition, LayoutInput } from "./live-board-layout";
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -40,9 +41,14 @@ export function shortLabel(text: string, max = 24): string {
   return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
 }
 
+/** The executor identity behind a task (the snapshot's `executor` id, e.g. `codex#personal`), or "" when the task is not in the snapshot. */
 export function executorOf(taskId: string, tasks: ReadonlyArray<{ id: string; executor?: string | null }> | undefined): string {
-  const t = tasks?.find(x => x.id === taskId);
-  return t?.executor ? t.executor : "unknown executor";
+  return tasks?.find(x => x.id === taskId)?.executor ?? "";
+}
+
+/** What the screen says for an executor identity: the shared label every other screen uses. The identity itself seeds the mascot. */
+export function executorName(identity: string): string {
+  return identity ? executorLabel(identity) : "An executor";
 }
 
 const GRAPH_STATUS: Record<string, string> = { proposed: "proposed", approved: "approved", rejected: "rejected", superseded: "replaced" };

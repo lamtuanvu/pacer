@@ -103,8 +103,8 @@ test("the board draws a desk per step row, agents with their executor, and no de
     expect(agentIds(dom.container).sort()).toEqual(["t_a", "t_c"]);
     const t = domText(dom.container);
     expect(t).toContain("oc-glm");
-    expect(t).toContain("claude-code");
-    expect(t).not.toContain("codex");           // its step is done, so it has no place on the board
+    expect(t).toContain("Claude Code");          // the shared executor label, not the raw id
+    expect(t).not.toContain("Codex");           // its step is done, so it has no place on the board
     // status is words, not colour alone
     const approve = text(must(byAttr(dom.container, "data-node", "approve_spec"), "desk"));
     expect(approve).toContain("Waits on you");
@@ -130,6 +130,22 @@ test("the run's letter is the one the runs list gives it, also for a run the sna
     const chips = all(dom.container as Node).filter(n => attr(n, "role") === "img" && /^Run [A-Z]+$/.test(attr(n, "aria-label") ?? "")).map(n => attr(n, "aria-label"));
     expect(chips).toEqual(["Run B"]);
     expect(attr(must(all(dom.container as Node).find(n => /^Live board for run/.test(attr(n, "aria-label") ?? "")), "page"), "aria-label")).toBe("Live board for run B");
+  } finally { await done(dom); }
+});
+
+test("executors are named with the shared label (codex#personal reads Codex · personal), and the raw id still seeds the creature", async () => {
+  const fx: Fixture = { ...liveFixture, tasks: [{ id: "t_a", executor: "codex#personal" }, { id: "t_b", executor: "codex#team" }, { id: "t_c", executor: "codex#personal" }] };
+  const { dom } = await open(fx);
+  try {
+    const names = all(dom.container as Node).filter(n => attr(n, "data-agent") !== null).map(n => attr(n, "aria-label"));
+    expect(names).toEqual(["Codex · personal working on review · architecture. Open live output", "Codex · personal working on review · security. Open live output"]);
+    expect(domText(dom.container)).not.toContain("codex#personal");
+    // an unknown task (not in the snapshot) is "An executor", never an internal placeholder
+    const { dom: d2 } = await open({ ...liveFixture, tasks: [] });
+    try {
+      expect(all(d2.container as Node).filter(n => attr(n, "data-agent") !== null).map(n => attr(n, "aria-label"))).toEqual([
+        "An executor working on review · architecture. Open live output", "An executor working on review · security. Open live output"]);
+    } finally { await done(d2); }
   } finally { await done(dom); }
 });
 
@@ -291,7 +307,7 @@ test("the agent opens from the keyboard too: Enter and Space on the agent, and f
     // SVG attributes are case sensitive: only lowercase `tabindex` makes the agent a keyboard stop
     expect(attr(agent, "tabindex")).toBe("0");
     expect(attr(agent, "tabIndex")).toBeNull();
-    expect(attr(agent, "aria-label")).toBe("claude-code working on review · security. Open live output");
+    expect(attr(agent, "aria-label")).toBe("Claude Code working on review · security. Open live output");
     await act(async () => { fire(agent, "keydown", { key: "Enter" }); });
     await until(() => domText(dom.container).includes("hello"), 2000);
     expect(calls.ops.find(c => c.op === "task.log")!.params).toMatchObject({ id: "t_c" });

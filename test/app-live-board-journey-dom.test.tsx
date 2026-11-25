@@ -183,3 +183,14 @@ test("the event list marks played, now and next in words, and exposes one polite
     expect(attr(nowEl, "aria-live")).toBe("polite");
   } finally { await done(dom); }
 });
+
+test("the replay names executors with the shared label (codex reads Codex), not the raw id", async () => {
+  const { dom } = await open();
+  try {
+    const t = domText(dom.container);
+    expect(t).toContain("Codex joins and takes api; its mascot is generated");
+    expect(t).toContain("Codex leaves api");
+    expect(t).not.toContain("codex joins");
+    expect(t).toContain("oc-glm joins and takes brainstorm");      // an id the shared label does not know is shown as it is
+  } finally { await done(dom); }
+});

@@ -37,7 +37,10 @@ export interface JourneyInput {
   decisions: unknown[] | undefined;
   /** Step types from the stored definition, to recognise the router's step. */
   stepTypes?: Record<string, { type: string }>;
+  /** The executor identity behind a task (seeds the mascot); "" when unknown. */
   executorOf: (taskId: string) => string;
+  /** What the screen says for an identity. Defaults to the identity itself. */
+  executorName?: (identity: string) => string;
 }
 
 type Draft = Omit<JourneyEvent, "index">;
@@ -76,12 +79,13 @@ export function buildJourney(input: JourneyInput): Journey {
     const label = nodeLabel(n);
     if (n.taskId) {
       const executor = input.executorOf(n.taskId);
+      const name = (input.executorName ?? ((id: string) => id))(executor);
       const isNew = !seenExecutors.has(executor);
       seenExecutors.add(executor);
       drafts.push({ at: n.startedAt, kind: "arrive", nodeId: n.id, taskId: n.taskId, executor, ...(isNew ? { newExecutor: true } : {}),
-        text: isNew ? `${executor} joins and takes ${label}; its mascot is generated` : `${executor} arrives at ${label}` });
+        text: isNew ? `${name} joins and takes ${label}; its mascot is generated` : `${name} arrives at ${label}` });
       if (n.endedAt !== undefined) {
-        drafts.push({ at: n.endedAt, kind: "leave", nodeId: n.id, taskId: n.taskId, executor, text: `${executor} leaves ${label} · ${runStatus(n.status).label}` });
+        drafts.push({ at: n.endedAt, kind: "leave", nodeId: n.id, taskId: n.taskId, executor, text: `${name} leaves ${label} · ${runStatus(n.status).label}` });
       }
     } else {
       drafts.push({ at: n.startedAt, kind: "step", nodeId: n.id, text: `${label} starts` });
@@ -130,7 +134,7 @@ export function frameAt(journey: Journey, layout: LiveBoardLayout, index: number
     // Without a recorded end, a finished step is shown finished from its start; waiting and pending steps keep their state.
     const st = ended ? n.status : n.status === "waiting" || n.status === "pending" ? n.status : "running";
     status.set(n.id, st);
-    if (st === "running" && n.taskId) working.push({ nodeId: n.id, taskId: n.taskId, executor: executorOfNode.get(n.id) ?? "unknown executor" });
+    if (st === "running" && n.taskId) working.push({ nodeId: n.id, taskId: n.taskId, executor: executorOfNode.get(n.id) ?? "" });
   }
   const zones = new Map<string, { drafted: number; line: string; approved: boolean }>();
   for (const z of layout.zones) {
