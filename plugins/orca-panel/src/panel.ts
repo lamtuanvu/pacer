@@ -37,6 +37,16 @@ function dispatch(event: PanelEvent): void {
 }
 
 async function runRequest(run: RunRequest, successText?: string): Promise<void> {
+  try {
+    await sendRequest(run, successText)
+  } finally {
+    // Successes fade quickly; errors stay long enough to read.
+    const tone = state.ui.statusByKey[run.pendingKey]?.tone
+    if (tone) setTimeout(() => dispatch({ type: 'clear-status', pendingKey: run.pendingKey }), tone === 'good' ? 4000 : 10000)
+  }
+}
+
+async function sendRequest(run: RunRequest, successText?: string): Promise<void> {
   dispatch({ type: 'begin', pendingKey: run.pendingKey })
   try {
     if (run.kind === 'openWorkspace') {
@@ -199,6 +209,17 @@ function renderNeedsRow(item: AttentionRow, model: Extract<ReturnType<typeof pan
   return row
 }
 
+/** The outcome of the latest action (sent, failed, already handled), announced to screen readers. */
+function renderStatusLine(): HTMLElement | null {
+  const last = Object.values(state.ui.statusByKey).at(-1)
+  if (!last) return null
+  const line = el('p', undefined, last.text)
+  line.setAttribute('role', 'status')
+  const color = { good: 'var(--good-fg)', bad: 'var(--bad-fg)', warn: 'var(--warn-fg)' }[last.tone]
+  line.style.cssText = `margin:0;font-size:12px;line-height:16px;color:${color};`
+  return line
+}
+
 /** Opens the task's page in the pacer app (pacer://tasks/<id>). */
 function openInPacer(taskId: string): void {
   const pendingKey = `open-app:${taskId}`
@@ -207,7 +228,7 @@ function openInPacer(taskId: string): void {
 }
 
 function openInPacerButton(taskId: string): HTMLButtonElement {
-  return button('Open in pacer', { size: 'sm', variant: 'ghost', onClick: () => openInPacer(taskId) })
+  return button('Open in pacer', { size: 'sm', variant: 'ghost', disabled: controlBusy(state.ui.pending, `open-app:${taskId}`), onClick: () => openInPacer(taskId) })
 }
 
 /** The in-row confirm (Stop, Reject) for the pending action whose key starts with `prefix`. */
@@ -419,6 +440,8 @@ function renderReady(model: Extract<ReturnType<typeof panelModel>, { kind: 'read
   const cap = titleRow.lastChild as HTMLElement
   cap.style.cssText = 'font-size:12px;line-height:16px;color:var(--ink-muted);'
   main.append(titleRow)
+  const statusLine = renderStatusLine()
+  if (statusLine) main.append(statusLine)
 
   if (empty) {
     const p = el('p', undefined, 'Nothing delegated from this worktree yet.')
@@ -551,6 +574,8 @@ function renderModel(model: ReturnType<typeof panelModel>, now: number): HTMLEle
         dispatch({ type: 'begin', pendingKey })
         void runRequest({ kind: 'act', op: 'ui.open', params: { view: 'overview' }, pendingKey })
       } }))
+      const offlineStatus = renderStatusLine()
+      if (offlineStatus) card.append(offlineStatus)
       card.append(el('p', 'pc-caption', 'No app on this machine? Start it from a terminal:'))
       card.append(el('code', 'pc-code-box', 'pacer serve'))
       main.append(card)
