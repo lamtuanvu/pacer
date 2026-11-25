@@ -13,8 +13,8 @@ const SHELL = Bun.which("dash") ?? "/bin/sh";
 const PKG_VERSION = (JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as { version: string }).version;
 const HOST = hostTarget();
 const HAS_ASSISTANT = existsSync(join(ROOT, "crates/assistant-pacer/Cargo.toml"));
-// A cold release compile of the Rust binaries on a CI runner can exceed three minutes.
-const COMPILE_TIMEOUT_MS = 300_000;
+// A cold release compile (Rust binaries plus the bundled workflows) on a CI runner now takes three to more than five minutes.
+const COMPILE_TIMEOUT_MS = 600_000;
 
 let compiled: Promise<{ out: string; stdout: string; stderr: string; code: number }> | undefined;
 const hostRelease = () => compiled ??= (async () => {
