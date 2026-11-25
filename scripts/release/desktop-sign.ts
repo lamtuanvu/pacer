@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import { command, DISK_IMAGE_IDENTIFIER } from "./desktop-verify";
 import { channelVersion, desktopAssetName, desktopDiskImageName, digest, type DesktopArch } from "./desktop-feed";
 import { desktopChannel } from "./desktop-release";
-import { stageDesktopPackage, verifyDesktopExecutable, verifyNativeLibrary } from "./desktop";
+import { stageDesktopPackage, verifyDesktopExecutable } from "./desktop";
 import { signerRequirement } from "../../src/update/desktop/signer-requirement";
 import { encodePairManifest, measurePair, type ComponentDescriptor } from "../../src/update/desktop/build-identity";
 
@@ -41,11 +41,7 @@ export async function signStagedDesktop(o: { root: string; stage: string; out: s
     const stat = lstatSync(path);
     if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o077)) throw Error("Signing inputs require private regular files");
   }
-  // The fixed transport dylib is the only nested library; its signature precedes the CLI/app.
-  for (const name of ["PlugIns", "XPCServices", "Helpers"]) if (existsSync(join(app, "Contents", name)) && readdirSync(join(app, "Contents", name)).length) throw Error("Unsupported nested signing payload");
-  const frameworks = join(app, "Contents/Frameworks"), shim = join(frameworks, "libpacer-native.dylib");
-  if (lstatSync(frameworks).isSymbolicLink() || readdirSync(frameworks).join() !== "libpacer-native.dylib" || !lstatSync(shim).isFile() || lstatSync(shim).isSymbolicLink()) throw Error("Unsupported nested signing payload");
-  verifyNativeLibrary(readFileSync(shim), o.arch);
+  for (const name of ["PlugIns", "XPCServices", "Helpers", "Frameworks"]) if (existsSync(join(app, "Contents", name)) && readdirSync(join(app, "Contents", name)).length) throw Error("Unsupported nested signing payload");
   const metadataPath = join(resources, "pacer-release.json"), metadata = JSON.parse(readFileSync(metadataPath, "utf8"));
   const permissionHelper = join(app, "Contents/MacOS/pacer-permission-setup");
   if (existsSync(permissionHelper)) {
@@ -81,8 +77,7 @@ export async function signStagedDesktop(o: { root: string; stage: string; out: s
   }
   writeFileSync(metadataPath, JSON.stringify({ ...metadata, fixture: false, ...(paired ? { pairManifestVersion: 1 } : {}) }, null, 2) + "\n");
   const entitlements = join(o.stage, "cli-entitlements.plist");
-  // Bun JSC requires allow-jit. Native transport uses the signed same-Team dylib;
-  // runtime C compilation is forbidden. Library validation stays enabled.
+  // Bun JSC requires allow-jit. Library validation stays enabled.
   writeFileSync(entitlements, '<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>com.apple.security.cs.allow-jit</key><true/></dict></plist>\n', { mode: 0o600 });
   const assistantPacer = join(resources, "pacer-assistant-pacer");
   if (existsSync(assistantPacer)) {
@@ -90,7 +85,7 @@ export async function signStagedDesktop(o: { root: string; stage: string; out: s
     if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o111) === 0) throw Error("Desktop assistant-pacer must be a regular executable");
     verifyDesktopExecutable(readFileSync(assistantPacer), o.arch);
   }
-  const components: [string, string, string[]][] = [[shim, "dev.pacer.desktop.native-shim", []],
+  const components: [string, string, string[]][] = [
     ...(paired ? [[core, "dev.pacer.cli", ["--entitlements", entitlements]] as [string, string, string[]]] : []),
     // Native assistant plugin is signed on the same CLI path when staged next to pacer-core.
     ...(existsSync(assistantPacer) ? [[assistantPacer, "dev.pacer.cli", ["--entitlements", entitlements]] as [string, string, string[]]] : []),
@@ -114,9 +109,6 @@ export async function signStagedDesktop(o: { root: string; stage: string; out: s
   // Smoke every executable after its final signature. The x86_64 app is cross-built on Apple Silicon,
   // and Rosetta retranslates each re-signed binary on first run, which can exceed the 30 s default.
   for (const binary of [join(resources, "pacer"), ...(paired ? [core] : []), join(resources, "pacer-update-helper"), join(app, "Contents/MacOS/pacer")]) await run([binary, "--version"], SIGNED_SMOKE_TIMEOUT_MS);
-  // Exercise the signed native transport under the final hardened signature on each CI runner.
-  const transport = JSON.parse(await run([join(resources, "pacer"), "--pacer-native-transport-test"], SIGNED_SMOKE_TIMEOUT_MS));
-  if (transport.schema !== 1 || transport.role !== "cli" || transport.version !== o.version || transport.arch !== o.arch || transport.nativeTransportAbi !== 1 || transport.transport !== "unix-audit-token" || transport.verified !== true) throw Error("Signed native transport validation failed");
   const helper = JSON.parse(await run([join(resources, "pacer-update-helper"), "--pacer-helper-runtime-test"], SIGNED_SMOKE_TIMEOUT_MS));
   if (helper.schema !== 1 || helper.role !== "update-helper" || helper.version !== o.version || helper.arch !== o.arch || helper.runtime !== "tauri-updater" || helper.verified !== true) throw Error("Signed native helper runtime validation failed");
   const notarize = async (path: string, upload: string) => {

@@ -13,9 +13,6 @@ import { desktopCaptureRoute } from "./desktop-capture";
 import { attachmentRoute } from "./attachment-routes";
 import { artifactRoute } from "./artifact-routes";
 import { resetCaptureBroker } from "../desktop/capture-broker";
-import { configuredNativeServices } from "../update/desktop/native-provider";
-import type { PairedNativeBootstrap } from "../update/desktop/native-paired-bootstrap";
-import { bindDesktopUpdateRuntime, createDesktopUpdateRuntime } from "../update/desktop/service";
 import { reconcileAdmissionSync } from "../update/desktop/admission";
 import { selfCommand, superviseTasks } from "../tasks/api";
 import type { SpawnRunner } from "../tasks/api";
@@ -75,7 +72,7 @@ export function ensureToken(ctx: Ctx): string {
 
 /** Localhost-only, token-protected API for versioned client protocols. */
 export function startServer(
-  getCtx: () => Ctx, opts: { internal?: { token: string }; pairedNative?: PairedNativeBootstrap; port?: number; supervisionWorker?: boolean; backgroundWorker?: boolean; listener?: false; sseIntervalMs?: number; tailMs?: number; pumpMs?: number; opDeps?: OpDeps; bgMonitorMs?: number; bgSilenceTicks?: number; bgStopGraceMs?: number; bgHeartbeatMs?: number; bgUsageMs?: number } = {},
+  getCtx: () => Ctx, opts: { internal?: { token: string }; port?: number; supervisionWorker?: boolean; backgroundWorker?: boolean; listener?: false; sseIntervalMs?: number; tailMs?: number; pumpMs?: number; opDeps?: OpDeps; bgMonitorMs?: number; bgSilenceTicks?: number; bgStopGraceMs?: number; bgHeartbeatMs?: number; bgUsageMs?: number } = {},
 ): { port: number; token: string; backgroundWorker: () => Worker | undefined; stop: () => Promise<void> } {
   const initialCtx = getCtx();
   const bg = !!opts.backgroundWorker;
@@ -104,13 +101,6 @@ export function startServer(
     for (const result of results) if (result.state === "conflict" || result.state === "failed")
       console.error(`pacer: integration ${result.target}: ${result.detail}. ${result.hint}`);
   }).catch(() => console.error("pacer: integration refresh failed; run pacer doctor for recovery guidance"));
-  const nativeServices = opts.opDeps?.desktopUpdates ? null : configuredNativeServices(getCtx,opts.port??Number(initialCtx.env.PACER_PORT??DEFAULT_PORT),opts.pairedNative?.shutdown ?? (()=>{
-
-    stop();setImmediate(()=>process.exit(0));
-  }), opts.pairedNative);
-  nativeServices?.native.listen();
-  const desktopUpdates = opts.opDeps?.desktopUpdates ?? createDesktopUpdateRuntime(getCtx,nativeServices??{});
-  const unbindDesktopUpdates = bindDesktopUpdateRuntime(initialCtx, desktopUpdates);
   const tailMs = opts.tailMs;
   const pumpMs = opts.pumpMs ?? 15_000;
   let snapshot = currentSnapshot(initialCtx);
@@ -792,7 +782,7 @@ export function startServer(
       return new Response("not found\n", { status: 404 });
     },
   }); } catch (error) {
-    stopped = true; nativeServices?.native.stop(); unbindDesktopUpdates(); clearTimeout(scheduled);
+    stopped = true; clearTimeout(scheduled);
     for (const watcher of watchers) watcher.close();
     throw error;
   }
@@ -806,13 +796,12 @@ export function startServer(
       publicPort = listener.port;
     }
   } catch (error) {
-    stopped = true; nativeServices?.native.stop(); unbindDesktopUpdates(); clearTimeout(scheduled);
+    stopped = true; clearTimeout(scheduled);
     readCache.stop();
     for (const watcher of watchers) watcher.close();
     server.stop(true);
     throw error;
   }
-  void desktopUpdates.start().catch(() => { console.error("pacer: desktop update startup requires recovery"); });
   const history = startTaskHistory(initialCtx);
   const unregisterJobs = registerJobDaemon(initialCtx);
   refreshSnapshot();
@@ -1071,9 +1060,6 @@ export function startServer(
   let stopPromise: Promise<void> | undefined;
   return { port: publicPort, token, stop: () => {
     if (stopPromise) return stopPromise;
-    nativeServices?.native.stop();
-    desktopUpdates.stop();
-    unbindDesktopUpdates();
     listener?.stop();
     readCache.stop();
     unregisterJobs();

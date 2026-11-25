@@ -131,9 +131,6 @@ test.skipIf(process.platform !== "darwin")("live desktop --app refuses to launch
  */
 const ALLOWLIST = new Map<string, string>([
   ["scripts/test-sandbox.ts", "uses the real paths only to deny writes in the test sandbox profile"],
-  ["scripts/live/ota-real-app.ts", "read-only snapshot of the real app/CLI link/service plist, for before/after evidence comparison; never writes"],
-  ["scripts/live/ota.ts", "reads the real service plist digest read-only for before/after comparison, and builds state.pacerHome (the fixture's own isolated home) for the .local/bin/pacer comparison"],
-  ["scripts/live/ota-native.ts", "builds the fixture's own .local/bin/pacer symlink under state.pacerHome, the fixture's isolated home"],
   ["scripts/live/seed.ts", "writes a placeholder plist under the fixture's own isolated sandbox home (never ~/Library/LaunchAgents); the stub refuses every real manager mutation"],
   ["scripts/live/repair-integrations.ts", "ctx.run is replaced by a mock that only asserts the argv a real launchctl/systemctl would see; it never spawns the real binary"],
   ["desktop/scripts/build-linux-bundles.sh", "PACER_HOME is $smoke_home/.pacer, a disposable mktemp smoke-test home"],
