@@ -4,6 +4,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-11-24
+
 ### Changed
 
 - **`messaging.liveness.nudge_in_modes` defaults to all four modes** (`relaxed`, `normal`, `strict`, `emergency`). Executor nudges (idle, silent prompt, no-progress, cycle, undelivered retry) now run in strict and emergency too; those modes still save the planner's budget. Planner wakes use the new `messaging.liveness.caller_wake_in_modes` (default `relaxed`, `normal`), so planners are still not woken in strict or emergency unless you opt in.
