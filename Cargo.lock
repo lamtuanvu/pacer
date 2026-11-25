@@ -1523,6 +1523,7 @@ dependencies = [
  "chrono",
  "hex",
  "icu_collator",
+ "pacer-account-ops",
  "pacer-config",
  "pacer-engine",
  "pacer-foundation",

@@ -54,6 +54,14 @@ test("does not double-prefix a qualified id OpenCode lists", async () => {
   expect(loadStrategy(ctx).runners["opencode#groq"].model).toBe("groq/llama-3.3-70b");
 });
 
+test("uses the catalog's ids when OpenCode cannot list models", async () => {
+  const {ctx} = setup(["groq"]);
+  const groq = {id: "groq", name: "Groq", env: [], api: null, models: [{id: "groq/compound"}, {id: "llama-3.3-70b"}]};
+  const withGroq = {...catalog, providers: {...catalog.providers, groq}} as unknown as typeof catalog;
+  await addOpencodeAccount(ctx, {provider: "groq", model: "groq/compound", test: false}, {catalog: withGroq});
+  expect(loadStrategy(ctx).runners["opencode#groq"].model).toBe("groq/groq/compound");
+});
+
 test("refuses a provider OpenCode is not signed in to", async () => {
   const {ctx} = setup([]);
   await expect(addOpencodeAccount(ctx, {provider: "deepseek", model: "deepseek-chat", test: false}, {catalog})).rejects.toThrow("run opencode auth login --standalone deepseek");

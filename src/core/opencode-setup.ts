@@ -61,11 +61,12 @@ async function knownProvider(ctx: Ctx, provider: string): Promise<boolean | null
 /** The runner model, `<provider>/<model id>`. The picker sends OpenCode's bare id, but a typed or copied id can
  * already carry the provider; prefixing it again names a model OpenCode does not serve. Some bare ids start with
  * the provider name themselves (`groq/compound` is served as `groq/groq/compound`), so a prefixed input keeps its
- * prefix only when OpenCode lists it as a bare id; when OpenCode cannot list models it is taken as already qualified. */
-async function qualifiedModel(ctx: Ctx, provider: string, model: string): Promise<string> {
+ * prefix only when OpenCode (or, when it cannot list models, the catalog) lists it as a bare id. */
+async function qualifiedModel(ctx: Ctx, provider: string, model: string, catalog: Catalog | null): Promise<string> {
   const prefix = `${provider}/`;
   if (!model.startsWith(prefix)) return `${prefix}${model}`;
-  const listed = await opencodeModelIds(ctx, provider);
+  // When OpenCode cannot list models, setup offers the catalog's ids, so they decide instead.
+  const listed = await opencodeModelIds(ctx, provider) ?? catalog?.providers[provider]?.models.map(m => m.id) ?? null;
   return listed?.includes(model) ? `${prefix}${model}` : model;
 }
 
@@ -90,7 +91,7 @@ export async function addOpencodeAccount(ctx: Ctx, input: OpencodeAccountInput, 
     if (kind === "metered" && input.cap_usd !== undefined) account.budget = { weekly_usd: input.cap_usd };
     if (kind === "quota" && usage.quota_source) account.quota_source = usage.quota_source;
     const id = `opencode#${name}`;
-    const runnerModel = await qualifiedModel(ctx, input.provider, input.model);
+    const runnerModel = await qualifiedModel(ctx, input.provider, input.model, deps.catalog ?? readCachedCatalog(ctx));
     const change = (doc: StrategyDoc) => {
       if (orphan) doc.setIn(["accounts", name], account);
       else doc.addMappingEntry("accounts", name, account);

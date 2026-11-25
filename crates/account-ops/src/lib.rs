@@ -22,6 +22,22 @@ mod remove;
 #[cfg(test)]
 mod tests;
 
+/// Whether Rust can rewrite `endpoints/state.json` byte-for-byte as TypeScript
+/// would; an operation that must reset a state forwards otherwise.
+#[must_use]
+pub fn endpoint_states_writable(ctx: &Ctx) -> bool {
+    model::endpoint_states_native(ctx)
+}
+
+/// `writeEndpointState(ctx, name, {state: "not_tested"})`: a new default model
+/// makes the account's saved endpoint test result stale.
+///
+/// # Errors
+/// The state document cannot be read or written.
+pub fn reset_endpoint_state(ctx: &Ctx, name: &str) -> Result<(), String> {
+    model::write_endpoint_state(ctx, name, serde_json::json!({"state": "not_tested"}))
+}
+
 use pacer_config::{
     doc::parse_value,
     strategy::{load_strategy, strategy_path},
