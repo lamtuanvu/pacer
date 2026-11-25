@@ -111,8 +111,8 @@ test("release graph packages every independent area before the SDK", async () =>
     "pacer-plugin-exec-protocol": "0.4.0",
     "pacer-plugin-assistant-protocol": "0.5.0",
     "pacer-plugin-workflow-protocol": "0.3.0",
-    "pacer-plugin-protocol": "0.4.0",
-    "pacer-plugin": "0.5.0",
+    "pacer-plugin-protocol": "0.5.0",
+    "pacer-plugin": "0.6.0",
   };
   for (const item of metadata) expect(item.package).toMatchObject({ version: versions[item.package.name], publish: true });
   const sdk = metadata.at(-1)!;
