@@ -181,7 +181,7 @@ export async function reference(c: any): Promise<any> {
         },
       });
       return {
-        candidates: api.toNotify(c.items, c.level, c.raw ?? {}),
+        candidates: api.toNotify(c.items, c.level, c.raw ?? {}, ctx.now),
         sent,
         deliveries,
         publications,

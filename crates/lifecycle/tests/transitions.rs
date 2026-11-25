@@ -293,11 +293,16 @@ fn notifier_suppresses_duplicate_candidates_and_seven_day_boundary_is_inclusive(
     let item = attention::Item::from_value(
         &json!({"id":"question:t","title":"Question","detail":"question","since":0.0000001,"notify":"important","taskId":"a/b", "actions":[]}),
     );
-    let out = notify::candidates(&[item.clone(), item.clone()], "important", &json!({}));
+    let out = notify::candidates(
+        &[item.clone(), item.clone()],
+        "important",
+        &json!({}),
+        100.0,
+    );
     assert_eq!(out.len(), 1);
     assert_eq!(out[0].key, "question:t:1e-7");
     assert_eq!(out[0].data.url, "/app/#/tasks/a%2Fb");
-    assert!(notify::candidates(&[item], "all", &json!({"question:t:1e-7":0})).is_empty());
+    assert!(notify::candidates(&[item], "all", &json!({"question:t:1e-7":0}), 100.0).is_empty());
     assert_eq!(
         notify::retain(&json!({"boundary":0,"old":-0.1,"string":"3"}), 604800.0),
         json!({"boundary":0})

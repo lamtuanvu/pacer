@@ -79,7 +79,9 @@ pub fn sort(items: &mut [Item]) {
 }
 
 /// Stalled caller_decision older than this becomes an important (grouped) notification.
-const CALLER_GONE_AFTER_S: f64 = 30.0 * 60.0;
+pub const CALLER_GONE_AFTER_S: f64 = 30.0 * 60.0;
+/// Same attention id is not re-notified within this window after a successful delivery.
+pub const NOTIFY_COOLDOWN_S: f64 = 30.0 * 60.0;
 
 fn is_external_agent_origin(origin: &Value) -> bool {
     s(origin).starts_with("external:")
