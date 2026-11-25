@@ -8,6 +8,22 @@ test("handshake connection failure is distinct from storage and identity copy", 
   expect(desktopConnectionView({ state: "unavailable", reason: "service-identity" }).detail).toContain("could not verify");
 });
 
+test("connection failures name the error kind and keep the generic copy when it is absent", () => {
+  const generic = desktopConnectionView({ state: "unavailable", reason: "connection" }).detail;
+  expect(generic).toContain("verified desktop update connection");
+  const expected = {
+    busy: "update lock", timeout: "did not answer in time", unavailable: "native update helper",
+    io: "read or write its update files", invalid: "record is damaged", interrupted: "was interrupted",
+    "recovery-failed": "could not restore the previous version",
+  } as const;
+  for (const [error, text] of Object.entries(expected)) {
+    const detail = desktopConnectionView({ state: "unavailable", reason: "connection", error }).detail;
+    expect(detail).toContain(text);
+    expect(detail).not.toBe(generic);
+  }
+  expect(desktopConnectionView({ state: "unavailable", reason: "handshake", error: "busy" }).detail).toContain("during handshake");
+});
+
 test("coordination retries describe the pause instead of promising a ready update", () => {
   const view = desktopUpdateView(desktopStatus({ phase: "ready", actions: [], error: {
     code: "coordination_failed", message: "Desktop update paused. Rechecking the connection and saved update state.",

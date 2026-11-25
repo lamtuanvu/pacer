@@ -1382,7 +1382,13 @@ async fn supervise_native(app: &AppHandle, supervision: Option<NativeSupervision
                 // future is cancelled during document_ready above.
             }
             Ok(Err(error)) => {
-                *shell.native_update_error.lock().unwrap() = Some(error);
+                let previous = shell.native_update_error.lock().unwrap().replace(error);
+                if previous != Some(error) {
+                    desktop_log!(
+                        "pacer lifecycle: native update connection error kind: {}",
+                        crate::logic::connection_error_kind(error).unwrap_or("other")
+                    );
+                }
                 if !reported {
                     desktop_log!("pacer lifecycle: native update authority unavailable; retrying: {error}");
                     reported = true;
@@ -1702,7 +1708,13 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
                 return Err("Native maintenance verification failed".into());
             }
             Err(error) => {
-                *app.state::<Shell>().native_update_error.lock().unwrap() = Some(error);
+                let previous = app.state::<Shell>().native_update_error.lock().unwrap().replace(error);
+                if previous != Some(error) {
+                    desktop_log!(
+                        "pacer lifecycle: native update connection error kind: {}",
+                        crate::logic::connection_error_kind(error).unwrap_or("other")
+                    );
+                }
                 desktop_log!("pacer lifecycle: native update authority unavailable for this service: {error}");
             }
         }

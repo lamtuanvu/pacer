@@ -45,6 +45,8 @@ export type WindowControls = ReturnType<typeof windowControls>;
 export type DesktopUpdateConnection = {
   state: "connecting" | "available" | "unavailable" | "unsupported";
   reason: "service-identity" | "service-takeover" | "connection" | null;
+  /** Present only when `reason` is "connection"; absent from older desktops. */
+  error?: "unavailable" | "invalid" | "io" | "busy" | "timeout" | "interrupted" | "recovery-failed";
   terminalCommandDifferent?: boolean;
 };
 /** The service page can request the bundled confirmation page, never confirm a takeover. */
@@ -60,6 +62,7 @@ export async function readDesktopUpdateConnection(host: DesktopHost = desktopHos
   const value = await invoke("desktop_update_connection", { supports: ["service-takeover"] }) as Partial<DesktopUpdateConnection> | null;
   if (!value || !["connecting", "available", "unavailable", "unsupported"].includes(value.state ?? "") ||
       (value.reason === undefined || ![null, "service-identity", "service-takeover", "connection"].includes(value.reason)) ||
+      (value.error !== undefined && !["unavailable", "invalid", "io", "busy", "timeout", "interrupted", "recovery-failed"].includes(value.error)) ||
       (value.terminalCommandDifferent !== undefined && typeof value.terminalCommandDifferent !== "boolean") ||
       (value.state !== "unavailable" && value.reason !== null)) throw Error("Desktop update connection unavailable");
   return value as DesktopUpdateConnection;
