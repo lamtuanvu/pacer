@@ -3,6 +3,9 @@ import type { AttentionItem } from "../src/attention/types";
 import {
   buildRunsListState,
   initialRunsStore,
+  markRunSeen,
+  mergeDetailRefresh,
+  mergeListRefresh,
   questionFromAttention,
   questionFromEntity,
   runAttentionQueue,
@@ -210,4 +213,30 @@ test("buildRunsListState ranks queue from attention and surfaces empty/error/una
 test("empty and unavailable copy match shared vocabulary", () => {
   expect(RUNS_EMPTY).toContain("pacer run start");
   expect(RUNS_UNAVAILABLE).toBe("Runs unavailable.");
+});
+
+test("merging a refresh takes only its own part and keeps rows on failure", () => {
+  const row = { id: "run_1", workflow: "w", title: "Kept", status: "running", createdAt: 5 };
+  const current = { ...initialRunsStore(), list: [row] };
+  const failed = mergeListRefresh(current, { ...initialRunsStore(), listError: "no" });
+  expect(failed.list).toEqual([row]);
+  expect(failed.listError).toBe("no");
+  const detail = { id: "run_1", run: null, steps: [], questions: [], decisions: [], loading: false, error: null, stamp: 1 };
+  const merged = mergeDetailRefresh(current, { ...initialRunsStore(), details: { run_1: detail } }, "run_1");
+  expect(merged.list).toEqual([row]);
+  expect(merged.details.run_1).toEqual(detail);
+  expect(mergeListRefresh(merged, { ...initialRunsStore(), list: [] }).details.run_1).toEqual(detail);
+});
+
+test("markRunSeen reports what happened", async () => {
+  const api = (fail: boolean) => ({ call: async () => { if (fail) throw new Error("x"); return {}; } }) as never;
+  const warn = console.warn;
+  console.warn = () => {};
+  try {
+    expect(await markRunSeen(api(false), "run_1", undefined)).toBe("seen");
+    expect(await markRunSeen(api(true), "run_1", undefined)).toBe("failed");
+    expect(await markRunSeen(api(true), "run_1", new Set())).toBe("unsupported");
+  } finally {
+    console.warn = warn;
+  }
 });

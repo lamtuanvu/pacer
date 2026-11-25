@@ -4,6 +4,8 @@ import {
   buildRunsListState,
   initialRunsStore,
   markRunSeen,
+  mergeDetailRefresh,
+  mergeListRefresh,
   questionFromEntity,
   refreshRunDetail,
   refreshRunsList,
@@ -11,6 +13,7 @@ import {
   runRowStatusLabel,
   runsBadgeCount,
   type RunQuestionView,
+  type RunSeenResult,
   type RunsStoreState,
 } from "../../data/runs";
 import { QuestionForm, type QuestionFormQuestion } from "../../ds/QuestionForm";
@@ -20,11 +23,20 @@ import { Dialog } from "../../ds/Dialog";
 import { Page } from "../../ds/Page";
 import { EmptyState, ListRow } from "../../ds/Patterns";
 import { Pill } from "../../ds/Pill";
+import { StatusPill } from "../../ds/StatusPill";
 import { useActions } from "../../data/action-context";
 import { withQuery, type RouteQuery } from "../../router";
 import { PageHead } from "../../shell/slots";
 import { useTaskContext } from "../task-shared";
-import { RUNS_EMPTY, RUNS_UNAVAILABLE } from "../../../../src/view-model/runs";
+import {
+  pausedReasonLabel,
+  RUN_SEEN_ERROR,
+  RUN_SEEN_OK,
+  RUN_VIEW_PENDING,
+  RUNS_EMPTY,
+  RUNS_UNAVAILABLE,
+  RUNS_UNAVAILABLE_DETAIL,
+} from "../../../../src/view-model/runs";
 
 const styledDocuments = new WeakSet<Document>();
 function useRunsStyles() {
@@ -40,6 +52,8 @@ function useRunsStyles() {
 type HeldAnswer = {
   question: QuestionFormQuestion;
   itemTitle: string;
+  /** The run that asked, kept so the dialog still names it after the queue drops the question. */
+  run?: { letter: string; title: string };
 };
 
 /** Prefer the higher rev between Reload-fetched and attention/queue data. */
@@ -85,6 +99,12 @@ export function RunsPage({ query, runId }: { query: RouteQuery; runId?: string }
   const [announce, setAnnounce] = useState("");
   const headingRef = useRef<HTMLHeadingElement>(null);
   const seen = useRef<string | null>(null);
+  const [seenResult, setSeenResult] = useState<{ id: string; result: RunSeenResult } | null>(null);
+  // Refreshes finish out of order: each applies onto the latest state, and only the newest one per target.
+  const storeRef = useRef(store);
+  storeRef.current = store;
+  const listSeq = useRef(0);
+  const detailSeq = useRef(0);
   const alsoListedId = useId();
   const ops = state.features.ops;
   const now = state.snapshot?.at ?? Date.now() / 1000;
@@ -97,23 +117,35 @@ export function RunsPage({ query, runId }: { query: RouteQuery; runId?: string }
     now,
   }), [ops, state.snapshot?.attention, state.snapshot?.runs, store, now]);
 
+  const reloadList = async () => {
+    const seq = ++listSeq.current;
+    const next = await refreshRunsList(api, storeRef.current, ops);
+    if (seq === listSeq.current) setStore(current => mergeListRefresh(current, next));
+  };
+
+  // Refresh when connection or workflow entity invalidations change.
   useEffect(() => {
-    let active = true;
-    void refreshRunsList(api, store, ops).then(next => { if (active) setStore(next); });
-    return () => { active = false; };
-    // Refresh when connection or workflow entity invalidations change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- store intentionally omitted to avoid loop
+    void reloadList();
+    return () => { listSeq.current++; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reloadList reads the latest state through a ref
   }, [api, ops, state.connectionRevision, state.invalidations.runs, state.invalidations.attention]);
 
   useEffect(() => {
     if (!runId) return;
-    let active = true;
     if (seen.current !== runId) {
       seen.current = runId;
-      void markRunSeen(api, runId, ops);
+      setSeenResult(null);
+      void markRunSeen(api, runId, ops).then(result => {
+        // A failed call is retried by the next refresh.
+        if (result === "failed" && seen.current === runId) seen.current = null;
+        setSeenResult({ id: runId, result });
+      });
     }
-    void refreshRunDetail(api, store, runId, ops).then(next => { if (active) setStore(next); });
-    return () => { active = false; };
+    const seq = ++detailSeq.current;
+    void refreshRunDetail(api, storeRef.current, runId, ops).then(next => {
+      if (seq === detailSeq.current) setStore(current => mergeDetailRefresh(current, next, runId));
+    });
+    return () => { detailSeq.current++; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [api, ops, runId, state.connectionRevision, state.invalidations.runs]);
 
@@ -135,7 +167,7 @@ export function RunsPage({ query, runId }: { query: RouteQuery; runId?: string }
       return;
     }
     const entry = listState.queue.find(q => q.question.id === answerId);
-    if (entry) setHeld({ question: entry.question, itemTitle: entry.item.title });
+    if (entry) setHeld({ question: entry.question, itemTitle: entry.item.title, run: entry.item.run });
     // fromQueueRev/text track store refreshes without depending on a new object each render.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- queue identity is read inside
   }, [answerId, fromQueueRev, fromQueueText, listState.queue]);
@@ -149,6 +181,13 @@ export function RunsPage({ query, runId }: { query: RouteQuery; runId?: string }
     held,
   });
   const questionMissing = !!answerId && !fromQueue && !!held && !reloaded;
+  const askingRun = answering
+    ? fromQueue?.item.run
+      ?? held?.run
+      ?? listState.runs.find(run => run.id === answering.question.runId)
+    : undefined;
+  const detail = runId ? store.details[runId] : undefined;
+  const runSeen = seenResult && seenResult.id === runId ? seenResult.result : null;
 
   const closeAnswer = () => {
     setAnswerId(null);
@@ -175,8 +214,7 @@ export function RunsPage({ query, runId }: { query: RouteQuery; runId?: string }
     setAnnounce("Answer submitted");
     // Restore focus to the Runs heading; the Answer control that opened the dialog is gone.
     queueMicrotask(() => headingRef.current?.focus({ preventScroll: true }));
-    const next = await refreshRunsList(api, store, ops);
-    setStore(next);
+    await reloadList();
   };
 
   const reloadAnswer = () => {
@@ -201,8 +239,7 @@ export function RunsPage({ query, runId }: { query: RouteQuery; runId?: string }
             setReloaded(null);
             setHeld(null);
             setFocusTitle(false);
-            const next = await refreshRunsList(api, store, ops);
-            setStore(next);
+            await reloadList();
             return;
           }
           const mapped = mapQuestionGet(raw, answering.question.runId);
@@ -210,20 +247,18 @@ export function RunsPage({ query, runId }: { query: RouteQuery; runId?: string }
           nextQuestion = mapped;
         } else {
           // No question.get: refresh list; surface a plain-language error (no op jargon).
-          const next = await refreshRunsList(api, store, ops);
-          setStore(next);
+          await reloadList();
           throw new Error(plainReloadError);
         }
-        const next = await refreshRunsList(api, store, ops);
-        setStore(next);
+        await reloadList();
         // Same rev: keep the conflict explanation visible (do not remount as "fresh").
         if (nextQuestion.rev === answering.question.rev) {
           setReloaded(nextQuestion);
-          setHeld({ question: nextQuestion, itemTitle: answering.itemTitle });
+          setHeld({ question: nextQuestion, itemTitle: answering.itemTitle, run: askingRun });
           return;
         }
         setReloaded(nextQuestion);
-        setHeld({ question: nextQuestion, itemTitle: answering.itemTitle });
+        setHeld({ question: nextQuestion, itemTitle: answering.itemTitle, run: askingRun });
         setFocusTitle(true);
       } catch {
         // Keep technical detail (ApiError message / op names) out of the dialog UI.
@@ -252,7 +287,7 @@ export function RunsPage({ query, runId }: { query: RouteQuery; runId?: string }
     <p className="sr-only" role="status" aria-live="polite">{announce}</p>
     <Page width="full" className="pc-runs-page">
       {listState.unavailable && (
-        <EmptyState title={RUNS_UNAVAILABLE} description="This service does not offer run.list yet." />
+        <EmptyState title={RUNS_UNAVAILABLE} description={RUNS_UNAVAILABLE_DETAIL} />
       )}
       {listState.error && (
         <Alert tone="error" title="Couldn't refresh runs"><p>{listState.error}</p></Alert>
@@ -290,7 +325,7 @@ export function RunsPage({ query, runId }: { query: RouteQuery; runId?: string }
                             onClick={event => {
                               event.preventDefault();
                               setAnswerId(question.id);
-                              setHeld({ question, itemTitle: item.title });
+                              setHeld({ question, itemTitle: item.title, run: item.run });
                               setReloaded(null);
                               setReloadError(null);
                               setClosedReason(null);
@@ -347,8 +382,10 @@ export function RunsPage({ query, runId }: { query: RouteQuery; runId?: string }
                       {alsoQueued ? <span id={describedBy} className="sr-only">Also listed above</span> : null}
                     </span>
                     <span className="runs-table-status">
-                      <span aria-hidden="true">{status.glyph}</span>
-                      <Pill tone={status.tone}>{status.label}</Pill>
+                      <StatusPill status={status} />
+                      {run.status === "paused"
+                        ? <span className="runs-table-paused">{pausedReasonLabel(run.pausedReason)}</span>
+                        : null}
                     </span>
                     <span className="runs-table-waits">
                       <span className="sr-only runs-field-label">Waits on:</span>
@@ -373,7 +410,9 @@ export function RunsPage({ query, runId }: { query: RouteQuery; runId?: string }
       {runId && (
         <section className="runs-open" aria-label="Opened run">
           <h2 className="runs-section-title">Opened run</h2>
-          <p className="runs-cap">Marked as seen. Full run boards land in a later phase.</p>
+          {runSeen === "failed" ? <Alert tone="error" title={RUN_SEEN_ERROR} /> : null}
+          {detail?.error ? <Alert tone="error" title={detail.error} /> : null}
+          <p className="runs-cap">{runSeen === "seen" ? `${RUN_SEEN_OK} ${RUN_VIEW_PENDING}` : RUN_VIEW_PENDING}</p>
           <ButtonLink typography="board" size="sm" href={withQuery("#/runs", query)}>Back to list</ButtonLink>
         </section>
       )}
@@ -399,6 +438,7 @@ export function RunsPage({ query, runId }: { query: RouteQuery; runId?: string }
             <QuestionForm
               key={`${answering.question.id}:${answering.question.rev}`}
               question={answering.question}
+              context={askingRun ? `Asked by run ${askingRun.letter}: ${askingRun.title}` : undefined}
               canAnswer={canAnswer}
               focusTitle={focusTitle}
               onSubmit={submitAnswer}

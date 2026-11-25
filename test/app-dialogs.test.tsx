@@ -71,3 +71,67 @@ test('dialog respects an inner control that already handled Tab', async () => {
   const dialog = { querySelectorAll: () => { throw new Error('Handled Tab must not be intercepted'); } } as unknown as HTMLDialogElement;
   expect(() => cycleDialogFocus(dialog, { key: 'Tab', shiftKey: false, defaultPrevented: true, preventDefault: () => {} })).not.toThrow();
 });
+
+test('a radio group is one Tab stop: checked radio, else first forward and last backward', async () => {
+  const { cycleDialogFocus } = await import('../app/src/ds/Dialog');
+  const focused: string[] = [];
+  const doc = { activeElement: null as unknown };
+  const form = {};
+  const element = (id: string, extra: Record<string, unknown> = {}) => {
+    const node = { id, focus() { focused.push(id); doc.activeElement = node; }, matches: () => false, closest: () => null, getClientRects: () => [1], ...extra };
+    return node as unknown as HTMLElement & { checked?: boolean };
+  };
+  const radio = (id: string, checked = false) => element(id, { type: 'radio', name: 'choice', form, checked });
+  const close = element('close'), a = radio('a'), b = radio('b', true), c = radio('c'), submit = element('submit');
+  const dialog = { querySelectorAll: () => [close, a, b, c, submit], ownerDocument: doc } as unknown as HTMLDialogElement;
+  const tab = (shiftKey = false) => { cycleDialogFocus(dialog, { key: 'Tab', shiftKey, preventDefault() {} }); return focused.at(-1); };
+
+  doc.activeElement = close;
+  expect([tab(), tab(), tab()]).toEqual(['b', 'submit', 'close']);
+  expect([tab(true), tab(true), tab(true)]).toEqual(['submit', 'b', 'close']);
+  // Arrow keys may leave focus on another radio of the group: Tab leaves the whole group from there.
+  doc.activeElement = c;
+  expect(tab()).toBe('submit');
+  doc.activeElement = a;
+  expect(tab(true)).toBe('close');
+  // Nothing checked: enter at the first radio forward, at the last one backward.
+  b.checked = false;
+  doc.activeElement = close;
+  expect(tab()).toBe('a');
+  doc.activeElement = submit;
+  expect(tab(true)).toBe('c');
+});
+
+test('Dialog is aria-modal, focuses [data-autofocus] else the first control, returns focus, and Tab continues from the heading', async () => {
+  const { Dialog } = await import('../app/src/ds/Dialog');
+  const { installDom, mount, unmount, tick } = await import('./app-setup-health-dom');
+  const { enableFocusQueries, findAll, focusName, pressTab } = await import('./app-focus-dom');
+  const dom = installDom();
+  try {
+    enableFocusQueries(dom);
+    const invoker = dom.doc.createElement('button');
+    dom.container.appendChild(invoker);
+    const host = dom.doc.createElement('div');
+    dom.container.appendChild(host);
+    const view = { ...dom, container: host };
+
+    invoker.focus();
+    await mount(view, <Dialog title="Plain" close={() => {}}><Button>Second</Button></Dialog>);
+    await tick();
+    expect(findAll(host, n => n.localName === 'dialog')[0].getAttribute('aria-modal')).toBe('true');
+    expect(focusName(dom.doc.activeElement)).toBe('button:Close');
+    await unmount(view);
+    expect(dom.doc.activeElement).toBe(invoker);
+
+    await mount(view, <Dialog title="Asks" close={() => {}}><h2 tabIndex={-1} data-autofocus>Question</h2><Button>First after</Button></Dialog>);
+    await tick();
+    expect(focusName(dom.doc.activeElement)).toBe('h2:Question');
+    expect(pressTab(view)).toBe('button:First after');
+    expect(pressTab(view)).toBe('button:Close');
+    (findAll(host, n => n.localName === 'h2').at(-1)).focus();
+    expect(pressTab(view, true)).toBe('button:Close');
+    await unmount(view);
+  } finally {
+    dom.restore();
+  }
+});

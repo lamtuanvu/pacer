@@ -8,12 +8,14 @@ import {
   runPriorityLabel,
   runPriorityOf,
   runStatus,
+  RUN_DETAIL_ERROR,
+  RUN_QUESTIONS_ERROR,
   RUNS_EMPTY,
+  RUNS_REFRESH_ERROR,
   RUNS_UNAVAILABLE,
   waitsOnLabel,
 } from "../../../src/view-model/runs";
 import type { BrowserApi } from "./api";
-import { ApiError } from "./api";
 
 import { runAttentionQueue } from "./runs-badge";
 
@@ -308,9 +310,25 @@ export async function refreshRunsList(
     const list = Array.isArray(value) ? value.map(normalizeListRow) : [];
     return { ...loading, list, listLoading: false, listStamp: loading.listStamp + 1, listError: null };
   } catch (error) {
-    const message = error instanceof ApiError ? error.message : error instanceof Error ? error.message : "Couldn't refresh runs";
-    return { ...loading, listLoading: false, listError: message };
+    // The raw error stays in the console; the page shows plain words (UI-12).
+    console.warn("runs: list refresh failed", error);
+    return { ...loading, listLoading: false, listError: RUNS_REFRESH_ERROR };
   }
+}
+
+/**
+ * Apply a finished list refresh onto the latest state. Only list fields are taken, so a detail
+ * refresh that finished meanwhile is never overwritten; a failure keeps the rows already shown.
+ */
+export function mergeListRefresh(current: RunsStoreState, next: RunsStoreState): RunsStoreState {
+  if (next.listError) return { ...current, listLoading: false, listError: next.listError };
+  return { ...current, list: next.list, listStamp: current.listStamp + 1, listLoading: false, listError: null };
+}
+
+/** Apply a finished detail refresh for one run onto the latest state; the list is left alone. */
+export function mergeDetailRefresh(current: RunsStoreState, next: RunsStoreState, id: string): RunsStoreState {
+  const detail = next.details[id];
+  return detail ? { ...current, details: { ...current.details, [id]: detail } } : current;
 }
 
 function normalizeListRow(row: RunSummaryRow | Record<string, unknown>): RunSummaryRow {
@@ -350,6 +368,7 @@ export async function refreshRunDetail(
       questions?: unknown[];
     }>("run.get", { id });
     let questions: RunQuestionView[] = [];
+    let questionsError: string | null = null;
     if (Array.isArray(got.questions)) {
       questions = got.questions
         .map(q => isObj(q) ? questionFromEntity(q, id) : undefined)
@@ -362,7 +381,10 @@ export async function refreshRunDetail(
             .map(q => isObj(q) ? questionFromEntity(q, id) : undefined)
             .filter((q): q is RunQuestionView => !!q);
         }
-      } catch { /* older services */ }
+      } catch (error) {
+        console.warn("runs: question list failed", error);
+        questionsError = RUN_QUESTIONS_ERROR;
+      }
     }
     return {
       ...loading,
@@ -375,26 +397,30 @@ export async function refreshRunDetail(
           questions,
           decisions: prev.decisions,
           loading: false,
-          error: null,
+          error: questionsError,
           stamp: prev.stamp + 1,
         },
       },
     };
   } catch (error) {
-    const message = error instanceof ApiError ? error.message : error instanceof Error ? error.message : "Couldn't load run";
+    console.warn("runs: run load failed", error);
     return {
       ...loading,
-      details: { ...loading.details, [id]: { ...prev, loading: false, error: message } },
+      details: { ...loading.details, [id]: { ...prev, loading: false, error: RUN_DETAIL_ERROR } },
     };
   }
 }
 
-/** Mark a run seen (Phase 6); no-op when the op is missing. */
-export async function markRunSeen(api: BrowserApi, id: string, ops: ReadonlySet<string> | undefined): Promise<void> {
-  if (ops !== undefined && !ops.has("run.seen")) return;
+export type RunSeenResult = "seen" | "unsupported" | "failed";
+
+/** Mark a run seen (Phase 6). The result says whether it happened, so the page never claims it did. */
+export async function markRunSeen(api: BrowserApi, id: string, ops: ReadonlySet<string> | undefined): Promise<RunSeenResult> {
+  if (ops !== undefined && !ops.has("run.seen")) return "unsupported";
   try {
     await api.call("run.seen", { id });
-  } catch {
-    /* non-blocking: list still works without seen */
+    return "seen";
+  } catch (error) {
+    console.warn("runs: mark seen failed", error);
+    return "failed";
   }
 }

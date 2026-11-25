@@ -1377,6 +1377,7 @@ a.pc-btn--primary:hover{color:var(--ink-on-ink)}
 
 /* QuestionForm is self-contained wherever it mounts (Runs, run view, Live board). */
 .pc-question-form{display:flex;flex-direction:column;gap:var(--space-3)}
+.pc-question-form__context{margin:0;color:var(--ink-muted);font-family:var(--font-sans);font-size:var(--type-caption-size);line-height:var(--type-caption-line)}
 .pc-question-form__title{margin:0;font-family:var(--font-sans);font-size:var(--type-headline-size);line-height:var(--type-headline-line);font-weight:var(--type-headline-weight);letter-spacing:var(--type-headline-tracking)}
 .pc-question-form__note{display:block;color:var(--ink-muted);font-family:var(--font-sans);font-size:var(--type-caption-size);line-height:var(--type-caption-line)}
 .pc-question-form__artifact{margin:0}

@@ -1,7 +1,12 @@
 /** One structured-question form for queue, run view and Live board (Phase 9a). */
 import { useEffect, useId, useRef, useState } from "preact/hooks";
 import type { ComponentChildren } from "preact";
-import { CONFLICT_QUESTION } from "../../../src/view-model/runs";
+import {
+  CONFLICT_QUESTION,
+  QUESTION_ANSWER_TOO_LONG,
+  QUESTION_NO_OPTIONS,
+  QUESTION_SUBMIT_ERROR,
+} from "../../../src/view-model/runs";
 import { Alert } from "./Alert";
 import { Button } from "./Button";
 import { Checkbox, Field, TextArea, TextInput } from "./Controls";
@@ -37,6 +42,8 @@ export interface QuestionFormQuestion {
 
 export interface QuestionFormProps {
   question: QuestionFormQuestion;
+  /** Which run is asking, shown above the question and announced with it. */
+  context?: string;
   /** When false, submit is omitted (ops catalog gate). */
   canAnswer?: boolean;
   busy?: boolean;
@@ -70,7 +77,7 @@ function isConflictError(err: unknown): boolean {
   return typeof err === "object" && err !== null && "code" in err && (err as { code: unknown }).code === "conflict";
 }
 
-export function QuestionForm({ question, canAnswer = true, busy = false, focusTitle = false, onSubmit, onConflict }: QuestionFormProps) {
+export function QuestionForm({ question, context, canAnswer = true, busy = false, focusTitle = false, onSubmit, onConflict }: QuestionFormProps) {
   const baseId = useId();
   const options = defaultOptions(question);
   const [single, setSingle] = useState(question.recommended ?? "");
@@ -106,9 +113,13 @@ export function QuestionForm({ question, canAnswer = true, busy = false, focusTi
 
   const needsNote = question.answerType === "approve_revise" && single.toLowerCase() === "revise";
   const noteReady = !needsNote || note.trim().length > 0;
-  const choiceValue = question.answerType === "multi" ? multi.join(",") : single;
+  const chosen = question.answerType === "multi" ? multi : [single];
+  const selectedLabels = options.filter(o => chosen.includes(o.value)).map(o => optionLabel(o.value, question.answerType));
+  // A joined multi answer over the cap is refused, never cut: a cut would send a different answer.
+  const answerTooLong = question.answerType === "multi"
+    && encodeMultiAnswer(options, multi).length > QUESTION_ANSWER_MAX;
   const canSubmit = (() => {
-    if (!canAnswer || submitting || busy || conflict || !noteReady) return false;
+    if (!canAnswer || submitting || busy || conflict || !noteReady || answerTooLong) return false;
     if (question.answerType === "text") return text.trim().length > 0;
     if (question.answerType === "multi") return multi.length > 0;
     if (question.answerType === "single" || question.answerType === "yes_no" || question.answerType === "approve_revise") {
@@ -122,6 +133,7 @@ export function QuestionForm({ question, canAnswer = true, busy = false, focusTi
     if (needsNote && note.trim().length === 0) return "Add a revision note to submit";
     if (question.answerType === "text" && text.trim().length === 0) return "Write an answer to submit";
     if (question.answerType === "multi" && multi.length === 0) return "Choose at least one option";
+    if (answerTooLong) return QUESTION_ANSWER_TOO_LONG;
     if (
       (question.answerType === "single" || question.answerType === "yes_no" || question.answerType === "approve_revise")
       && single.length === 0
@@ -145,8 +157,7 @@ export function QuestionForm({ question, canAnswer = true, busy = false, focusTi
       if (question.answerType === "text") {
         answer = text.trim().slice(0, QUESTION_ANSWER_MAX);
       } else if (question.answerType === "multi") {
-        // Cap the joined multi payload; never slice a single option value.
-        answer = encodeMultiAnswer(options, multi).slice(0, QUESTION_ANSWER_MAX);
+        answer = encodeMultiAnswer(options, multi);
       } else {
         // Option values must match the server exactly — do not silently truncate them.
         answer = single;
@@ -162,7 +173,8 @@ export function QuestionForm({ question, canAnswer = true, busy = false, focusTi
         setConflict(true);
         setError(CONFLICT_QUESTION);
       } else {
-        setError(err instanceof Error ? err.message : String(err));
+        console.warn("question: submit failed", err);
+        setError(QUESTION_SUBMIT_ERROR);
       }
     } finally {
       setSubmitting(false);
@@ -186,11 +198,13 @@ export function QuestionForm({ question, canAnswer = true, busy = false, focusTi
       aria-labelledby={`${baseId}-title`}
       onSubmit={event => { event.preventDefault(); void submit(); }}
     >
+      {context ? <p className="pc-question-form__context" id={`${baseId}-context`}>{context}</p> : null}
       <h2
         ref={titleRef}
         className="pc-question-form__title"
         id={`${baseId}-title`}
         tabIndex={-1}
+        aria-describedby={context ? `${baseId}-context` : undefined}
         data-autofocus
       >
         {question.text}
@@ -220,7 +234,7 @@ export function QuestionForm({ question, canAnswer = true, busy = false, focusTi
             layout="options"
           />
           : <Alert tone="warning" title="No options" compact>
-            <p>This question has no options; answer it with the CLI.</p>
+            <p>{QUESTION_NO_OPTIONS}</p>
           </Alert>
       )}
 
@@ -242,7 +256,7 @@ export function QuestionForm({ question, canAnswer = true, busy = false, focusTi
             ))}
           </fieldset>
           : <Alert tone="warning" title="No options" compact>
-            <p>This question has no options; answer it with the CLI.</p>
+            <p>{QUESTION_NO_OPTIONS}</p>
           </Alert>
       )}
 
@@ -296,9 +310,11 @@ export function QuestionForm({ question, canAnswer = true, busy = false, focusTi
           {submitHint ? (
             <span id={submitHintId} className="pc-question-form__submit-hint">{submitHint}</span>
           ) : null}
-          <span className="sr-only" aria-live="polite">
-            {choiceValue ? `Selected ${choiceValue}` : "No answer selected"}
-          </span>
+          {question.answerType !== "text" ? (
+            <span className="sr-only" aria-live="polite">
+              {selectedLabels.length ? `Selected ${selectedLabels.join(", ")}` : "No answer selected"}
+            </span>
+          ) : null}
         </div>
       )}
     </form>

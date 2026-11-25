@@ -138,8 +138,16 @@
 }
 .runs-table-status {
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-1);
+  min-width: 0;
+}
+.runs-table-paused {
+  color: var(--ink-muted);
+  font-family: var(--font-sans);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-line);
 }
 .runs-table-age {
   text-align: right;

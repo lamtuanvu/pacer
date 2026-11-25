@@ -2,7 +2,11 @@
  * DOM interaction tests for QuestionForm payloads, revise note, and conflict Reload.
  */
 import { expect, test } from "bun:test";
+import { act } from "preact/test-utils";
 import { ApiError } from "../app/src/data/api";
+import { Dialog } from "../app/src/ds/Dialog";
+import { QUESTION_ANSWER_TOO_LONG, QUESTION_SUBMIT_ERROR } from "../src/view-model/runs";
+import { enableFocusQueries, findAll, findAll as findAllIn, focusName, pressTab } from "./app-focus-dom";
 import {
   CONFLICT_QUESTION,
   encodeMultiAnswer,
@@ -361,4 +365,106 @@ test("Dialog cycleDialogFocus still traps Tab at both ends", async () => {
   cycleDialogFocus(dialog, { key: "Tab", shiftKey: true, preventDefault: () => { prevented++; } });
   expect(focused).toEqual(["first", "last"]);
   expect(prevented).toBe(2);
+});
+
+test("Tab order in the answer dialog: heading, one radio stop, note, submit, then Close", async () => {
+  const dom = installDom();
+  try {
+    enableFocusQueries(dom);
+    const question = q({
+      answerType: "approve_revise",
+      options: [{ value: "approve" }, { value: "revise" }],
+      recommended: "approve",
+    });
+    await mount(dom, (
+      <Dialog title="Answer question" close={() => {}}>
+        <QuestionForm question={question} context="Asked by run B: Ship board" onSubmit={async () => {}} />
+      </Dialog>
+    ));
+    await tick();
+    expect(focusName(dom.doc.activeElement)).toBe("h2:Which approach?");
+    const order = [1, 2, 3, 4, 5].map(() => pressTab(dom));
+    expect(order).toEqual(["radio:approve", "input", "button:Submit answer", "button:Close", "radio:approve"]);
+    expect(pressTab(dom, true)).toBe("button:Close");
+    // The heading is described by the line that names the asking run.
+    const title = findAll(dom.container, n => n.localName === "h2" && n.attrs["data-autofocus"] !== undefined)[0];
+    const context = findAll(dom.container, n => n.localName === "p" && n.attrs.id === title.attrs["aria-describedby"])[0];
+    expect(domText(context)).toBe("Asked by run B: Ship board");
+    await unmount(dom);
+  } finally {
+    dom.restore();
+  }
+});
+
+const liveRegions = (root: unknown) => findAllIn(root, n => n.attrs?.["aria-live"] === "polite");
+
+test("live region announces option labels, and text questions have none", async () => {
+  const dom = installDom();
+  try {
+    await mount(dom, <QuestionForm question={q({ answerType: "yes_no", options: undefined, recommended: "yes" })} onSubmit={async () => {}} />);
+    await tick();
+    expect(liveRegions(dom.container).map(domText)).toEqual(["Selected Yes"]);
+    await unmount(dom);
+    await mount(dom, <QuestionForm question={q({ answerType: "multi", options: [{ value: "docs" }, { value: "tests" }], recommended: "docs" })} onSubmit={async () => {}} />);
+    await tick();
+    expect(liveRegions(dom.container).map(domText)).toEqual(["Selected docs"]);
+    await unmount(dom);
+    await mount(dom, <QuestionForm question={q({ answerType: "text", options: undefined, recommended: undefined })} onSubmit={async () => {}} />);
+    await tick();
+    expect(liveRegions(dom.container)).toEqual([]);
+    expect(domText(dom.container)).not.toContain("No answer selected");
+    await unmount(dom);
+  } finally {
+    dom.restore();
+  }
+});
+
+test("a multi answer over the cap is refused with a reason, never sliced", async () => {
+  const dom = installDom();
+  try {
+    const long = ["a", "b", "c"].map(letter => ({ value: letter.repeat(900) }));
+    const sent: string[] = [];
+    await mount(dom, <QuestionForm question={q({ answerType: "multi", options: long, recommended: long[0]!.value })} onSubmit={async input => { sent.push(input.answer); }} />);
+    await tick();
+    const boxes = () => allNodes(dom.container as unknown as DomNode).filter(n => n.getAttribute?.("type") === "checkbox");
+    await act(async () => { fire(boxes()[1]!, "change"); });
+    expect(isDisabled(dom.container, "Submit answer")).toBe(false);
+    await act(async () => { fire(boxes()[2]!, "change"); });
+    expect(isDisabled(dom.container, "Submit answer")).toBe(true);
+    expect(domText(dom.container)).toContain(QUESTION_ANSWER_TOO_LONG);
+    await act(async () => { submitForm(dom.container); });
+    await tick();
+    expect(sent).toEqual([]);
+    await unmount(dom);
+  } finally {
+    dom.restore();
+  }
+});
+
+test("a failed submit shows plain words, not the service message", async () => {
+  const dom = installDom();
+  try {
+    await mount(dom, <QuestionForm question={q()} onSubmit={async () => { throw new ApiError("internal", "question.answer exploded: SQLITE_BUSY"); }} />);
+    await tick();
+    await act(async () => { submitForm(dom.container); });
+    await until(() => domText(dom.container).includes("Could not submit"), 2000);
+    expect(domText(dom.container)).toContain(QUESTION_SUBMIT_ERROR);
+    expect(domText(dom.container)).not.toContain("SQLITE_BUSY");
+    expect(domText(dom.container)).not.toContain("question.answer");
+    await unmount(dom);
+  } finally {
+    dom.restore();
+  }
+});
+
+test("without question.answer the form has no submit control", async () => {
+  const dom = installDom();
+  try {
+    await mount(dom, <QuestionForm question={q()} canAnswer={false} onSubmit={async () => {}} />);
+    await tick();
+    expect(domText(dom.container)).not.toContain("Submit answer");
+    await unmount(dom);
+  } finally {
+    dom.restore();
+  }
 });

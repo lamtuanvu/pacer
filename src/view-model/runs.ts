@@ -76,7 +76,20 @@ export function waitsOnLabel(waitsOn: string | null | undefined): string {
   if (!waitsOn || waitsOn === "-") return "—";
   if (waitsOn === "you" || waitsOn === "person") return "You";
   if (waitsOn === "orchestrator" || waitsOn === "planner") return "Orchestrator";
+  if (waitsOn === "executors") return "Executors";
+  if (waitsOn === "nothing") return "Nothing";
   return waitsOn;
+}
+
+/** Why a run is paused, in plain words (UI-12). Unknown codes are never shown raw. */
+export function pausedReasonLabel(reason: string | null | undefined): string {
+  const labels: Record<string, string> = {
+    "pacing: strict": "Paused by strict pacing",
+    "pacing: emergency": "Paused by emergency pacing",
+    person: "Paused by you",
+    budget: "Turn budget spent",
+  };
+  return reason && Object.hasOwn(labels, reason) ? labels[reason]! : "Reason not available";
 }
 
 /**
@@ -184,3 +197,15 @@ export const RUNS_EMPTY = "No runs yet. Start one with `pacer run start`.";
 export const RUNS_UNAVAILABLE = "Runs unavailable.";
 
 export const CONFLICT_QUESTION = "This question changed; review it again.";
+
+/** Plain failure and placeholder copy for the web Runs page and question form (UI-12). */
+export const RUNS_UNAVAILABLE_DETAIL = "Update pacer to see runs here.";
+export const RUNS_REFRESH_ERROR = "The list may be out of date. Reload the page to try again.";
+export const RUN_DETAIL_ERROR = "Couldn't load this run's details.";
+export const RUN_QUESTIONS_ERROR = "Couldn't load this run's questions.";
+export const RUN_SEEN_OK = "Marked as seen.";
+export const RUN_SEEN_ERROR = "Couldn't mark this run as seen.";
+export const RUN_VIEW_PENDING = "Run details aren't shown on this page yet.";
+export const QUESTION_SUBMIT_ERROR = "Couldn't submit your answer. Try again.";
+export const QUESTION_NO_OPTIONS = "This question has no options, so it can't be answered here. Answer it from a terminal with pacer.";
+export const QUESTION_ANSWER_TOO_LONG = "These choices are too long to send together. Choose fewer.";
