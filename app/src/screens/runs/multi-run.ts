@@ -55,6 +55,23 @@ export interface MultiRunModel {
   hidden: { focus: number; quietRuns: number; quietItems: number; quietBackgroundItems: number };
 }
 
+const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+
+/** Step counts from a run's own step rows (latest attempt per step and branch), for runs the snapshot no longer lists. */
+export function countsFromSteps(steps: unknown[] | undefined): StepCounts {
+  const latest = new Map<string, { attempt: number; status: string }>();
+  for (const s of steps ?? []) {
+    if (!isObj(s) || typeof s.stepId !== "string" || typeof s.status !== "string") continue;
+    const key = `${s.stepId}\0${typeof s.branch === "string" ? s.branch : ""}`;
+    const attempt = typeof s.attempt === "number" ? s.attempt : 0;
+    const prev = latest.get(key);
+    if (!prev || attempt >= prev.attempt) latest.set(key, { attempt, status: s.status });
+  }
+  const out: StepCounts = { running: 0, waiting: 0, done: 0, failed: 0 };
+  for (const { status } of latest.values()) if (status === "running" || status === "waiting" || status === "done" || status === "failed") out[status]++;
+  return out;
+}
+
 export function summaryOf(run: Record<string, unknown> | null | undefined): { text: string; at?: number } | null {
   if (!run || typeof run.summary !== "string" || !run.summary.trim()) return null;
   return { text: run.summary.trim(), ...(typeof run.summaryAt === "number" ? { at: run.summaryAt } : {}) };
@@ -91,7 +108,7 @@ export function buildMultiRun(input: {
       id: run.id, letter: run.letter, tone: runTone(run.letter), title: run.title, status: run.status, priority: runPriorityOf(run.priority),
       priorityLabel: runPriorityLabel(run.priority), waitsOn: run.waitsOn, age: run.age,
       ...(run.pausedReason ? { pausedReason: run.pausedReason } : {}),
-      counts: s?.steps ?? { running: 0, waiting: 0, done: 0, failed: 0 },
+      counts: s?.steps ?? countsFromSteps(input.details[run.id]?.steps),
       questions: waiting.get(run.id) ?? 0,
       summary: summaryOf(input.details[run.id]?.run),
     };

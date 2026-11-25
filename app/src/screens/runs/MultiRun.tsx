@@ -21,9 +21,19 @@ import { Creature } from "./MascotArt";
 import { buildMultiRun, countWords, type RunLineRow } from "./multi-run";
 import { liveHref, runViewHref } from "./live-links";
 
-/** Details are read for this many live runs, one after another, for their summaries. */
-export const SUMMARY_RUNS = 6;
+/** Details are read for this many runs, one after another, for their summaries and step counts. */
+export const SUMMARY_RUNS = 8;
 const LIVE = new Set(["running", "waiting", "paused"]);
+
+/** Generated child runs belong to their parent's board, so they are not runs of their own here. */
+export const childRunIds = (rows: Array<{ id: string; parentRunId?: string }>): Set<string> => new Set(rows.filter(r => r.parentRunId).map(r => r.id));
+
+/** Live runs first, then the newest finished ones; children never. */
+export function summaryRunIds(rows: Array<{ id: string; status: string; createdAt: number; parentRunId?: string }>): string[] {
+  return rows.filter(r => !r.parentRunId)
+    .sort((a, b) => (LIVE.has(b.status) ? 1 : 0) - (LIVE.has(a.status) ? 1 : 0) || b.createdAt - a.createdAt || a.id.localeCompare(b.id))
+    .slice(0, SUMMARY_RUNS).map(r => r.id);
+}
 
 function StepBar({ line }: { line: RunLineRow }) {
   const { done, running, waiting, failed } = line.counts;
@@ -63,7 +73,8 @@ export function MultiRun({ query }: { query: RouteQuery }) {
     let next = await refreshRunsList(api, storeRef.current, ops);
     if (!current()) return;
     setStore(next);
-    const ids = mergeSnapshotRuns(next.list, state.snapshot?.runs).filter(r => LIVE.has(r.status)).slice(0, SUMMARY_RUNS).map(r => r.id);
+    const kids = childRunIds(next.list);
+    const ids = summaryRunIds(mergeSnapshotRuns(next.list, state.snapshot?.runs).filter(r => !kids.has(r.id)));
     for (const id of ids) {
       next = await refreshRunDetail(api, next, id, ops);
       if (!current()) return;
@@ -78,12 +89,14 @@ export function MultiRun({ query }: { query: RouteQuery }) {
   const listState = useMemo(() => buildRunsListState({
     ops, attention: state.snapshot?.attention, snapshotRuns: state.snapshot?.runs, store, now,
   }), [ops, state.snapshot?.attention, state.snapshot?.runs, store, now]);
+  const children = useMemo(() => childRunIds(store.list), [store.list]);
+  const runs = useMemo(() => listState.runs.filter(r => !children.has(r.id)), [listState.runs, children]);
   // A focused run that has ended or vanished must not leave the board empty.
-  const focus = focusId && listState.runs.some(r => r.id === focusId) ? focusId : null;
+  const focus = focusId && runs.some(r => r.id === focusId) ? focusId : null;
   const model = useMemo(() => buildMultiRun({
-    runs: listState.runs, queue: listState.queue, snapshotRuns: state.snapshot?.runs, details: store.details,
+    runs, queue: listState.queue, snapshotRuns: state.snapshot?.runs, details: store.details,
     executors: state.snapshot?.executors, focusId: focus, quiet,
-  }), [listState, state.snapshot?.runs, state.snapshot?.executors, store.details, focus, quiet]);
+  }), [runs, listState.queue, state.snapshot?.runs, state.snapshot?.executors, store.details, focus, quiet]);
   const answering = answerId ? model.queue.find(q => q.id === answerId) ?? null : null;
   const canAnswer = ops.has("question.answer");
   const unavailable = listState.unavailable;

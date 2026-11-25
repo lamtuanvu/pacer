@@ -40,6 +40,7 @@ const fixture: Fixture = {
     { id: "run_a", workflow: "pacer-dev/feature", title: runA.title, status: "waiting", priority: "urgent", createdAt: 996_400 },
     { id: "run_b", workflow: "pacer-dev/feature", title: runB.title, status: "running", priority: "normal", createdAt: 998_200 },
     { id: "run_c", workflow: "pacer-dev/feature", title: runC.title, status: "running", priority: "background", createdAt: 992_800 },
+    { id: "run_child", workflow: "fixture/plan", title: "Generated plan", status: "running", priority: "normal", createdAt: 997_000, parentRunId: "run_a" },
   ],
 };
 
@@ -98,7 +99,9 @@ test("since you last looked: the orchestrator's summary where one exists, an hon
     expect(text(row(dom.container, "data-run", "run_a"))).toContain("written 8m ago");
     expect(text(row(dom.container, "data-run", "run_b"))).toContain("Since you last looked: No summary yet.");
     // the summary comes from run.get, once per live run
-    expect(calls.ops.filter(c => c.op === "run.get").map(c => (c.params as { id: string }).id).sort()).toEqual(["run_a", "run_b", "run_c"]);
+    // (the generated child run is read with its parent's detail, and is never a line of its own)
+    expect(calls.ops.filter(c => c.op === "run.get").map(c => (c.params as { id: string }).id).filter(id => id !== "run_child").sort()).toEqual(["run_a", "run_b", "run_c"]);
+    expect(runIds(dom.container)).not.toContain("run_child");
   } finally { await done(dom); }
 });
 
