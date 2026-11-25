@@ -36,13 +36,23 @@ function dispatch(event: PanelEvent): void {
   render()
 }
 
+// One outcome is shown at a time, so one timer: each new result restarts it, and an older
+// result's timer can never clear a newer one.
+let statusTimer: ReturnType<typeof setTimeout> | null = null
+
 async function runRequest(run: RunRequest, successText?: string): Promise<void> {
   try {
     await sendRequest(run, successText)
   } finally {
-    // Successes fade quickly; errors stay long enough to read.
     const tone = state.ui.statusByKey[run.pendingKey]?.tone
-    if (tone) setTimeout(() => dispatch({ type: 'clear-status', pendingKey: run.pendingKey }), tone === 'good' ? 4000 : 10000)
+    if (tone) {
+      if (statusTimer) clearTimeout(statusTimer)
+      // Successes fade quickly; errors stay long enough to read.
+      statusTimer = setTimeout(() => {
+        statusTimer = null
+        dispatch({ type: 'clear-status', pendingKey: run.pendingKey })
+      }, tone === 'good' ? 4000 : 10000)
+    }
   }
 }
 
@@ -209,15 +219,17 @@ function renderNeedsRow(item: AttentionRow, model: Extract<ReturnType<typeof pan
   return row
 }
 
+// The same node is reused across renders so screen readers announce its changes as a live region.
+const statusLine = el('p', 'pc-status')
+statusLine.setAttribute('role', 'status')
+
 /** The outcome of the latest action (sent, failed, already handled), announced to screen readers. */
-function renderStatusLine(): HTMLElement | null {
+function renderStatusLine(): HTMLElement {
   const last = Object.values(state.ui.statusByKey).at(-1)
-  if (!last) return null
-  const line = el('p', undefined, last.text)
-  line.setAttribute('role', 'status')
-  const color = { good: 'var(--good-fg)', bad: 'var(--bad-fg)', warn: 'var(--warn-fg)' }[last.tone]
-  line.style.cssText = `margin:0;font-size:12px;line-height:16px;color:${color};`
-  return line
+  statusLine.className = last ? `pc-status pc-status--${last.tone}` : 'pc-status'
+  statusLine.textContent = last?.text ?? ''
+  statusLine.hidden = !last
+  return statusLine
 }
 
 /** Opens the task's page in the pacer app (pacer://tasks/<id>). */
@@ -440,8 +452,7 @@ function renderReady(model: Extract<ReturnType<typeof panelModel>, { kind: 'read
   const cap = titleRow.lastChild as HTMLElement
   cap.style.cssText = 'font-size:12px;line-height:16px;color:var(--ink-muted);'
   main.append(titleRow)
-  const statusLine = renderStatusLine()
-  if (statusLine) main.append(statusLine)
+  main.append(renderStatusLine())
 
   if (empty) {
     const p = el('p', undefined, 'Nothing delegated from this worktree yet.')
@@ -574,8 +585,7 @@ function renderModel(model: ReturnType<typeof panelModel>, now: number): HTMLEle
         dispatch({ type: 'begin', pendingKey })
         void runRequest({ kind: 'act', op: 'ui.open', params: { view: 'overview' }, pendingKey })
       } }))
-      const offlineStatus = renderStatusLine()
-      if (offlineStatus) card.append(offlineStatus)
+      card.append(renderStatusLine())
       card.append(el('p', 'pc-caption', 'No app on this machine? Start it from a terminal:'))
       card.append(el('code', 'pc-code-box', 'pacer serve'))
       main.append(card)
