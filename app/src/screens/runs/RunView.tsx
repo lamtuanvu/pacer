@@ -114,7 +114,12 @@ export function RunView({ runId, query, fetchText }: { runId: string; query: Rou
     ...(avail.execution ? ["execution" as const] : []), ...(avail.tests ? ["tests" as const] : [])];
   const active: BoardId = offered.includes(board) ? board : "overview";
 
-  const answered = () => { setAnnounce("Answer submitted"); void load(); };
+  const answered = () => {
+    setAnnounce("Answer submitted");
+    // The answered form leaves the page; keep keyboard focus on the run title instead of dropping it.
+    queueMicrotask(() => headingRef.current?.focus({ preventScroll: true }));
+    void load();
+  };
   const reloadQuestion = () => { setAnnounce("This question changed. Showing the latest version."); void load(); };
   const send = async (body: string) => {
     const call = runner ? <T,>(op: string, params?: unknown) => runner.call<T>(op, params) : api.call.bind(api);
@@ -152,7 +157,6 @@ export function RunView({ runId, query, fetchText }: { runId: string; query: Rou
       <header className="runs-header">
         <div className="runs-heading">
           <h1 ref={headingRef} tabIndex={-1}>{title}</h1>
-          <span className="runs-cap">Run {letter}</span>
         </div>
         <ButtonLink typography="board" size="sm" href={backHref}>All runs</ButtonLink>
       </header>
@@ -170,7 +174,7 @@ export function RunView({ runId, query, fetchText }: { runId: string; query: Rou
       {view && run && <>
         <div className="rv-facts" aria-label="Run facts" role="group">
           <span className="rv-fact"><span className="pc-run-letter" role="img" aria-label={`Run ${letter}`}>{letter}</span></span>
-          <span className="rv-fact"><span aria-hidden="true">{status.glyph}</span><Pill tone={status.tone}>{status.label}</Pill></span>
+          <span className="rv-fact"><Pill tone={status.tone}><span aria-hidden="true">{status.glyph} </span>{status.label}</Pill></span>
           <span className="rv-fact">Priority: {runPriorityLabel(typeof run.priority === "string" ? run.priority : undefined)}</span>
           <span className="rv-fact">Waits on: {waitsOnLabel(waits)}</span>
           <span className="rv-fact" title={String(run.workflow ?? "")}>{String(run.workflow ?? "")}</span>

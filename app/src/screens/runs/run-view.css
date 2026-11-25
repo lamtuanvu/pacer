@@ -48,6 +48,10 @@
 .rv-box--warn { border-color: var(--bad-line); }
 .rv-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-width: 0; }
 .rv-row > .rv-grow { flex: 1 1 0; min-width: 0; }
+.rv-ul, .rv-ol { margin: 0; padding-left: var(--space-5); display: flex; flex-direction: column; gap: var(--space-1); }
+.rv-ul { list-style: disc; }
+.rv-ol { list-style: decimal; }
+.rv-box--form { max-width: var(--size-680); }
 .rv-mono {
   font-family: var(--font-mono);
   font-size: var(--type-code-size);
