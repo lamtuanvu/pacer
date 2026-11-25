@@ -120,6 +120,18 @@ test("opening the board marks the run seen once", async () => {
   } finally { await done(dom); }
 });
 
+test("the run's letter is the one the runs list gives it, also for a run the snapshot no longer lists", async () => {
+  const { dom } = await open(liveFixture, ALL_OPS, { "run.list": () => [
+    { id: "run_0", workflow: "pacer-dev/feature", title: "Older run", status: "done", priority: "normal", createdAt: 100 },
+    { id: "run_1", workflow: "pacer-dev/feature", title: "Ship the board", status: "running", priority: "normal", createdAt: 800 },
+  ] });
+  try {
+    const chips = all(dom.container as Node).filter(n => attr(n, "role") === "img" && /^Run [A-Z]+$/.test(attr(n, "aria-label") ?? "")).map(n => attr(n, "aria-label"));
+    expect(chips).toEqual(["Run B"]);
+    expect(attr(must(all(dom.container as Node).find(n => /^Live board for run/.test(attr(n, "aria-label") ?? "")), "page"), "aria-label")).toBe("Live board for run B");
+  } finally { await done(dom); }
+});
+
 test("the person is drawn once, beside the step that waits on them; the planner is marked as the planner", async () => {
   const { dom } = await open();
   try {
