@@ -4,6 +4,19 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.18.4] - 2026-11-25
+
+### Changed
+
+- Release 0.18.3 (#1286).
+- Assert plugin.disable workflow side effect; link SDK in plugin.list parity test (#1258).
+
+### Fixed
+
+- Name each picker row's real CLI and hide disabled accounts (#1289) (assistant).
+- Read sign-ins and models on OpenCode 2.2; require a provider model when adding an agent (#1287) (opencode).
+- Keep grant workflows in Rust strategy validation and parallelize the host release compile (#1260) (plugins).
+
 ## [0.18.3] - 2026-11-25
 
 ### Changed
