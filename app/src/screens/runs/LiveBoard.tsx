@@ -46,7 +46,7 @@ const isOpenForPerson = (q: RunQuestionView) => (q.status === undefined || q.sta
 
 export function LiveBoard({ runId, query, outputPollMs }: { runId: string; query: RouteQuery; outputPollMs?: number }) {
   useLiveStyles();
-  const { state, api, ops, detail, load } = useRunDetail(runId);
+  const { state, api, ops, store, detail, load } = useRunDetail(runId);
   const runner = useActions();
   const headingRef = useRef<HTMLHeadingElement>(null);
   const agentEls = useRef(new Map<string, SVGGElement>());
@@ -133,7 +133,7 @@ export function LiveBoard({ runId, query, outputPollMs }: { runId: string; query
 
   // Header facts
   const snapRun = state.snapshot?.runs?.find(r => r.id === runId);
-  const letter = runLettersForList(mergeSnapshotRuns([], state.snapshot?.runs)).get(runId) ?? displayRunLetter({ id: runId, letter: snapRun?.letter });
+  const letter = runLettersForList(mergeSnapshotRuns(store.list, state.snapshot?.runs)).get(runId) ?? displayRunLetter({ id: runId, letter: snapRun?.letter });
   const pausedReason = typeof run?.pausedReason === "string" ? run.pausedReason : typeof snapRun?.paused_reason === "string" ? snapRun.paused_reason : undefined;
   const status = runStatus(pausedReason ? "paused" : String(run?.status ?? "running"));
   const title = typeof run?.title === "string" && run.title ? run.title : typeof run?.workflow === "string" ? run.workflow : runId;
