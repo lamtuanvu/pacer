@@ -19,13 +19,14 @@ export interface StoreState {
   invalidations: Record<string, number>; version: string | null;
   desktopBuildDiagnostic: 'unverified' | 'mismatch' | 'legacy' | 'unknown';
   features: Features; jobs: Record<string, Job>; activity: ActivityEntry[];
+  pluginStates?: Record<string, { state: string; error: string | null }>;
 }
 type EventType = ApiEvent["type"] | EntityEventType;
 export type StoreAction = { type: "waiting"; waiting: NonNullable<SnapshotV2["service"]>["waiting"] } | { type: "snapshot"; snapshot: LinkSnapshot | SnapshotV2 } | { type: "event"; event: Omit<ApiEvent, "type"> & { type: EventType } } | { type: "disconnected" | "connected" | "reconnected" | "session-ended" } | { type: "hello"; hello: Hello };
 const V1_EVENTS = ["budget", "task", "mode", "alert", "config", "reset"] as const;
 const TASK_CAP = 200, ACTIVITY_CAP = 200;
 export function initialState(): StoreState {
-  return { snapshot: null, connectionRevision: 0, connected: false, sessionEnded: false, needsSnapshot: true, invalidations: {}, version: null, desktopBuildDiagnostic: 'unknown', features: { readModel: false, ops: new Set() }, jobs: {}, activity: [] };
+  return { snapshot: null, connectionRevision: 0, connected: false, sessionEnded: false, needsSnapshot: true, invalidations: {}, version: null, desktopBuildDiagnostic: 'unknown', features: { readModel: false, ops: new Set() }, jobs: {}, activity: [], pluginStates: {} };
 }
 /** The 2.1 read model is on when the service says protocol >= 2.1 and announces attention events. */
 export function featuresOf(hello: Hello): Features {
@@ -122,8 +123,23 @@ export function reduceStore(state: StoreState, action: StoreAction): StoreState 
       if (!state.snapshot || state.needsSnapshot || event.seq <= state.snapshot.seq) return state;
       // A notice does not change the snapshot body. Advance the cursor so a reconnect does not replay it.
       if (event.type === "notify") return { ...state, snapshot: { ...state.snapshot, seq: event.seq, at: event.at } };
-      // Plugin surfaces re-render on any plugin event; the catalog follows this counter.
-      if (event.type === "plugin") return { ...state, snapshot: { ...state.snapshot, seq: event.seq, at: event.at }, invalidations: { ...state.invalidations, plugin: (state.invalidations.plugin ?? 0) + 1 } };
+      // Plugin catalog rows change only on state/error changes; ui invalidations get a
+      // separate counter so surfaces re-render without refetching plugin.list.
+      if (event.type === "plugin") {
+        const data = isObj(event.data) ? event.data : {};
+        const id = typeof data.id === "string" ? data.id : null;
+        const nextState = typeof data.state === "string" ? data.state : String(data.state ?? "");
+        const nextError = data.error == null ? null : String(data.error);
+        const hasUi = Object.prototype.hasOwnProperty.call(data, "ui");
+        const pluginStates = state.pluginStates ?? {};
+        const previous = id ? pluginStates[id] : undefined;
+        const stateChanged = !previous || previous.state !== nextState || previous.error !== nextError;
+        const nextPluginStates = id ? { ...pluginStates, [id]: { state: nextState, error: nextError } } : pluginStates;
+        const nextInvalidations = { ...state.invalidations };
+        if (stateChanged) nextInvalidations.plugin = (nextInvalidations.plugin ?? 0) + 1;
+        if (hasUi) nextInvalidations["plugin-ui"] = (nextInvalidations["plugin-ui"] ?? 0) + 1;
+        return { ...state, pluginStates: nextPluginStates, snapshot: { ...state.snapshot, seq: event.seq, at: event.at }, invalidations: nextInvalidations };
+      }
       // A machine seen on the network changes discovery.list without a config change.
       if (event.type === "discovery.found") return { ...state, snapshot: { ...state.snapshot, seq: event.seq, at: event.at }, invalidations: { ...state.invalidations, discovery: (state.invalidations.discovery ?? 0) + 1 } };
       // 2.1 entities carry fields the v1 envelope parser would strip, so they skip it.

@@ -49,7 +49,7 @@ function App() {
   const api = useMemo(() => createApi(() => setSessionEnded(true)), []);
   const store = useMemo(() => createStore(api), [api]);
   const [state, setState] = useState(store.getState);
-  const plugins = usePluginCatalog(api, state.connected, (state.invalidations.plugin ?? 0) + (state.invalidations.plugins ?? 0));
+  const plugins = usePluginCatalog(api, state.connected, (state.invalidations.plugin ?? 0) + (state.invalidations["plugin-ui"] ?? 0) + (state.invalidations.plugins ?? 0));
   const actions = useMemo(() => createActionRunner({ connected: () => store.getState().connected && !store.getState().sessionEnded, call: api.call, waitFor: storeWaiter(store), refetch: () => store.refresh(), reviewAccepted: id => store.acceptReview(id), navigate: hash => { location.hash = inheritQuery(hash, location.hash); } }), [api]);
   const [hash, setHash] = useState(location.hash);
   const [serviceIdentity, setServiceIdentity] = useState<{identity: string; resolved: boolean}>({identity: location.origin, resolved: false});

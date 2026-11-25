@@ -61,15 +61,17 @@ export function resourceRevision(op: string, invalidations: Record<string, numbe
  const budget = budgetResourceRevision(op, invalidations);
  if (budget !== undefined) return budget;
  // update.check itself publishes an update event; reacting to it creates a request loop. Message threads have their own counters.
- return JSON.stringify(Object.entries(invalidations).filter(([area]) => !area.startsWith("msg:")).filter(([area]) => op.startsWith("plugin.") ? area === "plugin" || area === "plugins" : area !== "plugin" && (op !== "update.check" || area !== "update")));
+ return JSON.stringify(Object.entries(invalidations).filter(([area]) => !area.startsWith("msg:")).filter(([area]) => op.startsWith("plugin.") ? (op.startsWith("plugin.ui.") ? ["plugin", "plugins", "plugin-ui"] : ["plugin", "plugins"]).includes(area) : area !== "plugin" && (op !== "update.check" || area !== "update")));
 }
 export function useResource<T>(op:string,params:unknown={},initial?:T) {
  useSettingsStyles();
- const {api,state}=useTaskContext();const [data,setData]=useState(initial),[error,setError]=useState<unknown>(),[loading,setLoading]=useState(initial===undefined),[revision,reload]=useState(0);
+ const {api,state}=useTaskContext();const [data,setData]=useState(initial),[error,setError]=useState<unknown>(),[loading,setLoading]=useState(initial===undefined),[refreshing,setRefreshing]=useState(false),[revision,reload]=useState(0);
  const generation=useRef(0);
+ const dataRef=useRef(data);
+ useEffect(()=>{dataRef.current=data;},[data]);
  const serialized=JSON.stringify(params),invalidations=budgetResourceRevision(op,state.invalidations,state.snapshot?.accounts) ?? resourceRevision(op,state.invalidations);
- useEffect(()=>{let active=true;const ticket=++generation.current;setLoading(true);setError(undefined);void api.call<T>(op,JSON.parse(serialized)).then(r=>{if(active&&ticket===generation.current)setData(r);},e=>{if(active&&ticket===generation.current)setError(e);}).finally(()=>{if(active&&ticket===generation.current)setLoading(false);});return()=>{active=false;};},[api,op,serialized,revision,invalidations,state.connected]);
- return {data,error,loading,setData:(next:T)=>{generation.current++;setLoading(false);setData(next);},reload:()=>reload(v=>v+1)};
+ useEffect(()=>{let active=true;const ticket=++generation.current;const initialLoad=dataRef.current===undefined;if(initialLoad){setLoading(true);}else{setRefreshing(true);}setError(undefined);void api.call<T>(op,JSON.parse(serialized)).then(r=>{if(active&&ticket===generation.current)setData(r);},e=>{if(active&&ticket===generation.current)setError(e);}).finally(()=>{if(active&&ticket===generation.current){setLoading(false);setRefreshing(false);}});return()=>{active=false;};},[api,op,serialized,revision,invalidations,state.connected]);
+ return {data,error,loading,refreshing,setData:(next:T)=>{generation.current++;setLoading(false);setRefreshing(false);setData(next);},reload:()=>reload(v=>v+1)};
 }
 export function ResourceState({resource,empty,children}:{resource:{data:unknown;loading:boolean;error:unknown;reload:()=>void};empty?:string;children:ComponentChildren}) {
  if(resource.error)return <><ErrorMessage error={resource.error}/><Button onClick={resource.reload}>Try again</Button></>;

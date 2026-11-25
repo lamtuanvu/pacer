@@ -158,6 +158,25 @@ test('shared API actions stay online before open and during grace, then refuse a
   } finally { stop(); globalThis.fetch = original; }
 });
 
+test('a repeated identical plugin event does not refetch plugin.list', () => {
+  const state = ready();
+  const first = reduceStore(state, { type: 'event', event: { type: 'plugin', seq: state.snapshot!.seq + 1, at: 1, data: { id: 'checklist', state: 'ready', error: null } } });
+  const before = queryRevision(first, 'plugin.list', {});
+  const second = reduceStore(first, { type: 'event', event: { type: 'plugin', seq: first.snapshot!.seq + 1, at: 2, data: { id: 'checklist', state: 'ready', error: null } } });
+  expect(queryRevision(second, 'plugin.list', {})).toBe(before);
+});
+test('a plugin state change refetches plugin.list', () => {
+  const state = ready();
+  const first = reduceStore(state, { type: 'event', event: { type: 'plugin', seq: state.snapshot!.seq + 1, at: 1, data: { id: 'checklist', state: 'ready', error: null } } });
+  const changed = reduceStore(first, { type: 'event', event: { type: 'plugin', seq: first.snapshot!.seq + 1, at: 2, data: { id: 'checklist', state: 'failing', error: 'boom' } } });
+  expect(queryRevision(changed, 'plugin.list', {})).not.toBe(queryRevision(first, 'plugin.list', {}));
+});
+test('an account list revision ignores capturedAt-only changes', () => {
+  const state = ready();
+  const withCaptured = { ...state, snapshot: { ...state.snapshot!, accounts: (state.snapshot!.accounts ?? []).map((account: any) => ({ ...account, capturedAt: 1 })) } };
+  const changed = { ...withCaptured, snapshot: { ...withCaptured.snapshot!, accounts: (withCaptured.snapshot!.accounts ?? []).map((account: any) => ({ ...account, capturedAt: 2 })) } };
+  expect(queryRevision(withCaptured as any, 'account.list', {})).toBe(queryRevision(changed as any, 'account.list', {}));
+});
 test('connected store refreshes folder wait status without replacing streamed state', async () => {
   const { createStore } = await import('../app/src/data/store');
   const original = globalThis.setInterval;
