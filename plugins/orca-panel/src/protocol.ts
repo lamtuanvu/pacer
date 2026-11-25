@@ -28,6 +28,8 @@ export type PanelTask = {
   liveness?: { stalled: boolean; reason: string; since: number } | null
   worktree?: string | null
   orcaWorkspaceId?: string
+  question?: string | null
+  nextExecutor?: string | null
 }
 
 export type PanelPlanner = {
@@ -52,11 +54,15 @@ export type PanelExecutor = Pick<
 export type PanelSnapshot = {
   connected: boolean
   at: number
-  focusedRepo: RepoRef | null
+  /** Focused Orca workspace (path + name) the panel is scoped to. */
+  focusedWorkspace?: { path: string; name: string } | null
+  /** Compatibility alias for older panel code. */
+  focusedRepo?: RepoRef | null
   planner: PanelPlanner | null
   pause: PacerPause | null
   repos: PanelRepo[]
   attention: AttentionRow[]
+  tasks?: PanelTask[]
   running: PanelTask[]
   /** Queued tasks (state queued); shown in their own section, not inside Running. */
   queued: PanelTask[]

@@ -24,6 +24,7 @@ const RECONNECT_MS = 500
 const NOT_CONNECTED: PanelSnapshot = {
   connected: false,
   at: 0,
+  focusedWorkspace: null,
   focusedRepo: null,
   planner: null,
   pause: null,
@@ -343,30 +344,65 @@ async function buildPanelSnapshot(
   workspaces: WorkspaceRow[],
   projects: ProjectRow[],
 ): Promise<PanelSnapshot> {
-  // Task Open worktree: exact worktree path only. Repo Open in Orca: exact repo path only.
   const orcaByPath = new Map(workspaces.map((w) => [normalizeRepoPath(w.path), w.id]))
   const focusedRepo = await resolveFocusedRepo(snapshot.repos, focusedPath, workspaces, projects)
-  const attention = filterAttention(snapshot.attention, snapshot.at, snapshot.tasks).map(
-    (item): AttentionRow => ({ ...item, repoLabel: item.repo?.label }),
-  )
-  const runningAll = selectRunning(snapshot.tasks, null).map((t) => trimTask(t, orcaByPath))
-  const queuedAll = selectQueued(snapshot.tasks, null).map((t) => trimTask(t, orcaByPath))
-  const doneAll = selectDoneToday(snapshot.tasks, snapshot.today?.since, null).map((t) =>
-    trimTask(t, orcaByPath),
-  )
-  const repos = snapshot.repos.map((repo) => {
-    const needsYou = attention.filter((a) => !a.repo || a.repo.key === repo.key).length
-    const running = runningAll.filter((t) => t.repo?.key === repo.key).length
-    const doneToday = doneAll.filter((t) => t.repo?.key === repo.key).length
-    const orcaWorkspaceId = orcaByPath.get(normalizeRepoPath(repo.path))
+  const focusedWorkspace = focusedPath
+    ? {
+        path: focusedPath,
+        name: (workspaces.find((w) => normalizeRepoPath(w.path) === normalizeRepoPath(focusedPath))?.id ??
+          focusedPath.split('/').filter(Boolean).pop() ??
+          focusedPath),
+      }
+    : null
+
+  // A task belongs to this worktree when its repo.path equals the focused workspace path.
+  const worktreeTasks = focusedPath
+    ? snapshot.tasks.filter((t) => {
+        const p = t.repo?.path
+        return typeof p === 'string' && normalizeRepoPath(p) === normalizeRepoPath(focusedPath)
+      })
+    : []
+  const taskIds = new Set(worktreeTasks.map((t) => t.id))
+
+  // Next executor name for queued rows (first enabled non-planner with a free slot).
+  const nextExecutorName = (() => {
+    const row = snapshot.executors
+      .filter((e) => e.rank !== 'planner' && e.enabled)
+      .sort((a, b) => Number(a.rank) - Number(b.rank))
+      .find((e) => e.slots.used < e.slots.max)
+    return row ? `${row.agent}` : null
+  })()
+
+  const trimTask = (task: PacerTask): PanelTask => {
+    const base = task.worktree ?? null
+    const orcaWorkspaceId = base ? orcaByPath.get(normalizeRepoPath(base)) : undefined
     return {
-      ...repo,
-      needsYou,
-      running,
-      doneToday,
+      id: task.id,
+      rev: task.rev,
+      title: task.title,
+      repo: task.repo,
+      repoLabel: task.repo?.label,
+      executor: task.executor,
+      state: task.state,
+      phase: task.progress?.phase,
+      attemptStartedAt: task.attemptStartedAt,
+      updatedAt: task.updatedAt,
+      review: task.review ?? null,
+      liveness: task.liveness ?? null,
+      worktree: base,
       ...(orcaWorkspaceId ? { orcaWorkspaceId } : {}),
+      question: (task as { question?: string | null }).question ?? null,
+      nextExecutor: task.state === 'queued' ? nextExecutorName : null,
     }
-  })
+  }
+
+  const trimmedTasks = worktreeTasks.map(trimTask)
+
+  // Attention items whose taskId is one of this worktree's tasks; actionableItems compatibility.
+  const filteredAttention = filterAttention(snapshot.attention, snapshot.at, snapshot.tasks)
+    .filter((a) => !!a.taskId && taskIds.has(a.taskId))
+    .map((item): AttentionRow => ({ ...item, repoLabel: item.repo?.label }))
+
   const planner = snapshot.planner
     ? {
         agent: snapshot.planner.agent,
@@ -381,36 +417,25 @@ async function buildPanelSnapshot(
         stale: snapshot.planner.stale,
       }
     : null
-  const executors = snapshot.executors
-    .filter((row) => row.rank !== 'planner')
-    .slice()
-    .sort((a, b) => Number(a.rank) - Number(b.rank))
-    .map((row) => ({
-      id: row.id,
-      agent: row.agent,
-      account: row.account,
-      rank: row.rank,
-      state: row.state,
-      tone: row.tone,
-      sub: row.sub,
-      reason: row.reason,
-      next: row.next,
-      slots: row.slots,
-      enabled: row.enabled,
-      ...(row.untested ? { untested: true as const } : {}),
-    }))
+
+  const running = selectRunning(worktreeTasks, null).map(trimTask)
+  const queued = selectQueued(worktreeTasks, null).map(trimTask)
+  const doneToday = selectDoneToday(worktreeTasks, snapshot.today?.since, null).map(trimTask)
+
   return {
     connected: true,
     at: snapshot.at,
+    focusedWorkspace,
     focusedRepo,
     planner,
     pause: snapshot.pause,
-    repos,
-    attention,
-    running: runningAll,
-    queued: queuedAll,
-    doneToday: doneAll,
-    executors,
+    repos: [],
+    attention: filteredAttention,
+    running,
+    queued,
+    tasks: trimmedTasks,
+    doneToday,
+    executors: [],
   }
 }
 
@@ -437,7 +462,7 @@ function formatAbsLocal(at: number, now = Date.now() / 1000): string {
   return `${weekday} ${time}`
 }
 
-/** Status bar text/tone/tooltip per the StatusBar design board + fixed verdict mapping. */
+/** Status bar text/tone per the worktree contract. */
 export function paceStatus(snapshot: PanelSnapshot): {
   id: string
   text: string
@@ -452,63 +477,44 @@ export function paceStatus(snapshot: PanelSnapshot): {
       tooltip: 'pacer is not running · open the pacer app to start it',
     }
   }
-  const focusedKey = snapshot.focusedRepo?.key ?? null
-  const needsYouHere = snapshot.attention.filter(
-    (a) => focusedKey === null || !a.repo || a.repo.key === focusedKey,
+  const hasFocus = !!snapshot.focusedWorkspace || !!snapshot.focusedRepo
+  if (!hasFocus) {
+    const planner = snapshot.planner
+    if (!planner || typeof planner.usedPct !== 'number') {
+      return { id: STATUS_ITEM, text: 'pacer', tone: 'neutral', tooltip: 'Connected' }
+    }
+    const verdict = planner.verdict ?? 'unknown'
+    const tone: StatusTone =
+      verdict === 'behind' || verdict === 'on_pace'
+        ? 'success'
+        : verdict === 'ahead'
+          ? 'warning'
+          : verdict === 'out'
+            ? 'danger'
+            : 'neutral'
+    const pct = Math.round(planner.usedPct)
+    return {
+      id: STATUS_ITEM,
+      text: `pacer ${pct}%`,
+      tone,
+      tooltip: planner.advice || verdict,
+    }
+  }
+
+  const taskIds = new Set((snapshot.tasks ?? []).map((t) => t.id))
+  const needsCount = snapshot.attention.filter(
+    (a) => !!a.taskId && taskIds.has(a.taskId) && (a.kind === 'review' || a.kind === 'message'),
   ).length
-  const needsYouGlobal = snapshot.attention.length
-  const needsCount = focusedKey !== null ? needsYouHere : needsYouGlobal
-  const planner = snapshot.planner
-  if (!planner || typeof planner.usedPct !== 'number') {
-    return {
-      id: STATUS_ITEM,
-      text: 'pacer',
-      tone: 'neutral',
-      tooltip: needsCount > 0 ? `${needsCount} need you` : 'Connected',
-    }
-  }
-  const verdict = planner.verdict ?? 'unknown'
-  // behind/on_pace good; ahead warn; out bad — src/view-model/words.ts paceStatus
-  const tone: StatusTone =
-    verdict === 'behind' || verdict === 'on_pace'
-      ? 'success'
-      : verdict === 'ahead'
-        ? 'warning'
-        : verdict === 'out'
-          ? 'danger'
-          : 'neutral'
-  if (verdict === 'out') {
-    const until = planner.resetsAt ? formatAbsLocal(planner.resetsAt) : ''
-    return {
-      id: STATUS_ITEM,
-      text: until ? `pacer out · ${until}` : 'pacer out',
-      tone,
-      tooltip: `${planner.agent} is out until ${until || 'reset'} · executors keep running`,
-    }
-  }
-  const pct = Math.round(planner.usedPct)
-  if (verdict === 'ahead') {
-    return {
-      id: STATUS_ITEM,
-      text: `pacer ${pct}% · ahead`,
-      tone,
-      tooltip: planner.advice || 'Ahead of pace',
-    }
-  }
-  const countSuffix = needsCount > 0 ? ` · ${needsCount}` : ''
-  const where =
-    focusedKey !== null && snapshot.focusedRepo
-      ? ` in ${snapshot.focusedRepo.label}`
-      : ''
-  const paceWord = verdict === 'behind' ? 'Plenty left' : 'On pace for the week'
+  const running = (snapshot.tasks ?? []).filter((t) => t.state === 'running').length
+  const parts: string[] = []
+  if (needsCount > 0) parts.push(`${needsCount} need you`)
+  if (running > 0) parts.push(`${running} running`)
+  const text = parts.length ? `pacer · ${parts.join(' · ')}` : 'pacer'
   return {
     id: STATUS_ITEM,
-    text: `pacer ${pct}%${countSuffix}`,
-    tone,
-    tooltip:
-      needsCount > 0
-        ? `${paceWord} · ${needsCount} need you${where}`
-        : planner.advice || paceWord,
+    text,
+    tone: needsCount > 0 ? 'warning' : 'neutral',
+    tooltip: parts.length ? parts.join(' · ') : 'Connected',
   }
 }
 

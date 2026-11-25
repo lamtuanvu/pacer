@@ -1,9 +1,9 @@
 # Pacer
 
 A right-sidebar `"ui":"html"` panel (`src/panel.html` + `src/panel.ts`) and the plugin's own
-worker (`src/worker.ts`). The frame shows planner pace, needs-you attention (answer, accept /
-reject review), delegate from the focused worktree, running tasks (stop / watch / open worktree),
-who runs next, and done today. A status bar item shows pace and the needs-you count. The frame
+worker (`src/worker.ts`). The frame shows the focused Orca worktree's delegated tasks only: needs-you items (review and
+messages for the person), tasks with their status, and done (last 24h). The header shows the
+planner's pace in one line; the status bar counts this worktree only. The frame
 calls `orca.plugin.request` / `orca.plugin.on`; the worker answers with `orca.panels.handle`,
 keeps the last-seen event seq in `orca.storage`, and tells every open panel with
 `orca.panels.post`. `src/protocol.ts` types both sides. Orca transpiles every file when it loads,
