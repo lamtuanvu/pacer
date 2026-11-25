@@ -111,7 +111,8 @@
 
 @media (max-width: 767px) {
   .lb { padding: var(--space-4); }
-  .lb-viewport { height: var(--size-400); }
+  /* On a phone a vertical swipe on the board must still scroll the page; horizontal drags pan, and the buttons and keys do the rest. */
+  .lb-viewport { height: var(--size-400); touch-action: pan-y; }
 }
 @media (prefers-reduced-motion: reduce) {
   .lb * { transition: none; animation: none; }

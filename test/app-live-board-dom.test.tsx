@@ -461,4 +461,8 @@ test("the Live board stylesheet moves only under no-preference, and board focus 
   expect(liveCss).toMatch(/\.lb-viewport:focus-visible \{ outline: var\(--stroke-focus\) solid var\(--focus\)/);
   expect(liveCss).toMatch(/\.lb-agent:focus-visible \.lb-agent-ring \{ stroke: var\(--focus\)/);
   expect(liveCss).not.toMatch(/#[0-9a-fA-F]{3,8}\b|rgb\(|hsl\(/);
+  // the board traps touch only where there is room to scroll around it: on a phone vertical swipes still scroll the page
+  expect(/\.lb-viewport \{[^}]*touch-action: none/.test(liveCss)).toBe(true);
+  const narrow = /@media \(max-width: 767px\) \{[\s\S]*?\n\}/.exec(liveCss)![0];
+  expect(narrow).toContain("touch-action: pan-y");
 });
