@@ -5,7 +5,7 @@
 //! configuration and publishes the `runners` area after a save.
 #![allow(clippy::result_large_err)]
 use pacer_config::{
-    config_writes::{edit, ensure_migrated, planner, resolve},
+    config_writes::{edit, ensure_migrated, resolve},
     executor_settings::revision,
     strategy::{StrategyError, load_strategy, strategy_path},
 };
@@ -186,16 +186,11 @@ fn snapshot(ctx: &Ctx) -> Result<(PathBuf, String, Value), CoreError> {
     Ok((path, text, strategy))
 }
 
-/// The resolved, editable runner id, refusing unknown ids and the planner.
+/// The resolved, editable runner id, refusing unknown ids. The planner's models are
+/// editable: the planner tier fallback reads their declared tiers.
 fn editable(strategy: &Value, reference: &str) -> Result<String, CoreError> {
     let runner = resolve(strategy, reference)
         .ok_or_else(|| invalid(format!("unknown runner {reference}")))?;
-    if planner(strategy, runner) {
-        return Err(CoreError::new(
-            Code::NotAllowed,
-            "cannot edit the planner runner",
-        ));
-    }
     Ok(runner["id"].as_str().unwrap_or(reference).to_owned())
 }
 

@@ -72,13 +72,13 @@ test("a model the listing does not offer refuses the whole batch and writes noth
   expect(loadStrategy(ctx).runners["opencode#one"].models).toBeUndefined();
 });
 
-test("the planner runner is refused and writes nothing", async () => {
-  const ctx = withRunners(), before = readFileSync(path(ctx), "utf8");
-  await expect(saveRunnerModelsMany(ctx, {expectedRevision: readRunnerModels(ctx, "claude-code").revision, runners: [
+test("the planner runner's models are saved with the others for the tier fallback", async () => {
+  const ctx = withRunners();
+  await saveRunnerModelsMany(ctx, {expectedRevision: readRunnerModels(ctx, "claude-code").revision, runners: [
     {id: "opencode#one", default: "pacer-one/m1", models: [{id: "pacer-one/m1", tier: "small"}]},
-    {id: "claude-code", default: "x", models: [{id: "x", tier: "small"}]},
-  ]})).rejects.toMatchObject({code: "not_allowed", message: "cannot edit the planner runner"});
-  expect(readFileSync(path(ctx), "utf8")).toBe(before);
+    {id: "claude-code", default: "opus", models: [{id: "opus", tier: "frontier"}]},
+  ]});
+  expect(loadStrategy(ctx).runners["claude-code"].models).toMatchObject([{id: "opus", tier: "frontier"}]);
 });
 
 test("an unknown runner, duplicate ids and out-of-range counts are invalid_input", async () => {

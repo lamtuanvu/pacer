@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { isNode } from "yaml";
 import { loadStrategy, strategyPath } from "../config/strategy";
 import { writeEndpointState } from "../endpoints/state";
-import { isPlannerRunner, resolveRunner } from "../config/runner-id";
+import { resolveRunner } from "../config/runner-id";
 import { modelDeclarationSchema } from "../dispatch/types";
 import { availableModels, closestModels, isOffered, type AvailableModels } from "../models/available";
 import { ensureAccounts } from "./accounts";
@@ -74,7 +74,6 @@ export async function saveRunnerModels(ctx: Ctx, input: { id: string; expectedRe
     const id = resolveRunner(s, input.id)?.id;
     const r = id ? s.runners[id] : undefined;
     if (!r) throw new CoreError("invalid_input", `unknown runner ${input.id}`);
-    if (isPlannerRunner(s, r)) throw new CoreError("not_allowed", "cannot edit the planner runner");
     const warnings: string[] = [];
     const account = s.accounts[r.account];
     const models = validateRunnerModels(account?.provider ?? r.account, list, input, warnings);
@@ -122,7 +121,6 @@ export async function saveRunnerModelsMany(ctx: Ctx, input: { expectedRevision: 
   for (const entry of input.runners) {
     const resolved = resolveRunner(before, entry.id);
     if (!resolved) throw new CoreError("invalid_input", `unknown runner ${entry.id}`);
-    if (isPlannerRunner(before, resolved)) throw new CoreError("not_allowed", "cannot edit the planner runner");
     const list = await availableModels(ctx, resolved.id);
     const account = before.accounts[resolved.account];
     const models = validateRunnerModels(account?.provider ?? resolved.account, list, entry, warnings);
@@ -136,7 +134,6 @@ export async function saveRunnerModelsMany(ctx: Ctx, input: { expectedRevision: 
       const id = resolveRunner(s, v.id)?.id;
       const r = id ? s.runners[id] : undefined;
       if (!r) throw new CoreError("invalid_input", `unknown runner ${v.id}`);
-      if (isPlannerRunner(s, r)) throw new CoreError("not_allowed", "cannot edit the planner runner");
       planned.push({id: r.id, default: v.default, models: v.models});
     }
     // Migration preserves old values and creates its established backup. Draft

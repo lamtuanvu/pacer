@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Changed
+
+- **Planner models are editable in the Model matrix.** The planner row in Settings › Model matrix accepts model tiers (the planner tier fallback reads them); `runner.models.set` and `set_many` no longer refuse the planner runner. Suggestions still leave the planner alone. Saving the row sets the planner runner's default model, which managed tasks on that runner use; the planner's own session is unaffected.
+
 ### Added
 
 - **Planner tier fallback.** When a task is `complex` (or a dispatch brief sets `min_tier`) and no executor other than the planner declares a model at the target tier, Pacer runs it on the planner's own account as a managed task, even when the planner is ahead of pace. A busy planner makes the task wait rather than run below its tier. New setting `pacing.planner_tier_fallback` (`on` by default); `pacer route --difficulty` and `routing.route { difficulty }` (protocol 3 only); `pacer status` shows a `Tier fallback:` line while it applies. The planner runner needs a declared `tier: frontier` model to qualify.
