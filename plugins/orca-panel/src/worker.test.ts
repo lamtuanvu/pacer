@@ -377,7 +377,7 @@ test('pacer.snapshot trims a realistic snapshot, hides snoozed items, matches or
     // The rows stay this worktree's; the pacer-wide counts (the 'live' review included) and executors cover every worktree.
     assert.equal((snapshot.tasks ?? []).some((t) => t.id === 'elsewhere'), false)
     assert.deepEqual(snapshot.overall, { needsYou: 1, running: 2, asked: 0, queued: 1, worktrees: 2 })
-    assert.deepEqual(snapshot.executors, [{ id: 'cursor', name: 'cursor', state: 'ready', tone: 'good' }])
+    assert.deepEqual(snapshot.executors, [{ id: 'cursor', name: 'Cursor', state: 'ready', tone: 'good' }])
     assert.ok((snapshot.tasks ?? []).some((t) => t.id === 't2'))
     await worker.deactivate()
   } finally {
@@ -752,9 +752,9 @@ test('executorSummary lists enabled executors in routing order and names shared 
     ({ id, agent, account, rank, state: 'ready', tone: 'good', sub: '', next: false, slots: { used: 0, max: 1 }, enabled: true, ...over })
   const rows = executorSummary([
     ex('claude', 'Claude', 'claude-code', 'planner'),
-    ex('cursor', 'Cursor', 'cursor', 2, { state: 'exhausted', tone: 'bad' }),
-    ex('opencode#oc-gofree', 'OpenCode', 'oc-gofree', 1),
-    ex('opencode#tse', 'OpenCode', 'tse', 3, { state: 'down', tone: 'weird' }),
+    ex('cursor', 'cursor', 'cursor', 2, { state: 'exhausted', tone: 'bad' }),
+    ex('opencode#oc-gofree', 'opencode', 'oc-gofree', 1),
+    ex('opencode#tse', 'opencode', 'tse', 3, { state: 'down', tone: 'weird' }),
     ex('codex', 'Codex', 'codex', 4, { enabled: false }),
   ] as unknown as PacerSnapshot['executors'])
   assert.deepEqual(rows, [
