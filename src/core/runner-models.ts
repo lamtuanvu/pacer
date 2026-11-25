@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { isNode } from "yaml";
 import { loadStrategy, strategyPath } from "../config/strategy";
+import { writeEndpointState } from "../endpoints/state";
 import { isPlannerRunner, resolveRunner } from "../config/runner-id";
 import { modelDeclarationSchema } from "../dispatch/types";
 import { availableModels, closestModels, isOffered, type AvailableModels } from "../models/available";
@@ -96,6 +97,10 @@ export async function saveRunnerModels(ctx: Ctx, input: { id: string; expectedRe
     });
     const updated = loadStrategy(ctx), updater = updated.runners[r.id];
     if (updater) warnings.push(...modelDeclarationWarnings(updater));
+    const acct = s.accounts[r.account];
+    if (r.model !== input.default && (acct?.source === "opencode" || acct?.connection)) {
+      try { writeEndpointState(ctx, r.account, { state: "not_tested" }); } catch { /* best effort */ }
+    }
     return { revision: strategyRevision(readFileSync(path, "utf8")), runner: r.id, default: updater?.model ?? null, models: updater?.models ?? [], warnings };
   });
 }
@@ -158,6 +163,12 @@ export async function saveRunnerModelsMany(ctx: Ctx, input: { expectedRevision: 
     for (const v of planned) {
       const updater = updated.runners[v.id];
       if (updater) warnings.push(...modelDeclarationWarnings(updater));
+      // Read inside the lock: `s` is the strategy the revision check accepted.
+      const prior = s.runners[v.id];
+      const priorAccount = s.accounts[prior?.account ?? ""];
+      if (prior?.model !== v.default && (priorAccount?.source === "opencode" || priorAccount?.connection)) {
+        try { writeEndpointState(ctx, prior.account, { state: "not_tested" }); } catch { /* best effort */ }
+      }
       runners.push({revision, runner: v.id, default: updater?.model ?? null, models: updater?.models ?? []});
     }
     return {revision, runners, warnings};

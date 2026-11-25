@@ -127,9 +127,10 @@ const strategyFile = (home: string) => {
   const name = existsSync(active) ? readFileSync(active, "utf8").trim() : "";
   return name ? join(home, ".pacer", "strategies", `${name}.yaml`) : join(home, ".pacer", "strategy.yaml");
 };
-/** What a step changes on disk: the strategy, its migration backup and OpenCode calls. */
+/** What a step changes on disk: the strategy, its migration backup, the endpoint test states and OpenCode calls. */
 const disk = (home: string) => ({
   strategy: fileBytes(home, ".pacer", "strategy.yaml"),
+  endpoints: fileBytes(home, ".pacer", "endpoints", "state.json"),
   backup: fileBytes(home, ".pacer", "strategy.yaml.pre-accounts.bak"),
   opencode: fileBytes(home, "opencode-calls.log"),
   // A named active strategy, and the file Rust's `Path::join` would pick for an absolute name.

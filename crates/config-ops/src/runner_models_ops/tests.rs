@@ -294,3 +294,33 @@ async fn get_refuses_a_strategy_that_changes_between_its_reads() {
     }
     assert_eq!(conflicts, 1);
 }
+
+#[tokio::test]
+async fn a_new_endpoint_default_resets_its_test_state_natively() {
+    let (dir, c) = seeded(STRATEGY);
+    let states = dir.path().join("endpoints/state.json");
+    fs::create_dir_all(states.parent().unwrap()).unwrap();
+    let stale = "{\n  \"ep\": {\n    \"state\": \"not_working\",\n    \"detail\": \"old\"\n  },\n  \"oc\": {\n    \"state\": \"ready\"\n  }\n}\n";
+    fs::write(&states, stale).unwrap();
+    let set = |default: &str| json!({"id": "opencode#ep", "expectedRevision": revision(&text(&dir)), "default": default, "models": []});
+    assert!(!runner_models_stays_forwarded(
+        &c,
+        "runner.models.set",
+        &set("pacer-ep/m2")
+    ));
+    // The same default keeps the saved result.
+    runner_models_set(&c, set("pacer-ep/m1")).await.unwrap();
+    assert_eq!(fs::read_to_string(&states).unwrap(), stale);
+    runner_models_set(&c, set("pacer-ep/m2")).await.unwrap();
+    assert_eq!(
+        fs::read_to_string(&states).unwrap(),
+        "{\n  \"ep\": {\n    \"state\": \"not_tested\"\n  },\n  \"oc\": {\n    \"state\": \"ready\"\n  }\n}\n"
+    );
+    // A document Rust cannot rewrite as TypeScript would forwards the save.
+    fs::write(&states, "{\"1\": {\"state\": \"ready\"}}").unwrap();
+    assert!(runner_models_stays_forwarded(
+        &c,
+        "runner.models.set",
+        &set("pacer-ep/m1")
+    ));
+}

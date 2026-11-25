@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { resolveRunner } from "../config/runner-id";
 import { loadStrategy } from "../config/strategy";
 import { runTestTask } from "../endpoints/test-task";
-import { redactEndpointError } from "../endpoints/state";
+import { readEndpointState, redactEndpointError, writeEndpointState } from "../endpoints/state";
 import { readJson, writeJsonAtomic } from "../fsutil";
 import { detectAgents, AGENT_BINS } from "../install/detection";
 import type { AgentId } from "../install/detection";
@@ -48,6 +48,9 @@ export async function checkRunner(ctx: Ctx, id: string, deps: RunnerCheckDeps = 
     };
     let detail = "Executor is ready";
     let passed = false;
+    // The account-level endpoint state (endpoints/state.json) records the test of the runner `account.test` uses:
+    // the account's local OpenCode runner (strategy validation allows remote runners only for Codex and Claude Code).
+    const ownsEndpointState = (account.source === "opencode" || !!account.connection) && runner.agent === "opencode" && !runner.host;
     try {
       const names = {agy: "Antigravity", codex: "Codex", "claude-code": "Claude Code", cursor: "Cursor", opencode: "OpenCode"};
       await perform("CLI found", `${names[runner.agent]} on ${runner.host ?? "this Mac"}`, async () => {
@@ -108,6 +111,7 @@ export async function checkRunner(ctx: Ctx, id: string, deps: RunnerCheckDeps = 
         step.pass("Model offered", `${runner.model} is offered`);
       }
       await perform("Test task", "Write and run a one-line test in a scratch worktree", () => (deps.runTestTask ?? runTestTask)(ctx, runner.id));
+      if (ownsEndpointState) writeEndpointState(ctx, account.name, { state: "ready", checked_at: new Date(ctx.now * 1000).toISOString() });
       if (collectUsage) {
         // The initial account listing cached the empty reading. Bypass that cache
         // before checking the telemetry just emitted by this account's test task.
@@ -123,7 +127,12 @@ export async function checkRunner(ctx: Ctx, id: string, deps: RunnerCheckDeps = 
       }
       passed = true;
     } catch (error) {
-      detail = redactEndpointError(error instanceof Error ? error.message : String(error), Object.entries(ctx.env).filter(([key]) => /key|token|secret|password/i.test(key)).map(([,value]) => value ?? ""));
+      const secrets = Object.entries(ctx.env).filter(([key]) => /key|token|secret|password/i.test(key)).map(([,value]) => value ?? "");
+      detail = redactEndpointError(error instanceof Error ? error.message : String(error), secrets);
+      // A missing key is the more useful reason and stays until the key is back.
+      if (ownsEndpointState && current === "Test task" && readEndpointState(ctx, account.name).state !== "key_missing") {
+        try { writeEndpointState(ctx, account.name, { state: "not_working", detail }); } catch { /* keep the check's own failure */ }
+      }
       step.fail(current, detail);
       throw new Error(detail);
     } finally {
