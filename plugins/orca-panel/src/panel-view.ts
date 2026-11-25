@@ -208,6 +208,11 @@ export function summaryText(snapshot: PanelSnapshot, _now: number): string {
   if (needs > 0) parts.push(`${needs} needs you`)
   if (running > 0) parts.push(`${running} running`)
   if (asked > 0) parts.push(`${asked} asked caller`)
+  // Every row in Tasks shows up in the summary, so it never reads "nothing active" above a listed row.
+  const queued = active.filter((t) => classifyTask(t) === 'queued').length
+  const failed = active.filter((t) => classifyTask(t) === 'failed').length
+  if (queued > 0) parts.push(`${queued} queued`)
+  if (failed > 0) parts.push(`${failed} failed`)
   if (parts.length === 0) return worktreeTasks(snapshot).length === 0 ? 'no tasks yet' : 'nothing active'
   return parts.join(' · ')
 }

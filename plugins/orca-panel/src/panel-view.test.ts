@@ -256,7 +256,7 @@ test('summary text', () => {
   const s = snap()
   const text = summaryText(s, 1_700_000_100)
   // Needs you: r1, m1. Running: only t-stalled (t-msg is under Needs you, t-deciding waits on the caller). Asked: t-q.
-  assert.equal(text, '2 needs you · 1 running · 1 asked caller')
+  assert.equal(text, '2 needs you · 1 running · 1 asked caller · 1 queued')
 })
 
 test('settled tasks go to Done, never to the active list', () => {
@@ -279,6 +279,15 @@ test('a task under Needs you is not repeated in the active list or Done', () => 
   const needs = new Set(needsYouItems(s).map((a) => a.taskId))
   for (const t of activeTasks(s)) assert.equal(needs.has(t.id), false)
   for (const t of doneTasks(s, 1_700_000_100)) assert.equal(needs.has(t.id), false)
+})
+
+test('a failed task the caller was told about counts in the summary', () => {
+  const now = 1_700_000_100
+  const s = snap({
+    tasks: [{ id: 'f', rev: 1, title: 'Broke', repo, executor: 'cursor#cursor', state: 'failed', updatedAt: now - 60 }],
+    attention: [{ id: 'a-f', kind: 'failed', severity: 'blocked', repo, taskId: 'f', title: 'Broke', detail: '', raisedAt: now, since: now, actions: [], notify: 'important' }],
+  })
+  assert.equal(summaryText(s, now), '1 failed')
 })
 
 test('empty summary', () => {
