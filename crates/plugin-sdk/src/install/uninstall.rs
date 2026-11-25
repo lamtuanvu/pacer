@@ -42,7 +42,7 @@ pub struct UninstallPreparationFailure {
 pub async fn prepare_planner_uninstall_files(
     io: &PlanIo,
     prior: &PlannerRecord,
-    mut on_incomplete: Option<&mut dyn FnMut(UninstallPreparationFailure)>,
+    mut on_incomplete: Option<&mut (dyn FnMut(UninstallPreparationFailure) + Send)>,
 ) -> Result<PreparedPlannerUninstall, String> {
     let record = prior.clone();
     let mut report = UninstallReport {

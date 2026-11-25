@@ -1472,6 +1472,7 @@ dependencies = [
  "pacer-bundled-exec-direct",
  "pacer-bundled-exec-orca",
  "pacer-bundled-notify",
+ "pacer-bundled-planners",
  "pacer-bundled-remote-caller",
  "pacer-bundled-ssh",
  "pacer-bundled-usage",
@@ -1558,6 +1559,18 @@ dependencies = [
  "pacer-plugin",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "pacer-bundled-planners"
+version = "0.0.0"
+dependencies = [
+ "pacer-plugin",
+ "regex",
+ "serde",
+ "serde_json",
+ "tokio",
+ "toml",
 ]
 
 [[package]]
@@ -1954,8 +1967,8 @@ dependencies = [
  "pacer-plugin-hosts-protocol",
  "pacer-plugin-install-protocol",
  "pacer-plugin-protocol",
- "ryu-js",
  "pacer-plugin-workflow-protocol",
+ "ryu-js",
  "serde",
  "serde_json",
  "sha2",

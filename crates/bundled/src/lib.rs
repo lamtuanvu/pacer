@@ -15,7 +15,7 @@ pub struct Bundled {
 /// can parse the ids with `/Bundled \{ id: "([^"]+)"/` as the plan requires.
 #[rustfmt::skip]
 pub const TABLE: &[Bundled] = &[
-    Bundled { id: "pacer-planners", manifest: include_str!("../manifests/pacer-planners.json"), run: None },
+    Bundled { id: "pacer-planners", manifest: pacer_bundled_planners::MANIFEST, run: Some(pacer_bundled_planners::plugin) },
     Bundled { id: "pacer-endpoints", manifest: pacer_bundled_endpoints::MANIFEST, run: Some(pacer_bundled_endpoints::plugin) },
     Bundled { id: "pacer-notify", manifest: pacer_bundled_notify::MANIFEST, run: Some(pacer_bundled_notify::plugin) },
     Bundled { id: "pacer-classify", manifest: pacer_bundled_classify::MANIFEST, run: Some(pacer_bundled_classify::plugin) },

@@ -156,6 +156,9 @@ layer = "plugin"
 [crates.pacer-bundled-ssh]
 layer = "plugin"
 
+[crates.pacer-bundled-planners]
+layer = "plugin"
+
 [crates.xtask]
 layer = "tool"
 heavy = ["typify", "syn"]

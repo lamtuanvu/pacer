@@ -19,6 +19,7 @@ pacer-bundled-assistant-executor = { path = "../../plugins-rs/assistant-executor
 pacer-bundled-exec-orca = { path = "../../plugins-rs/pacer-exec-orca" }
 pacer-bundled-exec-direct = { path = "../../plugins-rs/pacer-exec-direct" }
 pacer-bundled-ssh = { path = "../../plugins-rs/pacer-ssh" }
+pacer-bundled-planners = { path = "../../plugins-rs/pacer-planners" }
 tokio.workspace = true
 
 [dev-dependencies]
