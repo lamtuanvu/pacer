@@ -30,7 +30,7 @@ pub fn run(c: &Value) -> Result<String, serde_json::Error> {
                     .collect::<Vec<_>>();
                 let id = action["id"].as_str().unwrap_or("");
                 let result = match action["type"].as_str().unwrap_or("") {
-                    "apply" => encoded(attention::apply(&mut state, items, time)),
+                    "apply" => encoded(attention::apply(&mut state, items, time, true)),
                     "dismiss" => encoded(
                         attention::dismiss(&mut state, id, &items, time)
                             .unwrap_or_else(|e| e.value()),

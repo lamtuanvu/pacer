@@ -17,10 +17,19 @@ function transaction<T>(ctx: Ctx, fn: (store: Store) => T): T {
     return result;
   });
 }
-export function applyStore(ctx: Ctx, items: AttentionItem[]): AttentionItem[] {
+/**
+ * Apply a freshly derived item set to the attention store and return the visible items.
+ * `prune` is true only when `items` covers the full task set (a full pass or a genuine
+ * reconcile). When it is false (a partial read that included only some tasks), entries for
+ * tasks outside `items` are left untouched so their since/dismissedSince/snoozedUntil survive
+ * until a full pass can authoritatively decide they no longer apply.
+ */
+export function applyStore(ctx: Ctx, items: AttentionItem[], prune = true): AttentionItem[] {
   return transaction(ctx,store=>{
-    const ids=new Set(items.map(i=>i.id));
-    for (const id of Object.keys(store)) if (!ids.has(id)) delete store[id];
+    if(prune){
+      const ids=new Set(items.map(i=>i.id));
+      for (const id of Object.keys(store)) if (!ids.has(id)) delete store[id];
+    }
     return sortItems(items.flatMap(item=>{
       const entry=store[item.id]??= {since:ctx.now};
       if (entry.dismissedSince===entry.since || (entry.snoozedUntil??0)>ctx.now) return [];

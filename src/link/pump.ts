@@ -450,7 +450,7 @@ export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps,opts:PumpOp
       context=deps.setup?{setup:await deps.setup(ctx),accounts:[]}:await readModelContext(ctx);
       notificationContexts.set(ctx.pacerHome,context);
     }
-    const model=buildReadModel(ctx,{status:st,strategy,tasks:snapshotTasks(ctx,all),setup:context.setup,hosts:Object.values(strategy.hosts),signedIn:context.accounts});
+    const model=buildReadModel(ctx,{status:st,strategy,tasks:snapshotTasks(ctx,all),setup:context.setup,hosts:Object.values(strategy.hosts),signedIn:context.accounts,prune:pass});
     out.push(...await dispatchNotifications(ctx,model.attention,{publish:deps.publish,events:notificationEvents,
       onAcknowledged: reportOk ? () => finishPumpNotifications(ctx) : undefined}));
     if(pass){

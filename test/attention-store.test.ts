@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { join } from "node:path";
 import { applyStore, dismissItem, snoozeItem } from "../src/attention/store";
+import type { AttentionItem } from "../src/attention/types";
 import { deriveItems } from "../src/attention/rules";
 import { fakeCtx } from "./helpers";
 import { capacityFixture } from "./read-model-helpers";
@@ -39,4 +40,40 @@ test("concurrent dismissals converge and unknown ids fail",async()=>{
 test("condition item timestamps remain stable between pump evaluations",()=>{
  const {ctx,items}=fixture(),first=applyStore(ctx,items);
  expect(applyStore({...ctx,now:ctx.now+10},items.map(i=>({...i,raisedAt:ctx.now+10,since:ctx.now+10})))).toEqual(first);
+});
+
+test("a partial apply leaves unrelated entries (and their since) intact until a full prune",()=>{
+ const {ctx}=fixture();
+ // Two independent failed-task items sharing the store.
+ const a: AttentionItem = {id:"failed:a",kind:"failed",severity:"problem",title:"A",detail:"a",repo:null,raisedAt:ctx.now,since:ctx.now,actions:[],notify:"all",taskId:"a"};
+ const b: AttentionItem = {id:"failed:b",kind:"failed",severity:"problem",title:"B",detail:"b",repo:null,raisedAt:ctx.now,since:ctx.now,actions:[],notify:"all",taskId:"b"};
+ // Full pass prunes and records both.
+ expect(applyStore(ctx,[a,b])).toHaveLength(2);
+ // Dismiss a, then a partial pass only re-derives b.
+ dismissItem(ctx,a.id,[a,b]);
+ const partial=applyStore({...ctx,now:ctx.now+10},[b],false);
+ // The partial pass must not resurrect a nor reset b's since.
+ expect(partial.some(i=>i.id===a.id)).toBe(false);
+ expect(partial).toHaveLength(1);
+ // On the next full pass a's dismissal is gone (it was pruned as it no longer derives) only
+ // because a no longer derives; but crucially b keeps its original since, and a keeps it too
+ // while it still derives.
+ const full=applyStore({...ctx,now:ctx.now+20},[a,b]);
+ expect(full.find(i=>i.id===b.id)!.since).toBe(ctx.now);
+ expect(full.some(i=>i.id===a.id)).toBe(false);
+});
+
+test("a dismiss on an unrelated entry survives a partial apply (prune=false)",()=>{
+ const {ctx}=fixture();
+ const a: AttentionItem = {id:"failed:a",kind:"failed",severity:"problem",title:"A",detail:"a",repo:null,raisedAt:ctx.now,since:ctx.now,actions:[],notify:"all",taskId:"a"};
+ const b: AttentionItem = {id:"failed:b",kind:"failed",severity:"problem",title:"B",detail:"b",repo:null,raisedAt:ctx.now,since:ctx.now,actions:[],notify:"all",taskId:"b"};
+ applyStore(ctx,[a,b]);
+ dismissItem(ctx,a.id,[a,b]); // user dismisses a
+ // A partial pass only touches b and must leave a's dismissal intact in the store.
+ applyStore({...ctx,now:ctx.now+10},[b],false);
+ const partialAgain=applyStore({...ctx,now:ctx.now+11},[b],false);
+ expect(partialAgain.some(i=>i.id===a.id)).toBe(false);
+ // The same materialized via buildReadModel-style full input: a still hidden after full pass.
+ const full=applyStore({...ctx,now:ctx.now+20},[a,b]);
+ expect(full.some(i=>i.id===a.id)).toBe(false);
 });

@@ -725,11 +725,17 @@ pub fn derive_tasks(input: &Value, time: f64) -> Vec<Item> {
     }
     items
 }
-pub fn apply(store: &mut Value, items: Vec<Item>, time: f64) -> Vec<Item> {
+/// Apply a freshly derived item set to the attention store and return the visible items.
+/// `prune` is true only when `items` covers the full task set. When false (a partial read),
+/// entries for tasks outside `items` are left untouched so their since/dismissedSince/snoozedUntil
+/// survive until a full pass can authoritatively decide they no longer apply.
+pub fn apply(store: &mut Value, items: Vec<Item>, time: f64, prune: bool) -> Vec<Item> {
     if !store.is_object() {
         *store = json!({});
     }
-    if let Some(m) = store.as_object_mut() {
+    if prune
+        && let Some(m) = store.as_object_mut()
+    {
         m.retain(|id, _| items.iter().any(|i| s(i.get("id")) == id));
     }
     let mut out = vec![];

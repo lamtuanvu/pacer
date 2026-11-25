@@ -10,9 +10,10 @@ import { defaultLedgerApi, importLegacyLedgers, readCursor, readLedger } from ".
 import { createTask, updateTask, taskDatabase, snapshotTaskIds, readTasksByIds } from "../src/tasks/store";
 import { pruneTaskChanges, taskChangesSince } from "../src/tasks/changes";
 import { updateOrcaState } from "../src/exec/orca/state";
-import { writeJsonAtomic } from "../src/fsutil";
+import { writeJsonAtomic, readJson } from "../src/fsutil";
 import { latestPath } from "../src/link/paths";
 import { emptySnapshot, reduce, type TaskData } from "../src/link/envelope";
+import type { AttentionItem } from "../src/attention/types";
 
 const status = () => ({ generatedAt: 1, strategy: "s", planner: "p", mode: "normal", disabled: false, calendarPace: false, providers: [], executors: { ranked: [], excluded: [] } }) as any;
 
@@ -527,4 +528,44 @@ test("a complete event missing its newline is not replayed after another publish
   expect(await recoverPumpPublish(c, defaultLedgerApi)).toEqual([]);
   expect(readLatest(c).seq).toBe(3);
   expect(readLedger(c, [id]).get(id)?.data).toEqual(entry.envelope.data);
+});
+
+test("a settled failed task keeps its since, dismissal and notify key across a partial tick + full pass", async () => {
+  const { capacityFixture } = await import("./read-model-helpers");
+  const { register } = await import("../src/clients/registry");
+  const { setLevel } = await import("../src/core/notify");
+  const c = fakeCtx();
+  register(c, { kind: "desktop", version: "1", notifier: true });
+  setLevel(c, "all");
+  const { s, st } = capacityFixture();
+  const failedId = makeTask(c, { state: "failed", goal: "settled failed" });
+  const otherId = makeTask(c, { state: "running", goal: "other" });
+  const d: PumpDeps = { ...deps(c).d, strategy: () => s, status: async () => st,
+    probeHosts: async () => [], backfillRepos: async () => {},
+    setup: async () => ({ checkedAt: c.now, complete: true, ready: false, items: [] }) };
+  const att = () => readJson<Record<string, { since: number; dismissedSince?: number }>>(join(c.pacerHome, "state", "attention.json")) ?? {};
+  const notified = () => readJson<Record<string, number>>(join(c.pacerHome, "state", "notified.json")) ?? {};
+  const key = `failed:${failedId}`;
+  // First full pass records and notifies the failed task.
+  await pumpOnce(c, d);
+  const firstSince = att()[key].since;
+  expect(notified()[`${key}:${firstSince}`]).toBeDefined();
+  // (a) a task-change tick for a DIFFERENT task is a partial, non-pass tick.
+  updateTask(c, otherId, t => { t.title = "changed"; });
+  const partial = await pumpOnce({ ...c, now: c.now + 1 }, d);
+  expect(partial.some(e => e.type === "task")).toBe(true);
+  // The unrelated entry must survive with its `since` untouched (would otherwise mint a new key).
+  expect(att()[key]).toMatchObject({ since: firstSince });
+  // (b) a following full pass must not reset `since` nor produce a second notification key.
+  await pumpOnce({ ...c, now: c.now + 30 }, d, { reconcile: true });
+  expect(att()[key]).toMatchObject({ since: firstSince });
+  const keys = Object.keys(notified()).filter(k => k.startsWith(`${key}:`));
+  expect(keys).toEqual([`${key}:${firstSince}`]);
+  // (c) a dismissed item stays dismissed across a partial tick then a full pass.
+  const { dismissItem } = await import("../src/attention/store");
+  dismissItem(c, key, [{ id: key } as AttentionItem]); // dismiss the failed task
+  updateTask(c, otherId, t => { t.title = "changed again"; }); // another task's partial tick
+  await pumpOnce({ ...c, now: c.now + 40 }, d); // partial, non-pass tick (prune:false)
+  await pumpOnce({ ...c, now: c.now + 90 }, d, { reconcile: true }); // full pass
+  expect(att()[key]).toMatchObject({ since: firstSince, dismissedSince: firstSince });
 });

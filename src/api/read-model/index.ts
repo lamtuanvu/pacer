@@ -53,7 +53,7 @@ export async function readModelContext(ctx:Ctx) {
  cache.set(ctx.pacerHome,{at:ctx.now,promise});
  try{return await promise;}catch(e){cache.delete(ctx.pacerHome);throw e;}
 }
-export function buildReadModel(ctx:Ctx,input:{status:Status;strategy:Strategy;tasks:ApiTask[];setup:SetupChecklist;hosts:HostCfg[];signedIn?:{name:string;signedIn:boolean|null}[]}):ReadModelFields {
+export function buildReadModel(ctx:Ctx,input:{status:Status;strategy:Strategy;tasks:ApiTask[];setup:SetupChecklist;hosts:HostCfg[];signedIn?:{name:string;signedIn:boolean|null}[];prune?:boolean}):ReadModelFields {
  const policy=policySummary(ctx);
  const {status,strategy,tasks}=input,executors=buildExecutors(status,strategy,tasks,ctx.now,ctx),accounts=buildAccounts(status,strategy,ctx).map(a=>({...a,signedIn:a.signedIn===false?false:input.signedIn?.find(row=>row.name===a.name)?.signedIn??a.signedIn})),planner=buildPlanner(status),hosts=buildHosts(input.hosts,executors,tasks,ctx),setup=buildSetup(withStatus(input.setup,status,ctx,tasks.some(t=>!!t.review)),policy);
  let policies: ProjectStrategyFile | undefined, policyError: string | undefined;
@@ -67,7 +67,7 @@ export function buildReadModel(ctx:Ctx,input:{status:Status;strategy:Strategy;ta
  const attention=applyStore(ctx,[
   ...ordinary,
   ...deriveWorkflowAttention(ctx),
- ]);
+ ], input.prune);
  const paused=readPause(ctx),secrets=Object.entries(ctx.env).filter(([key])=>/key|token|secret|password/i.test(key)).map(([,value])=>value??"").filter(Boolean);
  const safe=(text:string|null)=>text===null?null:redactEndpointError(text,secrets).replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,"[redacted]");
  const pause=paused?{...paused,reason:safe(paused.reason),by:safe(paused.by)}:null;
