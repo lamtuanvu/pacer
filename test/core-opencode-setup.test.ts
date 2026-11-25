@@ -34,6 +34,13 @@ test("adds a provider account with no key, a runner and a routing entry, then te
   expect(spawned[0].join(" ")).toContain("openrouter/qwen/qwen3-coder");
 });
 
+test("does not double-prefix an already qualified model id", async () => {
+  const {ctx, spawn} = setup();
+  const result = await addOpencodeAccount(ctx, {provider: "openrouter", model: "openrouter/qwen/qwen3-coder", test: false}, {catalog, spawn: async spec => ({code: 0, stdout: "", stderr: "", timedOut: false})});
+  const s = loadStrategy(ctx);
+  expect(s.runners["opencode#openrouter"].model).toBe("openrouter/qwen/qwen3-coder");
+});
+
 test("refuses a provider OpenCode is not signed in to", async () => {
   const {ctx} = setup([]);
   await expect(addOpencodeAccount(ctx, {provider: "deepseek", model: "deepseek-chat", test: false}, {catalog})).rejects.toThrow("run opencode auth login --standalone deepseek");

@@ -82,7 +82,8 @@ export async function addOpencodeAccount(ctx: Ctx, input: OpencodeAccountInput, 
     const change = (doc: StrategyDoc) => {
       if (orphan) doc.setIn(["accounts", name], account);
       else doc.addMappingEntry("accounts", name, account);
-      addRunnerAndRoute(doc, s, id, `${input.provider}/${input.model}`);
+      const runnerModel = input.model.startsWith(`${input.provider}/`) ? input.model : `${input.provider}/${input.model}`;
+      addRunnerAndRoute(doc, s, id, runnerModel);
     };
     const preview = new StrategyDoc(readFileSync(strategyPath(ctx), "utf8")); change(preview);
     validateStrategy(Bun.YAML.parse(preview.toString()), strategyPath(ctx));
