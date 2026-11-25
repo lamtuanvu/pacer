@@ -71,6 +71,8 @@ export interface BoardZone {
   /** Steps drawn inside (child run step rows). */
   drawn: number;
 }
+/** Where a running agent stands: low on its desk, to the left of the status line. */
+export const agentPlace = (n: Pick<BoardNode, "x" | "y">): { x: number; y: number } => ({ x: n.x + 8, y: n.y + DESK_H - FIGURE - 8 });
 export interface BoardAgent { nodeId: string; taskId: string; x: number; y: number }
 export interface BoardStation { x: number; y: number; w: number; h: number }
 export interface LiveBoardLayout {
@@ -282,7 +284,7 @@ export function layoutLiveBoard(input: LayoutInput): LiveBoardLayout {
   for (const n of [...nodes].sort((a, b) => a.id.localeCompare(b.id))) {
     if (n.status !== "running" || !n.taskId || seenTasks.has(n.taskId)) continue;
     seenTasks.add(n.taskId);
-    agents.push({ nodeId: n.id, taskId: n.taskId, x: n.x + 8, y: n.y + DESK_H - FIGURE - 8 });
+    agents.push({ nodeId: n.id, taskId: n.taskId, ...agentPlace(n) });
   }
   const planner: BoardStation = { x: 0, y: 0, w: STATION_W, h: STATION_H };
   const firstWaiting = nodes.filter(n => n.waitsOnYou).sort((a, b) => a.x - b.x || a.y - b.y || a.id.localeCompare(b.id))[0];

@@ -113,6 +113,13 @@ test("the board draws a desk per step row, agents with their executor, and no de
   } finally { await done(dom); }
 });
 
+test("opening the board marks the run seen once", async () => {
+  const { dom, calls } = await open();
+  try {
+    expect(calls.ops.filter(c => c.op === "run.seen")).toEqual([{ op: "run.seen", params: { id: "run_1" } }]);
+  } finally { await done(dom); }
+});
+
 test("the person is drawn once, beside the step that waits on them; the planner is marked as the planner", async () => {
   const { dom } = await open();
   try {

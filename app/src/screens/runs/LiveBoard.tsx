@@ -5,9 +5,9 @@
  */
 import { useEffect, useId, useMemo, useRef, useState } from "preact/hooks";
 import styles from "./live-board.css" with { type: "text" };
-import { orchestratorBlock, runAge, runPriorityLabel, runStatus, stepMarkerGlyph, stepMarkerFor, waitsOnLabel, displayRunLetter, runLettersForList } from "../../../../src/view-model/runs";
+import { orchestratorBlock, runAge, runPriorityLabel, runStatus, waitsOnLabel, displayRunLetter, runLettersForList } from "../../../../src/view-model/runs";
 import { sentenceCase, orchestratorNeedsAttention, pausedReasonLabel } from "../../../../src/view-model/run-board";
-import { mergeSnapshotRuns, type RunQuestionView } from "../../data/runs";
+import { markRunSeen, mergeSnapshotRuns, type RunQuestionView } from "../../data/runs";
 import { useActions } from "../../data/action-context";
 import { Alert } from "../../ds/Alert";
 import { Button, ButtonLink } from "../../ds/Button";
@@ -19,11 +19,11 @@ import { PageHead } from "../../shell/slots";
 import type { RouteQuery } from "../../router";
 import { RunQuestionCard } from "./run-shared";
 import { AgentOutput } from "./AgentOutput";
-import { Creature, PersonFigure, creatureHeight } from "./MascotArt";
-import { DESK_H, FIGURE, STATION_H, STATION_W, layoutLiveBoard, type BoardNode } from "./live-board-layout";
-import { executorOf, layoutInputFromDetail, nodeLabel, shortLabel } from "./live-board-model";
+import { BoardCanvas, deskWords, plannerNoteFor, zoneSummary } from "./BoardCanvas";
+import { BoardViewport } from "./BoardViewport";
+import { layoutLiveBoard } from "./live-board-layout";
+import { executorOf, layoutInputFromDetail, nodeLabel } from "./live-board-model";
 import { CHANNEL_HINTS, CHANNEL_LABELS, messageTargets, sendToTargets, type MessageChannel } from "./live-board-messages";
-import { fitView, keyAction, panBy, zoomAt, ZOOM_STEP, type BoardView } from "./live-board-view";
 import { liveHref, runViewHref, sessionHref } from "./live-links";
 import { useRunDetail } from "./run-data";
 
@@ -44,27 +44,13 @@ export function useLiveStyles() {
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const isOpenForPerson = (q: RunQuestionView) => (q.status === undefined || q.status === "open") && (q.answerer === undefined || q.answerer === "person");
 
-/** The words a desk shows: a glyph and a status word, never colour alone (UI-2, UI-10). */
-export function deskWords(n: Pick<BoardNode, "status" | "waitsOnYou">): { glyph: string; label: string; cls: string } {
-  if (n.waitsOnYou) return { glyph: stepMarkerGlyph("waits_you"), label: "Waits on you", cls: "you" };
-  if (n.status === "pending") return { glyph: stepMarkerGlyph("unknown"), label: "Not started", cls: "pending" };
-  const s = runStatus(n.status);
-  return { glyph: stepMarkerGlyph(stepMarkerFor({ status: n.status })), label: s.label, cls: n.status };
-}
-
-const FALLBACK_VIEWPORT = { width: 960, height: 540 };
-
 export function LiveBoard({ runId, query, outputPollMs }: { runId: string; query: RouteQuery; outputPollMs?: number }) {
   useLiveStyles();
   const { state, api, ops, detail, load } = useRunDetail(runId);
   const runner = useActions();
   const headingRef = useRef<HTMLHeadingElement>(null);
-  const viewportRef = useRef<HTMLDivElement>(null);
-  const drag = useRef<{ id: number; x: number; y: number } | null>(null);
   const agentEls = useRef(new Map<string, SVGGElement>());
   const markerId = useId();
-  const [view, setView] = useState<BoardView>({ x: 0, y: 0, k: 1 });
-  const [dragging, setDragging] = useState(false);
   const [announce, setAnnounce] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const [channel, setChannel] = useState<MessageChannel>("planner");
@@ -73,7 +59,6 @@ export function LiveBoard({ runId, query, outputPollMs }: { runId: string; query
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState("");
   const [sendError, setSendError] = useState("");
-  const fittedFor = useRef<string | null>(null);
   const now = state.snapshot?.at ?? Date.now() / 1000;
   const raw = detail?.run ?? null;
   const run = isObj(raw) ? raw : null;
@@ -85,17 +70,14 @@ export function LiveBoard({ runId, query, outputPollMs }: { runId: string; query
   // eslint-disable-next-line react-hooks/exhaustive-deps -- questions derive from detail
   [detail]);
 
-  const viewportSize = () => {
-    const r = viewportRef.current?.getBoundingClientRect?.();
-    return r && r.width > 0 && r.height > 0 ? { width: r.width, height: r.height } : FALLBACK_VIEWPORT;
-  };
-  const fit = () => { if (layout) { setView(fitView(layout, viewportSize())); setAnnounce("Board fitted to the window"); } };
-  useEffect(() => {
-    // Fit once per run when the graph first arrives; later refreshes keep the view the person set.
-    if (layout && fittedFor.current !== runId) { fittedFor.current = runId; setView(fitView(layout, viewportSize())); }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- fit once when the layout first exists
-  }, [layout, runId]);
   useEffect(() => { setSelected(null); setSent(""); setSendError(""); setAnnounce(""); }, [runId]);
+  // Opening the board is looking at the run: the engine stamps "last seen" and the planner may write its summary.
+  const seen = useRef<string | null>(null);
+  useEffect(() => {
+    if (seen.current === runId) return;
+    seen.current = runId;
+    void markRunSeen(api, runId, ops);
+  }, [api, ops, runId]);
 
   const tasks = state.snapshot?.tasks as ReadonlyArray<{ id: string; executor?: string | null }> | undefined;
   const agents = useMemo(() => (layout?.agents ?? []).map(a => {
@@ -113,53 +95,6 @@ export function LiveBoard({ runId, query, outputPollMs }: { runId: string; query
   const plannerName = orch?.planner ? `planner:${orch.planner}` : "planner";
   const canMessage = ops.has("msg.send") && (!!orchTaskId || agents.length > 0);
   const canAnswer = ops.has("question.answer");
-
-  const act = (a: ReturnType<typeof keyAction>) => {
-    if (!a) return;
-    const size = viewportSize();
-    if (a.type === "pan") { setView(v => panBy(v, a.dx, a.dy)); return; }
-    if (a.type === "fit") { fit(); return; }
-    setView(v => {
-      const next = zoomAt(v, a.factor, size.width / 2, size.height / 2);
-      return next;
-    });
-  };
-  const zoomPct = Math.round(view.k * 100);
-  useEffect(() => { if (layout) setAnnounce(`Zoom ${zoomPct}%`); /* announce zoom only */ // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [zoomPct]);
-
-  const onKeyDown = (e: KeyboardEvent) => {
-    const a = keyAction(e);
-    if (!a) return;
-    e.preventDefault();
-    act(a);
-  };
-  const isAgentTarget = (t: EventTarget | null) => !!(t as Element | null)?.closest?.("[data-agent]");
-  const onPointerDown = (e: PointerEvent) => {
-    if ((e.button ?? 0) !== 0 || isAgentTarget(e.target)) return;
-    drag.current = { id: e.pointerId, x: e.clientX, y: e.clientY };
-    (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
-    setDragging(true);
-  };
-  const onPointerMove = (e: PointerEvent) => {
-    const d = drag.current;
-    if (!d || d.id !== e.pointerId) return;
-    const dx = e.clientX - d.x, dy = e.clientY - d.y;
-    drag.current = { ...d, x: e.clientX, y: e.clientY };
-    setView(v => panBy(v, dx, dy));
-  };
-  const endDrag = (e: PointerEvent) => {
-    if (drag.current?.id !== e.pointerId) return;
-    drag.current = null;
-    setDragging(false);
-  };
-  const onWheel = (e: WheelEvent) => {
-    // A plain wheel scrolls the page; a pinch or Ctrl/Cmd wheel zooms at the pointer.
-    if (!(e.ctrlKey || e.metaKey)) return;
-    e.preventDefault();
-    const r = viewportRef.current?.getBoundingClientRect?.();
-    setView(v => zoomAt(v, e.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP, e.clientX - (r?.left ?? 0), e.clientY - (r?.top ?? 0)));
-  };
 
   const openAgent = (taskId: string) => {
     setSelected(taskId);
@@ -250,104 +185,12 @@ export function LiveBoard({ runId, query, outputPollMs }: { runId: string; query
           : <p className="lb-cap">{orchLine}</p>}
 
         <section className="lb-section" aria-label="Live board">
-          <div className="lb-toolbar" role="group" aria-label="Board view">
-            <Button size="sm" onClick={() => act({ type: "zoom", factor: 1 / ZOOM_STEP })}>Zoom out</Button>
-            <Button size="sm" onClick={() => act({ type: "zoom", factor: ZOOM_STEP })}>Zoom in</Button>
-            <Button size="sm" variant="quiet" onClick={() => act({ type: "fit" })}>Fit board</Button>
-            <span className="lb-cap" data-zoom>{zoomPct}%</span>
-          </div>
-          <p className="lb-cap" id={`${markerId}-hint`}>Drag to pan. With the board focused, arrow keys pan (Shift for further), + and - zoom, 0 fits the board.</p>
-          <div
-            ref={viewportRef}
-            className={`lb-viewport${dragging ? " is-dragging" : ""}`}
-            tabIndex={0}
-            role="group"
-            aria-roledescription="pannable board"
-            aria-label={`Run graph, ${nodes.length} ${nodes.length === 1 ? "step" : "steps"}, ${agents.length} ${agents.length === 1 ? "agent" : "agents"} working`}
-            aria-describedby={`${markerId}-hint`}
-            onKeyDown={onKeyDown}
-            onPointerDown={onPointerDown}
-            onPointerMove={onPointerMove}
-            onPointerUp={endDrag}
-            onPointerCancel={endDrag}
-            onWheel={onWheel}
-          >
-            <svg className="lb-svg" xmlns="http://www.w3.org/2000/svg">
-              <defs>
-                <marker id={`${markerId}-arrow`} markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
-                  <path className="lb-arrow" d="M0 0 L8 4 L0 8 z" />
-                </marker>
-              </defs>
-              <g className="lb-world" data-world transform={`translate(${view.x} ${view.y}) scale(${view.k})`}>
-                {/* The planner's place, and the person's: stations, not graph nodes. */}
-                <g transform={`translate(${layout.planner.x} ${layout.planner.y})`} data-station="planner">
-                  <rect className="lb-station-box" width={STATION_W} height={STATION_H} />
-                  <Creature identity={plannerName} x={12} y={STATION_H - creatureHeight(40) - 10} size={40} planner />
-                  <text className="lb-station-label" x={64} y={34}>Planner</text>
-                  <text className="lb-station-note" x={64} y={52}>{shortLabel(orch?.state ? sentenceCase(orch.state) : "Idle", 14)}</text>
-                </g>
-                {layout.person.at === null ? (
-                  <g transform={`translate(${layout.person.x} ${layout.person.y})`} data-station="person">
-                    <rect className="lb-station-box" width={STATION_W} height={STATION_H} />
-                    <PersonFigure x={12} y={STATION_H - creatureHeight(40) - 10} size={40} />
-                    <text className="lb-station-label" x={64} y={34}>You</text>
-                    <text className="lb-station-note" x={64} y={52}>Nothing waits on you</text>
-                  </g>
-                ) : null}
-                {layout.zones.map(z => (
-                  <g key={z.id} data-zone={z.id}>
-                    <rect className={`lb-zone${z.approved ? " lb-zone--filled" : ""}`} x={z.x} y={z.y} width={z.w} height={z.h} rx="8" />
-                    <text className="lb-zone-label" x={z.x + 12} y={z.y + 20}>Generated plan · {shortLabel(z.stepId, 20)}</text>
-                    <text className="lb-zone-note" x={z.x + 12} y={z.y + 38}>{zoneSummary(z)}</text>
-                  </g>
-                ))}
-                {layout.bands.map(b => (
-                  <g key={b.id}>
-                    <rect className="lb-band" x={b.x} y={b.y} width={b.w} height={b.h} rx="8" />
-                    <text className="lb-band-label" x={b.x + 12} y={b.y + 18}>Fan-out · {shortLabel(b.stepId, 18)} · {b.lanes} {b.lanes === 1 ? "lane" : "lanes"}</text>
-                  </g>
-                ))}
-                {layout.edges.map(e => {
-                  const mid = Math.max(24, (e.x2 - e.x1) / 2);
-                  return <path key={e.id} className="lb-edge" data-edge={e.id} d={`M${e.x1} ${e.y1} C${e.x1 + mid} ${e.y1} ${e.x2 - mid} ${e.y2} ${e.x2} ${e.y2}`} markerEnd={`url(#${markerId}-arrow)`} />;
-                })}
-                {nodes.map(n => {
-                  const words = deskWords(n);
-                  const agent = agentByNode.get(n.id);
-                  return (
-                    <g key={n.id} className={`lb-desk lb-desk--${words.cls}`} data-node={n.id} transform={`translate(${n.x} ${n.y})`}>
-                      <rect className="lb-desk-box" width={n.w} height={n.h} />
-                      <text className="lb-desk-label" x={10} y={22}>{shortLabel(nodeLabel(n))}</text>
-                      <text className="lb-desk-state" x={agent ? FIGURE + 18 : 10} y={n.h - 16}>{words.glyph} {words.label}</text>
-                    </g>
-                  );
-                })}
-                {layout.person.at !== null ? (
-                  <g data-station="person" data-at={layout.person.at}>
-                    <PersonFigure x={layout.person.x} y={layout.person.y} size={FIGURE} />
-                    <text className="lb-station-label" x={layout.person.x - 30} y={layout.person.y + 22}>You</text>
-                  </g>
-                ) : null}
-                {agents.map(a => (
-                  <g
-                    key={a.taskId}
-                    className="lb-agent"
-                    data-agent={a.taskId}
-                    ref={(el: SVGGElement | null) => { if (el) agentEls.current.set(a.taskId, el); else agentEls.current.delete(a.taskId); }}
-                    role="button"
-                    tabindex={0}
-                    aria-pressed={selected === a.taskId}
-                    aria-label={`${a.executor} working on ${a.label}. Open live output`}
-                    onClick={() => openAgent(a.taskId)}
-                    onKeyDown={(e: KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openAgent(a.taskId); } }}
-                  >
-                    <rect className="lb-agent-ring" x={a.x - 3} y={a.y - 3} width={FIGURE + 6} height={creatureHeight(FIGURE) + 6} />
-                    <Creature identity={a.executor} x={a.x} y={a.y} size={FIGURE} />
-                  </g>
-                ))}
-              </g>
-            </svg>
-          </div>
+          <BoardViewport content={layout} resetKey={runId} markerId={markerId}
+            ariaLabel={`Run graph, ${nodes.length} ${nodes.length === 1 ? "step" : "steps"}, ${agents.length} ${agents.length === 1 ? "agent" : "agents"} working`}>
+            <BoardCanvas layout={layout} markerId={markerId} agents={agents.map(a => ({ taskId: a.taskId, nodeId: a.nodeId, x: a.x, y: a.y, executor: a.executor, label: a.label }))}
+              plannerIdentity={plannerName} plannerNote={plannerNoteFor(orch?.state)} selectedTaskId={selected} onOpenAgent={openAgent}
+              agentRef={(id, el) => { if (el) agentEls.current.set(id, el); else agentEls.current.delete(id); }} />
+          </BoardViewport>
         </section>
 
         {selectedAgent ? (
@@ -431,13 +274,4 @@ export function LiveBoard({ runId, query, outputPollMs }: { runId: string; query
       </>}
     </Page>
   </>;
-}
-
-/** What a zone says about its versions: the engine's own version statuses, in plain words. */
-export function zoneSummary(z: { versions: Array<{ version: number; status: string; stepCount: number }>; approved: number; drawn: number }): string {
-  if (!z.versions.length) return "No plan yet";
-  const latest = z.versions[z.versions.length - 1]!;
-  const head = `v${latest.version} ${latest.status} · ${latest.stepCount} ${latest.stepCount === 1 ? "step" : "steps"}`;
-  if (!z.approved) return `${head} · not approved yet`;
-  return `${head} · ${z.drawn} ${z.drawn === 1 ? "step" : "steps"} started`;
 }

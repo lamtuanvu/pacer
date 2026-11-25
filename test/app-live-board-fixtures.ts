@@ -75,3 +75,38 @@ export const retriedInput: LayoutInput = {
   definition: { entry: "build", edges: [], steps: { build: { type: "agent" } } },
   graphs: [],
 };
+
+/** A finished run's journey: the router picks a workflow, brainstorm, a plan revised once, then executors arrive and leave. */
+export const journeyDefinition: LayoutDefinition = {
+  entry: "route",
+  edges: [{ from: "route", to: "brainstorm" }, { from: "brainstorm", to: "approve_spec" }, { from: "approve_spec", to: "plan" }],
+  steps: { route: { type: "choose_workflow" }, brainstorm: { type: "agent" }, approve_spec: { type: "human" }, plan: { type: "generate" } },
+};
+export const journeyInput: LayoutInput = {
+  steps: [
+    step("route", "done", { startedAt: 901, endedAt: 905 }),
+    step("brainstorm", "done", { startedAt: 906, endedAt: 920, taskId: "t_brain" }),
+    step("approve_spec", "done", { startedAt: 921, endedAt: 929 }),
+    step("plan", "done", { startedAt: 930, endedAt: 960 }),
+  ],
+  definition: journeyDefinition,
+  graphs: [
+    { stepId: "plan", attempt: 1, version: 1, status: "rejected", stepCount: 2 },
+    { stepId: "plan", attempt: 1, version: 2, status: "approved", stepCount: 4 },
+  ],
+  children: [{
+    runId: "run_child", parentStep: "plan", createdAt: 956,
+    steps: [
+      step("api", "done", { runId: "run_child", startedAt: 957, endedAt: 970, taskId: "t_api" }),
+      step("ui", "done", { runId: "run_child", startedAt: 971, endedAt: 990, taskId: "t_ui" }),
+    ],
+    definition: { entry: "api", edges: [{ from: "api", to: "ui" }], steps: { api: { type: "agent" }, ui: { type: "agent" } } },
+  }],
+};
+export const journeyDecisions = [
+  { id: "d1", runId: "run_1", stepId: "route", attempt: 1, actor: "orchestrator", kind: "choose", choice: "pacer-dev/feature", reason: "The brief asks for a new screen.", at: 905 },
+  { id: "d2", runId: "run_1", stepId: "plan", attempt: 1, actor: "person", kind: "revise_graph", choice: "revise", reason: "Add a docs step.", at: 940 },
+  { id: "d3", runId: "run_1", stepId: "plan", attempt: 1, actor: "person", kind: "approve_graph", choice: "2", reason: "", at: 955 },
+];
+export const journeyExecutors: Record<string, string> = { t_brain: "oc-glm", t_api: "codex", t_ui: "oc-glm" };
+export const journeyRun = { createdAt: 900, updatedAt: 995, status: "done", title: "Ship the board" };
