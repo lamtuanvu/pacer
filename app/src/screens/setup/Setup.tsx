@@ -36,7 +36,7 @@ function Command({ command }: { command: string }) {
   }}>{copied ? 'Copied' : 'Copy command'}</Button><SetupError error={error} /></div></Disclosure>;
 }
 
-function FirstRun({ id, run }: { id: string; run: (work: () => Promise<unknown>, advance?: boolean) => Promise<void> }) {
+export function FirstRun({ id, run }: { id: string; run: (work: () => Promise<unknown>, advance?: boolean) => Promise<void> }) {
   const { api } = useTaskContext();
   const task = useQuery<TaskDetail>('task.get', { id });
   const diff = useQuery<{ diff: string; truncated?: boolean }>('task.diff', { id });

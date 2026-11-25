@@ -1,62 +1,125 @@
-import { expect, jest, test } from "bun:test";
-import { initialState, reduceStore } from "../app/src/data/store";
-import { queryRevision } from "../app/src/screens/task-shared";
-import fixture from "./fixtures/ui/snapshot.json";
+import { afterAll, beforeAll, expect, test } from 'bun:test';
+import { chromium, type Browser, type Page } from 'playwright-core';
 
-const ready = () => ({ ...reduceStore(initialState(), { type: "snapshot", snapshot: fixture as never }), features: { readModel: true, ops: new Set<string>() } });
+const browserPath = process.env.PACER_TEST_BROWSER;
+const browserTest = test.skipIf(!browserPath);
+let browser: Browser;
+let bundle: string;
 
-test("WorkView events reload follows the dispatch.tree revision", () => {
-  const state = ready();
-  const base = queryRevision(state, "dispatch.tree", { id: "task-1" });
-  const taskEvent = reduceStore(state, { type: "event", event: { type: "task", seq: state.snapshot!.seq + 1, at: 2, data: { ...state.snapshot!.tasks[0], state: "done", updatedAt: 2 } } });
-  expect(queryRevision(taskEvent, "dispatch.tree", { id: "task-1" })).not.toBe(base);
+beforeAll(async () => {
+  if (!browserPath) return;
+  const built = await Bun.build({ entrypoints: ['test/fixtures/ui/polling-browser.tsx'], target: 'browser', format: 'iife' });
+  if (!built.success) throw new AggregateError(built.logs);
+  bundle = await built.outputs[0]!.text();
+  browser = await chromium.launch({ executablePath: browserPath, headless: true });
+});
+afterAll(async () => { await browser?.close(); });
+
+async function mount(page: Page, screen: string) {
+  await page.route('http://pacer.test/**', route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><div id="app"></div>' }));
+  // Install before the screen mounts so every short/safety interval is under test control.
+  await page.clock.install();
+  await page.goto(`http://pacer.test/?screen=${screen}`);
+  await page.addScriptTag({ content: bundle });
+}
+
+const count = (page: Page, op: string) => page.evaluate(o => (window as any).calls.filter((call: any) => call.op === o).length, op);
+const settle = (page: Page) => page.waitForTimeout(250);
+const setHidden = (page: Page, hidden: boolean) => page.evaluate(value => {
+  Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => value ? 'hidden' : 'visible' });
+  document.dispatchEvent(new Event('visibilitychange'));
+}, hidden);
+const plugin = async (page: Page, ui: boolean) => {
+  await page.evaluate(withUi => (window as any).emit('plugin', { id: 'checklist', state: 'ready', error: null, ...(withUi ? { ui: {} } : {}) }), ui);
+  await settle(page);
+};
+
+browserTest('WorkView reloads the timeline on a task event, not on plugin ui traffic or a short timer', async () => {
+  const page = await browser.newPage();
+  try {
+    await mount(page, 'work');
+    await page.locator('.pc-work-timeline').waitFor({ state: 'attached' });
+    await settle(page);
+    // F6: mounting starts exactly one paginated read, not one per tree-revision effect.
+    expect(await count(page, 'dispatch.events')).toBe(1);
+    await page.clock.runFor(1500);
+    expect(await count(page, 'dispatch.events')).toBe(1);
+    await plugin(page, true);
+    expect(await count(page, 'dispatch.events')).toBe(1);
+    await page.evaluate(() => (window as any).emit('task', { ...(window as any).snapshotTask, rev: 99, state: 'done' }));
+    await settle(page);
+    expect(await count(page, 'dispatch.events')).toBeGreaterThan(1);
+  } finally { await page.close(); }
 });
 
-test("an unrelated plugin invalidation does not change the dispatch.tree revision", () => {
-  const state = ready();
-  const base = queryRevision(state, "dispatch.tree", { id: "task-1" });
-  const pluginEvent = reduceStore(state, { type: "event", event: { type: "plugin", seq: state.snapshot!.seq + 1, at: 2, data: {} } });
-  expect(queryRevision(pluginEvent, "dispatch.tree", { id: "task-1" })).toBe(base);
+browserTest('JobList reloads once on mount and again only when a tracked job signature changes', async () => {
+  const page = await browser.newPage();
+  try {
+    await mount(page, 'jobs');
+    await settle(page);
+    // F5: the initial useResource read is not duplicated by the signature effect.
+    expect(await count(page, 'job.list')).toBe(1);
+    await page.clock.runFor(1500);
+    expect(await count(page, 'job.list')).toBe(1);
+    await plugin(page, true);
+    expect(await count(page, 'job.list')).toBe(1);
+    await page.evaluate(() => (window as any).emit('job', { id: 'job-2', target: 'acct', kind: 'account.usage.check', state: 'running', startedAt: 2, steps: [] }));
+    await settle(page);
+    expect(await count(page, 'job.list')).toBeGreaterThan(1);
+    const running = await count(page, 'job.list');
+    await setHidden(page, true);
+    await page.clock.runFor(31000);
+    expect(await count(page, 'job.list')).toBe(running);
+    await setHidden(page, false);
+    await page.clock.runFor(31000);
+    expect(await count(page, 'job.list')).toBeGreaterThan(running);
+  } finally { await page.close(); }
 });
 
-test("WorkView no longer keys its events reload on every invalidation", async () => {
-  const source = await Bun.file("app/src/screens/work/WorkView.tsx").text();
-  expect(source).toContain("treeRevision");
-  expect(source).not.toContain("state.invalidations]");
+browserTest('Setup FirstRun refreshes on a task rev event, not on plugin ui traffic or a short timer', async () => {
+  const page = await browser.newPage();
+  try {
+    await mount(page, 'setup');
+    await settle(page);
+    expect(await count(page, 'task.get')).toBe(1);
+    await page.clock.runFor(1500);
+    expect(await count(page, 'task.get')).toBe(1);
+    await plugin(page, true);
+    expect(await count(page, 'task.get')).toBe(1);
+    await page.evaluate(() => (window as any).emit('task', { ...(window as any).snapshotTask, rev: 99, state: 'done' }));
+    await settle(page);
+    expect(await count(page, 'task.get')).toBeGreaterThan(1);
+    const afterEvent = await count(page, 'task.get');
+    await setHidden(page, true);
+    await page.clock.runFor(31000);
+    expect(await count(page, 'task.get')).toBe(afterEvent);
+    await setHidden(page, false);
+    await page.clock.runFor(31000);
+    expect(await count(page, 'task.get')).toBeGreaterThan(afterEvent);
+  } finally { await page.close(); }
 });
 
-test("Machines gates its live poll on view visibility", async () => {
-  const source = await Bun.file("app/src/screens/settings/Machines.tsx").text();
-  expect(source).toContain("if (!visible) return;");
-  expect(source).toContain("useViewActive");
-});
-
-test("JobList reloads on tracked jobs rather than the whole jobs object", async () => {
-  const source = await Bun.file("app/src/screens/settings/shared.tsx").text();
-  expect(source).toContain("trackedJobSignature");
-  expect(source).not.toContain("[state.jobs]");
-});
-
-test("AccountUsage reloads on tracked jobs rather than the whole jobs object", async () => {
-  const source = await Bun.file("app/src/screens/settings/AccountUsage.tsx").text();
-  expect(source).toContain("trackedJobSignature");
-  expect(source).not.toContain("[state.jobs]");
-});
-
-test("Setup FirstRun keeps only a slow safety poll", async () => {
-  const source = await Bun.file("app/src/screens/setup/Setup.tsx").text();
-  expect(source).not.toMatch(/setInterval\(task\.reload,\s*1500\)/);
-  expect(source).toContain("30000");
-});
-
-test("fake timers do not fire a short poll before its interval", () => {
-  jest.useFakeTimers();
-  let calls = 0;
-  const timer = setInterval(() => { calls += 1; }, 1500);
-  jest.advanceTimersByTime(1400);
-  expect(calls).toBe(0);
-  jest.advanceTimersByTime(200);
-  expect(calls).toBe(1);
-  clearInterval(timer);
-  jest.useRealTimers();
+browserTest('Machines rereads config on a config event, ignores plugin ui traffic and pauses its live poll while hidden', async () => {
+  const page = await browser.newPage();
+  try {
+    await mount(page, 'machines');
+    await settle(page);
+    // One resource read plus the immediate live guard poll.
+    expect(await count(page, 'config.get')).toBe(2);
+    await page.clock.runFor(1500);
+    expect(await count(page, 'config.get')).toBe(2);
+    await plugin(page, false);
+    await plugin(page, true);
+    expect(await count(page, 'config.get')).toBe(2);
+    await page.evaluate(() => (window as any).emit('config', { area: 'config', at: 1 }));
+    await settle(page);
+    expect(await count(page, 'config.get')).toBe(3);
+    const afterEvent = await count(page, 'config.get');
+    await setHidden(page, true);
+    await page.clock.runFor(11000);
+    expect(await count(page, 'config.get')).toBe(afterEvent);
+    await setHidden(page, false);
+    await page.clock.runFor(6000);
+    expect(await count(page, 'config.get')).toBeGreaterThan(afterEvent);
+  } finally { await page.close(); }
 });

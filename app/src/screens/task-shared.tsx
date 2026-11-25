@@ -58,7 +58,7 @@ export function queryRevision(state: StoreState, op: string, params: unknown): s
   const revisions = (areas[op.split('.')[0]!] ?? CONFIG_AREAS).map(area => [area, state.invalidations[area] ?? 0]);
   if (op === "account.list") return JSON.stringify([revisions, state.snapshot?.accounts?.map(account => [account.name, account.usedPct, account.resetsAt, account.stale, account.signedIn])]);
   if (op === "plugin.list") return JSON.stringify([...revisions, ['plugin', state.invalidations.plugin ?? 0]]);
-  return JSON.stringify(op.startsWith('plugin.') ? [...revisions, ['plugin', state.invalidations.plugin ?? 0], ['plugin-ui', state.invalidations['plugin-ui'] ?? 0]] : revisions);
+  return JSON.stringify(op.startsWith('plugin.') ? [...revisions, ['plugin', state.invalidations.plugin ?? 0], ...(op.startsWith('plugin.ui.') ? [['plugin-ui', state.invalidations['plugin-ui'] ?? 0]] : [])] : revisions);
 }
 /** task.session is refetched only when the task record changes. A read that landed before the session host was
  * up reports it not live, and a provider-owned run may not change its record again; a pane's live connection is

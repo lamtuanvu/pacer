@@ -74,3 +74,34 @@ test.skipIf(!browserPath)('useResource shows loading on first load and refreshin
     await browser.close();
   }
 });
+
+async function mountKeyChange(page: Page) {
+  const result = await Bun.build({ entrypoints: ['test/fixtures/ui/use-resource-key-browser.tsx'], target: 'browser', format: 'iife' });
+  if (!result.success) throw Error(result.logs.join('\n'));
+  await page.setContent(`<div id="app"></div>`);
+  await page.addScriptTag({ content: await result.outputs[0]!.text() });
+  await page.waitForFunction(() => (window as any).calls.length === 1);
+}
+
+test.skipIf(!browserPath)('useResource treats a params change as a first load instead of showing stale data', async () => {
+  const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
+  try {
+    const page = await browser.newPage();
+    await mountKeyChange(page);
+    await page.evaluate(() => (window as any).resolveNext({ value: 1 }));
+    await page.waitForFunction(() => document.querySelector('#value')?.textContent === '1');
+    expect(await page.locator('#status').getAttribute('data-loading')).toBe('false');
+
+    // Change the key while data from the previous key is loaded.
+    await page.evaluate(() => (window as any).setId('b'));
+    await page.waitForFunction(() => (window as any).calls.length === 2);
+    expect(await page.locator('#status').getAttribute('data-hasdata')).toBe('false');
+    expect(await page.locator('#status').getAttribute('data-loading')).toBe('true');
+    expect(await page.locator('#status').getAttribute('data-refreshing')).toBe('false');
+
+    await page.evaluate(() => (window as any).resolveNext({ value: 2 }));
+    await page.waitForFunction(() => document.querySelector('#value')?.textContent === '2');
+  } finally {
+    await browser.close();
+  }
+});

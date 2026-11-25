@@ -52,7 +52,9 @@ export function WorkView({id}:{id:string}){
  const tree=useQuery<Tree>("dispatch.tree",{id}),analytics=useQuery<Analytics>("dispatch.analytics",{},treeRevision);
  const [events,setEvents]=useState<Event[]>([]),[eventError,setEventError]=useState<unknown>(),[eventVersion,reloadEvents]=useState(0),[eventsLoading,setEventsLoading]=useState(true);
  useEffect(()=>{if(!visible)return;let cancelled=false;setEventsLoading(true);setEventError(undefined);void(async()=>{try{let after=0;const all:Event[]=[];for(;;){const page=await api.call<{events:Event[];next:number;hasMore:boolean}>("dispatch.events",{id,after});if(cancelled)return;all.push(...page.events);if(!page.hasMore||page.next<=after)break;after=page.next;}if(!cancelled)setEvents(all);}catch(error){if(!cancelled)setEventError(error);}finally{if(!cancelled)setEventsLoading(false);}})();return()=>{cancelled=true;};},[api,id,eventVersion,visible]);
- useEffect(()=>{if(!visible)return;reloadEvents(v=>v+1);},[visible,treeRevision]);
+ // The fetch effect above already reads the timeline on mount; only later tree revisions reload it.
+ const firstTreeRevision=useRef(true);
+ useEffect(()=>{if(firstTreeRevision.current){firstTreeRevision.current=false;return;}if(!visible)return;reloadEvents(v=>v+1);},[visible,treeRevision]);
  const changed=()=>{tree.reload();reloadEvents(v=>v+1);analytics.reload();};
  if(!tree.data)return tree.error?<ErrorMessage error={tree.error}/>:<Skeleton layout="task" label="Loading work tree…"/>;
  const totals=tree.data.totals;

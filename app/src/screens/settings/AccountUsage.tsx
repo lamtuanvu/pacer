@@ -22,7 +22,9 @@ export function AccountUsage({account,reload,sourceError}:{account:Account;reloa
   const trackedJobSignature = ordered.map(j => `${j.id}:${j.state}:${j.endedAt ?? 0}:${j.steps.map(step => `${step.name}:${step.state}:${step.detail ?? ""}`).join(",")}`).join("|");
   // Job progress arrives through job events for the tracked job(s); reload on those instead of a 1.5s poll.
   // Keep a slow safety fallback while a job runs.
-  useEffect(()=>{ if (!running) return; jobs.reload(); }, [trackedJobSignature]);
+  // The initial useResource read covers the jobs visible on mount; only later job changes reload.
+  const lastTracked=useRef('');
+  useEffect(()=>{ if (!running || !trackedJobSignature) return; if (!lastTracked.current) { lastTracked.current=trackedJobSignature; return; } if (lastTracked.current===trackedJobSignature) return; lastTracked.current=trackedJobSignature; jobs.reload(); }, [trackedJobSignature,running]);
   useEffect(()=>{ if(!running)return; const timer=setInterval(()=>{ if (typeof document !== "undefined" && document.visibilityState !== "visible") return; jobs.reload(); },30000); return()=>clearInterval(timer); },[running]);
   useEffect(()=>{if(job&&job.state!=="running"&&completed.current!==job.id){completed.current=job.id;reload();}},[job?.id,job?.state]);
   // Provider guidance and diagnostics stay opt-in and appear only once.

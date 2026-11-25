@@ -61,16 +61,19 @@ export function resourceRevision(op: string, invalidations: Record<string, numbe
  const budget = budgetResourceRevision(op, invalidations);
  if (budget !== undefined) return budget;
  // update.check itself publishes an update event; reacting to it creates a request loop. Message threads have their own counters.
- return JSON.stringify(Object.entries(invalidations).filter(([area]) => !area.startsWith("msg:")).filter(([area]) => op.startsWith("plugin.") ? (op.startsWith("plugin.ui.") ? ["plugin", "plugins", "plugin-ui"] : ["plugin", "plugins"]).includes(area) : area !== "plugin" && (op !== "update.check" || area !== "update")));
+ return JSON.stringify(Object.entries(invalidations).filter(([area]) => !area.startsWith("msg:")).filter(([area]) => op.startsWith("plugin.") ? (op.startsWith("plugin.ui.") ? ["plugin", "plugins", "plugin-ui"] : ["plugin", "plugins"]).includes(area) : area !== "plugin" && area !== "plugin-ui" && (op !== "update.check" || area !== "update")));
 }
 export function useResource<T>(op:string,params:unknown={},initial?:T) {
  useSettingsStyles();
  const {api,state}=useTaskContext();const [data,setData]=useState(initial),[error,setError]=useState<unknown>(),[loading,setLoading]=useState(initial===undefined),[refreshing,setRefreshing]=useState(false),[revision,reload]=useState(0);
  const generation=useRef(0);
+ const loadedKey=useRef<string>();
  const dataRef=useRef(data);
  useEffect(()=>{dataRef.current=data;},[data]);
  const serialized=JSON.stringify(params),invalidations=budgetResourceRevision(op,state.invalidations,state.snapshot?.accounts) ?? resourceRevision(op,state.invalidations);
- useEffect(()=>{let active=true;const ticket=++generation.current;const initialLoad=dataRef.current===undefined;if(initialLoad){setLoading(true);}else{setRefreshing(true);}setError(undefined);void api.call<T>(op,JSON.parse(serialized)).then(r=>{if(active&&ticket===generation.current)setData(r);},e=>{if(active&&ticket===generation.current)setError(e);}).finally(()=>{if(active&&ticket===generation.current){setLoading(false);setRefreshing(false);}});return()=>{active=false;};},[api,op,serialized,revision,invalidations,state.connected]);
+ // A change of op or params is a new resource, not a background refresh of the old key's data.
+ const key=JSON.stringify([op,serialized]);
+ useEffect(()=>{let active=true;const ticket=++generation.current;const keyChanged=loadedKey.current!==key;loadedKey.current=key;const initialLoad=keyChanged||dataRef.current===undefined;if(initialLoad){setData(undefined);setLoading(true);setRefreshing(false);}else{setRefreshing(true);}setError(undefined);void api.call<T>(op,JSON.parse(serialized)).then(r=>{if(active&&ticket===generation.current)setData(r);},e=>{if(active&&ticket===generation.current)setError(e);}).finally(()=>{if(active&&ticket===generation.current){setLoading(false);setRefreshing(false);}});return()=>{active=false;};},[api,op,serialized,revision,invalidations,state.connected]);
  return {data,error,loading,refreshing,setData:(next:T)=>{generation.current++;setLoading(false);setRefreshing(false);setData(next);},reload:()=>reload(v=>v+1)};
 }
 export function ResourceState({resource,empty,children}:{resource:{data:unknown;loading:boolean;error:unknown;reload:()=>void};empty?:string;children:ComponentChildren}) {
@@ -130,8 +133,10 @@ export function JobList({target,onComplete}:{target:string;onComplete:()=>void})
  const running=[...jobs.values()].some(job=>job.state==='running'),signature=[...jobs.values()].filter(job=>job.state!=='running').map(job=>`${job.id}:${job.state}`).join('|');
  const trackedJobSignature=[...jobs.values()].map(job=>`${job.id}:${job.state}:${job.endedAt ?? 0}:${job.steps.map(step=>`${step.name}:${step.state}:${step.detail ?? ""}`).join(",")}`).join('|');
  const last=useRef('');
+ // The initial useResource read covers the jobs visible on mount; only later job changes reload.
+ const lastTracked=useRef('');
  useEffect(()=>{if(signature&&last.current!==signature){last.current=signature;onComplete();}},[signature]);
- useEffect(()=>{if(!running)return;if (running) query.reload(); }, [trackedJobSignature]);
+ useEffect(()=>{if(!running||!trackedJobSignature)return;if(!lastTracked.current){lastTracked.current=trackedJobSignature;return;}if(lastTracked.current===trackedJobSignature)return;lastTracked.current=trackedJobSignature;query.reload();},[trackedJobSignature,running]);
   useEffect(()=>{ if(!running)return; const timer=setInterval(()=>{ if (typeof document !== "undefined" && document.visibilityState !== "visible") return; query.reload(); },30000); return()=>clearInterval(timer); },[running]);
  return <><ErrorMessage error={query.error}/>{[...jobs.values()].sort((a,b)=>b.startedAt-a.startedAt).slice(0,3).map(job=><JobProgress key={job.id} job={job}/>)}</>;
 }

@@ -19,7 +19,7 @@ export interface StoreState {
   invalidations: Record<string, number>; version: string | null;
   desktopBuildDiagnostic: 'unverified' | 'mismatch' | 'legacy' | 'unknown';
   features: Features; jobs: Record<string, Job>; activity: ActivityEntry[];
-  pluginStates?: Record<string, { state: string; error: string | null }>;
+  pluginStates: Record<string, { state: string; error: string | null }>;
 }
 type EventType = ApiEvent["type"] | EntityEventType;
 export type StoreAction = { type: "waiting"; waiting: NonNullable<SnapshotV2["service"]>["waiting"] } | { type: "snapshot"; snapshot: LinkSnapshot | SnapshotV2 } | { type: "event"; event: Omit<ApiEvent, "type"> & { type: EventType } } | { type: "disconnected" | "connected" | "reconnected" | "session-ended" } | { type: "hello"; hello: Hello };
@@ -107,7 +107,7 @@ export function withoutRestartedUpdates(jobs: Record<string, Job>): Record<strin
 export function reduceStore(state: StoreState, action: StoreAction): StoreState {
   switch (action.type) {
     case "waiting": return state.snapshot?.service ? { ...state, snapshot: { ...state.snapshot, service: { ...state.snapshot.service, waiting: action.waiting } } } : state;
-    case "snapshot": return { ...state, snapshot: action.snapshot as SnapshotV2, needsSnapshot: false };
+    case "snapshot": return { ...state, snapshot: action.snapshot as SnapshotV2, needsSnapshot: false, pluginStates: {} };
     case "disconnected": return { ...state, connected: false };
     case "connected": return { ...state, connected: true, jobs: withoutRestartedUpdates(state.jobs) };
     case "reconnected": return { ...state, connected: true, connectionRevision: state.connectionRevision + 1, jobs: withoutRestartedUpdates(state.jobs) };
@@ -119,7 +119,7 @@ export function reduceStore(state: StoreState, action: StoreAction): StoreState 
     }
     case "event": {
       const event = action.event;
-      if (event.type === "reset") return { ...state, needsSnapshot: true };
+      if (event.type === "reset") return { ...state, needsSnapshot: true, pluginStates: {} };
       if (!state.snapshot || state.needsSnapshot || event.seq <= state.snapshot.seq) return state;
       // A notice does not change the snapshot body. Advance the cursor so a reconnect does not replay it.
       if (event.type === "notify") return { ...state, snapshot: { ...state.snapshot, seq: event.seq, at: event.at } };
