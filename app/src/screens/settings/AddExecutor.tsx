@@ -79,14 +79,14 @@ export function AddExecutor({ host: prefillHost = "", initialDraft = {}, initial
     detected.reload();
   };
   useEffect(() => {
-    if (!rechecking.current || detected.loading) return;
+    if (!rechecking.current || detected.loading || detected.refreshing) return;
     const newlyFound = !detected.error && agents.find(agent => !rechecking.current!.has(agent.id) && detected.data?.some(a => a.agent === agent.id && a.found));
     rechecking.current = undefined;
     if (newlyFound) {
       document.getElementById(`agent-choice-${newlyFound.id}`)?.focus();
       setDetectionStatus(`${newlyFound.name} found`);
     } else checkButton.current?.focus();
-  }, [detected.loading, detected.data, detected.error]);
+  }, [detected.loading, detected.refreshing, detected.data, detected.error]);
   const [addingAccount, setAddingAccount] = useState(false);
   const installGuidance = !!detected.data?.some(a => !a.found && a.install_hint);
   const values = [name, draft.account || (accountRequired(draft.agent) ? "" : "Its own sign-in"), `${facts.hosts.includes(draft.host) ? draft.host : "This machine"} · ${draft.maxTasks} parallel`, ready ? "Ready" : job ? "Test task run" : "Not tested yet"];
@@ -114,7 +114,7 @@ export function AddExecutor({ host: prefillHost = "", initialDraft = {}, initial
                 {found && !found.found && found.install_hint && <span className="u3-muted">Install: <code>{found.install_hint}</code></span>}
             </ChoiceCard>;
           })}</ResourceState></div>
-          {(facts.installed === false || !!rechecking.current) && <div className="u3-actions"><span>{problem}</span><Button ref={checkButton} busy={detected.loading} onClick={checkAgain}>Check again</Button></div>}
+          {(facts.installed === false || !!rechecking.current) && <div className="u3-actions"><span>{problem}</span><Button ref={checkButton} busy={detected.loading || detected.refreshing} onClick={checkAgain}>Check again</Button></div>}
         </>}
         {step === 2 && <>
           <div className="u3-step-heading"><SectionHeading variant="headline" id="agent-step-heading" tabIndex={-1}>Which account pays for it?</SectionHeading><p className="u3-muted">pacer uses the agent’s own sign-in and never copies it.</p></div>

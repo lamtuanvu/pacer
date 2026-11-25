@@ -35,6 +35,7 @@ const runner = createActionRunner({ call: api.call, waitFor: async () => true, r
 function Fixture() {
   const [state, setState] = useState(initialState);
   invalidate = () => setState(current => ({ ...current, invalidations: { plugin: (current.invalidations.plugin ?? 0) + 1 } }));
+  (window as any).invalidate = invalidate;
   return <ActionContext.Provider value={runner}><TaskContext.Provider value={{ state, api }}><DensityContext.Provider value="settings">{fixture.page ? <PluginsPage /> : <PluginsSection />}</DensityContext.Provider></TaskContext.Provider></ActionContext.Provider>;
 }
 render(<Fixture />, document.getElementById('app')!);
