@@ -384,7 +384,7 @@ other readers run only these read-only provider commands:
 
 ```sh
 arkcli usage plan --product coding-plan
-opencode stats --models --cost --json --days 7
+opencode stats --standalone --models --cost --json --days 7
 ```
 
 If no enabled reader is available, or the selected reader fails, fetching new
