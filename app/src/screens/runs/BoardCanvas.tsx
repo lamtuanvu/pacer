@@ -53,7 +53,7 @@ export function BoardCanvas(p: CanvasProps) {
   const personAt = p.personAt === undefined ? layout.person.at : p.personAt;
   const person = personAt === null
     ? { x: STATION_W + GAP_X, y: 0 }
-    : (() => { const n = layout.nodes.find(x => x.id === personAt); return n ? { x: n.x + n.w - FIGURE - 8, y: n.y - FIGURE - 4 } : null; })();
+    : (() => { const n = layout.nodes.find(x => x.id === personAt); return n ? { x: n.x + n.w - FIGURE - 8, y: n.y + n.h - FIGURE - 8 } : null; })();
   const agentByNode = new Map(p.agents.map(a => [a.nodeId, a]));
   // A fan-out's band is drawn once one of its lanes (or its join) is.
   const shownBands = new Set(layout.nodes.filter(n => n.kind !== "desk" && shown.has(n.id)).map(n => `band:${n.zoneId ? `${n.zoneId}/` : ""}${n.stepId}`));
@@ -63,15 +63,15 @@ export function BoardCanvas(p: CanvasProps) {
       <g transform={`translate(${layout.planner.x} ${layout.planner.y})`} data-station="planner">
         <rect className="lb-station-box" width={STATION_W} height={STATION_H} />
         <Creature identity={p.plannerIdentity} x={12} y={STATION_H - creatureHeight(40) - 10} size={40} planner />
-        <text className="lb-station-label" x={64} y={34}>Planner</text>
-        <text className="lb-station-note" x={64} y={52}>{shortLabel(p.plannerNote, 14)}</text>
+        <text className="lb-station-label" x={72} y={34}>Planner</text>
+        <text className="lb-station-note" x={72} y={52}>{shortLabel(p.plannerNote, 14)}</text>
       </g>
       {person && personAt === null ? (
         <g transform={`translate(${person.x} ${person.y})`} data-station="person">
           <rect className="lb-station-box" width={STATION_W} height={STATION_H} />
           <PersonFigure x={12} y={STATION_H - creatureHeight(40) - 10} size={40} />
-          <text className="lb-station-label" x={64} y={34}>You</text>
-          <text className="lb-station-note" x={64} y={52}>{p.personNote ?? "Nothing waits on you"}</text>
+          <text className="lb-station-label" x={72} y={34}>You</text>
+          <text className="lb-station-note" x={72} y={52}>{p.personNote ?? "Nothing waits on you"}</text>
         </g>
       ) : null}
       {layout.zones.map(z => {
@@ -109,7 +109,6 @@ export function BoardCanvas(p: CanvasProps) {
       {person && personAt !== null ? (
         <g data-station="person" data-at={personAt}>
           <PersonFigure x={person.x} y={person.y} size={FIGURE} />
-          <text className="lb-station-label" x={person.x - 30} y={person.y + 22}>You</text>
         </g>
       ) : null}
       {p.agents.filter(a => shown.has(a.nodeId)).map(a => p.onOpenAgent ? (
