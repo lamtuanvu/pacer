@@ -69,7 +69,7 @@ fn last_notified_at(ledger: &Value, id: &str) -> Option<f64> {
                 continue;
             }
             let at = n(at);
-            if latest.map_or(true, |prev| at > prev) {
+            if latest.is_none_or(|prev| at > prev) {
                 latest = Some(at);
             }
         }
@@ -82,7 +82,7 @@ fn in_cooldown(ledger: &Value, id: &str, now: f64) -> bool {
     if now <= 0.0 {
         return false;
     }
-    last_notified_at(ledger, id).map_or(false, |last| now - last < attention::NOTIFY_COOLDOWN_S)
+    last_notified_at(ledger, id).is_some_and(|last| now - last < attention::NOTIFY_COOLDOWN_S)
 }
 
 /// The planner kind in a caller participant (`external:claude-code:<session>` → `claude-code`).
@@ -218,7 +218,7 @@ pub fn candidates(items: &[Item], level: &str, ledger: &Value, now: f64) -> Vec<
     attention::sort(&mut sorted);
     let mut eligible: Vec<&Item> = vec![];
     for item in &sorted {
-        if ledger.get(&item_key(item)).is_some()
+        if ledger.get(item_key(item)).is_some()
             || level == "important" && item.get("notify") != "important"
             || in_cooldown(ledger, s(item.get("id")), now)
         {
