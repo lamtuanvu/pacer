@@ -1,6 +1,6 @@
 /** Several runs at once: one queue ranked by what each answer unblocks, fixed letters and colours, focus, quiet, summaries, bench. */
 import { expect, test } from "bun:test";
-import { buildMultiRun, countWords, runTone, summaryOf } from "../app/src/screens/runs/multi-run";
+import { buildMultiRun, countWords, countsFromSteps, runTone, summaryOf } from "../app/src/screens/runs/multi-run";
 import { buildRunsListState, initialRunsStore } from "../app/src/data/runs";
 import { attention, executors, listRows, snapshotRuns } from "./app-multi-run-fixtures";
 
@@ -77,4 +77,18 @@ test("the shared executor bench lists each executor in the dispatcher's words wi
     ["claude-code", "Out of quota", "bad", { used: 0, max: 1 }],
   ]);
   expect(buildMultiRun({ runs: [], queue: [], snapshotRuns: undefined, details: {}, executors: undefined, focusId: null, quiet: false }).bench).toEqual([]);
+});
+
+test("step counts for a run the snapshot no longer lists come from its own step rows: latest attempt per step and branch", () => {
+  const steps = [
+    { stepId: "a", attempt: 1, status: "failed" }, { stepId: "a", attempt: 2, status: "done" },
+    { stepId: "review", attempt: 1, branch: "ux", status: "running" }, { stepId: "review", attempt: 1, branch: "arch", status: "done" },
+    { stepId: "plan", attempt: 1, status: "waiting" }, { stepId: "x", attempt: 1, status: "stopped" }, { nope: true }, "junk",
+  ];
+  expect(countsFromSteps(steps)).toEqual({ running: 1, waiting: 1, done: 2, failed: 0 });
+  expect(countsFromSteps(undefined)).toEqual({ running: 0, waiting: 0, done: 0, failed: 0 });
+  const m = model({ snapshotRuns: [], details: { run_b: { id: "run_b", run: {}, steps, questions: [], decisions: [], loading: false, error: null, stamp: 1 } } });
+  expect(m.lines.find(l => l.id === "run_b")!.counts).toEqual({ running: 1, waiting: 1, done: 2, failed: 0 });
+  // the snapshot still wins when it lists the run
+  expect(model({ details: { run_b: { id: "run_b", run: {}, steps, questions: [], decisions: [], loading: false, error: null, stamp: 1 } } }).lines.find(l => l.id === "run_b")!.counts).toEqual({ running: 3, waiting: 1, done: 4, failed: 0 });
 });
