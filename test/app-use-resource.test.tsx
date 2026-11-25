@@ -105,3 +105,30 @@ test.skipIf(!browserPath)('useResource treats a params change as a first load in
     await browser.close();
   }
 });
+
+async function mountSeededInitial(page: Page) {
+  const result = await Bun.build({ entrypoints: ['test/fixtures/ui/use-resource-initial-browser.tsx'], target: 'browser', format: 'iife' });
+  if (!result.success) throw Error(result.logs.join('\n'));
+  await page.setContent(`<div id="app"></div>`);
+  await page.addScriptTag({ content: await result.outputs[0]!.text() });
+  await page.waitForFunction(() => (window as any).calls.length === 1);
+}
+
+test.skipIf(!browserPath)('useResource keeps seeded initial data visible while the first request runs', async () => {
+  const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
+  try {
+    const page = await browser.newPage();
+    await mountSeededInitial(page);
+    // First request is still pending: the seed stays visible and loading stays false (no skeleton flash).
+    expect(await page.locator('#status').getAttribute('data-hasdata')).toBe('true');
+    expect(await page.locator('#status').getAttribute('data-loading')).toBe('false');
+    expect(await page.locator('#value').textContent()).toBe('9');
+    // The background read still replaces the seed when it resolves.
+    await page.evaluate(() => (window as any).resolveNext({ value: 10 }));
+    await page.waitForFunction(() => document.querySelector('#value')?.textContent === '10');
+    expect(await page.locator('#status').getAttribute('data-hasdata')).toBe('true');
+    expect(await page.locator('#status').getAttribute('data-loading')).toBe('false');
+  } finally {
+    await browser.close();
+  }
+});
