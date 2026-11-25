@@ -727,12 +727,41 @@ pub fn derive_tasks(input: &Value, time: f64) -> Vec<Item> {
     }
     items
 }
-pub fn apply(store: &mut Value, items: Vec<Item>, time: f64) -> Vec<Item> {
+/// Scope of a derived item set: `All` covers every task, `Covered` only lists the task
+/// ids a partial read actually derived items for.
+#[derive(Clone, Copy, Debug)]
+pub enum Prune<'a> {
+    All,
+    Covered(&'a HashSet<String>),
+}
+
+/// Apply a freshly derived item set to the attention store and return the visible items.
+/// With `Prune::All` every unmatched entry no longer applies. With `Prune::Covered`, an
+/// unmatched entry is deleted only when the id after its `kind:` prefix is a covered task
+/// id, so a settled item's stale dismissal/snooze cannot hide a follow-up. Every other
+/// entry (uncovered tasks and non-task items such as `executor_down:<id>`) keeps its
+/// since/dismissedSince/snoozedUntil until the next full pass decides authoritatively.
+pub fn apply(store: &mut Value, items: Vec<Item>, time: f64, prune: Prune<'_>) -> Vec<Item> {
     if !store.is_object() {
         *store = json!({});
     }
     if let Some(m) = store.as_object_mut() {
-        m.retain(|id, _| items.iter().any(|i| s(i.get("id")) == id));
+        let ids: HashSet<&str> = items.iter().map(|i| s(i.get("id"))).collect();
+        m.retain(|id, _| {
+            if ids.contains(id.as_str()) {
+                return true;
+            }
+            match prune {
+                Prune::All => false,
+                Prune::Covered(covered) => {
+                    // Task ids are `${kind}:${taskId}` and may themselves contain ':'.
+                    match id.split_once(':') {
+                        Some((_, owner)) => !covered.contains(owner),
+                        None => false,
+                    }
+                }
+            }
+        });
     }
     let mut out = vec![];
     for mut item in items {

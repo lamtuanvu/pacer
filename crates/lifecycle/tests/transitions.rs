@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 use pacer_lifecycle::{JsText, attention, clients, hosts, jobs, notify};
 use serde_json::{Value, json};
+use std::collections::HashSet;
 fn job() -> Value {
     json!({"id":"j","kind":"host.check","target":"host","state":"running","steps":[{"name":"A","state":"running"},{"name":"B","state":"pending"}],"startedAt":1,"pid":42,"cancellable":true})
 }
@@ -237,16 +238,109 @@ fn attention_store_preserves_task_raised_time_and_clears_resolved_conditions() {
         &json!({"id":"failed:t","kind":"failed","severity":"problem","taskId":"t","title":"Task","detail":"detail","since":1,"raisedAt":1}),
     );
     let mut store = json!({});
-    let out = attention::apply(&mut store, vec![item.clone()], 10.5);
+    let out = attention::apply(&mut store, vec![item.clone()], 10.5, attention::Prune::All);
     assert_eq!(out[0].get("since"), 10.5);
     assert_eq!(out[0].get("raisedAt"), 1);
     attention::dismiss(&mut store, "failed:t", std::slice::from_ref(&item), 11.0).unwrap();
-    assert!(attention::apply(&mut store, vec![item.clone()], 12.0).is_empty());
-    attention::apply(&mut store, vec![], 13.0);
+    assert!(
+        attention::apply(&mut store, vec![item.clone()], 12.0, attention::Prune::All).is_empty()
+    );
+    attention::apply(&mut store, vec![], 13.0, attention::Prune::All);
     assert_eq!(
-        attention::apply(&mut store, vec![item], 14.0)[0].get("since"),
+        attention::apply(&mut store, vec![item], 14.0, attention::Prune::All)[0].get("since"),
         14.0
     );
+}
+#[test]
+fn attention_store_preserves_entries_of_tasks_absent_from_a_partial_apply() {
+    let failed = attention::Item::from_value(
+        &json!({"id":"failed:t","kind":"failed","severity":"problem","taskId":"t","title":"Task","detail":"detail","since":5,"raisedAt":5}),
+    );
+    let other = attention::Item::from_value(
+        &json!({"id":"failed:u","kind":"failed","severity":"problem","taskId":"u","title":"Task","detail":"detail","since":5,"raisedAt":5}),
+    );
+    let covered = HashSet::from(["u".to_string()]);
+    let mut store = json!({});
+    attention::apply(
+        &mut store,
+        vec![failed.clone(), other.clone()],
+        5.0,
+        attention::Prune::All,
+    );
+    attention::dismiss(&mut store, "failed:t", std::slice::from_ref(&failed), 6.0).unwrap();
+    // A partial pass only covers u; t is not in the covered set, so its entry (and its
+    // dismissal) must survive, and no new notification since may be minted for it.
+    attention::apply(
+        &mut store,
+        vec![other.clone()],
+        7.0,
+        attention::Prune::Covered(&covered),
+    );
+    assert_eq!(
+        store["failed:t"]["since"], 5.0,
+        "uncovered entry keeps its since"
+    );
+    assert_eq!(
+        store["failed:t"]["dismissedSince"], 5.0,
+        "uncovered entry keeps dismissal"
+    );
+    // A full pass can now process the failed task again: it must keep its original since
+    // (no reset) and stay dismissed (hidden), proving no re-notification candidate emerged.
+    let back = attention::apply(
+        &mut store,
+        vec![failed.clone(), other.clone()],
+        7.0,
+        attention::Prune::All,
+    );
+    assert!(
+        !back.iter().any(|i| i.get("taskId") == "t"),
+        "dismissed item stays hidden through a full pass"
+    );
+    let u = back.iter().find(|i| i.get("taskId") == "u").unwrap();
+    assert_eq!(
+        u.get("since"),
+        5.0,
+        "untouched entry keeps its since through a full pass"
+    );
+}
+#[test]
+fn attention_store_prunes_a_covered_tasks_stale_dismissal_on_a_partial_apply() {
+    let question = attention::Item::from_value(
+        &json!({"id":"question:t","kind":"question","severity":"blocked","taskId":"t","title":"Question","detail":"detail","since":5,"raisedAt":5}),
+    );
+    let covered = HashSet::from(["t".to_string()]);
+    let mut store = json!({});
+    attention::apply(
+        &mut store,
+        vec![question.clone()],
+        5.0,
+        attention::Prune::All,
+    );
+    attention::dismiss(
+        &mut store,
+        "question:t",
+        std::slice::from_ref(&question),
+        6.0,
+    )
+    .unwrap();
+    // The task is answered: a partial tick covering t derives no question item.
+    attention::apply(&mut store, vec![], 7.0, attention::Prune::Covered(&covered));
+    assert!(
+        store.get("question:t").is_none(),
+        "covered task's stale entry is pruned"
+    );
+    // A follow-up question gets a fresh entry and is visible, not hidden by the old dismissal.
+    let follow_up = attention::Item::from_value(
+        &json!({"id":"question:t","kind":"question","severity":"blocked","taskId":"t","title":"Follow-up","detail":"new","since":8,"raisedAt":8}),
+    );
+    let out = attention::apply(
+        &mut store,
+        vec![follow_up],
+        8.0,
+        attention::Prune::Covered(&covered),
+    );
+    assert_eq!(out.len(), 1, "follow-up question is visible");
+    assert_eq!(out[0].get("since"), 8.0, "follow-up mints a fresh since");
 }
 #[test]
 fn utf16_serialization_preserves_a_split_surrogate() {
