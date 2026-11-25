@@ -519,6 +519,33 @@ test("release Rust caches restore shared keys warmed on main; PR CI does not sav
   }
 });
 
+test("the compiled-host shard gets its own Rust cache key; other shards share the default", () => {
+  const ci = Bun.YAML.parse(readFileSync(resolve(".github/workflows/ci.yml"), "utf8")) as {
+    jobs: Record<string, WorkflowJob>;
+  };
+  const steps = ci.jobs.test!.steps;
+  const detect = steps.find(s => s.name === "Determine shard Rust cache scope")!;
+  expect(detect.run).toContain("python3 scripts/ci/shard-tests.py");
+  expect(detect.run).toContain("test/update-release-compiled.test.ts");
+  // The scope step must partition the suite exactly like the sharded test step.
+  const sharded = steps.find(s => s.name === "Test (full suite, sharded)")!;
+  for (const name of ["SHARD_INDEX", "SHARD_COUNT", "SHARD_EXCLUDE_MACOS"]) {
+    expect(String(detect.env?.[name])).toBe(String(sharded.env?.[name]));
+  }
+  const cache = steps.find(s => s.uses?.startsWith("Swatinem/rust-cache@"))!;
+  expect(String(cache.with?.["key"])).toBe("${{ steps.rust-cache-scope.outputs.musl == 'true' && 'compiled-host' || '' }}");
+  expect(cache.with?.["workspaces"]).toBeUndefined();
+  // Exactly one shard runs the compiled-host test, as selected by the CI sharding script.
+  const shardsWithCompiledTest = Array.from({ length: 8 }, (_, index) => index).filter(index => {
+    const result = Bun.spawnSync(["python3", "scripts/ci/shard-tests.py"], {
+      env: { ...process.env, SHARD_INDEX: String(index), SHARD_COUNT: "8", SHARD_EXCLUDE_MACOS: "1" },
+      stdout: "pipe", stderr: "pipe",
+    });
+    return result.stdout.toString().includes("test/update-release-compiled.test.ts");
+  });
+  expect(shardsWithCompiledTest).toHaveLength(1);
+});
+
 test("a failed required job of a nightly tag opens or comments on the nightly-failure issue", () => {
   const report = jobs["nightly-failure"];
   expect(report).toBeDefined();
