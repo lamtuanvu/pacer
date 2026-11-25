@@ -486,12 +486,12 @@ browserTest("count_badge_text_keeps_contrast_in_both_themes", async () => {
   } finally { await browser.close(); }
 }, 30_000);
 
-for (const setupOpen of [0, 1]) {
-  browserTest(`bottom navigation has five nonoverlapping board touch targets with setupOpen=${setupOpen}`, async () => {
+for (const [setupOpen, width] of [[0, 375], [1, 375], [0, 320], [1, 320]] as const) {
+  browserTest(`bottom navigation has six nonoverlapping board touch targets at ${width}px with setupOpen=${setupOpen}`, async () => {
     const built = await frame(setupOpen);
     const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
     try {
-      const page = await browser.newPage({ viewport: { width: 375, height: 812 }, hasTouch: true });
+      const page = await browser.newPage({ viewport: { width, height: 812 }, hasTouch: true });
       await open(page, built, "#/settings");
       const nav = page.locator(".pc-bottom-bar");
       await nav.waitFor();
@@ -499,7 +499,8 @@ for (const setupOpen of [0, 1]) {
         const box = node.getBoundingClientRect();
         return { label: node.getAttribute("aria-label"), left: box.left, right: box.right, width: box.width, height: box.height };
       }));
-      expect(targets).toHaveLength(5);
+      expect(targets).toHaveLength(6);
+      expect(targets.some(t => t.label?.startsWith("Runs"))).toBe(true);
       expect(targets.some(t => t.label === "Dispatch")).toBe(true);
       expect(targets.some(t => t.label === "Insights")).toBe(true);
       expect(targets.some(t => t.label?.startsWith("Setup"))).toBe(false);
@@ -510,7 +511,7 @@ for (const setupOpen of [0, 1]) {
       for (const [i, target] of targets.entries()) {
         expect(target.width).toBeGreaterThanOrEqual(44);
         expect(target.height).toBe(56);
-        expect(target.right).toBeLessThanOrEqual(375);
+        expect(target.right).toBeLessThanOrEqual(width);
         if (i > 0) expect(target.left).toBeGreaterThanOrEqual(targets[i - 1]!.right);
       }
       expect(await noHorizontalOverflow(page)).toBe(true);
