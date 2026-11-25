@@ -33,7 +33,7 @@ use pacer_foundation::{
 };
 use serde_json::{Map, Value};
 
-/// `update.check` and `service.status` inputs that only the TypeScript core reproduces.
+/// `service.status` inputs that only the TypeScript core reproduces.
 pub fn service_update_stays_forwarded(ctx: &Ctx, op: &str) -> bool {
     if ctx
         .env
@@ -44,7 +44,6 @@ pub fn service_update_stays_forwarded(ctx: &Ctx, op: &str) -> bool {
     }
     match op {
         "service.status" => service::stays_forwarded(ctx),
-        "update.check" => check::stays_forwarded(ctx),
         _ => false,
     }
 }

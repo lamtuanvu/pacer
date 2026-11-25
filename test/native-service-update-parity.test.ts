@@ -182,19 +182,23 @@ test("native update.check matches TypeScript loopback HTTP feeds", async () => {
   } finally { server.stop(true); }
 }, 600_000);
 
-test("installations managed elsewhere keep update.check forwarded to the reference that reports managedBy", async () => {
-  const home = realpathSync(mkdtempSync(join(tmpdir(), "native-upd-")));
-  homes.push(home);
-  expect(await native([check({}, {PACER_INSTALL_METHOD: "npm"}), check({}, {PACER_BIN: "/Applications/Pacer.APP/Contents/MacOS/pacer"})], home, "/usr/bin:/bin")).toEqual([{forwarded: true}, {forwarded: true}]);
-  writeFileSync(join(home, "owner.json"), JSON.stringify({schema: 1, owner: "desktop", executable: "/Applications/pacer.app/Contents/Resources/pacer", at: 1}));
-  expect(await native([check()], home, "/usr/bin:/bin")).toEqual([{forwarded: true}]);
-  const ctx = fakeCtx({pacerHome: home, home, now: NOW, env: {PACER_NO_UPDATE_CHECK: "1"}, run: defaultRun});
-  expect(await callOp(ctx, "update.check", {})).toMatchObject({managedBy: "desktop", managedHint: expect.stringContaining("managed by the pacer app")});
+test("native update.check answers an array cached latest like the reference", async () => {
+  // String(["1.0.0"]) is a version, so both doors keep the cache and report the array itself.
+  await compareWithBase([check()], home => {
+    writeFileSync(join(home, "update-check.json"), JSON.stringify({checkedAt: NOW, latest: ["1.0.0"], current: "x", channel: "stable"}));
+  });
+  // String(["1","2",["3"]]) is "1,2,3", so the reference drops the cache and reads the feed.
+  await compareWithBase([check()], home => {
+    writeFileSync(join(home, "update-check.json"), JSON.stringify({checkedAt: NOW, latest: ["1", "2", ["3"]], current: "x", channel: "stable"}));
+  });
 }, 600_000);
 
-test("an array cached latest keeps update.check forwarded", async () => {
-  const home = realpathSync(mkdtempSync(join(tmpdir(), "native-upd-")));
-  homes.push(home);
-  writeFileSync(join(home, "update-check.json"), JSON.stringify({checkedAt: NOW, latest: ["1.0.0"]}));
-  expect(await native([check(), check({}, {PACER_NO_UPDATE_CHECK: "1"})], home, "/usr/bin:/bin")).toEqual([{forwarded: true}, {result: expect.objectContaining({disabled: true})}]);
+test("native update.check reports an npm installation without forwarding", async () => {
+  await compare([check({}, {PACER_INSTALL_METHOD: "npm"})], () => {});
+}, 600_000);
+
+test("native update.check reports a desktop owner without forwarding", async () => {
+  await compare([check()], home => {
+    writeFileSync(join(home, "owner.json"), JSON.stringify({schema: 1, owner: "desktop", executable: join(home, "Applications", "pacer.app", "Contents", "Resources", "pacer"), at: 1}));
+  });
 }, 600_000);
