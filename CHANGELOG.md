@@ -4,6 +4,18 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.18.1] - 2026-11-25
+
+### Changed
+
+- Release 0.18.0 (#1262).
+- Allow ten minutes for the host release compile (#1275) (release).
+
+### Fixed
+
+- Bump plugin crates changed since their last publish (#1264) (crates).
+- Settle a pending stop whose attempt is already recorded (#1261) (tasks).
+
 ## [0.18.0] - 2026-11-24
 
 ### Changed
