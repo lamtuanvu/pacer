@@ -4,12 +4,16 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-11-24
+
 ### Changed
 
+- **The Workspace list page is gone.** The rail, menu bar and command palette no longer open it; old `#/workspace` and `#/terminal` links open Tasks. The per-task workbench (`#/workspace?task=<id>`) is unchanged, and Tasks stays highlighted while it is open.
 - **`messaging.liveness.nudge_in_modes` defaults to all four modes** (`relaxed`, `normal`, `strict`, `emergency`). Executor nudges (idle, silent prompt, no-progress, cycle, undelivered retry) now run in strict and emergency too; those modes still save the planner's budget. Planner wakes use the new `messaging.liveness.caller_wake_in_modes` (default `relaxed`, `normal`), so planners are still not woken in strict or emergency unless you opt in.
 
 ### Fixed
 
+- **Onboarding no longer reappears after it was completed.** The setup check records a sticky `onboarded` flag (`onboarding/onboarded` under the pacer home) the first time setup completes. After that, no app page (Insights included) redirects to Setup and the TUI no longer swaps work screens for Setup when a required check later fails; regressions show as the Setup rail dot and in Diagnostics. Snapshots and `setup.check` carry the new field.
 - **`pacer retry` of a task that ran with placement `current` no longer fails with `local new placement is not selected`.** The owned local runner now classifies a reused checkout the same way as the legacy direct path: `current` when the path is the brief repo itself, `new` otherwise. This also covers retries of in-place tasks with `auto` placement, which, like the legacy path, are not refused for a dirty checkout (the changes are usually the earlier attempt's own work). When the reused checkout is a separate worktree, the retry's requested placement is recorded as `new`.
 - **Interactive resume turns no longer tell the agent both "do not run pacer report" and "completion requires running pacer report".** Interactive runners get a live turn prompt so the session can finish with `pacer report`.
 - **A delegated interactive session stuck in phase `needs-input` with no open pacer question is detected as a `silent_prompt` stall** after `execution.idle_after_min` and nudged to finish with `pacer report` or ask a question, instead of waiting forever while active time is paused. Human conversation tasks waiting at their prompt stay exempt.

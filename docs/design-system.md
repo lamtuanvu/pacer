@@ -736,13 +736,14 @@ roll-ups, routing trace, candidate decisions and acceptance result.
 Task IDs are secondary metadata rather than breadcrumb text. Rejection keeps its
 required note; retry keeps the existing executor/feedback/edit-brief choices.
 
-`#/workspace?task=<id>&panel=<panel>` is the work surface. The activity rail’s
-Workspace icon uses `M3 4h18v16H3zM9 4v16M9 12h12`; Ctrl+backtick still toggles
-the bottom terminal on other screens. The left frame is 272px; the task inspector
-is 320px. Task cards contain collapsible session rows or 26px icon controls with
-accessible names and portal tooltips. Selection and task navigation are sibling
-controls. The current task starts expanded. Recent results, active tasks and tasks
-needing review remain available, with the shared status vocabulary and tints.
+`#/workspace?task=<id>&panel=<panel>` is the per-task workbench, reached from a
+task on Dispatch or Tasks (there is no Workspace rail entry). Ctrl+backtick still
+toggles the bottom terminal on other screens. The left frame is 272px; the task
+inspector is 320px. Task cards contain collapsible session rows or 26px icon
+controls with accessible names and portal tooltips. Selection and task navigation
+are sibling controls. The current task starts expanded. Recent results, active
+tasks and tasks needing review remain available, with the shared status vocabulary
+and tints.
 
 The shared workbench canvas (`pc-main--workbench`) removes page and assistant
 launcher insets and lets desktop workspace content fill the space above the status

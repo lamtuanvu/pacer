@@ -1,6 +1,7 @@
 //! Checklist rules of `src/setup/checklist.ts` and the reply of `checkSetup`
 //! (`src/setup/check.ts`), over the facts Core gathers. Key order matches TypeScript.
 use serde_json::{Map, Value, json};
+use std::path::Path;
 
 const PLANNERS: [&str; 4] = ["claude-code", "codex", "cursor", "opencode"];
 
@@ -286,6 +287,68 @@ fn checklist_items(facts: &Value) -> Vec<Map<String, Value>> {
     items
 }
 
+/// Sticky first-run marker under PACER_HOME; missing file derives from current complete.
+pub fn sticky_onboarded(pacer_home: &Path, complete: bool) -> bool {
+    let dir = pacer_home.join("onboarding");
+    let path = dir.join("onboarded");
+    if path.exists() {
+        return true;
+    }
+    if !complete {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+        // Mode 0700 applies only when creating the directory (matches TS mkdirSync).
+        if !dir.exists() {
+            let _ = std::fs::DirBuilder::new()
+                .recursive(true)
+                .mode(0o700)
+                .create(&dir);
+        }
+        let tmp = dir.join(format!(".onboarded-{}", {
+            let bytes: [u8; 8] = rand::random();
+            hex::encode(bytes)
+        }));
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&tmp)
+        {
+            let _ = file.write_all(&[]);
+            drop(file);
+            let _ = std::fs::rename(&tmp, &path);
+        }
+        let _ = std::fs::remove_file(&tmp);
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = std::fs::create_dir_all(&dir);
+        let _ = std::fs::write(&path, &[]);
+    }
+    true
+}
+
+/// The `setup.check` reply for Core's facts, with sticky onboarded under `pacer_home`.
+pub fn checklist_for_home(pacer_home: &Path, facts: &Value, checked_at: Value) -> Value {
+    let mut facts = facts.clone();
+    if pacer_home.join("onboarding/onboarded").exists() {
+        facts["onboarded"] = json!(true);
+    }
+    let mut reply = checklist(&facts, checked_at);
+    let onboarded = sticky_onboarded(
+        pacer_home,
+        reply["complete"] == json!(true) || reply["onboarded"] == json!(true),
+    );
+    if let Some(obj) = reply.as_object_mut() {
+        obj.insert("onboarded".into(), onboarded.into());
+    }
+    reply
+}
+
 /// The `setup.check` reply for Core's facts.
 pub fn checklist(facts: &Value, checked_at: Value) -> Value {
     let mut items = checklist_items(facts);
@@ -306,9 +369,12 @@ pub fn checklist(facts: &Value, checked_at: Value) -> Value {
         && ["executor", "first"]
             .iter()
             .all(|id| items.iter().any(|row| row["id"] == json!(id) && done(row)));
+    // Sticky first-run gate: facts may carry a persisted onboarded flag; otherwise derive from complete.
+    let onboarded = facts["onboarded"] == json!(true) || complete;
     let mut reply = Map::new();
     reply.insert("checkedAt".into(), checked_at);
     reply.insert("complete".into(), complete.into());
+    reply.insert("onboarded".into(), onboarded.into());
     reply.insert("ready".into(), ready.into());
     reply.insert(
         "items".into(),
@@ -356,12 +422,14 @@ mod tests {
             [
                 "checkedAt",
                 "complete",
+                "onboarded",
                 "ready",
                 "items",
                 "policy",
                 "integration"
             ]
         );
+        assert_eq!(reply["onboarded"], json!(true));
         let connect = &reply["items"][3];
         assert_eq!(connect["agent"], json!("codex"));
         assert_eq!(
@@ -388,5 +456,31 @@ mod tests {
         assert_eq!(reply["items"][5]["detail"], json!("codex: blocked"));
         assert_eq!(reply["items"][5]["action"], json!("nav:add-executor"));
         assert_eq!(reply["integration"]["configuration"], json!("unverified"));
+    }
+
+    #[test]
+    fn sticky_onboarded_writes_a_marker_once_and_survives_regression() {
+        let root = tempfile::tempdir().unwrap();
+        let home = root.path().join("pacer-home");
+        std::fs::create_dir_all(&home).unwrap();
+        let incomplete = {
+            let mut input = facts();
+            // Break a required row (link); executor is optional so emptying ranked still completes.
+            input["link"] = json!(false);
+            input
+        };
+        let first = checklist_for_home(&home, &incomplete, json!(1));
+        assert_eq!(first["complete"], json!(false));
+        assert_eq!(first["onboarded"], json!(false));
+        assert!(!home.join("onboarding/onboarded").exists());
+
+        let done = checklist_for_home(&home, &facts(), json!(2));
+        assert_eq!(done["complete"], json!(true));
+        assert_eq!(done["onboarded"], json!(true));
+        assert!(home.join("onboarding/onboarded").exists());
+
+        let after = checklist_for_home(&home, &incomplete, json!(3));
+        assert_eq!(after["complete"], json!(false));
+        assert_eq!(after["onboarded"], json!(true));
     }
 }

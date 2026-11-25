@@ -286,8 +286,8 @@ browserTest("dock_focus_moves_in_and_returns", async () => {
     await page.getByRole("button", { name: "Hide panel (Ctrl+`)" }).click();
     await expect(dock.count()).resolves.toBe(0);
     await focused(page, "#main-content");
-    // The terminal route has no dock and no dock control.
-    await page.evaluate(() => { location.hash = "#/workspace"; });
+    // The per-task workbench has no dock and no dock control.
+    await page.evaluate(() => { location.hash = "#/workspace?task=t-0412"; });
     await button.waitFor({ state: "detached" });
     await page.keyboard.press("Control+Backquote");
     await page.waitForTimeout(100);
@@ -436,7 +436,7 @@ browserTest("frame_chrome_measures_to_the_board", async () => {
     await page.getByRole("region", { name: "Terminal panel" }).waitFor();
     await expect(page.getByRole("button", { name: "Toggle terminal panel (Ctrl+`)" }).getAttribute("aria-pressed")).resolves.toBe("true");
     // Workspace owns its two side panels; its terminal dock toggle stays disabled.
-    await page.evaluate(() => { location.hash = "#/workspace"; });
+    await page.evaluate(() => { location.hash = "#/workspace?task=t-0412"; });
     await page.waitForFunction(() => { const buttons = [...document.querySelectorAll<HTMLButtonElement>(".pc-layout-toggles button")]; return buttons.length === 3 && !buttons[0]!.disabled && buttons[1]!.disabled && !buttons[2]!.disabled; });
     // Below 768px panels and the dock are hidden, so their toggles go too, and nothing overflows.
     await page.evaluate(() => { location.hash = "#/settings"; });
@@ -577,7 +577,7 @@ browserTest("rail_tooltips_escape_stacking_context_and_fit_the_viewport", async 
   try {
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
     await open(page, built, "#/settings");
-    const trigger = page.getByRole("link", { name: "Workspace", exact: true });
+    const trigger = page.getByRole("link", { name: "Insights", exact: true });
     const active = page.locator('.pc-rail__item.on').first();
     const activeBackground = await active.evaluate(el => getComputedStyle(el).backgroundColor);
     expect(await active.evaluate(el => getComputedStyle(el, "::before").width)).toBe("3px");
@@ -590,7 +590,7 @@ browserTest("rail_tooltips_escape_stacking_context_and_fit_the_viewport", async 
     const bubble = page.getByRole("tooltip");
     await bubble.waitFor({ state: "visible" });
     expect(await bubble.evaluate(el => el.parentElement === document.body)).toBe(true);
-    expect(await bubble.textContent()).toBe("Workspace");
+    expect(await bubble.textContent()).toBe("Insights");
     const measure = () => bubble.evaluate(el => {
       const rect = el.getBoundingClientRect();
       const style = getComputedStyle(el);
@@ -655,8 +655,8 @@ browserTest("the page head stays fixed above a scrolling main, and is empty and 
     const after = await page.evaluate(() => document.querySelector(".pc-page-head")!.getBoundingClientRect().top);
     expect(after).toBe(before); // The page head does not scroll away with main's content.
     // Workspace owns its own fixed strip and never fills the header slot, so the region collapses.
-    await page.evaluate(() => { location.hash = "#/workspace"; });
-    await page.waitForFunction(() => location.hash.startsWith("#/workspace"));
+    await page.evaluate(() => { location.hash = "#/workspace?task=t-0412"; });
+    await page.waitForFunction(() => location.hash.startsWith("#/workspace?task="));
     await page.waitForFunction(() => getComputedStyle(document.querySelector(".pc-page-head")!).display === "none");
     const empty = await page.evaluate(() => {
       const head = document.querySelector(".pc-page-head")!;

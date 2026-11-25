@@ -51,7 +51,7 @@ export function TerminalScreen({ id: routeId, query, embedded = false, folder, c
   const cancelRename = useRef(false);
   const [localId, setLocalId] = useState<string>();
   const id = embedded ? localId : routeId;
-  const show = (tabId?: string) => embedded ? setLocalId(tabId) : navigation.navigate(routes.terminal(tabId));
+  const show = (tabId?: string) => embedded ? setLocalId(tabId) : navigation.navigate(tabId ? routes.terminal(tabId) : routes.tasks());
   const available = state.features.ops.has("terminal.create");
   const repos = state.snapshot?.repos ?? [];
   const folderLabel = (path: string) => {

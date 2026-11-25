@@ -31,7 +31,8 @@ test('dock belongs between the centre column boundaries; rail keeps only attenti
  const html=draw(<AppFrame activity={<nav>Activity</nav>} left={<aside>Scope</aside>} right={<aside>Inspector</aside>} main="Work" dock={<section id="dock">Terminal</section>}/>);
  expect(html).toMatch(/pc-work-wrap[\s\S]*pc-work[\s\S]*id="dock"[\s\S]*Inspector/);
  const rail=draw(<Rail route={resolveRoute('#/') as Route} counts={snapshot.counts} terminal={{open:true,toggle:()=>{}}}/>);
- expect(rail).toContain('aria-label="Workspace"');
+ expect(rail).not.toContain('aria-label="Workspace"');
+ expect(rail).toContain('aria-label="Insights"');
  expect(rail).not.toContain('pc-rail__badge--info');
  expect(rail).not.toContain('aria-label="Dispatcher"');
 });
