@@ -267,8 +267,7 @@ fn plugin_area(name: &str) -> &'static str {
     {
         "plugin-exec-protocol"
     } else if name.starts_with("assistant.reply.") || name.starts_with("capability.assistant.") {
-        // 1.11.0's turn-level assistant contract. `assistant.respond` stays in the entry crate to
-        // keep its public types where they were.
+        // 1.11.0's turn-level assistant contract: the only way a plugin answers a turn.
         "plugin-assistant-protocol"
     } else if name.starts_with("workflow.") {
         // 1.12.0's workflow contribution call. Manifest `contributes.workflow` stays in the entry

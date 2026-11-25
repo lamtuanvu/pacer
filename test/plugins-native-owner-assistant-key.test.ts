@@ -8,15 +8,17 @@ import { front, ownerOn, type Reply, serve, tsOwner } from "./native-plugin-door
 import { closedPort } from "./pinned-port";
 
 // The assistant's endpoint key crosses Core's own bridge connection to the owner for the one
-// assistant.respond call that resolves it, and nowhere else: not to another plugin, during the
+// `assistant.reply` call that resolves it, and nowhere else: not to another plugin, during the
 // turn or after it, not to a credential-bound endpoint or classifier call, and never into a log,
-// a store or an error.
+// a store or an error. The reply plugin is the native `pacer-assistant-pacer` binary.
 
 const KEY = `sk-pacer-fixture-${randomBytes(16).toString("hex")}`;
 const root = mkdtempSync("/tmp/pak-");
 afterAll(async () => { await Bun.sleep(1000); rmSync(root, { recursive: true, force: true }); });
 
 const refusal = (method: string) => `${method} needs credential bindings, which the native process owner bridge does not carry`;
+/** The native reply binary is built by the front-door job and passed in; without it there is no assistant. */
+const assistantBin = process.env.PACER_ASSISTANT_PACER_BIN;
 
 /** An OpenAI-compatible endpoint that records each Authorization header and holds the first chat completion until released. */
 function endpoint() {
@@ -76,7 +78,8 @@ type Seen = { turn: { state?: string; answer?: string; error?: string }; concurr
 async function scenario(label: string, options: typeof tsOwner, forward = ""): Promise<Seen> {
   const chat = endpoint();
   const h = keyHome(label, chat.server.port!);
-  const env = { PATH: `${join(h.home, "bin")}:/usr/bin:/bin`, PACER_TEST_LOCAL_SERVER_PORTS: `${closedPort()},${closedPort()}`, OLLAMA_HOST: `127.0.0.1:${closedPort()}` };
+  const env = { PATH: `${join(h.home, "bin")}:/usr/bin:/bin`, PACER_TEST_LOCAL_SERVER_PORTS: `${closedPort()},${closedPort()}`, OLLAMA_HOST: `127.0.0.1:${closedPort()}`,
+    ...(assistantBin ? { PACER_ASSISTANT_PACER_BIN: assistantBin } : {}) };
   const door = await serve(h, forward, { ...options, env });
   const replies: Reply[] = [];
   const call = async (op: string, params: unknown) => { const reply = await door.call(op, params); replies.push(reply); return reply; };
@@ -123,7 +126,7 @@ async function scenario(label: string, options: typeof tsOwner, forward = ""): P
   }
 }
 
-test.skipIf(!front)("the assistant key reaches its own endpoint flag-on as flag-off, and no other call, plugin, log or error", async () => {
+test.skipIf(!front || !assistantBin)("the assistant key reaches its own endpoint flag-on as flag-off, and no other call, plugin, log or error", async () => {
   const off = await scenario("off", tsOwner);
   const on = await scenario("on", ownerOn);
   // Core keeps plugin.doctor, so fx-peek's ping is a Core call on the owner while the assistant's call holds the key.

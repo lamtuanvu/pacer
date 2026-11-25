@@ -3,7 +3,7 @@ import { callOp } from "../src/api/ops";
 import { handleV2 } from "../src/api/http";
 import { helloBody } from "../src/api/protocol";
 import { v2Hello } from "../src/api/v2-compat";
-import { ask, cancel, refreshCard, type AssistantDeps } from "../src/assistant/service";
+import { ask, cancel, refreshCard, runAssistantTool, type AssistantDeps } from "../src/assistant/service";
 import { getTurn, readSettings, writeSettings } from "../src/assistant/store";
 import { askCommand, equivalentCommand } from "../src/commands/ask";
 import type { Strategy } from "../src/config/strategy";
@@ -18,25 +18,38 @@ function setup(over: AssistantDeps = {}) {
   const ctx = fakeCtx();
   writeSettings(ctx, { runner: null, account: "ep", expect_rev: readSettings(ctx).rev });
   let rev = 3;
-  const deps: AssistantDeps = { strategy, status, keys: async () => [], read: async () => ({ tasks: [] }), cards: { task: (_c, id) => id === ID ? { rev, title: "ota: stale plan", state: "failed" } : null, managed: () => true }, respond: async () => ({ message: "ok", usage }), ...over };
+  const deps: AssistantDeps = { strategy, status, keys: async () => [], read: async () => ({ tasks: [] }), cards: { task: (_c, id) => id === ID ? { rev, title: "ota: stale plan", state: "failed" } : null, managed: () => true }, reply: async () => ({ message: "ok", usage }), ...over };
   return { ctx, deps, bump: () => { rev++; } };
 }
 const settle = async (ctx: ReturnType<typeof fakeCtx>, id: string) => { for (let i = 0; i < 300; i++) { const t = getTurn(ctx, id); if (t && t.state !== "running") return t; await Bun.sleep(5); } throw new Error("unsettled"); };
 const scope = { kind: "dispatch" as const, days: 7 };
 const rid = () => `r-${crypto.randomUUID()}`;
-const proposeRetry = (): AssistantDeps["respond"] => { let n = 0; return async () => n++ === 0 ? { message: "", toolCalls: [{ id: "c", name: "propose_action", arguments: { op: "dispatch.retry", params: { id: ID }, why: "w" } }], usage } : { message: "Suggested.", usage }; };
+type ReplyCall = Parameters<NonNullable<AssistantDeps["reply"]>>[2];
+const invoke = (c: ReturnType<typeof fakeCtx>, o: ReplyCall, name: string, args: Record<string, unknown>) =>
+  runAssistantTool(c, { id: "c", name, arguments: args }, {
+    read: o.assistantTurn.read, scope: o.assistantTurn.scope, redactor: o.assistantTurn.redactor,
+    cards: o.assistantTurn.cards, state: o.assistantTurn.state,
+  });
+const proposeRetry = (): AssistantDeps["reply"] => { let n = 0; return async (c, _p, o) => {
+  if (n++ === 0) await invoke(c, o, "propose_action", { op: "dispatch.retry", params: { id: ID }, why: "w" });
+  return { message: n === 1 ? "" : "Suggested.", usage };
+}; };
 
 describe("limits", () => {
   test("the input cap holds before every call: old tool results are dropped first", async () => {
-    const sizes: number[] = []; let round = 0;
-    const { ctx, deps } = setup({ read: async () => ({ tasks: Array.from({ length: 200 }, (_, i) => ({ id: `t-${i}`, title: "x".repeat(80), state: "failed" })) }), respond: async (_c, p: any) => { sizes.push(JSON.stringify(p.messages).length); return round++ < 3 ? { message: "", toolCalls: [{ id: `c${round}`, name: "tasks_list", arguments: {} }], usage } : { message: "done", usage }; } });
+    const sizes: number[] = [];
+    const { ctx, deps } = setup({ read: async () => ({ tasks: Array.from({ length: 200 }, (_, i) => ({ id: `t-${i}`, title: "x".repeat(80), state: "failed" })) }), reply: async (c, p, o) => {
+      sizes.push(JSON.stringify(p).length);
+      for (let i = 0; i < 3; i++) await invoke(c, o, "snapshot", {});
+      return { message: "done", usage };
+    } });
     writeSettings(ctx, { runner: null, account: "ep", limits: { maxInputTokens: 2000 }, expect_rev: readSettings(ctx).rev });
     const t = await settle(ctx, (await ask(ctx, { text: "q", scope, requestId: rid() }, deps)).turnId);
     expect(t.answer).toBe("done");
     expect(Math.max(...sizes) / 4).toBeLessThanOrEqual(2000 + 50);
   });
   test("cancel ends the turn at once, even while the backend is still working", async () => {
-    const { ctx, deps } = setup({ respond: async () => { await Bun.sleep(400); return { message: "late", usage }; } });
+    const { ctx, deps } = setup({ reply: async () => { await Bun.sleep(400); return { message: "late", usage }; } });
     const s = await ask(ctx, { text: "q", scope, requestId: rid() }, deps);
     const t0 = Date.now();
     cancel(ctx, s.turnId);
@@ -44,12 +57,12 @@ describe("limits", () => {
     expect(t.state).toBe("cancelled");
     expect(Date.now() - t0).toBeLessThan(300);
     // The slot is free again.
-    const next = await ask(ctx, { text: "q2", scope, requestId: rid() }, { ...deps, respond: async () => ({ message: "ok", usage }) });
+    const next = await ask(ctx, { text: "q2", scope, requestId: rid() }, { ...deps, reply: async () => ({ message: "ok", usage }) });
     expect((await settle(ctx, next.turnId)).state).toBe("done");
   });
   test("cancel aborts the backend call so it stops spending", async () => {
     let aborted = false;
-    const { ctx, deps } = setup({ respond: async (_c, _p, _d, signal) => { await new Promise<void>(resolve => signal?.addEventListener("abort", () => { aborted = true; resolve(); })); return { message: "never", usage }; } });
+    const { ctx, deps } = setup({ reply: async (_c, _p, o) => { await new Promise<void>(resolve => o.signal?.addEventListener("abort", () => { aborted = true; resolve(); })); return { message: "never", usage }; } });
     const s = await ask(ctx, { text: "q", scope, requestId: rid() }, deps);
     await Bun.sleep(10);
     cancel(ctx, s.turnId);
@@ -57,7 +70,7 @@ describe("limits", () => {
     expect(aborted).toBe(true);
   });
   test("concurrent asks cannot both run, and a repeated requestId returns the first turn", async () => {
-    const { ctx, deps } = setup({ respond: async () => { await Bun.sleep(30); return { message: "ok", usage }; } });
+    const { ctx, deps } = setup({ reply: async () => { await Bun.sleep(30); return { message: "ok", usage }; } });
     const id = rid();
     const [a, b] = await Promise.all([ask(ctx, { text: "q", scope, requestId: id }, deps), ask(ctx, { text: "q", scope, requestId: id }, deps)]);
     expect(b).toEqual(a);
@@ -75,12 +88,12 @@ describe("limits", () => {
 
 describe("cards over the ops", () => {
   test("a plain task retry offers no feedback field it would drop", async () => {
-    const { ctx, deps } = setup({ respond: proposeRetry(), cards: { task: () => ({ rev: 1, title: "t", state: "failed" }), managed: () => false } });
+    const { ctx, deps } = setup({ reply: proposeRetry(), cards: { task: () => ({ rev: 1, title: "t", state: "failed" }), managed: () => false } });
     const t = await settle(ctx, (await ask(ctx, { text: "retry it", scope, requestId: rid() }, deps)).turnId);
     expect(t.cards[0]).toMatchObject({ op: "task.retry", editable: [] });
   });
   test("recording a decision updates the card, and a stale card refreshes to the task's current revision", async () => {
-    const { ctx, deps, bump } = setup({ respond: proposeRetry() });
+    const { ctx, deps, bump } = setup({ reply: proposeRetry() });
     const t = await settle(ctx, (await ask(ctx, { text: "retry it", scope, requestId: rid() }, deps)).turnId);
     const card = t.cards[0]!;
     expect(card.params.expect_rev).toBe(3);
@@ -132,7 +145,7 @@ describe("protocol surface", () => {
 
 describe("pacer ask", () => {
   test("prints the answer and sources, and prints proposals as commands without running anything", async () => {
-    const { ctx, deps } = setup({ respond: proposeRetry() });
+    const { ctx, deps } = setup({ reply: proposeRetry() });
     // The command calls the ops directly, so give them the same injected service through the real settings.
     const asked = await ask(ctx, { text: "retry it", scope, requestId: rid() }, deps);
     const turn = await settle(ctx, asked.turnId);
