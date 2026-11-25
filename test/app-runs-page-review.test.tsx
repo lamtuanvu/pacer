@@ -214,7 +214,7 @@ test("an older post-submit refresh cannot overwrite a newer one", () => withDom(
   expect(domText(dom.container)).not.toContain("Stale title");
 }));
 
-test("answering goes through the bound action runner, names the run, and focuses the Runs heading", () => withDom(async dom => {
+test("answering goes through the action runner, names the run, and focuses the Runs heading", () => withDom(async dom => {
   const direct: string[] = [], viaRunner: string[] = [];
   const a = api({}, direct);
   const runner = createActionRunner({ call: async <T,>(op: string) => { viaRunner.push(op); return {} as T; }, waitFor: async () => true, refetch: () => {}, navigate: () => {} });

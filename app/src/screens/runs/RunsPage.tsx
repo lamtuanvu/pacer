@@ -24,7 +24,6 @@ import { Page } from "../../ds/Page";
 import { EmptyState, ListRow } from "../../ds/Patterns";
 import { Pill } from "../../ds/Pill";
 import { StatusPill } from "../../ds/StatusPill";
-import { useActions } from "../../data/action-context";
 import { withQuery, type RouteQuery } from "../../router";
 import { PageHead } from "../../shell/slots";
 import { useTaskContext } from "../task-shared";
@@ -87,7 +86,6 @@ function mapQuestionGet(raw: unknown, fallbackRunId: string): RunQuestionView | 
 export function RunsPage({ query, runId }: { query: RouteQuery; runId?: string }) {
   useRunsStyles();
   const { state, api } = useTaskContext();
-  const runner = useActions();
   const [store, setStore] = useState<RunsStoreState>(() => initialRunsStore());
   const [answerId, setAnswerId] = useState<string | null>(null);
   const [held, setHeld] = useState<HeldAnswer | null>(null);
@@ -200,11 +198,8 @@ export function RunsPage({ query, runId }: { query: RouteQuery; runId?: string }
 
   const submitAnswer = async (input: { answer: string; note?: string; expect_rev: number }) => {
     if (!answering) return;
-    // Prefer the action runner so confirm/conflict handling stays consistent; keep `this` bound.
-    const call = runner
-      ? <T,>(op: string, params?: unknown) => runner.call<T>(op, params)
-      : api.call.bind(api);
-    await call("question.answer", {
+    // useTaskContext routes writes through the action runner (confirm and conflict handling).
+    await api.call("question.answer", {
       id: answering.question.id,
       answer: input.answer,
       expect_rev: input.expect_rev,
