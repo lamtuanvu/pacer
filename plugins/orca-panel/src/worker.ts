@@ -4,6 +4,7 @@
 import { spawn } from 'node:child_process'
 import { resolve as resolvePath } from 'node:path'
 import type { OrcaWorkerApi } from 'orca/worker'
+import { plannerAgentDisplay } from './panel-view'
 import {
   callOp,
   getSnapshot,
@@ -315,7 +316,7 @@ export function executorSummary(executors: PacerSnapshot['executors']): PanelExe
   for (const e of rows) agentCount.set(e.agent, (agentCount.get(e.agent) ?? 0) + 1)
   return rows.map((e) => ({
     id: e.id,
-    name: (agentCount.get(e.agent) ?? 0) > 1 ? `${e.agent} · ${e.account}` : e.agent,
+    name: (agentCount.get(e.agent) ?? 0) > 1 ? `${plannerAgentDisplay(e.agent)} · ${e.account}` : plannerAgentDisplay(e.agent),
     state: e.state,
     tone: (['good', 'info', 'warn', 'bad', 'muted'].includes(e.tone) ? e.tone : 'muted') as PanelExecutor['tone'],
   }))
