@@ -3,9 +3,7 @@ import styles from "./runs.css" with { type: "text" };
 import {
   buildRunsListState,
   initialRunsStore,
-  markRunSeen,
   questionFromEntity,
-  refreshRunDetail,
   refreshRunsList,
   runRowPriorityLabel,
   runRowStatusLabel,
@@ -25,6 +23,7 @@ import { withQuery, type RouteQuery } from "../../router";
 import { PageHead } from "../../shell/slots";
 import { useTaskContext } from "../task-shared";
 import { RUNS_EMPTY, RUNS_UNAVAILABLE } from "../../../../src/view-model/runs";
+import { RunView } from "./RunView";
 
 const styledDocuments = new WeakSet<Document>();
 function useRunsStyles() {
@@ -70,7 +69,12 @@ function mapQuestionGet(raw: unknown, fallbackRunId: string): RunQuestionView | 
   return questionFromEntity(data, runId);
 }
 
+/** The Runs page: the list, or one run when the route names it. */
 export function RunsPage({ query, runId }: { query: RouteQuery; runId?: string }) {
+  return runId ? <RunView runId={runId} query={query} /> : <RunsList query={query} />;
+}
+
+function RunsList({ query }: { query: RouteQuery }) {
   useRunsStyles();
   const { state, api } = useTaskContext();
   const runner = useActions();
@@ -84,7 +88,6 @@ export function RunsPage({ query, runId }: { query: RouteQuery; runId?: string }
   const [focusTitle, setFocusTitle] = useState(false);
   const [announce, setAnnounce] = useState("");
   const headingRef = useRef<HTMLHeadingElement>(null);
-  const seen = useRef<string | null>(null);
   const alsoListedId = useId();
   const ops = state.features.ops;
   const now = state.snapshot?.at ?? Date.now() / 1000;
@@ -104,18 +107,6 @@ export function RunsPage({ query, runId }: { query: RouteQuery; runId?: string }
     // Refresh when connection or workflow entity invalidations change.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- store intentionally omitted to avoid loop
   }, [api, ops, state.connectionRevision, state.invalidations.runs, state.invalidations.attention]);
-
-  useEffect(() => {
-    if (!runId) return;
-    let active = true;
-    if (seen.current !== runId) {
-      seen.current = runId;
-      void markRunSeen(api, runId, ops);
-    }
-    void refreshRunDetail(api, store, runId, ops).then(next => { if (active) setStore(next); });
-    return () => { active = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [api, ops, runId, state.connectionRevision, state.invalidations.runs]);
 
   const fromQueue = answerId
     ? listState.queue.find(q => q.question.id === answerId) ?? null
@@ -367,14 +358,6 @@ export function RunsPage({ query, runId }: { query: RouteQuery; runId?: string }
               })}
             </ul>
           )}
-        </section>
-      )}
-
-      {runId && (
-        <section className="runs-open" aria-label="Opened run">
-          <h2 className="runs-section-title">Opened run</h2>
-          <p className="runs-cap">Marked as seen. Full run boards land in a later phase.</p>
-          <ButtonLink typography="board" size="sm" href={withQuery("#/runs", query)}>Back to list</ButtonLink>
         </section>
       )}
 

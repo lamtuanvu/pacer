@@ -1,0 +1,117 @@
+/* Run view boards 1-5 — design tokens only (UI-21). Spacing is owned by containers (UI-27). */
+.rv {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  padding: 0 var(--space-8) var(--space-10);
+  width: 100%;
+}
+.rv-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--ink-secondary);
+  font-family: var(--font-sans);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-line);
+}
+.rv-fact { display: inline-flex; align-items: center; gap: var(--space-1); }
+.rv-section { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
+.rv-title {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--type-headline-size);
+  line-height: var(--type-headline-line);
+  font-weight: var(--type-headline-weight);
+  letter-spacing: var(--type-headline-tracking);
+}
+.rv-cap {
+  margin: 0;
+  color: var(--ink-muted);
+  font-family: var(--font-sans);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-line);
+}
+.rv-boards { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.rv-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.rv-box {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.rv-box--warn { border-color: var(--bad-line); }
+.rv-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-width: 0; }
+.rv-row > .rv-grow { flex: 1 1 0; min-width: 0; }
+.rv-mono {
+  font-family: var(--font-mono);
+  font-size: var(--type-code-size);
+  line-height: var(--type-code-line);
+  overflow-wrap: anywhere;
+}
+.rv-text { margin: 0; overflow-wrap: anywhere; }
+.rv-clip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.rv-num { font-variant-numeric: tabular-nums; }
+
+/* Board 1: step strip */
+.rv-strip { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.rv-step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: var(--size-120);
+  max-width: var(--size-220);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+}
+.rv-step--you { border-color: var(--focus); border-width: var(--stroke-focus); }
+.rv-step-name { font-weight: var(--type-body-strong-weight); overflow-wrap: anywhere; }
+
+/* Rail */
+.rv-rail { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-3); }
+.rv-rail-item { display: flex; flex-direction: column; gap: var(--space-1); padding-left: var(--space-3); border-left: var(--stroke-focus) solid var(--line); }
+.rv-rail-item--you { border-left-color: var(--focus); }
+.rv-rail-kind { color: var(--ink-muted); font-size: var(--type-caption-size); line-height: var(--type-caption-line); }
+
+/* Board 2 */
+.rv-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-4); align-items: start; }
+.rv-lane { min-height: var(--size-320); min-width: 0; }
+.rv-spec {
+  margin: 0;
+  max-height: var(--size-540);
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: var(--type-code-size);
+  line-height: var(--type-code-line);
+}
+
+/* Board 3 */
+.rv-lanes { display: grid; grid-template-columns: repeat(auto-fit, minmax(var(--size-240), 1fr)); gap: var(--space-3); }
+
+/* Board 4 */
+.rv-waves { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-3); }
+.rv-wave { display: grid; grid-template-columns: var(--size-72) minmax(0, 1fr); gap: var(--space-3); align-items: start; }
+.rv-wave-steps { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--size-220), 1fr)); gap: var(--space-2); }
+
+/* Board 5 */
+.rv-surfaces { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.rv-counts { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+
+@media (max-width: 767px) {
+  .rv { padding: var(--space-4); }
+  .rv-split { grid-template-columns: minmax(0, 1fr); }
+  .rv-wave { grid-template-columns: minmax(0, 1fr); }
+  .rv-step { max-width: none; flex: 1 1 var(--size-160); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rv * { transition: none; animation: none; }
+}
