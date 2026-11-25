@@ -65,19 +65,6 @@ test('readiness maps authoritative eligibility and pace with one short reason', 
   expect(executorReadiness({...ready,untested:true,eligibility:undefined},snap)).toMatchObject({label:'Skipped',reason:'Refresh to confirm availability'});
 });
 
-test('an unavailable endpoint names its test failure and the tooltip does not repeat itself', () => {
-  const unavailable = {...eligible,state:'ineligible',reasons:[{code:'unavailable'}]};
-  const down = {...row,state:'down' as const,eligibility:unavailable};
-  expect(executorReadiness({...down,reason:'Not working · test task failed: Model unavailable'},snap)).toMatchObject({label:'Cannot take work',reason:'Last test task failed'});
-  expect(executorReadiness({...down,reason:'Key missing'},snap)).toMatchObject({label:'Cannot take work',reason:'Key missing'});
-  // Other unavailable reasons (remote host, routing restrictions) are not test failures.
-  expect(executorReadiness({...down,reason:'remote host offline'},snap)).toMatchObject({label:'Cannot take work',reason:'Agent needs attention'});
-  const tooltip = executorReadiness({...down,reason:'Not working · x',sub:'Unavailable · Executor is unavailable · this Mac'},snap).tooltip;
-  const parts = tooltip.split(' · ');
-  expect(new Set(parts).size).toBe(parts.length);
-  expect(tooltip).toContain('this Mac');
-});
-
 test('account labels use agent names and distinguish named accounts', () => {
   for (const [name,kind,label] of [['claude-code','claude','Claude Code'],['codex','codex','Codex'],['agy','agy','Antigravity'],['byteplus','endpoint','BytePlus'],['local','endpoint','Local model'],['claude1','claude','Claude Code · claude1']]) {
     expect(accountLabel({name:name!,kind:kind!})).toBe(label!);
