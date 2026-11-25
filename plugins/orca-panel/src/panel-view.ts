@@ -258,7 +258,8 @@ export function reducePanel(state: PanelState, event: PanelEvent): { state: Pane
     case 'act-result': {
       const pending = { ...state.ui.pending }
       delete pending[event.pendingKey]
-      const statusByKey = { ...state.ui.statusByKey }
+      // Only the latest outcome is shown, so a new result replaces older ones.
+      const statusByKey: UiState['statusByKey'] = {}
       if (event.conflict) {
         statusByKey[event.pendingKey] = { tone: 'warn', text: 'Already handled elsewhere' }
       } else if (!event.ok) {
