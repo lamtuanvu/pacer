@@ -142,3 +142,9 @@ test("reason carries the load note in bands of two or more", () => {
   const one = balanceByLoad([rank("codex")], s, use({ codex: 1 }), byId([["codex", {}]]));
   expect(one[0].reason).toBe("on pace");
 });
+
+test("the planner tier fallback pick keeps its own band under load", () => {
+  const s = strategy();
+  const list = [rank("claude-code", { verdict: "AHEAD", tierFallback: { targetTier: "frontier", reason: "planner tier fallback: no frontier executor available" } }), rank("codex", { verdict: "AHEAD" })];
+  expect(balanceByLoad(list, s, use({ "claude-code": 1 }), byId([["claude-code", {}], ["codex", {}]])).map(e => e.id)).toEqual(["claude-code", "codex"]);
+});

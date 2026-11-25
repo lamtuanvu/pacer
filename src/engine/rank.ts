@@ -1,10 +1,12 @@
 import type { EligibilityDecision, EvidenceScope } from "../evidence/types";
-import { resolveRunner } from "../config/runner-id";
+import { isPlannerRunner, resolveRunner } from "../config/runner-id";
 import type { Strategy } from "../config/strategy";
 import type { UsageKind, UsageState, Verdict } from "../types";
 import type { WindowStatus } from "./verdict";
 import { restrictEligibility } from "./eligibility";
 import { eligibilityPresentation } from "../view-model/eligibility";
+import { TIERS } from "../dispatch/candidates";
+import type { TierTargets } from "../dispatch/types";
 
 export interface ProviderStatus {
   eligibility?: EligibilityDecision;
@@ -36,7 +38,9 @@ export interface ProviderStatus {
    */
   usageState?: UsageState;
 }
-export interface RankedExecutor { eligibility?: EligibilityDecision; fallback?: "uncertain"; id: string; account?: string; score: number; verdict: Verdict; reason: string }
+/** Set on the planner when it is ranked first because no other executor declares a model at the task's target tier. */
+export interface TierFallback { targetTier: TierTargets["complex"]; reason: string }
+export interface RankedExecutor { eligibility?: EligibilityDecision; fallback?: "uncertain"; id: string; account?: string; score: number; verdict: Verdict; reason: string; tierFallback?: TierFallback }
 export interface Excluded { eligibility?: EligibilityDecision; id: string; account?: string; reason: string }
 
 const EXPIRING_BOOST = 50;
@@ -90,7 +94,7 @@ function reason(st: ProviderStatus): string {
 export interface CandidateSelection { executors: readonly string[]; order: "configured" }
 
 export function rankExecutors(
-  kind: string | null, s: Strategy, statuses: Record<string, ProviderStatus>, selection?: CandidateSelection, options: {includePlanner?: boolean} = {},
+  kind: string | null, s: Strategy, statuses: Record<string, ProviderStatus>, selection?: CandidateSelection, options: {includePlanner?: boolean; targetTier?: TierTargets["complex"]} = {},
 ): { ranked: RankedExecutor[]; excluded: Excluded[]; uncertain?: RankedExecutor[]; reason?: string } {
   statuses = Object.fromEntries(Object.entries(statuses).map(([id, status]) => [resolveRunner(s, id)?.id ?? id, status]));
   const ranked: (RankedExecutor & { unknown: boolean; order: number })[] = [];
@@ -122,6 +126,7 @@ export function rankExecutors(
   });
   if (selection) {
     ranked.sort((a, b) => Number(a.unknown) - Number(b.unknown) || a.order - b.order);
+    applyPlannerTierFallback(s, statuses, ranked, excluded, options.targetTier);
     return {
       ranked: ranked.map(({ unknown, order, ...executor }, index) => ({ ...executor, score: ranked.length - index })),
       uncertain: ranked.filter(e => e.unknown).map(({ unknown, order, ...executor }) => executor),
@@ -196,6 +201,7 @@ export function rankExecutors(
   }
   ranked.sort((a, b) => Number(a.unknown) - Number(b.unknown));
   if (s.pacing.policy === "priority") ranked.forEach((e, i) => { e.score = ranked.length - i; });
+  applyPlannerTierFallback(s, statuses, ranked, excluded, options.targetTier);
   const configured = executorsFor(kind, s).some(id => {
     const runner = s.runners[id];
     return runner && !(runner.agent === s.planner.agent && runner.account === s.planner.account);
@@ -203,6 +209,42 @@ export function rankExecutors(
   return { ranked: ranked.map(({ unknown, order, ...executor }) => executor), excluded,
     uncertain: ranked.filter(e => e.unknown).map(({ unknown, order, ...executor }) => executor),
     ...(!configured ? { reason: "no executor configured" } : {}) };
+}
+
+type RankedEntry = RankedExecutor & { unknown: boolean; order: number };
+
+function declaresTier(s: Strategy, id: string, target: TierTargets["complex"]): boolean {
+  return (s.runners[id]?.models ?? []).some(m => m.tier !== "unknown" && TIERS[m.tier] >= TIERS[target]);
+}
+
+/**
+ * Planner tier fallback (docs/specs/2026-11-25-planner-tier-fallback-design.md): when no ranked
+ * non-planner executor declares a model at or above the task's target tier, and the planner's own
+ * runner does, rank the planner first. The pace verdict and the planner reserve headroom do not
+ * apply here; hard exclusions (disabled, unavailable, blocked, broken, not installed, signed out,
+ * ineligible budget) still do. Mutates `ranked` and `excluded`.
+ */
+function applyPlannerTierFallback(s: Strategy, statuses: Record<string, ProviderStatus>, ranked: RankedEntry[], excluded: Excluded[], target: TierTargets["complex"] | undefined): void {
+  if (target === undefined || s.pacing.plannerTierFallback === "off") return;
+  const isPlanner = (id: string) => { const r = s.runners[id]; return !!r && isPlannerRunner(s, r); };
+  if (ranked.some(e => !isPlanner(e.id) && declaresTier(s, e.id, target))) return;
+  const plannerId = Object.keys(s.runners).find(isPlanner);
+  if (!plannerId || !declaresTier(s, plannerId, target)) return;
+  const runner = s.runners[plannerId], st = statuses[plannerId];
+  if (!st || runner.enabled === false || !s.accounts[runner.account] || st.unavailableReason || st.blockedReason || st.brokenReason || !st.installed || st.signedOutReason) return;
+  const decision = restrictEligibility(st.eligibility);
+  if (decision.state === "ineligible") return;
+  const why = `planner tier fallback: no ${target} executor available`;
+  const at = ranked.findIndex(e => e.id === plannerId);
+  const entry: RankedEntry = at >= 0 ? ranked.splice(at, 1)[0] : {
+    id: plannerId, account: runner.account, eligibility: decision,
+    ...(decision.state === "uncertain" ? { fallback: "uncertain" as const } : {}),
+    score: 0, verdict: st.verdict, reason: why, unknown: decision.state === "uncertain", order: -1,
+  };
+  const gone = excluded.findIndex(e => e.id === plannerId);
+  if (gone >= 0) excluded.splice(gone, 1);
+  ranked.unshift({ ...entry, reason: why, tierFallback: { targetTier: target, reason: why },
+    score: Math.max(0, ...ranked.map(e => e.score)) + 1 });
 }
 
 /**

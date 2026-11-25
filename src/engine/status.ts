@@ -24,7 +24,8 @@ import { readAccountUsage } from "../usage/index";
 import { cachedLoginPath, onPath } from "../exec/login-env";
 import { activeLimitObservations, type LimitObservation } from "../usage/reactive";
 import { type Mode, statusMode } from "./mode";
-import { type Excluded, type ProviderStatus, type RankedExecutor, rankExecutors } from "./rank";
+import { type Excluded, type ProviderStatus, type RankedExecutor, type TierFallback, rankExecutors } from "./rank";
+import { dispatchConfigSchema } from "../dispatch/types";
 import { bindingWindow, evaluateWindow, type WindowStatus } from "./verdict";
 
 export interface AccountStatus {
@@ -60,7 +61,8 @@ export interface Status {
   warnings?: string[];
   accounts?: AccountStatus[];
   providers: ProviderStatus[];
-  executors: { ranked: RankedExecutor[]; excluded: Excluded[] };
+  /** `tierFallback` is present only while the planner is the sole executor at the complex-task tier. */
+  executors: { ranked: RankedExecutor[]; excluded: Excluded[]; tierFallback?: TierFallback & { runner: string } };
 }
 
 /** The computeStatus parts native status ops compose with (`_internal.status-broker.parts`). */
@@ -378,8 +380,14 @@ export async function computeStatus(
       };
     }),
     providers,
-    executors: rankExecutors(null, s, byId),
+    executors: withTierFallback(rankExecutors(null, s, byId), s, byId),
   };
   trace("providers-and-ranking");
   return status;
+}
+
+/** Mark the planner tier fallback for complex tasks so the session briefing can name it. */
+function withTierFallback<T extends { ranked: RankedExecutor[] }>(ranking: T, s: Strategy, byId: Record<string, ProviderStatus>): T & { tierFallback?: TierFallback & { runner: string } } {
+  const lead = rankExecutors(null, s, byId, undefined, { targetTier: (s.dispatch ?? dispatchConfigSchema.parse({})).tierTargets.complex }).ranked[0];
+  return lead?.tierFallback ? { ...ranking, tierFallback: { runner: lead.id, ...lead.tierFallback } } : ranking;
 }

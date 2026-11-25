@@ -151,6 +151,13 @@ export function engineGoldens() {
     alpha: status("alpha", 40, "EXPIRING", ready),
     beta: { ...statuses.beta, eligibility: ready },
   };
+  const tiered = { ...strategy, runners: {
+    ...strategy.runners,
+    alpha: { ...runner("alpha", "quota"), host: null, models: [{ id: "a-small", tier: "small", strengths: [] }] },
+    beta: { ...runner("beta", "other"), host: null, models: [{ id: "b-medium", tier: "medium", strengths: [] }] },
+    planner: { ...runner("planner", "planner", "claude-code"), host: null, models: [{ id: "opus", tier: "frontier", strengths: [] }] },
+  } } as unknown as Strategy;
+  const tieredStatuses = { alpha: statuses.alpha, beta: { ...statuses.beta, eligibility: ready }, planner: status("planner", 94, "AHEAD", ready) } as Record<string, ProviderStatus>;
   const rank = [
     { name: "even", strategy, statuses, kind: null as string | null },
     { name: "project", strategy, statuses, selection: { executors: ["gamma", "beta", "alpha"], order: "configured" as const }, kind: null },
@@ -167,11 +174,21 @@ export function engineGoldens() {
     { name: "planner-excluded", strategy: { ...strategy, routing: [{ kinds: null, executors: ["alpha", "planner"] }] } as Strategy, statuses: { alpha: statuses.alpha, planner: plannerStatus }, kind: null },
     { name: "planner-included", strategy: { ...strategy, routing: [{ kinds: null, executors: ["alpha", "planner"] }] } as Strategy, statuses: { alpha: statuses.alpha, planner: plannerStatus }, includePlanner: true, kind: null },
     { name: "expiring", strategy, statuses: expiringStatuses, kind: null },
-  ].map(({ name, strategy, statuses, selection, kind, includePlanner }) => ({
-    name,
-    input: { kind, strategy, statuses, ...(selection ? { selection } : {}), ...(includePlanner ? { includePlanner: true } : {}) },
-    output: rankExecutors(kind, strategy, statuses as Record<string, ProviderStatus>, selection, includePlanner ? { includePlanner: true } : {}),
-  }));
+    // Planner tier fallback: executors declare small/medium, the planner frontier, and the planner is AHEAD.
+    { name: "tier-fallback", strategy: tiered, statuses: tieredStatuses, kind: null, targetTier: "frontier" as const },
+    { name: "tier-fallback-project", strategy: tiered, statuses: tieredStatuses, selection: { executors: ["alpha", "beta"], order: "configured" as const }, kind: null, targetTier: "frontier" as const },
+    { name: "tier-fallback-met", strategy: tiered, statuses: tieredStatuses, kind: null, targetTier: "medium" as const },
+    { name: "tier-fallback-off", strategy: { ...tiered, pacing: { ...tiered.pacing, plannerTierFallback: "off" } } as Strategy, statuses: tieredStatuses, kind: null, targetTier: "frontier" as const },
+    { name: "tier-fallback-exhausted", strategy: tiered, statuses: { ...tieredStatuses, planner: { ...tieredStatuses.planner, eligibility: eligibility[3].output } }, kind: null, targetTier: "frontier" as const },
+    { name: "tier-fallback-planner-untiered", strategy: { ...tiered, runners: { ...tiered.runners, planner: { ...runner("planner", "planner", "claude-code"), host: null } } } as unknown as Strategy, statuses: tieredStatuses, kind: null, targetTier: "frontier" as const },
+  ].map(({ name, strategy, statuses, selection, kind, includePlanner, targetTier }) => {
+    const options = { ...(includePlanner ? { includePlanner: true } : {}), ...(targetTier ? { targetTier } : {}) };
+    return {
+      name,
+      input: { kind, strategy, statuses, ...(selection ? { selection } : {}), ...options },
+      output: rankExecutors(kind, strategy, statuses as Record<string, ProviderStatus>, selection, options),
+    };
+  });
   const conversationBase = rankExecutors(null, strategy, statuses as Record<string, ProviderStatus>);
   const conversationAppend = structuredClone(conversationBase);
   conversationFallback(conversationAppend, null, strategy, { ...statuses, planner: plannerStatus }, "planner");

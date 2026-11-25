@@ -89,7 +89,7 @@ const USAGE = `usage: pacer <command>
   status [--line | --json | --hook <planner>]   budget status (default: text report)
     --line [--width N] [--no-color] [--json]     compact local status; columns default to COLUMNS or 80
   pause <for> | resume                          pause or resume delegation
-  route [kind] [--repo <path-or-key>] [--json]                          executors pacer would use, in order (default repo: current directory)
+  route [kind] [--repo <path-or-key>] [--difficulty <d>] [--json]       executors pacer would use, in order (default repo: current directory)
   route --explain [--repo <r>] [--kind <k>] [--goal <text> | --goal-file <path>] [--executor <id>] [--via delegate|dispatch] [--json]
                                                  read-only: where this request would go, and why
   project strategy list | show | set | remove   repository executor policy (--repo, --executors, --json)
@@ -278,7 +278,7 @@ async function route(args: string[], ctx: Ctx): Promise<Result> {
     const client = await connectTaskClient(ctx);
     let r: Awaited<ReturnType<typeof core.routing.route>>;
     try {
-      const params = { kind: pos[0], repo };
+      const params = { kind: pos[0], repo, ...(str(opts.difficulty) ? { difficulty: str(opts.difficulty) } : {}) };
       r = client.kind === "inprocess" ? await callOp(ctx, "routing.route", params) as typeof r : await client.call("routing.route", params);
     }
     finally { client.close(); }

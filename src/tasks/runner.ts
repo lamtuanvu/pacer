@@ -13,6 +13,7 @@ import {dispatchSettingsHash} from "../dispatch/learning";
 import { dispatchConfigSchema, type Candidate, type DispatchPreview } from "../dispatch/types";
 import { buildModelInventory } from "../dispatch/inventory";
 import { selectModel } from "../dispatch/tier-select";
+import { fallbackTier } from "../dispatch/tier-fallback";
 import { storedObservations } from "../dispatch/refresh";
 import { ensureRunnerIntegration } from "../core/integrations";
 import { beginWorkSync, claimWorkSync, finishWorkSync } from "../update/desktop/admission";
@@ -349,7 +350,8 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
         // appends the requested executor afterward, when a routing rule left it out of the pool entirely.
         // Orchestrator turns run as the planner (kind orchestrate); include it in the pool (round-2 B1).
         const ranking = rankExecutors(kind, s, byId, selection && {executors: selection.executors, order: "configured"},
-          {includePlanner: !!work?.options.allowDelegation || task.interactionMode === "conversation" || orchTurn});
+          {includePlanner: !!work?.options.allowDelegation || task.interactionMode === "conversation" || orchTurn,
+            targetTier: fallbackTier(task.difficulty, (s.dispatch ?? dispatchConfigSchema.parse({})).tierTargets)});
         if (task.interactionMode === "conversation" && !selection) conversationFallback(ranking, kind, s, byId, task.requestedExecutor);
         routableCandidates = ranking.ranked.map(e => e.id);
         if (work) {
@@ -417,6 +419,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
           if (stopped(ctx, id)) return;
           const use = slotUse(listTasksWhere(ctx, { states: SLOT_STATES }).filter(t => t.id !== id),ctx);
           const full = new Set<string>();
+          const tierHead = ranking.ranked[0]?.tierFallback ? ranking.ranked[0].id : undefined;
           ranking.ranked = ranking.ranked.filter(candidate => {
             if (!allowed.includes(candidate.id)) return false;
             const declared = s.runners[candidate.id]?.models;
@@ -434,6 +437,9 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
             remoteSkipped.set(candidate.id, reason);
             return false;
           });
+          // A complex task picked by the planner tier fallback waits for a planner slot instead of
+          // running on an executor below its tier.
+          if (tierHead && full.has(tierHead) && !tried.has(tierHead) && !req) ranking.ranked = [];
           // Dispatch engines own their own ranking; everything else may be rebalanced
           // within its budget band by how many tasks each executor already runs.
           const dispatchRanked = work && decision?.proposal?.state === "ranked";
@@ -682,7 +688,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
         const prepared = await prepareLaunch(launchCtx, currentStrategy, pick, deps.computeStatus, startStatus);
         const refreshedById = Object.fromEntries(prepared.status.providers.map(p => [p.id, p]));
         const refreshedRanking = rankExecutors(kind, currentStrategy, refreshedById, selection && {executors: selection.executors, order: "configured"},
-          {includePlanner: !!work?.options.allowDelegation || task.interactionMode === "conversation" || task.kind === "orchestrate"});
+          {includePlanner: !!work?.options.allowDelegation || task.interactionMode === "conversation" || task.kind === "orchestrate", targetTier: fallbackTier(task.difficulty, (currentStrategy.dispatch ?? dispatchConfigSchema.parse({})).tierTargets)});
         if (task.interactionMode === "conversation" && !selection) conversationFallback(refreshedRanking, kind, currentStrategy, refreshedById, task.requestedExecutor);
         const candidate = refreshedRanking.ranked.find(e => e.id === pick);
         if (!candidate || prepared.decision.state === "ineligible") {
@@ -691,7 +697,8 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
           excluded.push(...refreshedRanking.excluded);
           tried.add(pick); continue;
         }
-        if (!task.requestedExecutor && prepared.decision.state === "uncertain" && refreshedRanking.ranked.some(e => e.eligibility?.state === "eligible" && applicableIds.includes(e.id) && !tried.has(e.id))) {
+        // The planner tier fallback ranks an uncertain planner above eligible but under-qualified executors on purpose.
+        if (!task.requestedExecutor && !candidate.tierFallback && prepared.decision.state === "uncertain" && refreshedRanking.ranked.some(e => e.eligibility?.state === "eligible" && applicableIds.includes(e.id) && !tried.has(e.id))) {
           if (++policyChanges > 20) throw new CoreError("conflict", "Executor eligibility keeps changing; retry the task");
           i--; continue;
         }
