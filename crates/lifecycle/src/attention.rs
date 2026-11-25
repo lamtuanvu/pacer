@@ -735,10 +735,10 @@ pub enum Prune<'a> {
 
 /// Apply a freshly derived item set to the attention store and return the visible items.
 /// With `Prune::All` every unmatched entry no longer applies. With `Prune::Covered`, an
-/// unmatched entry is deleted only when its task was covered (so a settled item's stale
-/// dismissal/snooze cannot hide a follow-up) or when it is not task-scoped (non-task items
-/// are derived from full input on every tick). Entries for uncovered tasks keep their
-/// since/dismissedSince/snoozedUntil until a full pass decides authoritatively.
+/// unmatched entry is deleted only when the id after its `kind:` prefix is a covered task
+/// id, so a settled item's stale dismissal/snooze cannot hide a follow-up. Every other
+/// entry (uncovered tasks and non-task items such as `executor_down:<id>`) keeps its
+/// since/dismissedSince/snoozedUntil until the next full pass decides authoritatively.
 pub fn apply(store: &mut Value, items: Vec<Item>, time: f64, prune: Prune<'_>) -> Vec<Item> {
     if !store.is_object() {
         *store = json!({});

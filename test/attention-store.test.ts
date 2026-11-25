@@ -62,7 +62,7 @@ test("a partial apply leaves unrelated entries (and their since) intact until a 
  expect(full.some(i=>i.id===a.id)).toBe(false);
 });
 
-test("a dismiss on an unrelated entry survives a partial apply (prune=false)",()=>{
+test("a dismiss on an unrelated entry survives a partial apply scoped to another task",()=>{
  const {ctx}=fixture();
  const a: AttentionItem = {id:"failed:a",kind:"failed",severity:"problem",title:"A",detail:"a",repo:null,raisedAt:ctx.now,since:ctx.now,actions:[],notify:"all",taskId:"a"};
  const b: AttentionItem = {id:"failed:b",kind:"failed",severity:"problem",title:"B",detail:"b",repo:null,raisedAt:ctx.now,since:ctx.now,actions:[],notify:"all",taskId:"b"};

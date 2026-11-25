@@ -27,10 +27,10 @@ function transaction<T>(ctx: Ctx, fn: (store: Store) => T): T {
  * `prune` is `true` when `items` covers the full task set (a full pass or a genuine
  * reconcile), so every unmatched entry no longer applies and is deleted. For a partial
  * read it is the set of task ids that read covered: an unmatched entry is deleted only
- * when its task was covered (so a settled item's stale dismissal/snooze cannot survive
- * to hide a follow-up) or when it is not task-scoped (non-task items are derived from
- * full input on every tick). Entries for uncovered tasks keep their
- * since/dismissedSince/snoozedUntil until a full pass decides authoritatively.
+ * when the id after its `kind:` prefix is a covered task id, so a settled item's stale
+ * dismissal/snooze cannot survive to hide a follow-up. Every other entry (uncovered tasks
+ * and non-task items such as `executor_down:<id>` or `update:<v>`) keeps its
+ * since/dismissedSince/snoozedUntil until the next full pass decides authoritatively.
  */
 export function applyStore(ctx: Ctx, items: AttentionItem[], prune: true | ReadonlySet<string> = true): AttentionItem[] {
   return transaction(ctx,store=>{
