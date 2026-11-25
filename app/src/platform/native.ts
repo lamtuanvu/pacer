@@ -44,11 +44,13 @@ export type WindowControls = ReturnType<typeof windowControls>;
 
 export type DesktopUpdateConnection = {
   state: "connecting" | "available" | "unavailable" | "unsupported";
-  reason: "service-identity" | "service-takeover" | "connection" | null;
+  reason: "service-identity" | "service-takeover" | "handshake" | "connection" | null;
   /** Present only when `reason` is "connection"; absent from older desktops. */
   error?: "unavailable" | "invalid" | "io" | "busy" | "timeout" | "interrupted" | "recovery-failed";
   terminalCommandDifferent?: boolean;
 };
+const KNOWN_REASONS = ["service-identity", "service-takeover", "handshake", "connection"];
+const KNOWN_ERRORS = ["unavailable", "invalid", "io", "busy", "timeout", "interrupted", "recovery-failed"];
 /** The service page can request the bundled confirmation page, never confirm a takeover. */
 export async function openDesktopTakeover(host: DesktopHost = desktopHost()): Promise<void> {
   const invoke = host.__TAURI__?.core?.invoke;
@@ -59,11 +61,18 @@ export async function openDesktopTakeover(host: DesktopHost = desktopHost()): Pr
 export async function readDesktopUpdateConnection(host: DesktopHost = desktopHost()): Promise<DesktopUpdateConnection | null> {
   const invoke = host.__TAURI__?.core?.invoke;
   if (!invoke) return null;
-  const value = await invoke("desktop_update_connection", { supports: ["service-takeover"] }) as Partial<DesktopUpdateConnection> | null;
-  if (!value || !["connecting", "available", "unavailable", "unsupported"].includes(value.state ?? "") ||
-      (value.reason === undefined || ![null, "service-identity", "service-takeover", "connection"].includes(value.reason)) ||
-      (value.error !== undefined && !["unavailable", "invalid", "io", "busy", "timeout", "interrupted", "recovery-failed"].includes(value.error)) ||
+  const value = await invoke("desktop_update_connection", { supports: ["service-takeover"] }) as Record<string, unknown> | null;
+  if (!value || !["connecting", "available", "unavailable", "unsupported"].includes(value.state as string) ||
+      value.reason === undefined ||
       (value.terminalCommandDifferent !== undefined && typeof value.terminalCommandDifferent !== "boolean") ||
       (value.state !== "unavailable" && value.reason !== null)) throw Error("Desktop update connection unavailable");
-  return value as DesktopUpdateConnection;
+  // A newer desktop may add reasons or error kinds; degrade them instead of losing the whole view.
+  const result: DesktopUpdateConnection = {
+    state: value.state as DesktopUpdateConnection["state"],
+    reason: value.reason === null ? null
+      : KNOWN_REASONS.includes(value.reason as string) ? value.reason as DesktopUpdateConnection["reason"] : "connection",
+  };
+  if (result.reason === "connection" && KNOWN_ERRORS.includes(value.error as string)) result.error = value.error as DesktopUpdateConnection["error"];
+  if (value.terminalCommandDifferent !== undefined) result.terminalCommandDifferent = value.terminalCommandDifferent as boolean;
+  return result;
 }
