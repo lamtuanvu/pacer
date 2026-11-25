@@ -44,18 +44,20 @@ test("shell switches at 560 px and repo scope forces narrow at desktop width", (
   }
 });
 
-test("bottom bar keeps all five destinations, badges and scope on every destination", () => {
-  for (const screen of ["/", "/needs-you", "/tasks", "/settings", "/settings/hosts", "/settings/add-executor"]) {
+test("bottom bar keeps primary destinations, badges and scope on every destination", () => {
+  for (const screen of ["/", "/needs-you", "/runs", "/tasks", "/settings", "/settings/hosts", "/settings/add-executor"]) {
     const html = atWidth(400, () => shell(`#${screen}?scope=repo:${repo}`, screen === "/" ? "Dispatch" : screen));
     expect(html).toContain('class="pc-bottom-bar"');
     expect(html).not.toContain('class="pc-rail"');
     expect(html).toContain('aria-label="Dispatch"');
     expect(html).toContain('aria-label="Needs you, 4 items"');
+    expect(html).toContain('aria-label="Runs"');
     expect(html).toContain('aria-label="Tasks"');
     expect(html).toContain(`href="#/settings?scope=repo%3Agithub.com%2Facme%2Fapi"`);
     expect(html).toContain('aria-label="Insights"');
     const nav = html.slice(html.indexOf('<nav'), html.indexOf('</nav>'));
-    expect(nav.match(/<a /g)).toHaveLength(5);
+    // Dispatch, Needs you, Runs, Tasks, Insights, Settings (Workspace is rail-only).
+    expect(nav.match(/<a /g)).toHaveLength(6);
     expect(nav).not.toContain('Tasks, 2 running');
     // Dispatch puts the budget in its body and offers a touch icon in the header.
     if (screen === "/") {

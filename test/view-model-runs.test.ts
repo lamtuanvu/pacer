@@ -11,6 +11,7 @@ import {
   stepMarkerFor,
   stepMarkerGlyph,
   waitsOnLabel,
+  pausedReasonLabel,
 } from "../src/view-model/runs";
 import { runAttentionLetter } from "../src/workflow/attention";
 
@@ -36,6 +37,14 @@ describe("run labels", () => {
     expect(nextRunPriority("background")).toBe("urgent");
     expect(waitsOnLabel("you")).toBe("You");
     expect(waitsOnLabel(null)).toBe("—");
+    expect(waitsOnLabel("executors")).toBe("Executors");
+    expect(waitsOnLabel("nothing")).toBe("Nothing");
+    expect(pausedReasonLabel("pacing: strict")).toBe("Paused by strict pacing");
+    expect(pausedReasonLabel("pacing: emergency")).toBe("Paused by emergency pacing");
+    expect(pausedReasonLabel("person")).toBe("Paused by you");
+    expect(pausedReasonLabel("budget")).toBe("Turn budget spent");
+    expect(pausedReasonLabel("constructor")).toBe("Reason not available");
+    expect(pausedReasonLabel(undefined)).toBe("Reason not available");
     expect(RUNS_EMPTY).toContain("pacer run start");
     expect(CONFLICT_QUESTION).toContain("changed");
   });

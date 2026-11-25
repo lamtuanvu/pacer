@@ -215,11 +215,6 @@
 .pc-page-columns--agents:not(:has(.pc-page-columns__aside)){grid-template-columns:minmax(0,1fr)}
 .pc-page-columns--agents>.pc-page-columns__aside{align-self:stretch;background:var(--surface-card);border-left:1px solid var(--line);padding:var(--space-7) var(--space-6)}
 .pc-side-panel .u3-agent-detail{padding:var(--space-4) var(--space-3) var(--space-5);display:flex;flex-direction:column;gap:var(--space-4)}
-.pc-radio-choices{display:inline-flex;flex-wrap:wrap;gap:var(--space-half);padding:var(--space-half);border:1px solid var(--line);border-radius:var(--radius-md);background:var(--surface-card)}
-.pc-radio-choices label{display:inline-flex;align-items:center;gap:var(--space-1);padding:var(--space-1) var(--space-3);border-radius:var(--radius-sm);font-weight:var(--type-body-strong-weight);cursor:pointer}
-.pc-radio-choices label:has(:checked){background:var(--surface-lane)}
-.pc-radio-choices label:has(:focus-visible){outline:var(--stroke-focus) solid var(--focus)}
-.pc-radio-choices input{accent-color:var(--ink)}
 @media(max-width:1100px){.pc-page-columns--agents{grid-template-columns:minmax(0,1fr)}}
 
 .pc-usage--slim{display:flex;flex-direction:column;align-items:stretch;gap:var(--space-1);width:100%;min-width:var(--size-80)}
@@ -237,10 +232,6 @@
 .pc-choice-card--agent{font-weight:var(--type-body-weight);flex-direction:column;align-items:stretch;gap:var(--space-1\.5);padding:var(--space-3\.5);border-radius:var(--radius-agents);background:var(--surface-page)}
 .pc-choice-card--alias{min-height:var(--control-settings);font-weight:var(--type-body-weight);padding:var(--space-2) var(--space-2\.5);gap:var(--space-2);border-radius:var(--radius-md);background:var(--surface-page)}
 .pc-choice-card--agent[aria-pressed=true],.pc-choice-card--alias[aria-pressed=true]{border-color:var(--ink);background:var(--surface-page);box-shadow:var(--shadow-choice-selected)}
-.pc-radio-choices--options{display:flex;flex-direction:column;gap:var(--space-2\.5);padding:0;border:0;background:transparent}
-.pc-radio-choices--options label{display:flex;align-items:flex-start;gap:var(--space-2\.5);padding:var(--space-3) var(--space-3\.5);border:1px solid var(--line);border-radius:var(--radius-agents);font-weight:var(--type-body-weight)}
-.pc-radio-choices--options label:has(:checked){border-color:var(--ink);background:var(--surface-page)}
-.pc-radio-choices--options label>span{display:flex;flex-direction:column;min-width:0}
 .pc-stepper{gap:var(--space-half)}
 .pc-stepper__step{gap:var(--space-2\.5);padding:var(--space-2\.5)}
 .pc-check-list{padding:var(--space-2\.5) var(--space-3);gap:var(--space-1\.5)}
