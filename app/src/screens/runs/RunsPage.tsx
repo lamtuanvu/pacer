@@ -3,17 +3,13 @@ import styles from "./runs.css" with { type: "text" };
 import {
   buildRunsListState,
   initialRunsStore,
-  markRunSeen,
-  mergeDetailRefresh,
   mergeListRefresh,
   questionFromEntity,
-  refreshRunDetail,
   refreshRunsList,
   runRowPriorityLabel,
   runRowStatusLabel,
   runsBadgeCount,
   type RunQuestionView,
-  type RunSeenResult,
   type RunsStoreState,
 } from "../../data/runs";
 import { QuestionForm, type QuestionFormQuestion } from "../../ds/QuestionForm";
@@ -29,13 +25,11 @@ import { PageHead } from "../../shell/slots";
 import { useTaskContext } from "../task-shared";
 import {
   pausedReasonLabel,
-  RUN_SEEN_ERROR,
-  RUN_SEEN_OK,
-  RUN_VIEW_PENDING,
   RUNS_EMPTY,
   RUNS_UNAVAILABLE,
   RUNS_UNAVAILABLE_DETAIL,
 } from "../../../../src/view-model/runs";
+import { RunView } from "./RunView";
 
 const styledDocuments = new WeakSet<Document>();
 function useRunsStyles() {
@@ -83,7 +77,12 @@ function mapQuestionGet(raw: unknown, fallbackRunId: string): RunQuestionView | 
   return questionFromEntity(data, runId);
 }
 
+/** The Runs page: the list, or one run when the route names it. */
 export function RunsPage({ query, runId }: { query: RouteQuery; runId?: string }) {
+  return runId ? <RunView runId={runId} query={query} /> : <RunsList query={query} />;
+}
+
+function RunsList({ query }: { query: RouteQuery }) {
   useRunsStyles();
   const { state, api } = useTaskContext();
   const [store, setStore] = useState<RunsStoreState>(() => initialRunsStore());
@@ -96,13 +95,10 @@ export function RunsPage({ query, runId }: { query: RouteQuery; runId?: string }
   const [focusTitle, setFocusTitle] = useState(false);
   const [announce, setAnnounce] = useState("");
   const headingRef = useRef<HTMLHeadingElement>(null);
-  const seen = useRef<string | null>(null);
-  const [seenResult, setSeenResult] = useState<{ id: string; result: RunSeenResult } | null>(null);
-  // Refreshes finish out of order: each applies onto the latest state, and only the newest one per target.
+  // Refreshes finish out of order: each applies onto the latest state, and only the newest one wins.
   const storeRef = useRef(store);
   storeRef.current = store;
   const listSeq = useRef(0);
-  const detailSeq = useRef(0);
   const alsoListedId = useId();
   const ops = state.features.ops;
   const now = state.snapshot?.at ?? Date.now() / 1000;
@@ -127,25 +123,6 @@ export function RunsPage({ query, runId }: { query: RouteQuery; runId?: string }
     return () => { listSeq.current++; };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reloadList reads the latest state through a ref
   }, [api, ops, state.connectionRevision, state.invalidations.runs, state.invalidations.attention]);
-
-  useEffect(() => {
-    if (!runId) return;
-    if (seen.current !== runId) {
-      seen.current = runId;
-      setSeenResult(null);
-      void markRunSeen(api, runId, ops).then(result => {
-        // A failed call is retried by the next refresh.
-        if (result === "failed" && seen.current === runId) seen.current = null;
-        setSeenResult({ id: runId, result });
-      });
-    }
-    const seq = ++detailSeq.current;
-    void refreshRunDetail(api, storeRef.current, runId, ops).then(next => {
-      if (seq === detailSeq.current) setStore(current => mergeDetailRefresh(current, next, runId));
-    });
-    return () => { detailSeq.current++; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [api, ops, runId, state.connectionRevision, state.invalidations.runs]);
 
   const fromQueue = answerId
     ? listState.queue.find(q => q.question.id === answerId) ?? null
@@ -184,8 +161,6 @@ export function RunsPage({ query, runId }: { query: RouteQuery; runId?: string }
       ?? held?.run
       ?? listState.runs.find(run => run.id === answering.question.runId)
     : undefined;
-  const detail = runId ? store.details[runId] : undefined;
-  const runSeen = seenResult && seenResult.id === runId ? seenResult.result : null;
 
   const closeAnswer = () => {
     setAnswerId(null);
@@ -399,16 +374,6 @@ export function RunsPage({ query, runId }: { query: RouteQuery; runId?: string }
               })}
             </ul>
           )}
-        </section>
-      )}
-
-      {runId && (
-        <section className="runs-open" aria-label="Opened run">
-          <h2 className="runs-section-title">Opened run</h2>
-          {runSeen === "failed" ? <Alert tone="error" title={RUN_SEEN_ERROR} /> : null}
-          {detail?.error ? <Alert tone="error" title={detail.error} /> : null}
-          <p className="runs-cap">{runSeen === "seen" ? `${RUN_SEEN_OK} ${RUN_VIEW_PENDING}` : RUN_VIEW_PENDING}</p>
-          <ButtonLink typography="board" size="sm" href={withQuery("#/runs", query)}>Back to list</ButtonLink>
         </section>
       )}
 

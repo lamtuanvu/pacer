@@ -164,3 +164,14 @@ test("R3-I2/F5: runCmd publish with PACER_RUN_GRANT reaches run.get then publish
     await server.stop();
   }
 });
+
+test("run.get returns the decision log with reasons to the person, and withholds it from a run grant", async () => {
+  const { recordDecision } = await import("../src/workflow/store");
+  const ctx = fakeCtx({ now: NOW, run: realRun });
+  const { run, bearer } = await seededGrantRun(ctx);
+  recordDecision(ctx, { runId: run.id, stepId: "plan", attempt: 1, actor: "person", kind: "choose", choice: "revise", reason: "Take the UX note." });
+  const person = await callOp(ctx, "run.get", { id: run.id }) as { decisions?: Array<{ choice: string; reason: string; actor: string }> };
+  expect(person.decisions?.map(d => [d.actor, d.choice, d.reason])).toEqual([["person", "revise", "Take the UX note."]]);
+  const granted = await callOp(grantCtx(ctx, bearer), "run.get", { id: run.id }) as { decisions?: unknown };
+  expect(granted.decisions).toBeUndefined();
+});
