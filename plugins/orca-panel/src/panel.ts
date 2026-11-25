@@ -388,10 +388,10 @@ function renderReady(model: Extract<ReturnType<typeof panelModel>, { kind: 'read
 
   // title line
   const titleRow = el('div')
-  titleRow.style.cssText = 'display:flex;align-items:baseline;gap:8px;'
+  titleRow.style.cssText = 'display:flex;flex-wrap:wrap;align-items:baseline;column-gap:8px;row-gap:2px;'
   titleRow.append(el('h1', undefined, `From ${snapshot.focusedWorkspace.name}`))
   const h1 = titleRow.firstChild as HTMLElement
-  h1.style.cssText = 'margin:0;font-size:14px;line-height:20px;font-weight:650;'
+  h1.style.cssText = 'margin:0;font-size:14px;line-height:20px;font-weight:650;white-space:nowrap;'
   titleRow.append(el('span', undefined, model.summary))
   const cap = titleRow.lastChild as HTMLElement
   cap.style.cssText = 'font-size:12px;line-height:16px;color:var(--ink-muted);'
