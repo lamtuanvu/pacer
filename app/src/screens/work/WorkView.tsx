@@ -47,11 +47,11 @@ export function WorkNode({node,nodes,onChanged}:{node:Node;nodes:Node[];onChange
  </li>;
 }
 export function WorkView({id}:{id:string}){
- const {api}=useTaskContext(),visible=useViewActive();
+ const {api,state}=useTaskContext(),visible=useViewActive();
  const tree=useQuery<Tree>("dispatch.tree",{id}),analytics=useQuery<Analytics>("dispatch.analytics",{});
  const [events,setEvents]=useState<Event[]>([]),[eventError,setEventError]=useState<unknown>(),[eventVersion,reloadEvents]=useState(0),[eventsLoading,setEventsLoading]=useState(true);
  useEffect(()=>{if(!visible)return;let cancelled=false;setEventsLoading(true);setEventError(undefined);void(async()=>{try{let after=0;const all:Event[]=[];for(;;){const page=await api.call<{events:Event[];next:number;hasMore:boolean}>("dispatch.events",{id,after});if(cancelled)return;all.push(...page.events);if(!page.hasMore||page.next<=after)break;after=page.next;}if(!cancelled)setEvents(all);}catch(error){if(!cancelled)setEventError(error);}finally{if(!cancelled)setEventsLoading(false);}})();return()=>{cancelled=true;};},[api,id,eventVersion,visible]);
- useEffect(()=>{if(!visible)return;const timer=setInterval(()=>{tree.reload();reloadEvents(v=>v+1);analytics.reload();},5000);return()=>clearInterval(timer);},[id,visible]);
+ useEffect(()=>{if(!visible)return;reloadEvents(v=>v+1);},[visible,state.invalidations]);
  const changed=()=>{tree.reload();reloadEvents(v=>v+1);analytics.reload();};
  if(!tree.data)return tree.error?<ErrorMessage error={tree.error}/>:<Skeleton layout="task" label="Loading work tree…"/>;
  const totals=tree.data.totals;

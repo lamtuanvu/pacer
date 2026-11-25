@@ -74,7 +74,7 @@ export default function AssistantHost({ route, narrow, repo, repoLabel, onNewTas
     try { const next = await api.call<Status>("assistant.status", {}); setStatus(next); assistantEntry.setAvailable(next.available); }
     catch { setStatus(null); assistantEntry.setAvailable(false); }
   }, [api]);
-  useEffect(() => { void refresh(); const t = setInterval(() => void refresh(), 60_000); return () => clearInterval(t); }, [refresh]);
+  useEffect(() => { void refresh(); const t = setInterval(() => { if (typeof document !== "undefined" && document.visibilityState !== "visible") return; void refresh(); }, 60_000); const onVisibility = () => { if (document.visibilityState === "visible") void refresh(); }; if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVisibility); return () => { clearInterval(t); if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisibility); }; }, [refresh]);
 
   const toggle = useCallback((next?: boolean) => setOpen(o => next ?? !o), []);
   useEffect(() => {

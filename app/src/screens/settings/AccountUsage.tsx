@@ -19,7 +19,10 @@ export function AccountUsage({account,reload,sourceError}:{account:Account;reloa
   const ordered=[...seen.values()].sort((a,b)=>b.startedAt-a.startedAt);
   const job=ordered.find(j=>j.state==="running")??ordered[0];
   const running=job?.state==="running", completed=useRef<string>(), pending=useRef(false);
-  useEffect(()=>{if(!running)return;const timer=setInterval(jobs.reload,1500);return()=>clearInterval(timer);},[running]);
+  // Job progress arrives through job events in state.jobs; reload on those instead of a 1.5s poll.
+  // Keep a slow safety fallback while a job runs.
+  useEffect(()=>{ if (running) jobs.reload(); }, [state.jobs]);
+  useEffect(()=>{ if(!running)return; const timer=setInterval(()=>{ if (typeof document !== "undefined" && document.visibilityState !== "visible") return; jobs.reload(); },30000); return()=>clearInterval(timer); },[running]);
   useEffect(()=>{if(job&&job.state!=="running"&&completed.current!==job.id){completed.current=job.id;reload();}},[job?.id,job?.state]);
   // Provider guidance and diagnostics stay opt-in and appear only once.
   const details=[...new Set([

@@ -130,7 +130,8 @@ export function JobList({target,onComplete}:{target:string;onComplete:()=>void})
  const running=[...jobs.values()].some(job=>job.state==='running'),signature=[...jobs.values()].filter(job=>job.state!=='running').map(job=>`${job.id}:${job.state}`).join('|');
  const last=useRef('');
  useEffect(()=>{if(signature&&last.current!==signature){last.current=signature;onComplete();}},[signature]);
- useEffect(()=>{if(!running)return;const timer=setInterval(query.reload,1500);return()=>clearInterval(timer);},[running]);
+ useEffect(()=>{if(!running)return;if (running) query.reload(); }, [state.jobs]);
+  useEffect(()=>{ if(!running)return; const timer=setInterval(()=>{ if (typeof document !== "undefined" && document.visibilityState !== "visible") return; query.reload(); },30000); return()=>clearInterval(timer); },[running]);
  return <><ErrorMessage error={query.error}/>{[...jobs.values()].sort((a,b)=>b.startedAt-a.startedAt).slice(0,3).map(job=><JobProgress key={job.id} job={job}/>)}</>;
 }
 

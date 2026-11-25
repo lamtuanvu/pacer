@@ -17,6 +17,7 @@ import { AgentMark } from "../../ds/AgentMark";
 import { Pill } from "../../ds/Pill";
 import { Alert } from "../../ds/Alert";
 import { useDialogs } from "../../ds/useDialogs";
+import { useViewActive } from "../../workspace/state";
 import { Button, ButtonLink, TextAction } from "../../ds/Button";
 import { ErrorMessage, useTaskContext } from "../task-shared";
 import { DiscoverySection } from "./Discovery";
@@ -168,13 +169,21 @@ function ThisMachine({ initialData }: { initialData?: ConfigData }) {
   };
   // Pressure and load change without any setting changing: re-read the guard state while open.
   // A failed poll keeps the last reading rather than replacing the form with an error.
+  // No server event carries machine pressure/load, so keep a slow poll but pause it
+  // while the document is hidden or the screen is not visible.
   const [live, setLive] = useState<ConfigData["machine"]>();
+  const visible = useViewActive();
   useEffect(() => {
     let active = true;
-    const poll = () => void api.call<ConfigData>("config.get", {}).then(r => { if (active) setLive(r.machine); }, () => {});
+    const poll = () => {
+      if (!active || (typeof document !== "undefined" && document.visibilityState !== "visible")) return;
+      void api.call<ConfigData>("config.get", {}).then(r => { if (active) setLive(r.machine); }, () => {});
+    };
     const timer = setInterval(poll, 5000);
-    return () => { active = false; clearInterval(timer); };
-  }, [api]);
+    const onVisibility = () => { if (document.visibilityState === "visible") poll(); };
+    if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVisibility);
+    return () => { active = false; clearInterval(timer); if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisibility); };
+  }, [api, visible]);
   const now = machineNow(state.snapshot?.machine && { ...state.snapshot.machine, ...query.data?.machine, ...live });
   const { options } = terminalPreference(query.data);
   return <ResourceState resource={query}>
