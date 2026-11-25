@@ -59,3 +59,27 @@ required-features = ["install", "testing"]
 [[test]]
 name = "install_undo"
 required-features = ["install", "testing"]
+
+[[test]]
+name = "install_managed_content"
+required-features = ["install", "testing"]
+
+[[test]]
+name = "install_plan"
+required-features = ["install", "testing"]
+
+[[test]]
+name = "install_prepared"
+required-features = ["install", "testing"]
+
+[[test]]
+name = "install_transport"
+required-features = ["install", "testing"]
+
+[[test]]
+name = "install_uninstall"
+required-features = ["install", "testing"]
+
+[[test]]
+name = "install_policy"
+required-features = ["install", "testing"]

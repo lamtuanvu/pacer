@@ -7,7 +7,13 @@ mod blocks;
 mod helpers;
 mod hookjson;
 mod jsonc;
+mod managed_content;
+mod plan;
+mod policy_text;
+mod prepared;
+mod transport;
 mod undo;
+mod uninstall;
 
 pub use blocks::{BlockStyle, block_text, has_block, remove_block, upsert_block};
 pub use helpers::{backup_path, sha256, shell_command, shq, zone};
@@ -18,10 +24,22 @@ pub use hookjson::{
 pub use jsonc::{
     JsoncError, get_member, is_empty_object, parse_jsonc, remove_member, set_member, strip_jsonc,
 };
+pub use managed_content::managed_content;
+pub use plan::{FileImage, InstallPlan, PendingFile, PlanEnv, PlanIo};
+pub use policy_text::policy_text;
+pub use prepared::{
+    PlannerCommandIntent, PlannerCommandResult, PreparedPlannerBuilder, PreparedPlannerIo,
+    PreparedPlannerPlan, RunOptions, prepare_planner_install,
+};
+pub use transport::{HostCall, PriorReference, create_planner_io, host_call, read_planner_prior};
 pub use undo::{
     CommandUndo, FileChange, InstallManifest, Integration, ManagedHash, Manifest, PlannerRecord,
     RestoreBlock, UndoOp, UndoSnapshot, UndoSnapshotFile, apply_undo, merge_undo, pieces_present,
     remove_toml_table,
+};
+pub use uninstall::{
+    PreparedPlannerUninstall, UninstallFailureReason, UninstallPreparationFailure, UninstallReport,
+    prepare_planner_uninstall_files,
 };
 
 use std::{fmt, future::Future, pin::Pin};
