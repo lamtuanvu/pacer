@@ -845,12 +845,33 @@ fn plugins(raw: Option<&Value>, problems: &mut Vec<String>) -> Value {
                     ));
                     continue;
                 }
+                if let Some(workflows) = g.get("workflows")
+                    && workflows
+                        .as_array()
+                        .is_none_or(|v| v.iter().any(|x| !x.is_string()))
+                {
+                    problems.push(format!(
+                        "plugins.installed.{id}.workflows must be a list of names"
+                    ));
+                    continue;
+                }
                 let mut out = json!({"version":version,"capabilities":capabilities});
-                if let Some(v) = g.get("surfaces") {
+                // Omit empty surfaces (parity with TypeScript setPluginGrant / strategy parse).
+                if let Some(v) = g
+                    .get("surfaces")
+                    .filter(|v| v.as_array().is_some_and(|a| !a.is_empty()))
+                {
                     out["surfaces"] = v.clone();
                 }
                 if let Some(v) = g.get("policy").filter(|v| v.is_boolean()) {
                     out["policy"] = v.clone();
+                }
+                // Protocol 1.12.0: consent covers contributed workflow names.
+                if let Some(v) = g
+                    .get("workflows")
+                    .filter(|v| v.as_array().is_some_and(|a| !a.is_empty()))
+                {
+                    out["workflows"] = v.clone();
                 }
                 installed.insert(id.clone(), out);
             }
