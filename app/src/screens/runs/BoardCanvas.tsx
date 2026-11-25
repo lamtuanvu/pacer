@@ -15,13 +15,14 @@ export function deskWords(n: { status: string; waitsOnYou: boolean }): { glyph: 
   return { glyph: stepMarkerGlyph(stepMarkerFor({ status: n.status })), label: s.label, cls: n.status };
 }
 
-/** What a zone says about its versions: the engine's own version statuses, in plain words. */
+/** What a zone says about its versions: the newest version's status and size, how many of its steps started, and the one before it. */
 export function zoneSummary(z: { versions: Array<{ version: number; status: string; stepCount: number }>; approved: number; drawn: number }): string {
   if (!z.versions.length) return "No plan yet";
   const latest = z.versions[z.versions.length - 1]!;
-  const head = `v${latest.version} ${graphStatusLabel(latest.status)} · ${latest.stepCount} ${latest.stepCount === 1 ? "step" : "steps"}`;
-  if (!z.approved) return `${head} · not approved yet`;
-  return `${head} · ${z.drawn} ${z.drawn === 1 ? "step" : "steps"} started`;
+  const prev = z.versions.length > 1 ? z.versions[z.versions.length - 2]! : undefined;
+  const size = `${latest.stepCount} ${latest.stepCount === 1 ? "step" : "steps"}`;
+  const state = z.approved ? ` · ${z.drawn} started` : " · not approved yet";
+  return `v${latest.version} ${graphStatusLabel(latest.status)} · ${size}${state}${prev ? ` · v${prev.version} ${graphStatusLabel(prev.status)}` : ""}`;
 }
 
 export interface CanvasProps {

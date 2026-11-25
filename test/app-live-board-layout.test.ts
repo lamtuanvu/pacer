@@ -1,6 +1,7 @@
 /** Live board layout: deterministic, drawn from step rows only, one place per running agent. */
 import { expect, test } from "bun:test";
 import { layoutLiveBoard, type LayoutInput, type LiveBoardLayout } from "../app/src/screens/runs/live-board-layout";
+import { zoneSummary } from "../app/src/screens/runs/BoardCanvas";
 import { graphStatusLabel, layoutInputFromDetail } from "../app/src/screens/runs/live-board-model";
 import {
   fanoutInput, featureDefinition, generatedInput, noDefinitionInput, plainInput, retriedInput, step,
@@ -147,4 +148,11 @@ test("layoutInputFromDetail reads steps, definition, graphs and children (parent
 test("graph version statuses are shown in plain words, and an unknown status is shown as it is", () => {
   expect(["proposed", "approved", "rejected", "superseded"].map(graphStatusLabel)).toEqual(["proposed", "approved", "rejected", "replaced"]);
   expect(graphStatusLabel("something_new")).toBe("something_new");
+});
+
+test("a zone's line names the newest version, how many of its steps started, and the version before it", () => {
+  const z = layoutLiveBoard(generatedInput).zones[0]!;
+  expect(zoneSummary(z)).toBe("v2 approved · 4 steps · 3 started · v1 rejected");
+  expect(zoneSummary({ versions: [{ version: 1, status: "proposed", stepCount: 1 }], approved: 0, drawn: 0 })).toBe("v1 proposed · 1 step · not approved yet");
+  expect(zoneSummary({ versions: [], approved: 0, drawn: 0 })).toBe("No plan yet");
 });
