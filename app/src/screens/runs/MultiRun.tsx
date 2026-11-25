@@ -146,11 +146,11 @@ export function MultiRun({ query }: { query: RouteQuery }) {
                     <span className="lb-cap">{q.runTitle}</span>
                   </div>
                   <div className="lb-row">
-                    <Button size="sm" variant={answerId === q.id ? "secondary" : "quiet"} aria-expanded={answerId === q.id} onClick={() => setAnswerId(answerId === q.id ? null : q.id)}>
+                    <Button size="sm" variant={answerId === q.id ? "secondary" : "quiet"} aria-expanded={answerId === q.id} aria-label={`Answer the question from run ${q.letter}`} onClick={() => setAnswerId(answerId === q.id ? null : q.id)}>
                       Answer
                     </Button>
-                    <ButtonLink size="sm" variant="quiet" href={liveHref(q.runId, undefined, query)}>Live board</ButtonLink>
-                    <ButtonLink size="sm" variant="quiet" href={runViewHref(q.runId, query)}>Run view</ButtonLink>
+                    <ButtonLink size="sm" variant="quiet" href={liveHref(q.runId, undefined, query)} aria-label={`Live board of run ${q.letter}`}>Live board</ButtonLink>
+                    <ButtonLink size="sm" variant="quiet" href={runViewHref(q.runId, query)} aria-label={`Run view of run ${q.letter}`}>Run view</ButtonLink>
                   </div>
                   {answering?.id === q.id ? (
                     <RunQuestionCard question={q.question} canAnswer={canAnswer} api={api}
@@ -187,9 +187,9 @@ export function MultiRun({ query }: { query: RouteQuery }) {
                         onClick={() => { setFocusId(focus === line.id ? null : line.id); setAnnounce(focus === line.id ? "Showing all runs" : `Focused on run ${line.letter}`); }}>
                         Focus on {line.letter}
                       </Button>
-                      <ButtonLink size="sm" variant="quiet" href={liveHref(line.id, undefined, query)}>Live board</ButtonLink>
-                      <ButtonLink size="sm" variant="quiet" href={liveHref(line.id, "journey", query)}>Replay journey</ButtonLink>
-                      <ButtonLink size="sm" variant="quiet" href={runViewHref(line.id, query)}>Run view</ButtonLink>
+                      <ButtonLink size="sm" variant="quiet" href={liveHref(line.id, undefined, query)} aria-label={`Live board of run ${line.letter}`}>Live board</ButtonLink>
+                      <ButtonLink size="sm" variant="quiet" href={liveHref(line.id, "journey", query)} aria-label={`Replay journey of run ${line.letter}`}>Replay journey</ButtonLink>
+                      <ButtonLink size="sm" variant="quiet" href={runViewHref(line.id, query)} aria-label={`Run view of run ${line.letter}`}>Run view</ButtonLink>
                     </div>
                   </li>
                 );

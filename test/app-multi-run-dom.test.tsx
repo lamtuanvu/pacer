@@ -194,6 +194,11 @@ test("links go to each run's Live board, journey replay and run view", async () 
   try {
     const hrefs = all(row(dom.container, "data-run", "run_b")).filter(n => n.tagName === "a").map(n => [text(n), attr(n, "href")]);
     expect(hrefs).toEqual([["Live board", "#/live/run_b"], ["Replay journey", "#/live/run_b/journey"], ["Run view", "#/runs/run_b"]]);
+    // identical visible words are told apart for screen readers by the run's letter
+    const names = all(row(dom.container, "data-run", "run_b")).filter(n => n.tagName === "a").map(n => attr(n, "aria-label"));
+    expect(names).toEqual(["Live board of run B", "Replay journey of run B", "Run view of run B"]);
+    const answers = all(dom.container as Node).filter(n => n.tagName === "button" && /^Answer the question/.test(attr(n, "aria-label") ?? "")).map(n => attr(n, "aria-label"));
+    expect(answers).toEqual(["Answer the question from run A", "Answer the question from run B", "Answer the question from run C"]);
   } finally { await done(dom); }
 });
 
