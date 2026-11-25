@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Fixed
+
+- **Plugin crates publish again.** v0.18.5 removed `assistant.respond` from the generated `pacer-plugin-protocol` types without a version bump, so its crates job refused to publish over 0.4.0. The protocol crate is now 0.5.0 and the `pacer-plugin` SDK 0.6.0.
+
 ## [0.18.5] - 2026-11-25
 
 ### Changed
