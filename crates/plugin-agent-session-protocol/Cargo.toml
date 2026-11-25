@@ -1,6 +1,6 @@
 [package]
 name = "pacer-plugin-agent-session-protocol"
-version = "0.3.0"
+version = "0.4.0"
 publish = true
 description = "Generated agent-session wire types for the pacer plugin protocol; re-exported by pacer-plugin as pacer_plugin::types."
 readme = "README.md"

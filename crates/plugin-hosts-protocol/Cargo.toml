@@ -1,6 +1,6 @@
 [package]
 name = "pacer-plugin-hosts-protocol"
-version = "0.3.0"
+version = "0.4.0"
 publish = true
 description = "Generated host-runner and host capability wire types for the pacer plugin protocol."
 readme = "README.md"
