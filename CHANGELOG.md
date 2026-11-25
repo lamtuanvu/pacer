@@ -4,6 +4,16 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.18.3] - 2026-11-25
+
+### Changed
+
+- Release 0.18.2 (#1283).
+
+### Fixed
+
+- Accept the workflow protocol crate in the archive check (#1284) (release).
+
 ## [0.18.2] - 2026-11-25
 
 ### Changed
