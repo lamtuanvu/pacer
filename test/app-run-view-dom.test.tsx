@@ -554,13 +554,13 @@ test("a failed artifact read shows plain words and logs the raw error", async ()
 });
 
 test("the title is never the raw run id: snapshot title when known, plain words otherwise", async () => {
-  for (const [runs, want] of [[[{ id: "run_1", title: "Snapshot title", status: "running", letter: "Q" }], "Snapshot title"], [[], "Run "]] as const) {
+  for (const [runs, want] of [[[{ id: "run_1", title: "Snapshot title", status: "running", letter: "Q" }], "Snapshot title"], [[], "Run"]] as const) {
     const dom = installDom();
     try {
       const calls: Calls = { ops: [] };
       let release: () => void = () => {};
       const gate = new Promise<void>(r => { release = r; });
-      const api = apiFor(plain, calls, { "run.get": async () => { await gate; throw new ApiError("internal", "boom"); } });
+      const api = apiFor(plain, calls, { "run.list": () => [], "run.get": async () => { await gate; throw new ApiError("internal", "boom"); } });
       const base = stateFor(plain, ALL_OPS);
       const state = { ...base, snapshot: { ...base.snapshot!, runs: runs as never } };
       await mount(dom, <TaskContext.Provider value={{ state, api }}><RunView runId="run_1" query={query} /></TaskContext.Provider>);
@@ -638,7 +638,8 @@ test("Try again on a failed load moves focus to the run title", async () => {
   try {
     fail = false;
     clickText(dom.container, "Try again");
-    await until(() => domText(dom.container).includes("Ship the board"), 3000);
+    await until(() => domText(dom.container).includes("Waits on you"), 3000);
+    await act(async () => { await tick(); });
     expect(String(focused(dom)?.tagName).toLowerCase()).toBe("h1");
   } finally { await done(dom); }
 });
@@ -674,4 +675,54 @@ test("a failed message log is said plainly and earlier messages stay", async () 
       await until(() => !domText(dom.container).includes("Couldn't load the latest messages"), 3000);
     } finally { await done(dom); }
   });
+});
+
+test("the heading never guesses a letter: list title first, then snapshot, else a plain heading", async () => {
+  const listed = { id: "run_1", workflow: "w", title: "Listed title", status: "done", priority: "normal", letter: "D", createdAt: 1 };
+  const snap = [{ id: "run_1", title: "Snapshot title", status: "running", letter: "D" }];
+  for (const [list, runs, want] of [[[listed], [], "Listed title"], [[listed], snap, "Listed title"], [null, [], "Run"], [[], [], "Run"]] as const) {
+    const dom = installDom();
+    try {
+      const boom = () => { throw new ApiError("internal", "boom"); };
+      const api = apiFor(plain, { ops: [] }, { "run.get": boom, "run.list": () => list ?? boom() });
+      const base = stateFor(plain, ALL_OPS);
+      const state = { ...base, snapshot: { ...base.snapshot!, runs: runs as never } };
+      await withWarnings(async () => {
+        await mount(dom, <TaskContext.Provider value={{ state, api }}><RunView runId="run_1" query={query} /></TaskContext.Provider>);
+        // while loading, a run that neither source knows has no letter
+        if (!runs.length) expect(heading(dom.container)).toBe("Run");
+        await until(() => domText(dom.container).includes("Couldn't load this run"), 3000);
+      });
+      expect(heading(dom.container)).toBe(want);
+      if (want === "Run") expect(all(dom.container as unknown as Node).some(n => n.getAttribute?.("aria-label")?.match(/^Run [A-Z]/))).toBe(false);
+    } finally { await done(dom); }
+  }
+});
+
+test("a retry that fails again leaves focus on its button", async () => {
+  for (const [op, shown, label] of [["run.get", "Couldn't load this run", "Try again"], ["run.seen", "Couldn't mark this run as seen", "Mark as seen"]] as const) {
+    await withWarnings(async () => {
+      let release: () => void = () => {};
+      let n = 0;
+      const { dom, calls } = await open(plain, ALL_OPS, { [op]: async () => {
+        if (++n > 1) await new Promise<void>(r => { release = r; });
+        throw new ApiError("internal", "boom");
+      } });
+      try {
+        await until(() => domText(dom.container).includes(shown), 2000);
+        const button = control(dom.container, "button", b => text(b).trim() === label)!;
+        (dom.doc as unknown as { activeElement: Node }).activeElement = button;
+        clickText(dom.container, label);
+        await until(() => calls.ops.filter(c => c.op === op).length === 2, 2000);
+        await act(async () => { await tick(); });
+        // still on the page while the call is in flight
+        expect(control(dom.container, "button", b => text(b).trim() === label)).toBe(button);
+        expect(focused(dom)).toBe(button);
+        release();
+        await new Promise(r => setTimeout(r, 80));
+        expect(control(dom.container, "button", b => text(b).trim() === label)).toBe(button);
+        expect(focused(dom)).toBe(button);
+      } finally { await done(dom); }
+    });
+  }
 });

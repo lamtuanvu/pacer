@@ -368,7 +368,12 @@ export function mergeDetailRefresh(current: RunsStoreState, next: RunsStoreState
   const merged = held?.run && detail.error === RUN_DETAIL_ERROR
     ? { ...held, loading: false, error: detail.error }
     // Loads can overlap: each applied one gets its own stamp, so artifact text is read again.
-    : { ...detail, stamp: Math.max(detail.stamp, (held?.stamp ?? 0) + 1) };
+    : {
+      ...detail,
+      // Likewise a failed message read must not replace messages another load brought meanwhile.
+      ...(detail.messagesError && held?.messages ? { messages: held.messages } : {}),
+      stamp: Math.max(detail.stamp, (held?.stamp ?? 0) + 1),
+    };
   return { ...current, details: { ...current.details, [id]: merged } };
 }
 

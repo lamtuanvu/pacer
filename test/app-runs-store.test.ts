@@ -228,6 +228,19 @@ test("merging a refresh takes only its own part and keeps rows on failure", () =
   expect(mergeListRefresh(merged, { ...initialRunsStore(), list: [] }).details.run_1).toEqual(detail);
 });
 
+test("merging an overlapping detail load keeps newer messages and gets its own stamp", () => {
+  const base = { id: "run_1", run: { id: "run_1" }, steps: [], questions: [], decisions: [], loading: false, error: null, stamp: 2 };
+  const newer = [{ id: "m_2", from: "person", to: "task:t", kind: "message", body: "newer", at: 2 }];
+  const current = { ...initialRunsStore(), details: { run_1: { ...base, messages: newer } } };
+  const late = (detail: object) => mergeDetailRefresh(current, { ...initialRunsStore(), details: { run_1: { ...base, ...detail } } }, "run_1").details.run_1!;
+  expect(late({ messagesError: true }).messages).toEqual(newer);
+  expect(late({ messagesError: true, messages: [] }).messages).toEqual(newer);
+  expect(late({ messagesError: true }).messagesError).toBe(true);
+  expect(late({ messages: [] }).messages).toEqual([]);
+  // Same stamp as the shown copy (both loads started from stamp 1): artifact text must still be re-read.
+  expect(late({}).stamp).toBe(3);
+});
+
 test("markRunSeen reports what happened", async () => {
   const api = (fail: boolean) => ({ call: async () => { if (fail) throw new Error("x"); return {}; } }) as never;
   const warn = console.warn;

@@ -7,7 +7,7 @@ import {
 } from "../../../../src/view-model/run-board";
 import {
   displayRunLetter, orchestratorBlock, pausedReasonLabel, runAge, runPriorityLabel, runStatus, waitsOnLabel,
-  RUN_QUESTIONS_ERROR, RUN_SEEN_ERROR,
+  RUN_HEADING, RUN_QUESTIONS_ERROR, RUN_SEEN_ERROR,
 } from "../../../../src/view-model/runs";
 import {
   initialRunsStore, markRunSeen, mergeDetailRefresh, mergeListRefresh, mergeSnapshotRuns, refreshRunDetail, refreshRunsList,
@@ -68,6 +68,7 @@ export function RunView({ runId, query, fetchText }: { runId: string; query: Rou
    * A response is dropped after unmount, or once a newer load has been applied. One that is merely
    * superseded still applies, so frequent invalidations cannot keep the view from ever updating.
    */
+  /** Resolves true when this run was read without any error. */
   const load = async () => {
     const mine = ++loadSeq.current;
     const listed = await refreshRunsList(api, storeRef.current, ops);
@@ -76,27 +77,33 @@ export function RunView({ runId, query, fetchText }: { runId: string; query: Rou
       appliedSeq.current = mine;
       setStore(current => mergeDetailRefresh(mergeListRefresh(current, listed), next, runId));
     }
+    return next.details[runId]?.error === null;
   };
   useEffect(() => {
     // A different run in the same instance starts from its own overview.
     setBoard("overview");
     setAnnounce("");
   }, [runId]);
-  const markSeen = () => {
+  /** The failure alert stays until a call works, so its button keeps focus through a failed retry. */
+  const markSeen = async () => {
     seen.current = runId;
-    setSeenFailed(null);
-    void markRunSeen(api, runId, ops).then(result => {
-      if (result !== "failed" || seen.current !== runId) return;
-      // A failed call is retried by the next refresh, or by the alert's button.
-      seen.current = null;
-      if (mounted.current) setSeenFailed(runId);
-    });
+    const result = await markRunSeen(api, runId, ops);
+    if (seen.current !== runId) return false;
+    // A failed call is retried by the next refresh, or by the alert's button.
+    if (result === "failed") seen.current = null;
+    if (mounted.current) setSeenFailed(result === "failed" ? runId : null);
+    return result !== "failed";
   };
-  /** A retry button leaves the page when it works; move keyboard focus to the run title first. */
   const focusHeading = () => headingRef.current?.focus({ preventScroll: true });
-  const retryLoad = () => { focusHeading(); void load(); };
+  /** A retry button leaves the page only when it works: then move focus to the run title, unless the person moved on. */
+  const retry = async (button: EventTarget | null, attempt: () => Promise<boolean>) => {
+    if (!await attempt() || !mounted.current) return;
+    const active = document.activeElement;
+    if (!active || active === document.body || active === button) focusHeading();
+  };
+  const retryLoad = (e: Event) => { void retry(e.currentTarget, load); };
   useEffect(() => {
-    if (seen.current !== runId) markSeen();
+    if (seen.current !== runId) void markSeen();
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- load reads the latest store through a ref
   }, [api, ops, runId, state.connectionRevision, state.invalidations.runs, state.invalidations.attention]);
@@ -153,10 +160,14 @@ export function RunView({ runId, query, fetchText }: { runId: string; query: Rou
   // Header facts
   const letters = runLettersForList(mergeSnapshotRuns(store.list, state.snapshot?.runs));
   const snapRun = state.snapshot?.runs?.find(r => r.id === runId);
-  const letter = letters.get(runId) ?? displayRunLetter({ id: runId, letter: snapRun?.letter });
+  const listRow = store.list.find(r => r.id === runId);
+  // A letter only when the list, the snapshot or the run supplies it: a guessed one can name another run.
+  const letter = letters.get(runId) ?? (typeof run?.letter === "string" && run.letter ? displayRunLetter({ id: runId, letter: run.letter }) : undefined);
+  const runName = letter ? `Run ${letter}` : RUN_HEADING;
   const pausedReason = typeof run?.pausedReason === "string" ? run.pausedReason : typeof snapRun?.paused_reason === "string" ? snapRun.paused_reason : undefined;
   const status = runStatus(pausedReason ? "paused" : String(run?.status ?? "running"));
-  const title = (typeof run?.title === "string" && run.title) || (typeof run?.workflow === "string" && run.workflow) || snapRun?.title || `Run ${letter}`;
+  const title = (typeof run?.title === "string" && run.title) || (typeof run?.workflow === "string" && run.workflow)
+    || (listRow?.title !== runId && listRow?.title) || snapRun?.title || runName;
   const openQuestions = (view?.questions ?? []).filter(isOpenForPerson);
   const waits = snapRun?.waits_on ?? (openQuestions.length ? "you" : status.label === "Waiting" ? "orchestrator" : "-");
   const orch = isObj(run?.orchestrator) ? run!.orchestrator as { state?: string; planner?: string; reason?: string; next_wake_at?: number } : undefined;
@@ -184,7 +195,7 @@ export function RunView({ runId, query, fetchText }: { runId: string; query: Rou
       </header>
     </PageHead>
     <p className="sr-only" role="status" aria-live="polite">{announce}</p>
-    <Page width="full" className="rv" aria-label={`Run ${letter}`}>
+    <Page width="full" className="rv" aria-label={runName}>
       {unavailable && <EmptyState title="Run unavailable" description="This service does not offer run.get yet." />}
       {detailState?.error && !raw && (
         <Alert tone="error" title="Couldn't load this run">
@@ -194,7 +205,7 @@ export function RunView({ runId, query, fetchText }: { runId: string; query: Rou
       )}
       {seenFailed === runId ? (
         <Alert tone="error" title={RUN_SEEN_ERROR}>
-          <Button size="sm" onClick={() => { focusHeading(); markSeen(); }}>Mark as seen</Button>
+          <Button size="sm" onClick={e => { void retry(e.currentTarget, markSeen); }}>Mark as seen</Button>
         </Alert>
       ) : null}
       {detailState?.error && raw && (
@@ -208,7 +219,7 @@ export function RunView({ runId, query, fetchText }: { runId: string; query: Rou
       {!unavailable && !raw && !detailState?.error && <p className="rv-cap" role="status">Loading run…</p>}
       {view && run && <>
         <div className="rv-facts" aria-label="Run facts" role="group">
-          <span className="rv-fact"><span className="pc-run-letter" role="img" aria-label={`Run ${letter}`}>{letter}</span></span>
+          {letter ? <span className="rv-fact"><span className="pc-run-letter" role="img" aria-label={runName}>{letter}</span></span> : null}
           <span className="rv-fact"><Pill tone={status.tone}><span aria-hidden="true">{status.glyph} </span>{status.label}</Pill></span>
           <span className="rv-fact">Priority: {runPriorityLabel(typeof run.priority === "string" ? run.priority : undefined)}</span>
           <span className="rv-fact">Waits on: {waitsOnLabel(waits)}</span>

@@ -204,6 +204,8 @@ export const RUNS_REFRESH_ERROR = "The list may be out of date. Reload the page 
 export const RUN_DETAIL_ERROR = "Couldn't load this run's details.";
 export const RUN_QUESTIONS_ERROR = "Couldn't load this run's questions.";
 export const RUN_SEEN_ERROR = "Couldn't mark this run as seen.";
+/** Run view heading when nothing names the run yet. */
+export const RUN_HEADING = "Run";
 export const RUN_MESSAGES_ERROR = "Couldn't load the latest messages.";
 export const RUN_MESSAGE_SEND_ERROR = "Couldn't send your message. It is still in the box; try again.";
 export const RUN_ARTIFACT_ERROR = "The file could not be read.";
