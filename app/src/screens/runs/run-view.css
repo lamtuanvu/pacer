@@ -45,7 +45,6 @@
   gap: var(--space-2);
   min-width: 0;
 }
-.rv-box--warn { border-color: var(--bad-line); }
 .rv-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-width: 0; }
 .rv-row > .rv-grow { flex: 1 1 0; min-width: 0; }
 .rv-ul, .rv-ol { margin: 0; padding-left: var(--space-5); display: flex; flex-direction: column; gap: var(--space-1); }
@@ -59,7 +58,7 @@
   overflow-wrap: anywhere;
 }
 .rv-text { margin: 0; overflow-wrap: anywhere; }
-.rv-clip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.rv-clip { min-width: 0; overflow-wrap: anywhere; }
 .rv-num { font-variant-numeric: tabular-nums; }
 
 /* Board 1: step strip */
@@ -75,7 +74,7 @@
   border-radius: var(--radius-md);
   background: var(--surface-card);
 }
-.rv-step--you { border-color: var(--focus); border-width: var(--stroke-focus); }
+.rv-step--you { border-color: var(--warn-line); background: var(--warn-tint); }
 .rv-step-name { font-weight: var(--type-body-strong-weight); overflow-wrap: anywhere; }
 
 /* Rail */
@@ -85,6 +84,7 @@
 .rv-rail-kind { color: var(--ink-muted); font-size: var(--type-caption-size); line-height: var(--type-caption-line); }
 
 /* Board 2 */
+.rv-spec:focus-visible { outline: var(--stroke-focus) solid var(--focus); outline-offset: var(--stroke-focus); }
 .rv-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-4); align-items: start; }
 .rv-lane { min-height: var(--size-320); min-width: 0; }
 .rv-spec {

@@ -447,3 +447,8 @@ export function pickSpecArtifact(artifacts: ArtifactMeta[], requested?: string |
   const pool = specs.length ? specs : artifacts;
   return pool[pool.length - 1];
 }
+
+/** The planner needs the person's eye when the engine reports it blocked or retrying (structured state, not wording). */
+export function orchestratorNeedsAttention(orch: { state?: string } | null | undefined): boolean {
+  return orch?.state === "blocked" || orch?.state === "retrying";
+}

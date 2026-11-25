@@ -4,10 +4,11 @@ import { act } from "preact/test-utils";
 import { ApiError } from "../app/src/data/api";
 import { TaskContext } from "../app/src/screens/task-shared";
 import { RunsPage } from "../app/src/screens/runs/RunsPage";
+import { ArtifactText } from "../app/src/screens/runs/run-shared";
 import { RunView } from "../app/src/screens/runs/RunView";
 import { clickText, domText, installDom, isDisabled, mount, submitForm, tick, until, unmount } from "./app-setup-health-dom";
 import {
-  ALL_OPS, apiFor, evidence, failed, fanout, generated, joined, paused, plain, plannerAtLimit, stateFor, type Calls, type Fixture,
+  ALL_OPS, WAKE_AT_1800_VN, apiFor, evidence, failed, fanout, generated, joined, paused, plain, plannerAtLimit, stateFor, type Calls, type Fixture,
 } from "./app-run-view-fixtures";
 
 const query = { repo: null, scope: null };
@@ -52,7 +53,7 @@ async function open(fixture: Fixture, ops = ALL_OPS, handlers: Parameters<typeof
       {wrapRun ? <RunView runId={fixture.id} query={query} /> : <RunsPage query={query} runId={fixture.id} />}
     </TaskContext.Provider>
   ));
-  await until(() => domText(dom.container).includes("Planner") || domText(dom.container).includes("Couldn't load"), 3000);
+  await until(() => domText(dom.container).includes("Ship the board") || domText(dom.container).includes("Couldn't load"), 3000);
   // Flush passive effects of components that mounted after the async load (outside act).
   await act(async () => { await tick(); });
   // Preact flushes passive effects after paint (rAF raced against a 100 ms timeout); wait past it so a form's
@@ -248,7 +249,11 @@ test("a paused run says why, in plain words", async () => {
 test("planner at limit shows its wake time as the orchestrator block", async () => {
   const { dom } = await open(plannerAtLimit);
   try {
-    expect(domText(dom.container)).toContain("Planner at limit until 18:00");
+    // Wall-clock time in the machine's zone, computed the way the view model does, so the test holds in any TZ.
+    const until = new Date(WAKE_AT_1800_VN * 1000).toLocaleTimeString("en-GB", { hourCycle: "h23", hour: "2-digit", minute: "2-digit" });
+    expect(domText(dom.container)).toContain(`Planner at limit until ${until}`);
+    expect(domText(dom.container)).toContain("The planner is blocked");
+    expect(domText(dom.container)).not.toContain("Planner: Planner");
   } finally { await done(dom); }
   const ok = await open(plain);
   try { expect(domText(ok.dom.container)).not.toContain("at limit"); } finally { await done(ok.dom); }
@@ -312,4 +317,181 @@ test("an unreadable run shows a plain error with Try again, and no op names", as
     expect(domText(dom.container)).toContain("Couldn't load this run");
     expect(domText(dom.container)).toContain("Try again");
   } finally { await done(dom); }
+});
+
+// ---- review batch: races, stale data, runId change, keyboard order, planner states
+
+const plainState = (f: Fixture, bump = 0) => { const st = stateFor(f, ALL_OPS); return { ...st, invalidations: { runs: bump } }; };
+async function mountWith(fixture: Fixture, handlers: Parameters<typeof apiFor>[2]) {
+  const dom = installDom();
+  const calls: Calls = { ops: [] };
+  const api = apiFor(fixture, calls, handlers);
+  const render = (bump: number, id = fixture.id) => mount(dom, (
+    <TaskContext.Provider value={{ state: plainState(fixture, bump), api }}><RunView runId={id} query={query} /></TaskContext.Provider>
+  ));
+  await render(0);
+  await until(() => domText(dom.container).includes("Ship the board"), 3000);
+  await act(async () => { await tick(); });
+  await new Promise(resolve => setTimeout(resolve, 130)); // let mount-time effects flush (see open())
+  return { dom, calls, render };
+}
+
+test("load race: a slow response for an older load never overwrites a newer one", async () => {
+  let n = 0;
+  let releaseSlow: () => void = () => {};
+  const slowGate = new Promise<void>(r => { releaseSlow = r; });
+  const { dom, render } = await mountWith(plain, {
+    "run.get": async () => {
+      n++;
+      const title = n === 2 ? "Slow old title" : n >= 3 ? "Fresh new title" : "Ship the board";
+      if (n === 2) await slowGate;
+      return { ...plain.get, run: { ...plain.get.run, title } };
+    },
+    "msg.send": () => ({}),
+  });
+  try {
+    // 1) a message send starts load #2 (held); 2) an invalidation starts load #3 (fast, newest)
+    const box = control(dom.container, "textarea", () => true)!;
+    box.value = "hi"; fire(box, "input"); await tick();
+    formOf(box).submit();
+    await until(() => n >= 2, 2000);
+    await render(1);
+    await until(() => domText(dom.container).includes("Fresh new title"), 3000);
+    releaseSlow();
+    await new Promise(r => setTimeout(r, 80));
+    expect(domText(dom.container)).toContain("Fresh new title");
+    expect(domText(dom.container)).not.toContain("Slow old title");
+  } finally { await done(dom); }
+});
+
+test("a failed refresh after a good load flags the data as out of date and keeps it on screen", async () => {
+  let fail = false;
+  const { dom, render } = await mountWith(plain, { "run.get": () => { if (fail) throw new ApiError("internal", "boom"); return plain.get; } });
+  try {
+    expect(domText(dom.container)).not.toContain("may be out of date");
+    fail = true;
+    await render(1);
+    await until(() => domText(dom.container).includes("This run may be out of date"), 3000);
+    expect(domText(dom.container)).toContain("Ship the board");
+    expect(domText(dom.container)).not.toContain("boom");
+    expect(control(dom.container, "button", n => text(n).trim() === "Try again")).toBeDefined();
+    fail = false;
+    clickText(dom.container, "Try again");
+    await until(() => !domText(dom.container).includes("may be out of date"), 3000);
+  } finally { await done(dom); }
+});
+
+test("run.seen fires once per run: same-run reloads do not repeat it, a different run does", async () => {
+  const other: Fixture = { ...plain, id: "run_2", get: { ...plain.get, run: { ...plain.get.run, id: "run_2", title: "Second run" } } };
+  const { dom, calls, render } = await mountWith(plain, { "run.get": p => ((p as { id: string }).id === "run_2" ? other.get : plain.get) });
+  try {
+    const seen = () => calls.ops.filter(c => c.op === "run.seen").map(c => (c.params as { id: string }).id);
+    const gets = () => calls.ops.filter(c => c.op === "run.get").length;
+    expect(seen()).toEqual(["run_1"]);
+    const g0 = gets();
+    await render(1); await render(2);
+    await until(() => gets() >= g0 + 2, 2000);
+    expect(seen()).toEqual(["run_1"]);
+    // board and announcement reset when the run changes in the same instance
+    clickText(dom.container, "Brainstorm");
+    await act(async () => { await tick(); });
+    expect(pressed(dom.container, "Brainstorm")).toBe(true);
+    await render(2, "run_2");
+    await until(() => seen().length === 2, 2000);
+    expect(seen()).toEqual(["run_1", "run_2"]);
+    await until(() => domText(dom.container).includes("Second run"), 3000);
+    expect(pressed(dom.container, "Brainstorm")).toBe(false);
+    expect(pressed(dom.container, "Overview")).toBe(true);
+    expect(domText(dom.container)).not.toContain("Brainstorm board shown");
+  } finally { await done(dom); }
+});
+
+test("after a conflict and Reload the new question version replaces the old form and submits its rev", async () => {
+  let version = 1;
+  const q = () => [{ ...plain.questions![0]!, rev: version === 1 ? 3 : 4, text: version === 1 ? "Approve the brainstormed spec?" : "Approve the revised spec?" }];
+  const answers: Array<Record<string, unknown>> = [];
+  const { dom } = await mountWith(plain, {
+    "question.list": () => q(),
+    "question.answer": p => { answers.push(p as Record<string, unknown>); if ((p as { expect_rev: number }).expect_rev !== (version === 1 ? 3 : 4)) throw new ApiError("conflict", "stale"); return {}; },
+  });
+  try {
+    version = 2; // the server moves on while the form is open
+    fire(radio(dom.container, "approve"), "change"); await tick();
+    submitForm(dom.container);
+    await until(() => domText(dom.container).includes("This question changed"), 2000);
+    expect(domText(dom.container)).toContain("review it again");
+    clickText(dom.container, "Reload");
+    await until(() => domText(dom.container).includes("Approve the revised spec?"), 3000);
+    expect(domText(dom.container)).not.toContain("Approve the brainstormed spec?");
+    expect(domText(dom.container)).not.toContain("review it again");
+    await act(async () => { await new Promise(r => setTimeout(r, 130)); });
+    fire(radio(dom.container, "approve"), "change"); await tick();
+    submitForm(dom.container);
+    await until(() => answers.length === 2, 2000);
+    expect(answers[1]).toMatchObject({ id: "q_spec", expect_rev: 4 });
+  } finally { await done(dom); }
+});
+
+test("board switch buttons are native buttons in order, stay in the tab order, and switching is announced", async () => {
+  const { dom } = await open(fanout);
+  try {
+    const group = control(dom.container, "div", n => n.getAttribute?.("aria-label") === "Run boards")!;
+    const buttons = all(group).filter(n => n.tagName === "button");
+    expect(buttons.map(b => text(b).trim())).toEqual(["Overview", "Brainstorm", "Reviewers"]);
+    // native <button type=button> with no negative tabindex: Tab reaches each, Enter and Space activate them
+    for (const b of buttons) {
+      expect(b.getAttribute!("type")).toBe("button");
+      expect(b.getAttribute!("tabindex")).toBeNull();
+      expect(b.getAttribute!("disabled")).toBeNull();
+    }
+    const live = control(dom.container, "p", n => n.getAttribute?.("role") === "status" && n.getAttribute?.("aria-live") === "polite")!;
+    expect(text(live)).toBe("");
+    clickText(dom.container, "Reviewers");
+    await act(async () => { await tick(); });
+    expect(text(control(dom.container, "p", n => n.getAttribute?.("role") === "status" && n.getAttribute?.("aria-live") === "polite")!)).toBe("Reviewers board shown");
+  } finally { await done(dom); }
+});
+
+test("the planner banner follows the structured state, not the wording", async () => {
+  for (const [orch, alert] of [
+    [{ state: "blocked", reason: "planner at limit" }, true],
+    [{ state: "blocked", reason: "turn budget spent" }, true],
+    [{ state: "blocked", reason: "some reworded explanation" }, true],
+    [{ state: "retrying", reason: "planner failed 1×, retrying" }, true],
+    [{ state: "retrying", reason: "planner failed 3×" }, true],
+    [{ state: "turn" }, false],
+    [{ state: "idle" }, false],
+  ] as const) {
+    const f: Fixture = { ...plain, get: { ...plain.get, run: { ...plain.get.run, orchestrator: orch } } };
+    const { dom } = await open(f);
+    try {
+      const t = domText(dom.container);
+      expect(t.includes("The planner is blocked") || t.includes("The planner is retrying")).toBe(alert);
+      expect(t).not.toContain("Planner: Planner");
+    } finally { await done(dom); }
+  }
+});
+
+test("ArtifactText reads the file again when the revision changes, even at the same length", async () => {
+  const dom = installDom();
+  try {
+    let body = "AAAA";
+    let reads = 0;
+    const art = { id: "art_aaaaaaaaaa", label: "Spec", name: "spec.md", mime: "text/markdown", size: 4, stepId: "s" };
+    const fetchText = async () => { reads++; return body; };
+    const render = (rev: number) => mount(dom, <ArtifactText runId="run_1" artifact={art} revision={rev} fetchText={fetchText} />);
+    await render(1);
+    await until(() => domText(dom.container).includes("AAAA"), 2000);
+    body = "BBBB";
+    await render(1);
+    await tick();
+    expect(domText(dom.container)).toContain("AAAA");
+    await render(2);
+    await until(() => domText(dom.container).includes("BBBB"), 2000);
+    expect(reads).toBe(2);
+    // the spec text is a keyboard stop with a name
+    const pre = control(dom.container, "pre", () => true)!;
+    expect(String((pre as unknown as { attrs: Record<string, string> }).attrs.tabIndex ?? (pre as unknown as { attrs: Record<string, string> }).attrs.tabindex)).toBe("0");
+    expect(pre.getAttribute!("aria-label")).toBe("Spec");
+  } finally { await unmount(dom); dom.restore(); }
 });

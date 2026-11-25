@@ -25,7 +25,7 @@ export function ExecutionWaves({ data, now }: { data: WavesData | null; now: num
               {wave.steps.map(step => (
                 <li key={step.stepId} className="rv-box" data-step={step.stepId}>
                   <span className="rv-row">
-                    <strong className="rv-grow rv-clip" title={step.label}>{step.label}</strong>
+                    <strong className="rv-grow rv-clip">{step.label}</strong>
                     <StepState marker={step.marker} status={step.status} />
                   </span>
                   {step.blocked
