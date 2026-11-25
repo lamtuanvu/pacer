@@ -28,15 +28,14 @@ test("every upgrade CLI identity must match the sealed native fixture lease", ()
   }
 });
 
-test("each upgrade build stages its CLI and native shim beside one another", () => {
-  const root = tmpDir(), shim = join(root, "libpacer-native.dylib");
-  writeFileSync(shim, "shim");
+test("each upgrade build stages its CLI in the private fixture runtime", () => {
+  const root = tmpDir();
   for (const name of ["prefeature", "baseline", "candidate"]) {
     const source = join(root, `${name}-source`), staged = join(root, name);
     writeFileSync(source, name);
-    stageUpgradeRuntime(staged, source, shim);
+    stageUpgradeRuntime(staged, source);
     expect(readFileSync(join(staged, "pacer"), "utf8")).toBe(name);
-    expect(readFileSync(join(staged, "libpacer-native.dylib"), "utf8")).toBe("shim");
+    expect(existsSync(join(staged, "libpacer-native.dylib"))).toBe(false);
     expect(existsSync(join(staged, "pacer-core"))).toBe(false);
   }
 });

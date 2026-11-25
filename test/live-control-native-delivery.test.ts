@@ -17,7 +17,7 @@ test("native command preserves uncertain action failures and never retries them"
     writeFileSync(join(root,"scripts/live/native/main.swift"),"fixed test observer");
     writeFileSync(join(root,"desktop/native/permission-chip.swift"),"fixed test permissions");
     mock.module(${JSON.stringify(join(control,"../core.ts"))},()=>({checkout:root,atomicWrite:(path,bytes)=>writeFileSync(path,bytes)}));
-    mock.module(${JSON.stringify(join(control,"ota-binding.ts"))},()=>({resolveDesktopControlBinding:()=>{throw Error("unexpected authority read")},assertSameControlBinding:()=>{throw Error("unexpected authority comparison")}}));
+    mock.module(${JSON.stringify(join(control,"binding.ts"))},()=>({resolveDesktopControlBinding:()=>{throw Error("unexpected authority read")},assertSameControlBinding:()=>{throw Error("unexpected authority comparison")}}));
     let receipt, calls = 0;
     const stream = value => new Response(JSON.stringify(value)).body;
     Bun.spawn = (argv) => {

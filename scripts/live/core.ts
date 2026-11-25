@@ -449,11 +449,6 @@ export function stopProcess(pid: number): void {
 }
 export async function down(session: Session, keep = false): Promise<void> {
   if (session.stopped && !existsSync(session.root)) return;
-  // OTA owns its own resource ledger; never remove it through generic sandbox teardown.
-  if (existsSync(join(session.root, "ota"))) {
-    const { cleanupOta } = await import("./ota");
-    await cleanupOta(session.id, { base: dirname(session.root) });
-  }
   // A closed HTTP listener does not mean history/plugin descendants have stopped.
   // Group ownership is persisted at launch, before a leader can disappear or be reused.
   for (const [pid, group] of [[session.proxyPid, session.proxyGroup], [session.pid, session.serviceGroup], [session.modelFixturePid, session.modelFixtureGroup], [session.waitingPid, session.waitingGroup]] as const) {

@@ -4,9 +4,7 @@ import { coreBuildDescriptor } from "./update/desktop/build-identity";
 import { askCommand } from "./commands/ask";
 import { compiledNativeFixture, compiledNativeFixtureSha256 } from "./update/desktop/native-fixture";
 import { DESKTOP_IDENTIFIERS } from "./update/desktop/bundle-identity";
-import { compiledAppleTeamId, compiledSignerPins, compiledSigningCertSha1 } from "./update/desktop/native-os";
-import { consumeNativePairedBootstrap, configuredPairedNativeBootstrap } from "./update/desktop/native-paired-bootstrap";
-import { signerKind } from "./update/desktop/signer-requirement";
+import { compiledAppleTeamId, compiledSignerPins, compiledSigningCertSha1, signerKind } from "./update/desktop/signer-requirement";
 import { currentVersion } from "./update/version";
 import { projectStrategyCmd } from "./commands/project-strategy";
 import { dashboardClient as connectTaskClient } from "./dashboard/client";
@@ -460,16 +458,10 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
   // Only this Core may hold its secrets: no environment it passes on carries them.
   let secretsOnStdin: boolean;
   let secrets: CoreSecrets = {};
-  let nativeBootstrap;
   const legacySecrets = legacyCoreSecrets(ctx.env);
   try {
     secretsOnStdin = scrubCoreSecrets(ctx.env);
-    nativeBootstrap = consumeNativePairedBootstrap(ctx.env);
-    if (nativeBootstrap && !(argv[0] === "serve" && argv.includes("--internal"))) {
-      return {code:2,out:"",err:"Native bootstrap requires the internal service"};
-    }
-    // A paired native Core authenticates its parent channel before it reads a byte from it.
-    if (secretsOnStdin && !nativeBootstrap) secrets = readCoreSecrets();
+    if (secretsOnStdin) secrets = readCoreSecrets();
   } catch (error) { return {code:2,out:"",err:explain(error)}; }
   if (secrets.ownerKey) holdOwnerKey(secrets.ownerKey);
   const [cmd = "status", ...rest] = argv;
@@ -495,20 +487,6 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
         err: "pacer: orchestrator role only allows review, stop, step result|skip|retry|artifact, run decide|choose|submit-graph|sync|publish, answer, question, ask --type ...",
       };
     }
-  }
-  if (cmd === "--pacer-fixture-startup-cleanup" && compiledNativeFixture()) {
-    if (rest.length) return {code:2,out:"",err:"Fixture cleanup accepts no arguments"};
-    try {
-      const {reserveFixtureStartupCleanup}=await import("./update/desktop/native-fixture-cleanup");
-      return {code:0,out:JSON.stringify(await reserveFixtureStartupCleanup()),err:""};
-    } catch { return {code:2,out:"",err:"Fixture startup cleanup proof is unavailable"}; }
-  }
-  if (cmd === "--pacer-native-transport-test") {
-    if (rest.length) return {code:2,out:"",err:"Native transport smoke accepts no arguments"};
-    try {
-      const {nativeTransportSelfTest}=await import("./update/desktop/native-transport-test");
-      return {code:0,out:JSON.stringify(await nativeTransportSelfTest()),err:""};
-    } catch { return {code:2,out:"",err:"Verified native transport unavailable"}; }
   }
   switch (cmd) {
     case "--pacer-component-descriptor": {
@@ -824,21 +802,15 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
       const { opts } = parseFlags(rest, ["internal"]);
       const internal = opts.internal === true;
       const tokenRequired = `pacer serve --internal requires its credential in the secrets frame on stdin (${CORE_SECRETS_ENV}=${CORE_SECRETS_STDIN}); start it through the pacer front door${legacySecrets ? `; ${LEGACY_CORE_SECRETS}` : ""}`;
-      if (internal && !nativeBootstrap && !secrets.internalToken) return { code: 2, out: "", err: tokenRequired };
+      if (internal && !secrets.internalToken) return { code: 2, out: "", err: tokenRequired };
       // Load or create the machine identity once so activity and task records carry its id; stamping never creates it.
       // Loads are single-flight per home, so identity operations that arrive first share this load.
       void ensureIdentity(ctx).catch(e => console.error(`pacer: machine identity unavailable: ${e instanceof Error ? e.message : String(e)}`));
       try {
         if (internal) {
-          const pairedNative = configuredPairedNativeBootstrap(ctx, Number(ctx.env.PACER_PORT ?? DEFAULT_PORT), nativeBootstrap);
-          // The authenticated parent channel carries the frame after its descriptors.
-          if (pairedNative && secretsOnStdin) {
-            secrets = readCoreSecrets();
-            if (secrets.ownerKey) holdOwnerKey(secrets.ownerKey);
-          }
           const internalToken = secrets.internalToken;
           if (!internalToken) return { code: 2, out: "", err: tokenRequired };
-          const s = startServer(() => fresh(ctx), { internal: { token: internalToken }, supervisionWorker: true, backgroundWorker: true, ...(pairedNative ? {pairedNative} : {}) });
+          const s = startServer(() => fresh(ctx), { internal: { token: internalToken }, supervisionWorker: true, backgroundWorker: true });
           // Best-effort cleanup starts only after the listener binds; the helper logs errors.
           void pruneUndoSnapshotsAtStartup(ctx);
           void terminalEnv(ctx.env, { cwd: ctx.home }).catch(() => undefined);

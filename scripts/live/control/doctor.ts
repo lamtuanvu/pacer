@@ -1,6 +1,6 @@
 import { nativeCommand } from "./desktop";
 import { acquireLease } from "./lease";
-import { resolveDesktopControlBinding, assertSameControlBinding } from "./ota-binding";
+import { resolveDesktopControlBinding, assertSameControlBinding } from "./binding";
 import { operationContext } from "./deadline";
 import type { Session } from "../core";
 import { ControlError, type ControlResult } from "./contract";

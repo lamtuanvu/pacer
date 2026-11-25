@@ -319,15 +319,6 @@ export async function runStdio(
           result = await captureBridge(getCtx(), r.params);
           break;
         }
-        case "_internal.desktop.update": {
-          const key = o.nativeConfigKey;
-          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
-            throw new CoreError("unknown_op", "unknown operation");
-          }
-          const { updateBridge } = await import("./desktop-update-bridge");
-          result = await updateBridge(getCtx(), r.params);
-          break;
-        }
         case "hello": {
           const params=r.params??{};
           if(!params||typeof params!=="object"||Array.isArray(params))throw new CoreError("invalid_input","hello params must be an object");

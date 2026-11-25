@@ -785,35 +785,35 @@ static OPS: &[NativeOp] = &[
     },
     NativeOp {
         name: "desktop.update.status",
-        call: p8_bridge_ops::bridge_stub,
+        call: crate::serve::desktop_update::status_op,
     },
     NativeOp {
         name: "desktop.update.check",
-        call: p8_bridge_ops::bridge_stub,
+        call: crate::serve::desktop_update::check_op,
     },
     NativeOp {
         name: "desktop.update.download",
-        call: p8_bridge_ops::bridge_stub,
+        call: crate::serve::desktop_update::download_op,
     },
     NativeOp {
         name: "desktop.update.restart",
-        call: p8_bridge_ops::bridge_stub,
+        call: crate::serve::desktop_update::restart_op,
     },
     NativeOp {
         name: "desktop.update.cancel",
-        call: p8_bridge_ops::bridge_stub,
+        call: crate::serve::desktop_update::cancel_op,
     },
     NativeOp {
         name: "desktop.update.adopt",
-        call: p8_bridge_ops::bridge_stub,
+        call: crate::serve::desktop_update::adopt_op,
     },
     NativeOp {
         name: "desktop.update.adoptCancel",
-        call: p8_bridge_ops::bridge_stub,
+        call: crate::serve::desktop_update::adopt_cancel_op,
     },
     NativeOp {
         name: "desktop.update.configure",
-        call: p8_bridge_ops::bridge_stub,
+        call: crate::serve::desktop_update::configure_op,
     },
     NativeOp {
         name: setup_ops::ops()[0].name,
@@ -1277,7 +1277,21 @@ pub async fn call_native(
             )
         })?;
         match op.name {
-            "snapshot.get" => snapshot_get_ops::snapshot_get(ctx, params, parts.await?).await?,
+            "snapshot.get" => {
+                // The desktop update stack is native (no Core); source the
+                // read-model's `desktopUpdates` from the Rust runtime instead
+                // of the (deleted) Core snapshot-probe bridge.
+                let mut parts = parts.await?;
+                if let Some(map) = parts.as_object_mut() {
+                    map.insert(
+                        "desktopUpdates".into(),
+                        serde_json::Value::Array(
+                            crate::serve::desktop_update::snapshot_desktop_updates(),
+                        ),
+                    );
+                }
+                snapshot_get_ops::snapshot_get(ctx, params, parts).await?
+            }
             "attention.dismiss" => attention_ops::attention_dismiss(ctx, params, parts).await?,
             "attention.snooze" => attention_ops::attention_snooze(ctx, params, parts).await?,
             _ => unreachable!("needs_snapshot_bridge"),
