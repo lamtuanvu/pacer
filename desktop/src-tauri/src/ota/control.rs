@@ -838,6 +838,16 @@ mod tests {
             ExistingManagedDecision::Refuse
         );
 
+        // Consent may already have linked ~/.local/bin/pacer → bundled before install.
+        let linked = dir.path().join(".local/bin/pacer");
+        std::fs::create_dir_all(linked.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(&bundled, &linked).unwrap();
+        assert_eq!(
+            decide_existing_managed_program(&linked, &bundled, true),
+            ExistingManagedDecision::ReplaceGone {
+                unload_listed: true
+            }
+        );
 
         let mut environment = BTreeMap::new();
         environment.insert("HOME".into(), "/tmp/user".into());
@@ -2298,9 +2308,26 @@ fn managed_action(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ExistingManagedDecision {
     KeepBundled,
-    /// Missing program: rewrite after admission checks; unload only if still listed.
+    /// Missing program (or consent already replaced it with the app's own link to
+    /// the bundled CLI): rewrite after admission checks; unload only if still listed.
     ReplaceGone { unload_listed: bool },
     Refuse,
+}
+
+/// True when `program` is a symlink whose canonical target is the verified bundled CLI.
+/// Consent may create `~/.local/bin/pacer` → bundled before managed install runs; the
+/// registration still names that path and must be rewritten to the bundled argv.
+fn program_is_app_link_to_bundled(program: &Path, bundled: &Path) -> bool {
+    let Ok(meta) = std::fs::symlink_metadata(program) else {
+        return false;
+    };
+    if !meta.file_type().is_symlink() {
+        return false;
+    }
+    match (program.canonicalize(), bundled.canonicalize()) {
+        (Ok(target), Ok(want)) => target == want,
+        _ => false,
+    }
 }
 
 fn decide_existing_managed_program(
@@ -2310,7 +2337,9 @@ fn decide_existing_managed_program(
 ) -> ExistingManagedDecision {
     if program == bundled {
         ExistingManagedDecision::KeepBundled
-    } else if super::takeover::nothing_to_preserve(program) {
+    } else if super::takeover::nothing_to_preserve(program)
+        || program_is_app_link_to_bundled(program, bundled)
+    {
         ExistingManagedDecision::ReplaceGone {
             unload_listed: listed,
         }
@@ -2539,7 +2568,17 @@ pub async fn managed_service_action(
         &bundled,
         observed.as_ref(),
     )?;
+    let replace_gone_program = replace_gone.as_ref().and_then(|_| {
+        existing.as_ref().and_then(|bytes| {
+            parse_registration(bytes, &user_home, &home, port, &label)
+                .ok()
+                .map(|argv| PathBuf::from(argv[0].clone()))
+        })
+    });
+    let bundled_canon = bundled.canonicalize().unwrap_or_else(|_| bundled.clone());
     // Before a service exists there is no admission authority to enroll other CLI work.
+    // The still-listed job we are about to replace (including a consent-created link to
+    // the bundled CLI) is not "other" work.
     for process in native_process_inventory()? {
         if trust
             .fixture_policy()
@@ -2550,6 +2589,19 @@ pub async fn managed_service_action(
         if process.identity == own.identity {
             continue;
         }
+        if let Some(old) = replace_gone_program.as_ref() {
+            if process.executable == *old
+                || process.executable == bundled
+                || process
+                    .executable
+                    .canonicalize()
+                    .ok()
+                    .as_ref()
+                    == Some(&bundled_canon)
+            {
+                continue;
+            }
+        }
         let name = process
             .executable
             .file_name()
@@ -2559,8 +2611,16 @@ pub async fn managed_service_action(
             return Err(OtaError::Busy);
         }
     }
-    let port_guard = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port))
-        .map_err(|_| OtaError::Busy)?;
+    // When a listed gone/link job still holds the port, unload after rewrite frees it;
+    // binding first would Busy-refuse the path we are about to fix.
+    let port_guard = if replace_gone.as_ref().is_some_and(|(_, unload)| *unload) {
+        None
+    } else {
+        Some(
+            std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port))
+                .map_err(|_| OtaError::Busy)?,
+        )
+    };
     let job = OwnedJob {
         definition,
         plist_path: path.clone(),
@@ -2730,7 +2790,32 @@ pub fn own_link_repair_disk_eligible(
     let Ok(argv) = parse_registration(&bytes, &user_home, &home, port, label) else {
         return false;
     };
-    own_link_repair_eligible(owner, link_is_ours, Path::new(&argv[0]), terminal_link)
+    if !own_link_repair_eligible(owner, link_is_ours, Path::new(&argv[0]), terminal_link) {
+        return false;
+    }
+    // KeepAlive can stay listed after a formula binary is gone (crash-loop PID or
+    // none). Own-link repair needs the stuck live process: a pid whose executable
+    // is the bundled CLI reached through the terminal link.
+    let Ok(Some(value)) = super::platform::copy_user_job(label) else {
+        return false;
+    };
+    let Some(pid) = value
+        .as_dictionary()
+        .and_then(|dict| dict.get("PID"))
+        .and_then(|pid| pid.as_unsigned_integer())
+        .map(|pid| pid as u32)
+    else {
+        return false;
+    };
+    let Ok(Some(details)) = native::process_details(pid) else {
+        return false;
+    };
+    // Live process must be the CLI the terminal link resolves to (bundled).
+    let Ok(want) = terminal_link.canonicalize() else {
+        return false;
+    };
+    details.executable.canonicalize().ok().as_ref() == Some(&want)
+        || details.executable == want
 }
 
 #[cfg(not(target_os = "macos"))]
