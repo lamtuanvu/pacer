@@ -8,6 +8,17 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 - **TUI Runs screen.** Tab/`6` opens a Runs list (open person-answerable questions first) and a run view that draws the engine graph as a tree with a details pane; answer, pause/resume, stop, priority, auto and orchestrator message keys use existing ops. `run.get` adds an optional `definition` projection; `run.answer` accepts an optional `note` (same sanitize/trim rules as `question.answer`).
 
+## [0.18.2] - 2026-11-25
+
+### Changed
+
+- Release 0.18.1 (#1280).
+
+### Fixed
+
+- Publish the workflow protocol crate before the SDK (#1281) (release).
+- Remove Workspace list page; onboarding gates first run only (#1263) (app).
+
 ## [0.18.1] - 2026-11-25
 
 ### Changed
