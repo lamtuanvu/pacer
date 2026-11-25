@@ -433,6 +433,8 @@ function renderReady(model: Extract<ReturnType<typeof panelModel>, { kind: 'read
     main.append(el('p', undefined, 'Focus an Orca worktree to see the tasks delegated from it.'))
     const p = main.lastChild as HTMLElement
     p.style.color = 'var(--ink-secondary)'
+    const overallBox = renderOverall(snapshot)
+    if (overallBox) main.append(overallBox)
     shell.append(main)
     return shell
   }
@@ -492,10 +494,14 @@ function renderReady(model: Extract<ReturnType<typeof panelModel>, { kind: 'read
   }
 
   // Done
-  if (doneCount === 0) {
-    shell.append(main)
-    return shell
-  }
+  if (doneCount > 0) main.append(renderDone(model, doneCount, now))
+  const overallBox = renderOverall(snapshot)
+  if (overallBox) main.append(overallBox)
+  shell.append(main)
+  return shell
+}
+
+function renderDone(model: Extract<ReturnType<typeof panelModel>, { kind: 'ready' }>, doneCount: number, now: number): HTMLElement {
   const doneSection = el('section')
   doneSection.dataset.row = 'done'
   doneSection.setAttribute('aria-label', 'Done')
@@ -546,10 +552,84 @@ function renderReady(model: Extract<ReturnType<typeof panelModel>, { kind: 'read
       doneSection.append(more)
     }
   }
-  main.append(doneSection)
+  return doneSection
+}
 
-  shell.append(main)
-  return shell
+/** Pacer-wide: counts across every worktree, the executors, and a pause if one is on. */
+function renderOverall(snapshot: PanelSnapshot): HTMLElement | null {
+  const overall = snapshot.overall
+  if (!overall) return null
+  const section = el('section')
+  section.setAttribute('aria-label', 'All worktrees')
+  section.style.cssText = 'display:flex;flex-direction:column;gap:6px;'
+  const h2 = el('h2', undefined, 'All worktrees')
+  h2.style.cssText = 'margin:0;font-size:11px;line-height:14px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--ink-muted);'
+  section.append(h2)
+  const box = el('div')
+  box.style.cssText = 'display:flex;flex-direction:column;gap:8px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;font-size:12px;line-height:16px;'
+
+  const parts: string[] = []
+  if (overall.running) parts.push(`${overall.running} running`)
+  if (overall.asked) parts.push(`${overall.asked} asked caller`)
+  if (overall.queued) parts.push(`${overall.queued} queued`)
+  if (overall.worktrees > 1) parts.push(`in ${overall.worktrees} worktrees`)
+  const counts = el('p')
+  counts.style.cssText = 'margin:0;color:var(--ink-secondary);'
+  // Only what needs a person is amber; the rest is context.
+  if (overall.needsYou) {
+    const needs = el('span', undefined, `${overall.needsYou} need you`)
+    needs.style.cssText = 'color:var(--warn-fg);font-weight:600;'
+    counts.append(needs, parts.length ? ' · ' : '')
+  }
+  counts.append(parts.length || overall.needsYou ? parts.join(' · ') : 'Nothing running in any worktree.')
+  box.append(counts)
+
+  const pause = snapshot.pause
+  if (pause) {
+    const until = pause.until ? ` until ${absoluteTime(pause.until, snapshot.at)}` : ''
+    const line = el('p', undefined, `Delegation paused${until}${pause.reason ? ` · ${pause.reason}` : ''}`)
+    line.style.cssText = 'margin:0;color:var(--warn-fg);'
+    box.append(line)
+  }
+
+  const executors = snapshot.executors ?? []
+  if (executors.length > 0) {
+    const list = el('ul')
+    list.setAttribute('aria-label', 'Executors')
+    list.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px 12px;margin:0;padding:0;list-style:none;'
+    const dot: Record<string, string> = { good: 'var(--good-fill)', info: 'var(--info-fg)', warn: 'var(--warn-fill)', bad: 'var(--bad-fill)', muted: 'var(--ink-muted)' }
+    for (const e of executors) {
+      const item = el('li')
+      item.style.cssText = 'display:flex;align-items:center;gap:6px;'
+      const d = el('span')
+      d.setAttribute('aria-hidden', 'true')
+      d.style.cssText = `flex:none;width:7px;height:7px;border-radius:50%;background:${dot[e.tone] ?? dot.muted};`
+      item.append(d)
+      const name = el('span', undefined, e.name)
+      name.style.color = 'var(--ink)'
+      item.append(name)
+      const state = el('span', undefined, executorStateWords(e.state))
+      state.style.color = 'var(--ink-muted)'
+      item.append(state)
+      list.append(item)
+    }
+    box.append(list)
+  }
+
+  const open = button('Open pacer', { size: 'sm', variant: 'ghost', className: 'pc-link-btn', onClick: () => {
+    const pendingKey = 'overall:open'
+    dispatch({ type: 'begin', pendingKey })
+    void runRequest({ kind: 'act', op: 'ui.open', params: { view: overall.needsYou ? 'needs-you' : 'overview' }, pendingKey })
+  } })
+  open.style.alignSelf = 'flex-start'
+  box.append(open)
+  section.append(box)
+  return section
+}
+
+function executorStateWords(state: string): string {
+  const words: Record<string, string> = { exhausted: 'out of quota', down: 'not working', failing: 'failing', blocked: 'blocked', full: 'all slots busy', busy: 'busy', ready: 'ready', checking: 'checking', disabled: 'off' }
+  return words[state] ?? state
 }
 
 function renderModel(model: ReturnType<typeof panelModel>, now: number): HTMLElement {
