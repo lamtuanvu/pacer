@@ -6,8 +6,7 @@ use pacer_update::replace::{
 };
 use std::{
     cell::RefCell,
-    fs,
-    io,
+    fs, io,
     os::unix::fs::{MetadataExt, PermissionsExt},
     path::{Path, PathBuf},
     rc::Rc,
@@ -144,7 +143,10 @@ fn replace_binary_swaps_atomically_and_keeps_bak() {
     assert_eq!(result.backup, canon(&path).with_extension("bak"));
     assert_eq!(fs::read_to_string(&path).unwrap(), script("0.2.0"));
     assert_eq!(fs::read_to_string(&result.backup).unwrap(), script("0.1.0"));
-    assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o755);
+    assert_eq!(
+        fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o755
+    );
     let mut entries: Vec<_> = fs::read_dir(dir.path().join("bin"))
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
@@ -163,7 +165,12 @@ fn replace_binary_follows_a_symlink() {
     let fake = Fake::reporting("pacer 0.2.0");
     let result = replace_binary(&link, script("0.2.0").as_bytes(), "0.2.0", &fake).unwrap();
     assert_eq!(result.path, canon(&real));
-    assert!(fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
+    assert!(
+        fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
     assert_eq!(fs::read_to_string(&real).unwrap(), script("0.2.0"));
     assert_eq!(
         fs::read_to_string(root.path().join("opt/pacer.bak")).unwrap(),
@@ -177,7 +184,11 @@ fn wrong_version_is_not_installed() {
     let path = installed(&dir.path().join("bin"), "0.1.0");
     let fake = Fake::reporting("pacer 0.2.1");
     let error = replace_binary(&path, script("0.0.9").as_bytes(), "0.2.0", &fake).unwrap_err();
-    assert!(error.0.contains("did not report version 0.2.0"), "{}", error.0);
+    assert!(
+        error.0.contains("did not report version 0.2.0"),
+        "{}",
+        error.0
+    );
     assert_eq!(fs::read_to_string(&path).unwrap(), script("0.1.0"));
     let entries: Vec<_> = fs::read_dir(dir.path().join("bin")).unwrap().collect();
     assert_eq!(entries.len(), 1);
@@ -190,9 +201,10 @@ fn non_permission_failures_are_release_errors() {
     let fake = Fake::reporting("pacer 0.2.0").failing_rename_with(&path, "disk full");
     let error = replace_binary(&path, script("0.2.0").as_bytes(), "0.2.0", &fake).unwrap_err();
     assert!(
-        error
-            .0
-            .contains(&format!("could not replace {}: disk full", canon(&path).display())),
+        error.0.contains(&format!(
+            "could not replace {}: disk full",
+            canon(&path).display()
+        )),
         "{}",
         error.0
     );
@@ -221,10 +233,11 @@ fn signs_only_the_staged_inode_before_smoke() {
     let fake = Fake::reporting_with_events("pacer 0.2.0", events).smoke_when(move |staged| {
         assert_ne!(staged, target);
         assert_eq!(fs::read_to_string(&target).unwrap(), script("0.1.0"));
-        assert!(seen
-            .borrow()
-            .iter()
-            .any(|event| event == &format!("sign:{}", staged.display())));
+        assert!(
+            seen.borrow()
+                .iter()
+                .any(|event| event == &format!("sign:{}", staged.display()))
+        );
         "pacer 0.2.0".into()
     });
     replace_binary(&path, script("0.2.0").as_bytes(), "0.2.0", &fake).unwrap();
@@ -235,11 +248,13 @@ fn signs_only_the_staged_inode_before_smoke() {
     assert!(events[1].starts_with("smoke:"));
     let staged = events[0].trim_start_matches("sign:");
     assert_eq!(events[1], format!("smoke:{staged}"));
-    assert!(Path::new(staged)
-        .file_name()
-        .unwrap()
-        .to_string_lossy()
-        .contains(".update-"));
+    assert!(
+        Path::new(staged)
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .contains(".update-")
+    );
 }
 
 #[test]
@@ -253,10 +268,11 @@ fn pair_stages_and_signs_both_before_install_retaining_backups() {
     let target_seen = target.clone();
     let core_seen = core.clone();
     let fake = Fake::reporting_with_events("pacer 0.2.0", events).smoke_when(move |staged| {
-        assert!(seen
-            .borrow()
-            .iter()
-            .any(|event| event == &format!("sign:{}", staged.display())));
+        assert!(
+            seen.borrow()
+                .iter()
+                .any(|event| event == &format!("sign:{}", staged.display()))
+        );
         assert_eq!(fs::read_to_string(&target_seen).unwrap(), script("0.1.0"));
         assert_eq!(fs::read_to_string(&core_seen).unwrap(), "old core");
         "pacer 0.2.0".into()
@@ -274,7 +290,10 @@ fn pair_stages_and_signs_both_before_install_retaining_backups() {
     .unwrap();
     assert_eq!(fs::read_to_string(&target).unwrap(), "new front");
     assert_eq!(fs::read_to_string(&core).unwrap(), "new core");
-    assert_eq!(fs::read_to_string(&companions[0].backup).unwrap(), "old core");
+    assert_eq!(
+        fs::read_to_string(&companions[0].backup).unwrap(),
+        "old core"
+    );
     assert_eq!(fs::read_to_string(&front.backup).unwrap(), script("0.1.0"));
 }
 
@@ -288,7 +307,12 @@ fn pair_failure_leaves_originals_intact_including_a_new_companion() {
         let core = dir.path().join("pacer-core");
         let fake = if failure == "smoke" {
             Fake::reporting("pacer 0.2.0").smoke_when(|path: &Path| {
-                if path.file_name().unwrap().to_string_lossy().contains("pacer-core") {
+                if path
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .contains("pacer-core")
+                {
                     "wrong".into()
                 } else {
                     "pacer 0.2.0".into()
@@ -308,9 +332,16 @@ fn pair_failure_leaves_originals_intact_including_a_new_companion() {
             &fake,
         )
         .unwrap_err();
-        assert!(error.0.starts_with("could not replace pair: "), "{}", error.0);
+        assert!(
+            error.0.starts_with("could not replace pair: "),
+            "{}",
+            error.0
+        );
         assert_eq!(fs::read_to_string(&target).unwrap(), script("0.1.0"));
-        assert!(!core.exists(), "a newly introduced companion must be rolled back");
+        assert!(
+            !core.exists(),
+            "a newly introduced companion must be rolled back"
+        );
     }
 }
 
@@ -333,7 +364,11 @@ fn failed_front_door_rename_restores_an_existing_core() {
         &staging,
     )
     .unwrap_err();
-    assert!(error.0.starts_with("could not replace pair: "), "{}", error.0);
+    assert!(
+        error.0.starts_with("could not replace pair: "),
+        "{}",
+        error.0
+    );
     assert_eq!(fs::read(&core).unwrap(), b"old-core");
     assert_eq!(fs::read(&front).unwrap(), b"old-front");
     assert!(!dir.path().join("pacer.new").exists());
@@ -360,7 +395,12 @@ fn pair_refuses_a_dangling_companion_symlink() {
     )
     .unwrap_err();
     assert!(error.0.contains("not a regular file"), "{}", error.0);
-    assert!(fs::symlink_metadata(&core).unwrap().file_type().is_symlink());
+    assert!(
+        fs::symlink_metadata(&core)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
     assert_eq!(fs::read_link(&core).unwrap(), missing);
     assert_eq!(fs::read_to_string(&target).unwrap(), script("0.1.0"));
 }

@@ -18,8 +18,8 @@ pub mod manager;
 pub mod manifest;
 pub mod onboarding;
 pub mod replace;
-pub mod sign;
 mod service;
+pub mod sign;
 #[cfg(test)]
 mod tests;
 

@@ -105,9 +105,8 @@ pub fn sign_staged(path: &Path) -> bool {
         // signStaged passes a no-op log to signLocal, so a missing identity is quiet.
         return false;
     };
-    let requirement = format!(
-        "=designated => identifier \"{IDENTIFIER}\" and certificate leaf = H\"{hash}\""
-    );
+    let requirement =
+        format!("=designated => identifier \"{IDENTIFIER}\" and certificate leaf = H\"{hash}\"");
     let Some(file) = path.to_str() else {
         eprintln!(
             "pacer: could not sign the update as {IDENTIFIER} (non-UTF-8 executable path); macOS may ask for removable-volume access again."

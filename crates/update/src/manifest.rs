@@ -5,8 +5,8 @@
 //! joins them with `"; "` under one `invalid manifest.json: ` prefix.
 use crate::check::is_version;
 use pacer_js_json::stringify;
-use sha2::Digest;
 use serde_json::Value;
+use sha2::Digest;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// The error TypeScript throws for malformed or untrusted release metadata.
@@ -96,7 +96,9 @@ fn js_string(value: &Value) -> String {
         Value::String(s) => s.clone(),
         Value::Null => "null".into(),
         Value::Bool(b) => b.to_string(),
-        Value::Number(n) => n.as_f64().map_or_else(|| "NaN".into(), pacer_js_json::number_string),
+        Value::Number(n) => n
+            .as_f64()
+            .map_or_else(|| "NaN".into(), pacer_js_json::number_string),
         // Not used by the release manifest, but keep the coercion total.
         Value::Array(_) | Value::Object(_) => "[object Object]".into(),
     }
@@ -125,9 +127,7 @@ fn positive_integer(value: &Value, safe: bool) -> bool {
             },
         },
     };
-    number > 0.0
-        && number.fract() == 0.0
-        && (!safe || number <= 9_007_199_254_740_991.0)
+    number > 0.0 && number.fract() == 0.0 && (!safe || number <= 9_007_199_254_740_991.0)
 }
 
 /// `JSON.stringify(o.version ?? null)` uses JavaScript serialization, not serde's.
@@ -194,9 +194,8 @@ pub fn parse_manifest(raw: &Value) -> Result<Manifest, ReleaseError> {
                         let mut found = Vec::new();
                         for (j, value) in values.iter().enumerate() {
                             let entry = value.as_object();
-                            let field = |key: &str| -> Option<&Value> {
-                                entry.and_then(|o| o.get(key))
-                            };
+                            let field =
+                                |key: &str| -> Option<&Value> { entry.and_then(|o| o.get(key)) };
                             let location = format!("assets[{i}].companions[{j}]");
                             if field("name").and_then(Value::as_str) != Some("pacer-core") {
                                 problems.push(format!("{location}: unknown companion name"));
@@ -214,7 +213,8 @@ pub fn parse_manifest(raw: &Value) -> Result<Manifest, ReleaseError> {
                                 ));
                             }
                             if !field("size").is_some_and(|v| positive_integer(v, true)) {
-                                problems.push(format!("{location}: size must be a positive integer"));
+                                problems
+                                    .push(format!("{location}: size must be a positive integer"));
                             }
                             if j > 0 {
                                 problems.push(format!("{location}: duplicate companion"));
@@ -307,9 +307,7 @@ pub fn parse_sha256_sums(text: &str) -> Result<BTreeMap<String, String>, Release
 /// `releaseUrl`: GitHub on the default channel, `<base>/<version>/<file>` otherwise.
 pub fn release_url(base: Option<&str>, version: &str, file: &str) -> String {
     match base {
-        None => format!(
-            "https://github.com/lamtuanvu/pacer/releases/download/v{version}/{file}"
-        ),
+        None => format!("https://github.com/lamtuanvu/pacer/releases/download/v{version}/{file}"),
         Some(base) => format!("{base}/{version}/{file}"),
     }
 }

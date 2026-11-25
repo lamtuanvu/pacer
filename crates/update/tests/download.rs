@@ -21,7 +21,12 @@ fn deadline() -> Instant {
     Instant::now() + RELEASE_TIMEOUT
 }
 
-fn response(status: u16, location: Option<&str>, content_length: Option<&str>, body: &[u8]) -> Fetched {
+fn response(
+    status: u16,
+    location: Option<&str>,
+    content_length: Option<&str>,
+    body: &[u8],
+) -> Fetched {
     Fetched {
         status,
         location: location.map(str::to_owned),
@@ -85,7 +90,10 @@ fn file_urls_report_a_missing_file_as_http_404() {
     let missing = format!("file://{}/missing", dir.path().display());
     let error = fetch_bytes(&missing, 100, deadline()).unwrap_err();
     assert!(error.contains("download failed:"), "{error}");
-    assert!(error.contains("ENOENT") || error.contains("HTTP 404"), "{error}");
+    assert!(
+        error.contains("ENOENT") || error.contains("HTTP 404"),
+        "{error}"
+    );
 }
 
 #[test]
@@ -109,7 +117,10 @@ fn loopback_http_and_refused_connections() {
     drop(listener);
     let dead_url = format!("{dead}/x");
     let error = fetch_bytes(&dead_url, 100, deadline()).unwrap_err();
-    assert!(error.contains(&format!("download failed: {dead_url}")), "{error}");
+    assert!(
+        error.contains(&format!("download failed: {dead_url}")),
+        "{error}"
+    );
 }
 
 #[test]
@@ -118,7 +129,11 @@ fn redirects_are_refused_without_requesting_their_target_for_feeds() {
     let counter = hits.clone();
     let base = serve(move |path| {
         if path == "/start" {
-            (302, "Location: http://example.com/x\r\n".into(), String::new())
+            (
+                302,
+                "Location: http://example.com/x\r\n".into(),
+                String::new(),
+            )
         } else {
             counter.fetch_add(1, Ordering::SeqCst);
             (200, String::new(), "unexpected".into())

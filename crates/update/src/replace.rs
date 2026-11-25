@@ -55,7 +55,10 @@ impl Staging for System {
 
 /// `runVersion`: stdout of `<path> --version` when it exits zero, else "".
 pub fn run_version(path: &Path) -> String {
-    let Ok(runtime) = tokio::runtime::Builder::new_current_thread().enable_all().build() else {
+    let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    else {
         return String::new();
     };
     runtime.block_on(async {
@@ -77,7 +80,11 @@ pub fn run_version(path: &Path) -> String {
         };
         let result = tokio::time::timeout(Duration::from_secs(15), async {
             let mut bytes = Vec::new();
-            (&mut stdout).take(65537).read_to_end(&mut bytes).await.ok()?;
+            (&mut stdout)
+                .take(65537)
+                .read_to_end(&mut bytes)
+                .await
+                .ok()?;
             if bytes.len() > 65536 {
                 return None;
             }
@@ -164,7 +171,10 @@ pub fn replace_binary(
     staging: &dyn Staging,
 ) -> Result<ReplaceResult, ReleaseError> {
     let real = fs::canonicalize(target).map_err(|_| {
-        ReleaseError(format!("cannot find the running binary at {}", target.display()))
+        ReleaseError(format!(
+            "cannot find the running binary at {}",
+            target.display()
+        ))
     })?;
     let dir = real
         .parent()
@@ -189,11 +199,7 @@ pub fn replace_binary(
         staging.sign(&tmp);
         let output = staging.smoke(&tmp);
         if !reports_version(&output, version) {
-            return Err(version_failure(
-                "the downloaded binary",
-                version,
-                &output,
-            ));
+            return Err(version_failure("the downloaded binary", version, &output));
         }
         if fs::hard_link(&real, &backup_tmp).is_err() {
             copy_new(&real, &backup_tmp).map_err(|e| single_error(&real, dir, e))?;
@@ -227,7 +233,10 @@ pub fn replace_pair(
     staging: &dyn Staging,
 ) -> Result<(ReplaceResult, Vec<ReplaceResult>), ReleaseError> {
     let front = fs::canonicalize(target).map_err(|_| {
-        ReleaseError(format!("cannot find the running binary at {}", target.display()))
+        ReleaseError(format!(
+            "cannot find the running binary at {}",
+            target.display()
+        ))
     })?;
     let dir = front
         .parent()
@@ -282,7 +291,7 @@ pub fn replace_pair(
                 return Err(ReleaseError(format!(
                     "pair target is not a regular file: {}",
                     entry.target.display()
-                )))
+                )));
             }
             Err(e) if e.kind() == io::ErrorKind::NotFound => {}
             Err(e) => return Err(pair_error(e)),
@@ -306,8 +315,16 @@ pub fn replace_pair(
         for entry in &entries {
             let output = staging.smoke(&entry.tmp);
             if !reports_version(&output, version) {
-                let name = entry.target.file_name().unwrap_or_default().to_string_lossy();
-                return Err(version_failure(&format!("the downloaded binary {name}"), version, &output));
+                let name = entry
+                    .target
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy();
+                return Err(version_failure(
+                    &format!("the downloaded binary {name}"),
+                    version,
+                    &output,
+                ));
             }
         }
         for entry in &mut entries {
@@ -323,7 +340,9 @@ pub fn replace_pair(
                 .map_err(pair_error)?;
         }
         for entry in &mut entries {
-            staging.rename(&entry.tmp, &entry.target).map_err(pair_error)?;
+            staging
+                .rename(&entry.tmp, &entry.target)
+                .map_err(pair_error)?;
             entry.installed = true;
             fsync_dir(entry.target.parent().unwrap_or(dir));
         }
@@ -366,7 +385,10 @@ pub fn replace_pair(
             }
             let mut message = format!("could not replace pair: {}", error.0);
             if !rollback_errors.is_empty() {
-                message.push_str(&format!("; rollback failed: {}", rollback_errors.join("; ")));
+                message.push_str(&format!(
+                    "; rollback failed: {}",
+                    rollback_errors.join("; ")
+                ));
             }
             Err(ReleaseError(message))
         }

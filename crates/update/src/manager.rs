@@ -12,8 +12,7 @@ use std::{
 /// `src/install/owner.ts:85-86`, verbatim.
 pub const MANAGED_BY_DESKTOP_MESSAGE: &str = "pacer is managed by the pacer app; update or change the service from the app (Settings), or run with --release-ownership to hand it back to this CLI";
 const BREW_MESSAGE: &str = "pacer was installed with Homebrew; update with: brew upgrade pacer";
-const APP_MESSAGE: &str =
-    "this executable belongs to the desktop app; use Settings → Updates in the desktop to update the complete app";
+const APP_MESSAGE: &str = "this executable belongs to the desktop app; use Settings → Updates in the desktop to update the complete app";
 
 /// Who updates this installation when it is not `pacer update`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -63,11 +62,12 @@ pub fn install_manager(
     let prefixes = ["HOMEBREW_PREFIX", "HOMEBREW_CELLAR"]
         .into_iter()
         .filter_map(|key| env.get(key));
-    let homebrew = shown.contains("/Cellar/pacer/") || prefixes.into_iter().any(|prefix| {
-        let canonical = fs::canonicalize(prefix).unwrap_or_else(|_| PathBuf::from(prefix));
-        let base = canonical.to_string_lossy();
-        shown.starts_with(&format!("{}/", base.trim_end_matches('/')))
-    });
+    let homebrew = shown.contains("/Cellar/pacer/")
+        || prefixes.into_iter().any(|prefix| {
+            let canonical = fs::canonicalize(prefix).unwrap_or_else(|_| PathBuf::from(prefix));
+            let base = canonical.to_string_lossy();
+            shown.starts_with(&format!("{}/", base.trim_end_matches('/')))
+        });
     if homebrew {
         return Some(UpdateManager {
             by: ManagedBy::Homebrew,

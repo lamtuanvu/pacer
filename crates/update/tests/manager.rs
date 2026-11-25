@@ -42,8 +42,7 @@ fn write_owner(context: &Ctx, owner: &str, executable: &Path) {
 const NPM_MESSAGE: &str =
     "pacer was installed with npm; update with: npm install -g @lamtuanvu/pacer@latest";
 const BREW_MESSAGE: &str = "pacer was installed with Homebrew; update with: brew upgrade pacer";
-const APP_MESSAGE: &str =
-    "this executable belongs to the desktop app; use Settings → Updates in the desktop to update the complete app";
+const APP_MESSAGE: &str = "this executable belongs to the desktop app; use Settings → Updates in the desktop to update the complete app";
 
 #[test]
 fn npm_installation_reports_its_hint_and_nightly_tag() {
@@ -72,7 +71,10 @@ fn homebrew_detection_follows_executable_symlinks_and_honors_configured_prefixes
 
         let mut env = HashMap::new();
         if mode == "prefix" {
-            env.insert("HOMEBREW_PREFIX".to_owned(), root.path().join("custom").to_string_lossy().into_owned());
+            env.insert(
+                "HOMEBREW_PREFIX".to_owned(),
+                root.path().join("custom").to_string_lossy().into_owned(),
+            );
         }
         if mode == "custom-cellar" {
             env.insert(
@@ -91,7 +93,9 @@ fn app_bundled_executables_report_the_desktop_hint() {
     for location in ["MacOS", "Resources"] {
         for linked in [false, true] {
             let home = tempfile::tempdir().unwrap();
-            let binary = home.path().join(format!("pacer.app/Contents/{location}/pacer"));
+            let binary = home
+                .path()
+                .join(format!("pacer.app/Contents/{location}/pacer"));
             let link = home.path().join(".local/bin/pacer");
             write_executable(&binary);
             fs::create_dir_all(link.parent().unwrap()).unwrap();
@@ -158,10 +162,7 @@ fn bundled_cli_exemption_uses_pacer_bin_or_the_front_door_directory() {
     let home = tempfile::tempdir().unwrap();
     let bundled = home.path().join("pacer.app/Contents/Resources/pacer");
     write_executable(&bundled);
-    let context = ctx(
-        home.path(),
-        &[("PACER_BIN", bundled.to_str().unwrap())],
-    );
+    let context = ctx(home.path(), &[("PACER_BIN", bundled.to_str().unwrap())]);
     write_owner(&context, "desktop", &bundled);
     assert!(!owner_refusal(&context, Path::new("/unrelated")));
 
@@ -200,7 +201,10 @@ fn update_manager_prefers_a_desktop_owner_over_the_install_method() {
     write_executable(&exec);
     let context = ctx(
         home.path(),
-        &[("PACER_INSTALL_METHOD", "npm"), ("PACER_BIN", "/usr/local/bin/pacer")],
+        &[
+            ("PACER_INSTALL_METHOD", "npm"),
+            ("PACER_BIN", "/usr/local/bin/pacer"),
+        ],
     );
     write_owner(&context, "desktop", &recorded);
     let manager = update_manager(&context, &exec, Path::new("/usr/local/bin"), false).unwrap();
