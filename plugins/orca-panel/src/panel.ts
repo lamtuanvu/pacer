@@ -384,7 +384,9 @@ function renderReady(model: Extract<ReturnType<typeof panelModel>, { kind: 'read
   }
 
   const tasks = model.tasks
-  const empty = tasks.length === 0 && model.needsYou.length === 0
+  // Empty means nothing was ever delegated from here; settled tasks still show under Done.
+  const doneCount = model.doneTasks.length + model.doneMore
+  const empty = tasks.length === 0 && model.needsYou.length === 0 && doneCount === 0
 
   // title line
   const titleRow = el('div')
@@ -435,6 +437,10 @@ function renderReady(model: Extract<ReturnType<typeof panelModel>, { kind: 'read
   }
 
   // Done
+  if (doneCount === 0) {
+    shell.append(main)
+    return shell
+  }
   const doneSection = el('section')
   doneSection.dataset.row = 'done'
   doneSection.setAttribute('aria-label', 'Done')
@@ -448,7 +454,7 @@ function renderReady(model: Extract<ReturnType<typeof panelModel>, { kind: 'read
   const chev = el('span', undefined, state.ui.doneOpen ? '▾' : '▸')
   chev.style.cssText = 'flex:none;width:14px;color:var(--ink-muted);'
   doneBtn.append(chev)
-  const doneLabel = el('span', undefined, `DONE · ${model.doneTasks.length + model.doneMore}`)
+  const doneLabel = el('span', undefined, `DONE · ${doneCount}`)
   doneLabel.style.cssText = 'font-size:11px;line-height:14px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--ink-muted);'
   doneBtn.append(doneLabel)
   doneSection.append(doneBtn)
