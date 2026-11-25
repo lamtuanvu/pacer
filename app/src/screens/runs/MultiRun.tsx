@@ -12,6 +12,7 @@ import { Switch } from "../../ds/Controls";
 import { Page } from "../../ds/Page";
 import { EmptyState } from "../../ds/Patterns";
 import { Pill } from "../../ds/Pill";
+import { SectionHeading } from "../../ds/SectionHeading";
 import { PageHead } from "../../shell/slots";
 import type { RouteQuery } from "../../router";
 import { useTaskContext } from "../task-shared";
@@ -134,7 +135,7 @@ export function MultiRun({ query }: { query: RouteQuery }) {
         {quiet && hiddenWords.length ? <p className="lb-cap" role="status">Quiet mode is hiding {hiddenWords.join(", ")}.</p> : null}
 
         <section className="lb-section" aria-labelledby="mr-queue">
-          <h2 className="lb-title" id="mr-queue" ref={queueHeading} tabIndex={-1}>Needs you</h2>
+          <h2 className="pc-section-heading" id="mr-queue" ref={queueHeading} tabIndex={-1}>Needs you</h2>
           {model.queue.length === 0 ? <p className="lb-cap">Nothing needs you{quiet || focus ? " in this view" : ""}.</p> : (
             <ol className="lb-list" aria-label="Questions across runs, most blocking first">
               {model.queue.map(q => (
@@ -164,7 +165,7 @@ export function MultiRun({ query }: { query: RouteQuery }) {
         </section>
 
         <section className="lb-section" aria-labelledby="mr-runs">
-          <h2 className="lb-title" id="mr-runs">Runs</h2>
+          <SectionHeading id="mr-runs">Runs</SectionHeading>
           {model.lines.length === 0 ? <p className="lb-cap">No runs in this view.</p> : (
             <ul className="lb-list">
               {model.lines.map(line => {
@@ -199,7 +200,7 @@ export function MultiRun({ query }: { query: RouteQuery }) {
         </section>
 
         <section className="lb-section" aria-labelledby="mr-bench">
-          <h2 className="lb-title" id="mr-bench">Executor bench</h2>
+          <SectionHeading id="mr-bench">Executor bench</SectionHeading>
           <p className="lb-cap">One bench serves every run; the dispatcher fills free executors by run priority.{model.capacity ? ` ${model.capacity.used} of ${model.capacity.max} ${model.capacity.max === 1 ? "slot is" : "slots are"} in use.` : ""}</p>
           {model.bench.length === 0 ? <p className="lb-cap">No executors are set up.</p> : (
             <ul className="mr-bench">
