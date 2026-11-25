@@ -8,7 +8,7 @@ use serde_json::Value;
 #[test]
 fn table_ids_are_unique_and_match_manifest_ids() {
     let mut ids = std::collections::HashSet::new();
-    assert_eq!(TABLE.len(), 12);
+    assert_eq!(TABLE.len(), 13);
     for row in TABLE {
         let manifest: Value =
             serde_json::from_str(row.manifest).expect("rub table manifest must be valid JSON");
@@ -44,8 +44,8 @@ fn typescript_rows_are_not_native() {
     // pacer-notify (C1), pacer-remote-caller (C2), pacer-agent-session (C3),
     // pacer-assistant (C4), pacer-exec-orca (C5), pacer-classify (C6),
     // pacer-usage (C7), pacer-endpoints (C8), assistant-executor (C9),
-    // pacer-exec-direct (C10) and pacer-ssh (C11) are the ported native rows;
-    // the rest are TypeScript until their slices land.
+    // pacer-exec-direct (C10), pacer-ssh (C11) and pacer-planners (C12b) are
+    // the ported native rows; the rest are TypeScript until their slices land.
     for row in TABLE {
         let is_native_ported = matches!(
             row.id,
@@ -60,6 +60,7 @@ fn typescript_rows_are_not_native() {
                 | "assistant-executor"
                 | "pacer-exec-direct"
                 | "pacer-ssh"
+                | "pacer-planners"
         );
         let is_native = row.run.is_some();
         if is_native_ported {
@@ -90,6 +91,8 @@ fn typescript_rows_are_not_native() {
     assert!(serve_stdio("pacer-exec-direct").is_some());
     assert!(native("pacer-ssh").is_some());
     assert!(serve_stdio("pacer-ssh").is_some());
+    assert!(native("pacer-planners").is_some());
+    assert!(serve_stdio("pacer-planners").is_some());
 }
 
 #[test]

@@ -5,6 +5,7 @@ use crate::install::{
 };
 use jiff::tz::TimeZone;
 use serde::{Deserialize, Serialize};
+use indexmap::IndexMap;
 use std::{collections::BTreeMap, future::Future, path::Path, sync::Arc};
 use tokio_util::sync::CancellationToken;
 
@@ -101,7 +102,7 @@ pub struct InstallPlan {
     pub record: crate::install::PlannerRecord,
     pub touched: Vec<String>,
     pub notes: Vec<String>,
-    pub pending: BTreeMap<String, PendingFile>,
+    pub pending: IndexMap<String, PendingFile>,
     pub env: PlanEnv,
     pub io: PlanIo,
     pub closed: bool,
@@ -141,7 +142,7 @@ impl InstallPlan {
             record,
             touched: Vec::new(),
             notes: Vec::new(),
-            pending: BTreeMap::new(),
+            pending: IndexMap::new(),
             env,
             io,
             closed: false,

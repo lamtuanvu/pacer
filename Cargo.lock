@@ -1960,6 +1960,7 @@ name = "pacer-plugin"
 version = "0.8.0"
 dependencies = [
  "icu_collator",
+ "indexmap",
  "jiff",
  "pacer-plugin-agent-session-protocol",
  "pacer-plugin-assistant-protocol",

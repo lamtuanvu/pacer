@@ -2,7 +2,7 @@
 //! `capability.planner.run` and `capability.process.*` from a tree, then applies
 //! the host-side commit of the returned file lists (M3 C12b test support).
 
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used, dead_code)]
 
 use base64::Engine;
 use pacer_plugin::install::{
