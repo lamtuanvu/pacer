@@ -828,7 +828,9 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
       try {
         if (internal) {
           const pairedNative = configuredPairedNativeBootstrap(ctx, Number(ctx.env.PACER_PORT ?? DEFAULT_PORT), nativeBootstrap);
-          // The authenticated parent channel carries the frame after its descriptors.
+          // DX1: the paired bootstrap carries no descriptors (a bare marker only);
+          // the front door serves the desktop socket itself. Core still reads the
+          // secrets frame over the authenticated parent channel.
           if (pairedNative && secretsOnStdin) {
             secrets = readCoreSecrets();
             if (secrets.ownerKey) holdOwnerKey(secrets.ownerKey);

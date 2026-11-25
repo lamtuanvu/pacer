@@ -53,7 +53,7 @@ pub(super) fn isolated(name: &str) -> bool {
     let output = std::process::Command::new(std::env::current_exe().unwrap())
         .args([
             "--exact",
-            &format!("serve::native_helper::{name}"),
+            &format!("native_helper::{name}"),
             "--test-threads=1",
         ])
         .env("PACER_RECEIPT_TEST_CHILD", name)

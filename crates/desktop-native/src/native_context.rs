@@ -65,6 +65,15 @@ impl NativeContext {
     pub async fn shutdown_requested(&self) {
         self.stop.notified().await;
     }
+    /// A duplicate of the published native listener for the front-door control
+    /// server when `PACER_NATIVE_DESKTOP_CONTROL=1`. The original stays owned
+    /// by [`NativeContext`] so Core's paired bootstrap still receives the same
+    /// socket via [`NativeContext::start`]; the copy lets the front door accept
+    /// on the listener itself (kernel load-balances accepted connections).
+    pub fn control_listener(&self) -> io::Result<tokio::net::UnixListener> {
+        let duplicate = self.listener.listener().try_clone()?;
+        tokio::net::UnixListener::from_std(duplicate)
+    }
     /// Periodically verify the published native control path still names this
     /// listener. Core only holds a duplicate fd, so a deleted path leaves clients
     /// with ENOENT forever; there is no safe live handoff of a rebound listener,
@@ -130,7 +139,7 @@ impl NativeContext {
         let generation = self.trust.verify_child(&child, &self.bundle.core)?;
         let (helpers, remote) = UnixStream::pair()?;
         socket2::SockRef::from(&helpers).set_nosigpipe(true)?;
-        super::native_bootstrap::send(&parent, self.listener.listener(), &remote)?;
+        super::native_bootstrap::send(&parent)?;
         let broker = super::native_helper::Broker {
             trust: self.trust.clone(),
             home: self.home.clone(),

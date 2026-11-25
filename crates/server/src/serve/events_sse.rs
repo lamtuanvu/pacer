@@ -18,7 +18,7 @@ use std::{
     time::Duration,
 };
 
-fn local_zone(ctx: &Ctx) -> chrono_tz::Tz {
+pub(crate) fn local_zone(ctx: &Ctx) -> chrono_tz::Tz {
     if let Some(name) = ctx.env.get("TZ")
         && let Ok(zone) = name.parse()
     {
@@ -31,7 +31,7 @@ fn local_zone(ctx: &Ctx) -> chrono_tz::Tz {
 }
 
 #[cfg(unix)]
-fn pid_alive(pid: i64) -> bool {
+pub(crate) fn pid_alive(pid: i64) -> bool {
     if pid <= 0 {
         return false;
     }

@@ -20,20 +20,11 @@ mod log_sse;
 #[path = "tests/log_sse.rs"]
 mod log_sse_tests;
 #[cfg(target_os = "macos")]
-mod native_bootstrap;
-#[cfg(target_os = "macos")]
-pub mod native_bundle;
-#[cfg(target_os = "macos")]
-pub mod native_context;
-#[cfg(target_os = "macos")]
-mod native_helper;
-#[cfg(target_os = "macos")]
-mod native_helper_diagnostics;
+pub use pacer_desktop_native::native_context;
+pub mod desktop_update;
 pub mod native_host;
 #[cfg(target_os = "macos")]
-pub mod native_listener;
-#[cfg(target_os = "macos")]
-pub mod native_trust;
+pub use pacer_desktop_native::NativeContext;
 pub mod proxy;
 pub mod sessions;
 pub mod ws;
@@ -47,12 +38,16 @@ use axum::{
     response::{IntoResponse, Response},
     routing::any,
 };
+#[cfg(target_os = "macos")]
+use pacer_desktop_native::control::{ControlServer, Dispatch, Guard, Hello, Identity, Peer};
 use pacer_foundation::{
     Ctx,
     api::{Code, CoreError, Registry},
 };
-use serde_json::Value;
-use std::{collections::HashMap, io, sync::Arc};
+use serde_json::{Value, json};
+use std::{collections::HashMap, io, sync::Arc, time::Duration};
+#[cfg(target_os = "macos")]
+use tokio::sync::mpsc;
 // Bun's HTTP listener joins Cookie fields with semicolon-space; Fetch joins
 // other repeated fields with comma-space, in arrival order.
 fn header_value(headers: &axum::http::HeaderMap, name: &str) -> Option<String> {
@@ -883,6 +878,199 @@ fn json_headers(mut response: Response) -> Response {
     );
     response
 }
+
+/// In-process dispatch that runs each native control `op` through the front
+/// door's router, carrying the desktop client identity the server's origin
+/// check requires. The control socket never makes its own routing decisions.
+#[cfg(target_os = "macos")]
+struct NativeControlDispatch {
+    state: Arc<Listener>,
+    token: String,
+}
+
+/// Reproduces the desktop's app-identity origin check for a synthesized
+/// control request (the same `callOp` path the desktop uses).
+#[cfg(target_os = "macos")]
+fn client_header(identity: &Identity) -> Option<String> {
+    if identity.client_id.is_empty() {
+        None
+    } else {
+        Some(identity.client_id.clone())
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl Dispatch for NativeControlDispatch {
+    async fn call_op(&self, identity: &Identity, op: &str, params: Value) -> Result<Value, Value> {
+        let uri = format!("/v3/ops/{op}");
+        let mut request = Request::builder()
+            .method(axum::http::Method::POST)
+            .uri(uri)
+            .header("authorization", format!("Bearer {}", self.token))
+            .header("x-pacer-client", "app")
+            .header("content-type", "application/json");
+        if let Some(instance) = client_header(identity) {
+            request = request.header("x-pacer-client-instance", instance);
+        }
+        let request = match request
+            .body(Body::from(serde_json::to_vec(&params).unwrap_or_default()))
+        {
+            Ok(request) => request,
+            Err(_) => {
+                return Err(
+                    json!({"error": {"code": "internal_error", "message": "request synthesis failed"}}),
+                );
+            }
+        };
+        let response = handle(State(self.state.clone()), request).await;
+        response_to_value(response).await
+    }
+    async fn subscribe(
+        &self,
+        _identity: &Identity,
+        since: f64,
+    ) -> Result<mpsc::Receiver<Value>, Value> {
+        let (tx, rx) = mpsc::channel(64);
+        let state = self.state.clone();
+        tokio::spawn(async move {
+            subscribe_poll(state, since, tx).await;
+        });
+        Ok(rx)
+    }
+}
+
+/// Convert a front-door `Response` into the native control `op` result. A
+/// success carries `result`; anything else is surfaced as an error body.
+async fn response_to_value(response: Response) -> Result<Value, Value> {
+    let (parts, body) = response.into_parts();
+    let bytes = match axum::body::to_bytes(body, 4 * 1024 * 1024).await {
+        Ok(bytes) if bytes.len() <= 4 * 1024 * 1024 => bytes,
+        _ => {
+            return Err(
+                json!({"error": {"code": "internal_error", "message": "oversized response"}}),
+            );
+        }
+    };
+    let value: Value = serde_json::from_slice(&bytes).unwrap_or_else(|_| json!(null));
+    let status = parts.status;
+    if status.is_success() && value.get("result").is_some() {
+        Ok(value["result"].clone())
+    } else if let Some(error) = value.get("error") {
+        Err(error.clone())
+    } else {
+        Err(value)
+    }
+}
+
+/// Poll the shared outbox read model at-or-after `since`, forwarding each
+/// event batch to the control subscriber until the channel closes.
+async fn subscribe_poll(state: Arc<Listener>, mut since: f64, tx: mpsc::Sender<Value>) {
+    let ctx = state.ctx.clone();
+    let zone = events_sse::local_zone(&ctx);
+    let store = match tokio::task::spawn_blocking({
+        let home = ctx.pacer_home.clone();
+        move || pacer_store::TaskStore::open(&home)
+    })
+    .await
+    {
+        Ok(Ok(store)) => Arc::new(std::sync::Mutex::new(store)),
+        _ => return,
+    };
+    loop {
+        if tx.is_closed() {
+            return;
+        }
+        let ctx = ctx.at_now();
+        let polled = tokio::task::spawn_blocking({
+            let ctx = ctx.clone();
+            let store = store.clone();
+            move || {
+                let mut store = store.lock().unwrap_or_else(|error| error.into_inner());
+                pacer_read_model::events::events_since(
+                    &ctx,
+                    since,
+                    3,
+                    &mut store,
+                    zone,
+                    &events_sse::pid_alive,
+                )
+                .map(|value| (since, value))
+            }
+        })
+        .await;
+        let batch = match polled {
+            Ok(Ok((old, value))) => {
+                since = value.get("last").and_then(Value::as_f64).unwrap_or(old);
+                value
+            }
+            _ => return,
+        };
+        if let Some(events) = batch.get("events").and_then(Value::as_array) {
+            for event in events {
+                if tx.send(event.clone()).await.is_err() {
+                    return;
+                }
+            }
+        }
+        if tx.is_closed() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(1000)).await;
+    }
+}
+
+/// Verifies an accepted control peer before any session is created or any
+/// frame is dispatched, reproducing the desktop's `verifyPeer` kernel
+/// audit-token check: the peer must be a live process owned by this uid.
+#[cfg(target_os = "macos")]
+struct NativeControlGuard;
+
+/// The running native control server plus the desktop update runtime start
+/// task, aborted together on shutdown so the composed OTA runtime stops
+/// cleanly before the process exits.
+struct ControlHandle {
+    task: tokio::task::JoinHandle<()>,
+    runtime: std::thread::JoinHandle<()>,
+}
+
+#[cfg(target_os = "macos")]
+impl Guard for NativeControlGuard {
+    async fn verify_peer(&self, peer: &Peer, hello: &Hello) -> Result<Identity, String> {
+        let Some(audit) = peer.audit_token() else {
+            return Err("peer token unavailable".to_owned());
+        };
+        // Darwin's struct local_peer: uid at offset 4, pid at offset 20.
+        if audit.len() != 32 {
+            return Err("peer token malformed".to_owned());
+        }
+        let pid = u32::from_le_bytes([audit[20], audit[21], audit[22], audit[23]]);
+        let uid = u32::from_le_bytes([audit[4], audit[5], audit[6], audit[7]]);
+        if pid == 0 {
+            return Err("peer token has no pid".to_owned());
+        }
+        let Ok(details) = pacer_desktop_native::native_trust::process_details(pid) else {
+            return Err("peer process unavailable".to_owned());
+        };
+        if details.uid != nix::unistd::getuid().as_raw() || uid != details.uid {
+            return Err("peer uid mismatch".to_owned());
+        }
+        // The desktop runs from `…/<App>.app/Contents/MacOS/pacer`; the app
+        // root the update authority inspects is three directories up.
+        let executable = details
+            .executable
+            .parent()
+            .and_then(|p| p.parent())
+            .and_then(|p| p.parent())
+            .map(|app| app.to_owned());
+        Ok(Identity {
+            role: hello.role.clone(),
+            client_id: hello.client_id.clone(),
+            audit: Some(*audit),
+            executable,
+            pid: Some(pid),
+        })
+    }
+}
 async fn shutdown_signal() {
     let term = async {
         match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
@@ -894,6 +1082,12 @@ async fn shutdown_signal() {
     };
     tokio::select! { _ = tokio::signal::ctrl_c() => {}, _ = term => {} }
 }
+/// Forward a desktop update status publication to the shared read-model
+/// outbox. Subscribers consume the outbox (snapshot `desktopUpdates` is
+/// sourced from the runtime), so no direct socket push is required for the
+/// op surface (see `broadcast_event`).
+fn publish_desktop_updates(_status: &Value) {}
+
 pub async fn run_serve(
     core: Vec<String>,
     mut env: HashMap<String, String>,
@@ -989,6 +1183,56 @@ pub async fn run_serve(
         forward_log_follow,
         forward_events,
     });
+    // The native desktop control socket serves directly on the published
+    // listener (a duplicate; the original goes to Core) for every paired
+    // build. DX1 removed the `PACER_NATIVE_DESKTOP_CONTROL` default-off
+    // flag: native control is always on, and the desktop update runtime is
+    // composed over its sessions.
+    #[cfg(target_os = "macos")]
+    let native_control = match &native {
+        Some(native) => {
+            let listener = native.control_listener();
+            match listener {
+                Ok(listener) => {
+                    let server = ControlServer::new(
+                        listener,
+                        "pacer".to_owned(),
+                        _version.to_owned(),
+                        port,
+                        NativeControlDispatch {
+                            state: state.clone(),
+                            token: state.token.clone(),
+                        },
+                        NativeControlGuard,
+                    );
+                    let control_state = server.state();
+                    let handle = desktop_update::install_runtime(
+                        &state.ctx.pacer_home,
+                        &state.ctx.home,
+                        port,
+                        control_state,
+                        Box::new(publish_desktop_updates),
+                    );
+                    if let Err(error) = handle {
+                        eprintln!("pacer: desktop update runtime install failed: {error}");
+                    }
+                    let runtime_thread = desktop_update::start_background();
+                    let server = server.serve();
+                    Some(ControlHandle {
+                        task: server,
+                        runtime: runtime_thread,
+                    })
+                }
+                Err(error) => {
+                    eprintln!("pacer: native control listener unavailable: {error}");
+                    None
+                }
+            }
+        }
+        None => None,
+    };
+    #[cfg(not(target_os = "macos"))]
+    let native_control: Option<ControlHandle> = None;
     let app = Router::new()
         .fallback(any(handle))
         .with_state(state.clone());
@@ -1014,6 +1258,14 @@ pub async fn run_serve(
     // Stop long-lived SSE/WebSocket connections as well as accepting new ones.
     server.abort();
     let _ = server.await;
+    // Stop the composed desktop update runtime, then the native control
+    // server, before the process exits.
+    if let Some(handle) = native_control {
+        desktop_update::stop();
+        let _ = handle.runtime.join();
+        handle.task.abort();
+        let _ = handle.task.await;
+    }
     probe.abort();
     // Withdraw the advert with goodbye packets before the core stops.
     radio.stop().await;
