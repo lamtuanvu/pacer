@@ -28,6 +28,9 @@ const NOT_SET_UP: (&str, &str) = (
     "The assistant is not set up.",
     "Choose an account in Settings › Assistant.",
 );
+/// Shared with TypeScript: without the native reply plugin no pacer-backend turn can run.
+const NATIVE_UNAVAILABLE: &str =
+    "Pacer's assistant needs an update or repair: its native binary is missing or outdated.";
 /// `READS_SUMMARY`.
 const READS: [&str; 4] = [
     "Counts, attention items, the pacing mode and whether delegation is paused.",
@@ -253,9 +256,9 @@ fn candidates(strategy: &Value) -> Vec<Value> {
                 })
                 .collect();
             let planner = strategy.pointer("/planner/account").and_then(Value::as_str);
-            // Phase 1 offers endpoint accounts on the `pacer` backend only; `reason` appears with a
-            // row that is not available (spec §5).
-            json!({"account":name,"backend":"pacer","available":true,"liveTools":true,"models":models,"runners":runners,"isPlanner":planner == Some(name)})
+            // Every pacer-backend row needs the native reply plugin; the core's plugin registry is
+            // the authority on whether it is present, so the native rows are only a fallback shape.
+            json!({"account":name,"backend":"pacer","available":false,"liveTools":false,"reason":NATIVE_UNAVAILABLE,"models":models,"runners":runners,"isPlanner":planner == Some(name)})
         })
         .collect()
 }
@@ -327,7 +330,6 @@ fn status(ctx: &Ctx) -> Result<Option<Value>, CoreError> {
             let Some(strategy) = strategy(ctx) else {
                 return Ok(None);
             };
-            // Native status only answers the pacer backend; an executor backend's status is forwarded.
             let pacer_ok = endpoint_ok(&strategy, account, settings.runner.as_deref(), false);
             live_tools = pacer_ok;
             if !pacer_ok {
@@ -335,6 +337,10 @@ fn status(ctx: &Ctx) -> Result<Option<Value>, CoreError> {
                     "The account chosen for the assistant is no longer available.".to_owned(),
                     "Choose another account in Settings › Assistant.",
                 )
+            } else if settings.backend != "executor" {
+                // A configured pacer account is available only when the native reply plugin serves
+                // it. Plugin state lives in the TypeScript core, so defer status to it here.
+                return Ok(None);
             } else if today[0].as_f64().unwrap_or(0.0) >= turns_per_day as f64 {
                 (
                     format!("The assistant reached its limit of {turns_per_day} turns today."),

@@ -12,8 +12,7 @@ import {
   ASSISTANT_BACKENDS, ASSISTANT_MAX_DEADLINE_MS, CAPABILITIES, CAPABILITY_METHODS, EXTENSION_METHODS,
   NOTIFICATIONS, PLUGIN_PROTOCOL_VERSION, assistantReplyParams, assistantReplyResult, capabilityOf, manifestSchema,
 } from "../src/plugins/protocol";
-import { readActivity } from "../src/activity/log";
-import { admit, ask, cancel, candidates, noticeLegacyRespondFallback, replyProvider, runAssistantTool, subscribeTurn, type AssistantDeps, type StreamFrame } from "../src/assistant/service";
+import { admit, ask, assistantStatus, cancel, candidates, replyProvider, runAssistantTool, subscribeTurn, type AssistantDeps, type StreamFrame } from "../src/assistant/service";
 import { DIGEST_MAX_CHARS, buildDigest } from "../src/assistant/digest";
 import { createRedactor } from "../src/assistant/redact";
 import { assistantDatabase, conversationTurns, getTurn, listConversations, readBackendSession, readSettings, writeBackendSession, writeSettings } from "../src/assistant/store";
@@ -66,10 +65,8 @@ async function finished(ctx: Ctx, turnId: string) {
   throw new Error("turn did not finish");
 }
 const req = () => `r-${crypto.randomUUID()}`;
-/** Ask on the reply path: the host loop must never run, so a fallback is a loud failure. */
-const noLoop: AssistantDeps["respond"] = async () => { throw new Error("the assistant.respond loop must not run"); };
 
-function setup(o: { fake?: boolean; extra?: BundledPlugin[]; limits?: Partial<AssistantLimits>; respond?: AssistantDeps["respond"] } = {}) {
+function setup(o: { fake?: boolean; extra?: BundledPlugin[]; limits?: Partial<AssistantLimits> } = {}) {
   const ctx = fakeCtx();
   if (o.fake !== false) pluginRegistry(ctx, {
     bundled: [...BUNDLED.filter(p => p.manifest.id !== "assistant-executor"), fake, ...(o.extra ?? [])],
@@ -80,7 +77,6 @@ function setup(o: { fake?: boolean; extra?: BundledPlugin[]; limits?: Partial<As
   writeSettings(ctx, { runner: null, account: "ep", expect_rev: readSettings(ctx).rev, ...(o.limits ? { limits: o.limits } : {}) });
   const deps: AssistantDeps = {
     strategy: () => strategy(), status, keys: async () => [KEY], read, cards: { task: () => null },
-    respond: o.respond ?? noLoop,
   };
   return { ctx, deps };
 }
@@ -97,10 +93,9 @@ describe("the turn-level plugin interface", () => {
     expect(answersTurn([answering], "turn-a")).toBe(false);
   });
 
-  test("assistant.respond is marked deprecated in the plugin protocol", () => {
-    expect(EXTENSION_METHODS["assistant.respond"]!.deprecated).toBe(true);
-    expect(EXTENSION_METHODS["assistant.respond"]!.description).toMatch(/Deprecated/);
-    expect(EXTENSION_METHODS["assistant.reply"]!.deprecated).toBeUndefined();
+  test("assistant.respond is gone from the plugin protocol", () => {
+    expect(EXTENSION_METHODS["assistant.respond"]).toBeUndefined();
+    expect(EXTENSION_METHODS["assistant.reply"]).toBeDefined();
   });
 
   test("assistant.reply is strict, 1.11.0, and capped at the host's deadline ceiling", () => {
@@ -210,30 +205,6 @@ describe("capability.assistant.tool authority", () => {
 });
 
 describe("the shared tool function", () => {
-  test("the assistant.respond loop feeds back exactly what runAssistantTool returns", async () => {
-    const calls: any[] = [];
-    let round = 0;
-    const { ctx, deps } = setup({
-      fake: false,
-      respond: async (_c, params) => {
-        calls.push(params);
-        return round++ === 0
-          ? { message: "", toolCalls: [{ id: "c1", name: "task_get", arguments: { id: "t-20261028-101010-ab12" } }], usage }
-          : { message: "It failed.", usage };
-      },
-    });
-    const redactor = createRedactor([KEY], ctx.home);
-    const direct = await runAssistantTool(ctx, { id: "c1", name: "task_get", arguments: { id: "t-20261028-101010-ab12" } },
-      { read, scope, redactor, cards: { task: () => null }, state: { cards: [], notes: [], toolLog: [], seenTasks: new Set(), rounds: { used: 0, max: 6 } } });
-    expect(direct.content).toStartWith('<data tool="task_get">');
-    const started = await ask(ctx, { text: "why did it fail?", scope, requestId: req() }, deps);
-    const turn = await finished(ctx, started.turnId);
-    expect(turn.state).toBe("done");
-    expect(turn.answer).toBe("It failed.");
-    // The loop and the capability end in the same function, so the message it feeds back is byte-identical.
-    expect(calls[1].messages.at(-1)).toEqual({ role: "tool", toolCallId: "c1", content: direct.content });
-  });
-
   test("propose_action becomes a card through the shared function, and the budget stops a late call", async () => {
     const ctx = fakeCtx();
     const redactor = createRedactor([KEY], ctx.home);
@@ -270,7 +241,7 @@ describe("the host-built digest", () => {
 
 describe("a turn answered by a plugin", () => {
   test("routes to the plugin that provides assistant.reply and runs its tool through the capability", async () => {
-    const { ctx, deps } = setup({ respond: noLoop });
+    const { ctx, deps } = setup();
     expect(replyProvider(ctx, "pacer")).toBe("fx-reply");
     const started = await ask(ctx, { text: "tool", scope, requestId: req() }, deps);
     const turn = await finished(ctx, started.turnId);
@@ -282,7 +253,7 @@ describe("a turn answered by a plugin", () => {
   });
 
   test("forwards assistant.delta to the turn's stream although the plugin has no UI surface", async () => {
-    const { ctx, deps } = setup({ respond: noLoop });
+    const { ctx, deps } = setup();
     expect(fake.manifest.contributes.ui).toBeUndefined();
     const started = await ask(ctx, { text: "tool", scope, requestId: req() }, deps);
     const frames: StreamFrame[] = [];
@@ -300,7 +271,7 @@ describe("a turn answered by a plugin", () => {
   });
 
   test("passes the backend's session handle on the next turn, only for the same account and backend", async () => {
-    const { ctx, deps } = setup({ respond: noLoop });
+    const { ctx, deps } = setup();
     const first = await ask(ctx, { text: "session", scope, requestId: req() }, deps);
     expect((await finished(ctx, first.turnId)).answer).toBe("got=none");
     const conv = first.conversationId;
@@ -319,7 +290,7 @@ describe("a turn answered by a plugin", () => {
   });
 
   test("drops the session handle past the input cap and when a reply returns none", async () => {
-    const { ctx, deps } = setup({ respond: noLoop });
+    const { ctx, deps } = setup();
     const big = await ask(ctx, { text: "session big", scope, requestId: req() }, deps);
     await finished(ctx, big.turnId);
     expect(readBackendSession(ctx, big.conversationId)).toBeNull();
@@ -332,7 +303,7 @@ describe("a turn answered by a plugin", () => {
   });
 
   test("redacts streamed text with the turn's redactor", async () => {
-    const { ctx, deps } = setup({ respond: noLoop });
+    const { ctx, deps } = setup();
     const started = await ask(ctx, { text: "leak", scope, requestId: req() }, deps);
     const frames: StreamFrame[] = [];
     subscribeTurn(started.turnId, frame => frames.push(frame));
@@ -343,7 +314,7 @@ describe("a turn answered by a plugin", () => {
   });
 
   test("caps tool rounds at the turn's maxToolRounds", async () => {
-    const { ctx, deps } = setup({ respond: noLoop, limits: { maxToolRounds: 2 } });
+    const { ctx, deps } = setup({ limits: { maxToolRounds: 2 } });
     const started = await ask(ctx, { text: "rounds", scope, requestId: req() }, deps);
     const turn = await finished(ctx, started.turnId);
     expect(turn.state).toBe("done");
@@ -352,7 +323,7 @@ describe("a turn answered by a plugin", () => {
   });
 
   test("refuses a tool call for another turn, and one after its reply call ended", async () => {
-    const { ctx, deps } = setup({ respond: noLoop });
+    const { ctx, deps } = setup();
     const first = await ask(ctx, { text: "tool", scope, requestId: req() }, deps);
     const turnOne = await finished(ctx, first.turnId);
     expect(turnOne.state).toBe("done");
@@ -374,7 +345,7 @@ describe("a turn answered by a plugin", () => {
   });
 
   test("cancel aborts the reply and discards its answer", async () => {
-    const { ctx, deps } = setup({ respond: noLoop });
+    const { ctx, deps } = setup();
     const started = await ask(ctx, { text: "slow", scope, requestId: req() }, deps);
     await Bun.sleep(200);
     expect(cancel(ctx, started.turnId)).toEqual({ cancelled: true });
@@ -385,7 +356,7 @@ describe("a turn answered by a plugin", () => {
   });
 
   test("the deadline stops a backend that will not answer, with a plain error", async () => {
-    const { ctx, deps } = setup({ respond: noLoop, limits: { deadlineMs: 1000 } });
+    const { ctx, deps } = setup({ limits: { deadlineMs: 1000 } });
     const started = await ask(ctx, { text: "slow", scope, requestId: req() }, deps);
     const turn = await finished(ctx, started.turnId);
     expect(turn.state).toBe("error");
@@ -394,19 +365,11 @@ describe("a turn answered by a plugin", () => {
     expect(turn.error).not.toContain(KEY);
   });
 
-  test("keeps today's assistant.respond loop when no plugin provides assistant.reply", async () => {
-    const { ctx, deps } = setup({ fake: false });
-    expect(replyProvider(ctx, "pacer")).toBeNull();
-    const started = await ask(ctx, { text: "anything", scope, requestId: req() }, { ...deps, respond: async () => ({ message: "from the loop", usage }) });    const turn = await finished(ctx, started.turnId);
-    expect(turn.state).toBe("done");
-    expect(turn.answer).toBe("from the loop");
-    expect(turn.usage).toEqual(usage);
-  });
 });
 
 describe("backend choice", () => {
   test("admission refuses a stored executor backend that no plugin serves", async () => {
-    const { ctx, deps } = setup({ respond: noLoop });
+    const { ctx, deps } = setup();
     expect((await admit(ctx, deps)).ok).toBe(true);
     writeSettings(ctx, { runner: null, account: "ep", backend: "executor", expect_rev: readSettings(ctx).rev });
     const refused = await admit(ctx, deps);
@@ -422,7 +385,7 @@ describe("backend choice", () => {
       manifest: manifestSchema.parse({ id: "fx-exec-noreply", version: "1.0.0", publisher: "test", host: ">=1.11.0", contributes: { assistant: { backend: "executor" } }, capabilities: [] }),
       main: async () => ({ handlers: {} }),
     };
-    const { ctx, deps } = setup({ respond: noLoop, extra: [serving] });
+    const { ctx, deps } = setup({ extra: [serving] });
     writeSettings(ctx, { runner: null, account: "ep", backend: "executor", expect_rev: readSettings(ctx).rev });
     // Serving the backend is not enough: without assistant.reply the turn would run pacer's own loop.
     expect(replyProvider(ctx, "executor")).toBeNull();
@@ -432,7 +395,7 @@ describe("backend choice", () => {
   });
 
   test("settings keep the stored backend when a save omits it, and read it back as pacer when absent", async () => {
-    const { ctx } = setup({ respond: noLoop });
+    const { ctx } = setup();
     writeSettings(ctx, { runner: null, account: "ep", backend: "executor", expect_rev: readSettings(ctx).rev });
     expect(readSettings(ctx).backend).toBe("executor");
     writeSettings(ctx, { runner: null, account: "ep", expect_rev: readSettings(ctx).rev });
@@ -460,7 +423,7 @@ describe("backend choice", () => {
   });
 
   test("candidates name the backend and say they are available", async () => {
-    const { ctx, deps } = setup({ respond: noLoop });
+    const { ctx, deps } = setup();
     const rows = candidates(ctx, deps);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ account: "ep", backend: "pacer", available: true, isPlanner: false, liveTools: true });
@@ -492,45 +455,6 @@ describe("assistant-pacer native host routing", () => {
     expect(replyProvider(ctx, "pacer")).toBeNull();
   });
 
-  test("falls back to assistant.respond when assistant-pacer is unavailable", async () => {
-    const { ctx, deps } = setup({ fake: false });
-    expect(replyProvider(ctx, "pacer")).toBeNull();
-    const started = await ask(ctx, { text: "anything", scope, requestId: req() }, {
-      ...deps,
-      respond: async () => ({ message: "respond fallback", usage }),
-    });
-    const turn = await finished(ctx, started.turnId);
-    expect(turn.state).toBe("done");
-    expect(turn.answer).toBe("respond fallback");
-    const notices = readActivity(ctx, { kinds: ["plugin_state"] }).entries.map(e => e.text);
-    expect(notices).toHaveLength(1);
-    expect(notices[0]).toContain("assistant.respond is deprecated");
-    expect(notices[0]).toContain(ASSISTANT_PACER_EXECUTABLE);
-    expect(notices[0]).toMatch(/missing|outdated/);
-    expect(notices[0]).toContain("newer pacer release will install it");
-    // A second turn must not repeat the notice.
-    const second = await ask(ctx, { text: "again", scope, requestId: req() }, {
-      ...deps,
-      respond: async () => ({ message: "respond fallback again", usage }),
-    });
-    await finished(ctx, second.turnId);
-    expect(readActivity(ctx, { kinds: ["plugin_state"] }).entries).toHaveLength(1);
-  });
-
-  test("legacy respond notice skips when the native binary is ready", () => {
-    const { ctx } = setup({ fake: false });
-    const bin = join(ctx.home, "bin");
-    mkdirSync(bin, { recursive: true });
-    const version = currentVersion();
-    writeFileSync(join(bin, "pacer-core"), `#!/bin/sh\necho "pacer ${version}"\n`, { mode: 0o755 });
-    writeFileSync(join(bin, ASSISTANT_PACER_EXECUTABLE), `#!/bin/sh\necho "pacer ${version}"\n`, { mode: 0o755 });
-    chmodSync(join(bin, "pacer-core"), 0o755);
-    chmodSync(join(bin, ASSISTANT_PACER_EXECUTABLE), 0o755);
-    ctx.env.PACER_CORE_ARGV = JSON.stringify([join(bin, "pacer-core")]);
-    noticeLegacyRespondFallback(ctx);
-    expect(readActivity(ctx, { kinds: ["plugin_state"] }).entries).toEqual([]);
-  });
-
   test("routes backend:pacer to assistant.reply on assistant-pacer and runs tools through the capability", async () => {
     const ctx = fakeCtx();
     enableNativeSibling(ctx);
@@ -544,7 +468,6 @@ describe("assistant-pacer native host routing", () => {
     expect(replyProvider(ctx, "pacer")).toBe("assistant-pacer");
     const deps: AssistantDeps = {
       strategy: () => strategy(), status, keys: async () => [KEY], read, cards: { task: () => null },
-      respond: noLoop,
     };
     const started = await ask(ctx, { text: "tool", scope, requestId: req() }, deps);
     const turn = await finished(ctx, started.turnId);
@@ -566,7 +489,6 @@ describe("assistant-pacer native host routing", () => {
     writeSettings(ctx, { runner: null, account: "ep", expect_rev: readSettings(ctx).rev });
     const deps: AssistantDeps = {
       strategy: () => strategy(), status, keys: async () => [KEY], read, cards: { task: () => null },
-      respond: noLoop,
     };
     const started = await ask(ctx, { text: "endpoint", scope, requestId: req() }, deps);
     const turn = await finished(ctx, started.turnId);
@@ -597,7 +519,6 @@ describe("assistant-pacer native host routing", () => {
     }) as unknown as Strategy;
     const deps: AssistantDeps = {
       strategy: withFileKey, status, keys: async () => [KEY], read, cards: { task: () => null },
-      respond: noLoop,
     };
     const started = await ask(ctx, { text: "endpoint", scope, requestId: req() }, deps);
     const turn = await finished(ctx, started.turnId);
@@ -605,31 +526,29 @@ describe("assistant-pacer native host routing", () => {
     expect(turn.answer).toBe("api=openai-compatible;baseUrl=http://x/v1;keyless=false");
   });
 
-  test("anthropic accounts are unavailable for backend:pacer when the native binary is absent", async () => {
-    const { ctx, deps } = setup({ fake: false });
-    expect(replyProvider(ctx, "pacer")).toBeNull();
-    const anthropicStrategy = () => ({
-      ...strategy(),
-      accounts: {
-        ep: {
-          kind: "endpoint", model: null,
-          connection: { api: "anthropic", base_url: "https://api.anthropic.com", key: "env:ANTHROPIC_KEY", models: [{ id: "claude-sonnet-4-0", context: 200000, output: 8000, tools: true }] },
+  test("every pacer-backend account is unavailable without the native binary, with a plain reason", async () => {
+    for (const api of ["openai-compatible", "anthropic", "gemini"] as const) {
+      const { ctx, deps } = setup({ fake: false });
+      expect(replyProvider(ctx, "pacer")).toBeNull();
+      const apiStrategy = () => ({
+        ...strategy(),
+        accounts: {
+          ep: { kind: "endpoint", model: null, connection: { api, base_url: "http://x/v1", key: "none", models: [{ id: "m1" }] } },
         },
-      },
-    }) as unknown as Strategy;
-    writeSettings(ctx, { runner: null, account: "ep", expect_rev: readSettings(ctx).rev });
-    const admission = await admit(ctx, { ...deps, strategy: anthropicStrategy });
-    expect(admission.ok).toBe(false);
-    expect(admission.reason).toContain("native binary");
-    expect(admission.reason).toContain("anthropic");
-    const rows = candidates(ctx, { ...deps, strategy: anthropicStrategy });
-    expect(rows.find(r => r.account === "ep" && r.backend === "pacer")).toMatchObject({ available: false });
-    // Admission refuses before a turn starts, so the legacy respond path never runs.
-    await expect(ask(ctx, { text: "hi", scope, requestId: req() }, {
-      ...deps,
-      strategy: anthropicStrategy,
-      respond: async () => ({ message: "must not run", usage }),
-    })).rejects.toThrow(/native binary/);
+      }) as unknown as Strategy;
+      const withStrategy = { ...deps, strategy: apiStrategy };
+      const reason = "Pacer's assistant needs an update or repair: its native binary is missing or outdated.";
+      const admission = await admit(ctx, withStrategy);
+      expect(admission).toMatchObject({ ok: false, reason });
+      expect(admission.hint).toContain("Update or repair pacer");
+      const rows = candidates(ctx, withStrategy);
+      expect(rows.find(r => r.account === "ep" && r.backend === "pacer")).toMatchObject({ available: false, liveTools: false, reason });
+      const status = await assistantStatus(ctx, withStrategy);
+      expect(status).toMatchObject({ available: false, configured: true, reason });
+      expect(status.hint).toContain("Update or repair pacer");
+      // Admission refuses before a turn starts: there is no legacy path left to fall into.
+      await expect(ask(ctx, { text: "hi", scope, requestId: req() }, withStrategy)).rejects.toThrow(/native binary is missing or outdated/);
+    }
   });
 
   test("backend:pacer turns pass endpoint.api and omit default anthropic baseUrl", async () => {
@@ -653,7 +572,6 @@ describe("assistant-pacer native host routing", () => {
     }) as unknown as Strategy;
     const deps: AssistantDeps = {
       strategy: anthropicStrategy, status, keys: async () => [KEY], read, cards: { task: () => null },
-      respond: noLoop,
     };
     const started = await ask(ctx, { text: "endpoint", scope, requestId: req() }, deps);
     const turn = await finished(ctx, started.turnId);
@@ -680,7 +598,6 @@ describe("assistant-pacer native host routing", () => {
     writeSettings(ctx, { runner: null, account: "ep", expect_rev: readSettings(ctx).rev });
     const deps: AssistantDeps = {
       strategy: () => strategy(), status, keys: async () => [KEY], read, cards: { task: () => null },
-      respond: noLoop,
     };
     const started = await ask(ctx, { text: "leak-key", scope, requestId: req() }, deps);
     const turn = await finished(ctx, started.turnId);
@@ -836,7 +753,6 @@ runners:
 
     const deps: AssistantDeps = {
       status, keys: async () => [KEY], read, cards: { task: () => null },
-      respond: noLoop,
     };
 
     try {

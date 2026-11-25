@@ -12,14 +12,13 @@ connection pacer holds (`connection.api`: `openai-compatible`, `anthropic` or `g
 account. If you choose the planner's account it follows the planner's pacing: it answers in relaxed and normal mode and
 pauses in strict and emergency mode.
 
-Anthropic and Gemini accounts need pacer's native `assistant-pacer` binary. When that binary is absent they are reported
-unavailable and are never answered through the legacy TypeScript openai-compatible plugin.
+Every account needs pacer's native `assistant-pacer` binary, whatever its API. When that binary is missing or outdated,
+all `backend: pacer` rows are reported unavailable in candidates and status with the same plain reason, admission refuses
+the turn, and no question is silently answered by another path. Update or repair pacer to install the binary; self-repair
+restores it on the first start of the new version even if your update ran through an older updater.
 
-The legacy host loop (`assistant.respond` on the bundled TypeScript `pacer-assistant` plugin) is **deprecated**. It remains
-only as a fallback for openai-compatible accounts when the native `pacer-assistant-pacer` binary is missing or outdated
-(the CLI updater that installs it is merged but not yet in a released build). A newer pacer release will install the
-binary; one release after that ships, the legacy method, plugin and host loop are removed. When a turn still uses the
-fallback, Activity logs one warning naming the missing or outdated binary.
+The call-level `assistant.respond` method, the bundled TypeScript `pacer-assistant` plugin and the host-side model loop
+were removed after v0.18.4, the first release to ship the binary with the updater's `nativePlugins` manifest field.
 
 Local openai-compatible endpoints with `connection.key: none` (LM Studio, Ollama, and similar) are called without an
 `Authorization` header. pacer's native assistant injects a default `created` timestamp when an openai-compatible server
@@ -120,6 +119,6 @@ carries no text.
 
 ## For plugin authors
 
-`assistant` is a plugin extension point. Prefer `assistant.reply` (turn-level). `assistant.respond` is deprecated and
-removed one release after the native updater ships; served only by bundled plugins until installed plugins are
+`assistant` is a plugin extension point. A plugin answers a turn with `assistant.reply` (turn-level); the call-level
+`assistant.respond` method is removed. The assistant point is served only by bundled plugins until installed plugins are
 sandboxed. See the [plugin protocol](plugin-protocol.md).
