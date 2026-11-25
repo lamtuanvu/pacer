@@ -3,10 +3,13 @@ import {
   absoluteTime,
   answerActionParams,
   answerDisabled,
+  classifyTask,
   controlBusy,
   doneGlyph,
+  executorShortLabel,
   initialPanelState,
   panelModel,
+  plannerAgentDisplay,
   reducePanel,
   reviewExpectRev,
   showOpenWorktree,
@@ -134,22 +137,10 @@ function renderHeader(snapshot: PanelSnapshot): HTMLElement {
   return header
 }
 
-function plannerAgentDisplay(agent: string | null | undefined): string {
-  // reuse from panel-view? not exported; duplicate minimal
-  const map: Record<string, string> = {
-    'claude-code': 'Claude', claude: 'Claude', codex: 'Codex', cursor: 'Cursor',
-    opencode: 'OpenCode', agy: 'Antigravity', antigravity: 'Antigravity', local: 'Local model',
-  }
-  if (!agent) return 'Planner'
-  return map[agent.toLowerCase()] ?? agent
-}
 
 function renderNeedsRow(item: AttentionRow, model: Extract<ReturnType<typeof panelModel>, { kind: 'ready' }>, now: number): HTMLElement {
-  const expanded = state.ui.expandedTaskId === item.id // reuse expandedTaskId? For needs rows use item.id too maybe separate. We'll use a separate expandedNeedsId? 
-  // We'll track expanded needs via same expandedTaskId with prefix 'need:'? Simpler: use state.ui.expandedTaskId === `need:${item.id}`.
   const isOpen = state.ui.expandedTaskId === `need:${item.id}`
-  const row = el('div')
-  row.style.cssText = 'border-top:1px solid var(--surface-lane);'
+  const row = el('div', 'pc-needs-row')
   const btn = el('button', 'row')
   btn.type = 'button'
   btn.setAttribute('aria-expanded', isOpen ? 'true' : 'false')
@@ -168,8 +159,8 @@ function renderNeedsRow(item: AttentionRow, model: Extract<ReturnType<typeof pan
     const detail = el('div')
     detail.style.cssText = 'display:flex;flex-direction:column;gap:8px;padding:0 12px 12px 34px;'
     const when = absoluteTime(item.since, now)
-    const exec = item.executor ?? ''
-    detail.append(el('span', undefined, `${item.detail ?? ''} · ${exec} · ${when}`))
+    const exec = executorShortLabel(item.executor)
+    detail.append(el('span', undefined, [item.detail, exec, when].filter(Boolean).join(' · ')))
     const actions = el('div')
     actions.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;'
     // Accept/Reject for review
@@ -202,7 +193,7 @@ function renderNeedsRow(item: AttentionRow, model: Extract<ReturnType<typeof pan
 
 function renderTaskRow(task: PanelTask, model: Extract<ReturnType<typeof panelModel>, { kind: 'ready' }>, now: number): HTMLElement {
   const isOpen = state.ui.expandedTaskId === task.id
-  const rowWrap = el('div')
+  const rowWrap = el('div', 'pc-task-row')
   const btn = el('button', 'row')
   btn.type = 'button'
   btn.setAttribute('aria-expanded', isOpen ? 'true' : 'false')
@@ -222,12 +213,9 @@ function renderTaskRow(task: PanelTask, model: Extract<ReturnType<typeof panelMo
   if (isOpen) {
     const detail = el('div')
     detail.style.cssText = 'display:flex;flex-direction:column;gap:8px;padding:0 12px 12px 34px;'
-    const cls = (task as any)._cls
-    const c = taskStatusText(task, now)
-    // detail text
-    const execLabel = task.executor ?? 'executor'
+    const execLabel = executorShortLabel(task.executor) ?? 'The executor'
     let detailText = ''
-    const cl = classifyLocal(task)
+    const cl = classifyTask(task)
     if (cl === 'asked') {
       const when = absoluteTime(task.updatedAt, now)
       detailText = `${execLabel} asked the caller (this worktree's agent) · ${when}. The caller usually answers; answer yourself only to override.`
@@ -239,7 +227,7 @@ function renderTaskRow(task: PanelTask, model: Extract<ReturnType<typeof panelMo
       const pw = phaseMap[phase] ?? phase
       detailText = `${execLabel} · ${pw} · started ${absoluteTime(task.attemptStartedAt ?? task.updatedAt, now)}`
     } else if (cl === 'queued') {
-      const next = task.nextExecutor ?? 'an executor'
+      const next = executorShortLabel(task.nextExecutor) ?? 'an executor'
       detailText = `Waits for ${next} · queued ${absoluteTime(task.updatedAt, now)}`
     } else {
       detailText = task.title
@@ -329,8 +317,7 @@ function renderTaskRow(task: PanelTask, model: Extract<ReturnType<typeof panelMo
       } }))
       detail.append(actions)
     } else if (cl === 'failed') {
-      // attention item actions: find attention item for task
-      const att = (model.snapshot.attention ?? []).find((a: any) => a.taskId === task.id)
+      const att = (model.snapshot.attention ?? []).find((a) => a.taskId === task.id && (a.kind === 'failed' || a.kind === 'limit'))
       const actions = el('div')
       actions.style.cssText = 'display:flex;gap:4px;flex-wrap:wrap;margin-left:-12px;'
       if (att) {
@@ -363,13 +350,6 @@ function renderTaskRow(task: PanelTask, model: Extract<ReturnType<typeof panelMo
   return rowWrap
 }
 
-function classifyLocal(task: PanelTask): string {
-  if (task.state === 'needs_input' && task.question) return 'asked'
-  if (task.liveness?.reason === 'caller_decision') return 'caller-deciding'
-  if (task.state === 'queued') return 'queued'
-  if (task.state === 'failed' || task.state === 'limit') return 'failed'
-  return 'running'
-}
 
 function renderReady(model: Extract<ReturnType<typeof panelModel>, { kind: 'ready' }>, now: number): HTMLElement {
   const shell = el('div', 'pc-shell')
@@ -386,7 +366,6 @@ function renderReady(model: Extract<ReturnType<typeof panelModel>, { kind: 'read
     const p = main.lastChild as HTMLElement
     p.style.color = 'var(--ink-secondary)'
     shell.append(main)
-    // still status? no
     return shell
   }
 
@@ -427,6 +406,7 @@ function renderReady(model: Extract<ReturnType<typeof panelModel>, { kind: 'read
   }
 
   // Tasks
+  if (tasks.length > 0) {
   const tsection = el('section')
   tsection.setAttribute('aria-label', 'Tasks')
   tsection.style.cssText = 'display:flex;flex-direction:column;gap:6px;'
@@ -438,6 +418,7 @@ function renderReady(model: Extract<ReturnType<typeof panelModel>, { kind: 'read
   for (const t of tasks) tbox.append(renderTaskRow(t, model, now))
   tsection.append(tbox)
   main.append(tsection)
+  }
 
   // Done
   const doneSection = el('section')
@@ -469,8 +450,7 @@ function renderReady(model: Extract<ReturnType<typeof panelModel>, { kind: 'read
       const dt = el('span', undefined, d.title)
       dt.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink);'
       drow.append(dt)
-      const meta = el('span', undefined, `${d.executor ?? 'Automatic'} · ${absoluteTime(d.updatedAt, now)}`)
-      // use short label? keep executor raw maybe; brief wants Agent. We'll leave.
+      const meta = el('span', undefined, [executorShortLabel(d.executor), absoluteTime(d.updatedAt, now)].filter(Boolean).join(' · '))
       meta.style.cssText = 'flex:none;color:var(--ink-muted);'
       drow.append(meta)
       dbox.append(drow)

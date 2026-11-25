@@ -4,6 +4,7 @@ import { test } from 'node:test'
 import type { PanelSnapshot } from './protocol'
 import {
   absoluteTime,
+  activeTasks,
   answerActionParams,
   answerDisabled,
   classifyTask,
@@ -253,8 +254,30 @@ test('needs-you filtering: question not included, review and message included', 
 test('summary text', () => {
   const s = snap()
   const text = summaryText(s, 1_700_000_100)
-  // needs you: r1, m1 =2; running: t-msg, t-stalled, t-deciding =3; asked: t-q =1
-  assert.equal(text, '2 needs you · 3 running · 1 asked caller')
+  // Needs you: r1, m1. Running: only t-stalled (t-msg is under Needs you, t-deciding waits on the caller). Asked: t-q.
+  assert.equal(text, '2 needs you · 1 running · 1 asked caller')
+})
+
+test('settled tasks go to Done, never to the active list', () => {
+  const now = 1_700_000_100
+  const s = snap({
+    tasks: [
+      { id: 'live', rev: 1, title: 'Live', repo, executor: 'cursor#cursor', state: 'running', attemptStartedAt: now - 120, updatedAt: now - 60 },
+      { id: 'fin', rev: 1, title: 'Finished', repo, executor: 'cursor#cursor', state: 'done', updatedAt: now - 300, review: { accepted: true } },
+      { id: 'old-fail', rev: 1, title: 'Failed and retried', repo, executor: 'cursor#cursor', state: 'failed', updatedAt: now - 400 },
+    ],
+    attention: [],
+  })
+  assert.deepEqual(activeTasks(s).map((t) => t.id), ['live'])
+  assert.deepEqual(doneTasks(s, now).map((t) => t.id), ['fin', 'old-fail'])
+  assert.equal(summaryText(s, now), '1 running')
+})
+
+test('a task under Needs you is not repeated in the active list or Done', () => {
+  const s = snap()
+  const needs = new Set(needsYouItems(s).map((a) => a.taskId))
+  for (const t of activeTasks(s)) assert.equal(needs.has(t.id), false)
+  for (const t of doneTasks(s, 1_700_000_100)) assert.equal(needs.has(t.id), false)
 })
 
 test('empty summary', () => {

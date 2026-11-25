@@ -93,18 +93,13 @@ export function worktreeTasks(snapshot: PanelSnapshot): PanelTask[] {
   })
 }
 
-// alias
-export const tasksForWorktree = worktreeTasks
-export const tasksOfWorktree = worktreeTasks
-
+/** Only what is addressed to a person: a requested review or a message for the human, on this worktree's tasks. */
 export function needsYouItems(snapshot: PanelSnapshot): AttentionRow[] {
-  const ids = new Set((snapshot.tasks ?? []).map((t) => t.id))
+  const ids = new Set(worktreeTasks(snapshot).map((t) => t.id))
   return (snapshot.attention ?? []).filter(
     (a) => !!a.taskId && ids.has(a.taskId) && (a.kind === 'review' || a.kind === 'message'),
   )
 }
-
-export const worktreeNeedsYou = needsYouItems
 
 export function absoluteTime(at: number, now: number, timeZone?: string): string {
   const opts: Intl.DateTimeFormatOptions = { timeZone, hourCycle: 'h23', hour: '2-digit', minute: '2-digit' }
@@ -128,9 +123,6 @@ export function classifyTask(task: PanelTask): TaskClassification {
   return 'running'
 }
 
-export const taskClassification = classifyTask
-export const classifyTaskRow = classifyTask
-
 export function taskGlyph(task: PanelTask): { glyph: string; colorVar: string } {
   const c = classifyTask(task)
   if (c === 'asked' || c === 'caller-deciding') return { glyph: '◐', colorVar: 'var(--warn-fg)' }
@@ -148,19 +140,13 @@ export function taskStatusText(task: PanelTask, now: number): string {
   // running
   if (task.liveness?.stalled) {
     const mins = Math.max(1, Math.round((now - (task.liveness.since ?? now)) / 60))
-    return `no output ${mins}m` // note: brief says "no output <N>m"? Actually "no output <N>m"
+    return `no output ${mins}m`
   }
   const start = task.attemptStartedAt ?? task.updatedAt
   const mins = Math.max(1, Math.round((now - start) / 60))
   return `running ${mins}m`
 }
 
-// brief status uses "no output <N>m" (with m). Keep both forms? Board: "no output <N>m"? Spec text says "no output <N>m". We'll use "no output ${mins}m" (no space). But hidden tests may expect "no output 5m" or "no output 5 m"? Spec: "no output <N>m". Use no space before m. For running "running <N>m".
-// Adjust above to match exact: running "running 12m" yes.
-
-export function taskStatus(task: PanelTask, now: number): string {
-  return taskStatusText(task, now)
-}
 
 export function stalledMinutes(since: number, now: number): number {
   return Math.max(1, Math.round((now - since) / 60))
@@ -178,43 +164,45 @@ export function doneGlyph(task: PanelTask): { glyph: string; tone: 'good' | 'bad
   return { glyph: '·', tone: 'muted', label: 'Done' }
 }
 
-export function isDoneTask(task: PanelTask, now: number): boolean {
-  const active = task.state === 'running' || task.state === 'queued' || task.state === 'needs_input'
-  if (active) return false
-  // last 24h
-  const cutoff = now - 24 * 3600
-  return task.updatedAt >= cutoff
+/** A task still in motion: running, queued, asking, or failed with an open failure item (not yet retried or resolved). */
+export function isActiveTask(task: PanelTask, snapshot: PanelSnapshot): boolean {
+  if (task.state === 'running' || task.state === 'queued' || task.state === 'needs_input') return true
+  if (task.state === 'failed' || task.state === 'limit') {
+    return (snapshot.attention ?? []).some((a) => a.taskId === task.id && (a.kind === 'failed' || a.kind === 'limit'))
+  }
+  return false
 }
 
-export function doneTasks(snapshot: PanelSnapshot, now: number): PanelTask[] {
-  const tasks = worktreeTasks(snapshot)
-  return tasks
-    .filter((t) => isDoneTask(t, now))
+/** This worktree's active tasks, newest first, leaving out those already listed under Needs you. */
+export function activeTasks(snapshot: PanelSnapshot): PanelTask[] {
+  const needs = new Set(needsYouItems(snapshot).map((a) => a.taskId))
+  return worktreeTasks(snapshot)
+    .filter((t) => isActiveTask(t, snapshot) && !needs.has(t.id))
     .sort((a, b) => b.updatedAt - a.updatedAt)
 }
 
-export const doneWindow = doneTasks
+/** Settled tasks of this worktree from the last 24 hours, newest first, leaving out those under Needs you. */
+export function doneTasks(snapshot: PanelSnapshot, now: number): PanelTask[] {
+  const needs = new Set(needsYouItems(snapshot).map((a) => a.taskId))
+  const cutoff = now - 24 * 3600
+  return worktreeTasks(snapshot)
+    .filter((t) => !isActiveTask(t, snapshot) && !needs.has(t.id) && t.updatedAt >= cutoff)
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+}
 
 export function summaryText(snapshot: PanelSnapshot, _now: number): string {
-  const tasks = worktreeTasks(snapshot)
+  const active = activeTasks(snapshot)
   const needs = needsYouItems(snapshot).length
-  const running = tasks.filter((t) => classifyTask(t) === 'running').length
-  const asked = tasks.filter((t) => classifyTask(t) === 'asked').length
+  const running = active.filter((t) => classifyTask(t) === 'running').length
+  const asked = active.filter((t) => classifyTask(t) === 'asked').length
   const parts: string[] = []
   if (needs > 0) parts.push(`${needs} needs you`)
   if (running > 0) parts.push(`${running} running`)
   if (asked > 0) parts.push(`${asked} asked caller`)
-  if (tasks.length === 0 && needs === 0) return 'no tasks yet'
-  if (parts.length === 0) return 'no tasks yet'
+  if (parts.length === 0) return worktreeTasks(snapshot).length === 0 ? 'no tasks yet' : 'nothing active'
   return parts.join(' · ')
 }
 
-// Replace export name summaryText with fixed version by aliasing:
-// We'll remove previous summaryText? Can't have two. Let's instead just define one correct function.
-// (The above duplicate will cause TS error.) So instead we will not keep broken one.
-
-// Actually we already declared summaryText. Need edit. We'll handle by rewriting file? Let's instead just make summaryText correct here and delete fixed. 
-// I'll use python later to remove duplicate. For now continue.
 
 export function reducePanel(state: PanelState, event: PanelEvent): { state: PanelState; run: RunRequest | null } {
   switch (event.type) {
@@ -302,7 +290,7 @@ export function panelModel(state: PanelState, now: number): PanelModel {
   if (!snapshot.connected) {
     return { kind: 'not-connected', snapshot, lastSeenAt: state.ui.lastSeenAt }
   }
-  const tasks = worktreeTasks(snapshot)
+  const tasks = activeTasks(snapshot)
   const needs = needsYouItems(snapshot)
   const done = doneTasks(snapshot, now)
   const doneVisible = done.slice(0, 10)
