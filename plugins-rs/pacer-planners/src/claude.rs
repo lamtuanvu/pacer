@@ -45,10 +45,17 @@ pub fn resolve_script(command: &str, home: &str) -> Option<String> {
     if command.is_empty() || rx(r"\s").is_match(command) {
         return None;
     }
-    let path = rx(r"^~(?=/)").replace(command, home);
-    let path = rx(r"^\$HOME(?=/)").replace(&path, home);
-    if Path::new(path.as_ref()).is_absolute() {
-        Some(path.into_owned())
+    // `command.replace(/^~(?=\/)/, home).replace(/^\$HOME(?=\/)/, home)`:
+    // only a leading `~/` or `$HOME/` is expanded, preserving the separator.
+    let path = if let Some(rest) = command.strip_prefix("~/") {
+        format!("{home}/{rest}")
+    } else if let Some(rest) = command.strip_prefix("$HOME/") {
+        format!("{home}/{rest}")
+    } else {
+        command.to_string()
+    };
+    if Path::new(&path).is_absolute() {
+        Some(path)
     } else {
         None
     }

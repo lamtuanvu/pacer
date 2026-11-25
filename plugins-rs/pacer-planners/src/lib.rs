@@ -4,14 +4,14 @@
 //! Registers the six `planner.*` points. Files and effects are only prepared;
 //! the host owns commit and recovery (as in the TypeScript plugin).
 
-mod claude;
-mod codex;
-mod cursor;
-mod handlers;
-mod mcp;
-mod opencode;
-mod skill;
-mod types;
+pub mod claude;
+pub mod codex;
+pub mod cursor;
+pub mod handlers;
+pub mod mcp;
+pub mod opencode;
+pub mod skill;
+pub mod types;
 
 use pacer_plugin::{Manifest, Plugin, TS_SDK_FEATURES};
 use serde_json::Value;

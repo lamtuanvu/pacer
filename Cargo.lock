@@ -1565,6 +1565,7 @@ dependencies = [
 name = "pacer-bundled-planners"
 version = "0.0.0"
 dependencies = [
+ "base64 0.22.1",
  "pacer-plugin",
  "regex",
  "serde",
