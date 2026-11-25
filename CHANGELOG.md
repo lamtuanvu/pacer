@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Added
+
+- **TUI Runs screen.** Tab/`6` opens a Runs list (open person-answerable questions first) and a run view that draws the engine graph as a tree with a details pane; answer, pause/resume, stop, priority, auto and orchestrator message keys use existing ops. `run.get` adds an optional `definition` projection; `run.answer` accepts an optional `note` (same sanitize/trim rules as `question.answer`).
+
 ## [0.18.3] - 2026-11-25
 
 ### Changed

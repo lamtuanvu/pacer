@@ -6,7 +6,7 @@ import { createTask, readTask, updateTask } from "../src/tasks/store";
 import type { TaskRecord } from "../src/tasks/types";
 import { CoreError } from "../src/core/errors";
 import { callOp, type OpDeps } from "../src/api/ops";
-import { addDefinition, getRun, stepsOfRun, type RunRow } from "../src/workflow/store";
+import { addDefinition, getRun, stepsOfRun, workflowDatabase, type RunRow } from "../src/workflow/store";
 import { onTaskSettled } from "../src/workflow/engine";
 import type { WorkflowError } from "../src/workflow/schema";
 
@@ -121,6 +121,46 @@ test("run.start delegates the entry step, run.get and run.list read it back", as
   expect(await callOp(ctx, "run.list", {})).toEqual([run]);
   expect(await callOp(ctx, "run.list", { status: "running" })).toEqual([run]);
   expect(await callOp(ctx, "run.list", { status: "waiting" })).toEqual([]);
+});
+
+test("run.get returns definition with entry, edges and fanout branches; omits when exact version missing", async () => {
+  const ctx = fakeCtx();
+  const FANOUT = `
+id: t/fan
+version: 1
+title: Fan
+steps:
+  split:
+    type: fanout
+    branches: [alpha, beta]
+    each: { type: agent, kind: research, prompt: "Branch {{branch}}" }
+    join: all
+  done: { type: end }
+edges:
+  - [split, done, "result.ok == true", { max_loops: 2 }]
+`;
+  await callOp(ctx, "workflow.add", { source: FANOUT });
+  const run = await callOp(ctx, "run.start", { workflow: "t/fan", repo: tmpDir(), brief: "Fan out" }, stubDeps()) as RunRow;
+  const got = await callOp(ctx, "run.get", { id: run.id }) as {
+    run: RunRow;
+    definition?: {
+      entry: string;
+      edges: { from: string; to: string; when?: string; maxLoops?: number }[];
+      steps: Record<string, { type: string; branches?: string[] }>;
+    };
+  };
+  expect(got.definition).toBeDefined();
+  expect(got.definition!.entry).toBe("split");
+  expect(got.definition!.edges).toEqual([
+    expect.objectContaining({ from: "split", to: "done", when: "result.ok == true", maxLoops: 2 }),
+  ]);
+  expect(got.definition!.steps.split).toEqual({ type: "fanout", branches: ["alpha", "beta"] });
+  expect(got.definition!.steps.done).toEqual({ type: "end" });
+
+  // Remove the exact stored version so run.get must omit definition (no other-version fallback).
+  workflowDatabase(ctx).query("DELETE FROM workflow_defs WHERE id = ? AND version = ?").run("t/fan", 1);
+  const missing = await callOp(ctx, "run.get", { id: run.id }) as { definition?: unknown };
+  expect(missing.definition).toBeUndefined();
 });
 
 test("run.start with an unknown workflow is not_found", async () => {

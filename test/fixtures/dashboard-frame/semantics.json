@@ -455,8 +455,8 @@
     {
       "input": "a﻿bc",
       "width": 0,
-      "safe": "a﻿bc",
-      "cells": 4,
+      "safe": "abc",
+      "cells": 3,
       "clipped": "",
       "wrapped": [
         ""
@@ -465,33 +465,31 @@
     {
       "input": "a﻿bc",
       "width": 1,
-      "safe": "a﻿bc",
-      "cells": 4,
+      "safe": "abc",
+      "cells": 3,
       "clipped": "…",
       "wrapped": [
-        "a",
         "…"
       ]
     },
     {
       "input": "a﻿bc",
       "width": 3,
-      "safe": "a﻿bc",
-      "cells": 4,
-      "clipped": "a…",
+      "safe": "abc",
+      "cells": 3,
+      "clipped": "abc",
       "wrapped": [
-        "a",
-        "bc"
+        "abc"
       ]
     },
     {
       "input": "a﻿bc",
       "width": 8,
-      "safe": "a﻿bc",
-      "cells": 4,
-      "clipped": "a﻿bc",
+      "safe": "abc",
+      "cells": 3,
+      "clipped": "abc",
       "wrapped": [
-        "a bc"
+        "abc"
       ]
     },
     {
@@ -619,8 +617,8 @@
     {
       "input": "one two﻿three",
       "width": 0,
-      "safe": "one two﻿three",
-      "cells": 13,
+      "safe": "one twothree",
+      "cells": 12,
       "clipped": "",
       "wrapped": [
         ""
@@ -629,11 +627,10 @@
     {
       "input": "one two﻿three",
       "width": 1,
-      "safe": "one two﻿three",
-      "cells": 13,
+      "safe": "one twothree",
+      "cells": 12,
       "clipped": "…",
       "wrapped": [
-        "…",
         "…",
         "…"
       ]
@@ -641,31 +638,30 @@
     {
       "input": "one two﻿three",
       "width": 3,
-      "safe": "one two﻿three",
-      "cells": 13,
+      "safe": "one twothree",
+      "cells": 12,
       "clipped": "on…",
       "wrapped": [
         "one",
-        "two",
-        "th…"
+        "tw…"
       ]
     },
     {
       "input": "one two﻿three",
       "width": 8,
-      "safe": "one two﻿three",
-      "cells": 13,
+      "safe": "one twothree",
+      "cells": 12,
       "clipped": "one two…",
       "wrapped": [
-        "one two",
-        "three"
+        "one",
+        "twothree"
       ]
     },
     {
       "input": "a b\n\r\nc",
       "width": 0,
-      "safe": "a bc",
-      "cells": 4,
+      "safe": "abc",
+      "cells": 3,
       "clipped": "",
       "wrapped": [
         "",
@@ -676,23 +672,23 @@
     {
       "input": "a b\n\r\nc",
       "width": 1,
-      "safe": "a bc",
-      "cells": 4,
+      "safe": "abc",
+      "cells": 3,
       "clipped": "…",
       "wrapped": [
-        "a",
-        "b",
-        "…"
+        "…",
+        "",
+        "c"
       ]
     },
     {
       "input": "a b\n\r\nc",
       "width": 3,
-      "safe": "a bc",
-      "cells": 4,
-      "clipped": "a…",
+      "safe": "abc",
+      "cells": 3,
+      "clipped": "abc",
       "wrapped": [
-        "a b",
+        "ab",
         "",
         "c"
       ]
@@ -700,13 +696,173 @@
     {
       "input": "a b\n\r\nc",
       "width": 8,
-      "safe": "a bc",
-      "cells": 4,
-      "clipped": "a bc",
+      "safe": "abc",
+      "cells": 3,
+      "clipped": "abc",
       "wrapped": [
-        "a b",
+        "ab",
         "",
         "c"
+      ]
+    },
+    {
+      "input": "fa‌si",
+      "width": 0,
+      "safe": "fa‌si",
+      "cells": 5,
+      "clipped": "",
+      "wrapped": [
+        ""
+      ]
+    },
+    {
+      "input": "fa‌si",
+      "width": 1,
+      "safe": "fa‌si",
+      "cells": 5,
+      "clipped": "…",
+      "wrapped": [
+        "…"
+      ]
+    },
+    {
+      "input": "fa‌si",
+      "width": 3,
+      "safe": "fa‌si",
+      "cells": 5,
+      "clipped": "fa…",
+      "wrapped": [
+        "fa…"
+      ]
+    },
+    {
+      "input": "fa‌si",
+      "width": 8,
+      "safe": "fa‌si",
+      "cells": 5,
+      "clipped": "fa‌si",
+      "wrapped": [
+        "fa‌si"
+      ]
+    },
+    {
+      "input": "a‎b‏c",
+      "width": 0,
+      "safe": "a‎b‏c",
+      "cells": 5,
+      "clipped": "",
+      "wrapped": [
+        ""
+      ]
+    },
+    {
+      "input": "a‎b‏c",
+      "width": 1,
+      "safe": "a‎b‏c",
+      "cells": 5,
+      "clipped": "…",
+      "wrapped": [
+        "…"
+      ]
+    },
+    {
+      "input": "a‎b‏c",
+      "width": 3,
+      "safe": "a‎b‏c",
+      "cells": 5,
+      "clipped": "a‎…",
+      "wrapped": [
+        "a‎…"
+      ]
+    },
+    {
+      "input": "a‎b‏c",
+      "width": 8,
+      "safe": "a‎b‏c",
+      "cells": 5,
+      "clipped": "a‎b‏c",
+      "wrapped": [
+        "a‎b‏c"
+      ]
+    },
+    {
+      "input": "x​y‮z",
+      "width": 0,
+      "safe": "xyz",
+      "cells": 3,
+      "clipped": "",
+      "wrapped": [
+        ""
+      ]
+    },
+    {
+      "input": "x​y‮z",
+      "width": 1,
+      "safe": "xyz",
+      "cells": 3,
+      "clipped": "…",
+      "wrapped": [
+        "…"
+      ]
+    },
+    {
+      "input": "x​y‮z",
+      "width": 3,
+      "safe": "xyz",
+      "cells": 3,
+      "clipped": "xyz",
+      "wrapped": [
+        "xyz"
+      ]
+    },
+    {
+      "input": "x​y‮z",
+      "width": 8,
+      "safe": "xyz",
+      "cells": 3,
+      "clipped": "xyz",
+      "wrapped": [
+        "xyz"
+      ]
+    },
+    {
+      "input": "p‪q⁦r⁩",
+      "width": 0,
+      "safe": "pqr",
+      "cells": 3,
+      "clipped": "",
+      "wrapped": [
+        ""
+      ]
+    },
+    {
+      "input": "p‪q⁦r⁩",
+      "width": 1,
+      "safe": "pqr",
+      "cells": 3,
+      "clipped": "…",
+      "wrapped": [
+        "…"
+      ]
+    },
+    {
+      "input": "p‪q⁦r⁩",
+      "width": 3,
+      "safe": "pqr",
+      "cells": 3,
+      "clipped": "pqr",
+      "wrapped": [
+        "pqr"
+      ]
+    },
+    {
+      "input": "p‪q⁦r⁩",
+      "width": 8,
+      "safe": "pqr",
+      "cells": 3,
+      "clipped": "pqr",
+      "wrapped": [
+        "pqr"
       ]
     }
   ],

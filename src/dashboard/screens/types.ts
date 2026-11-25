@@ -46,10 +46,101 @@ export interface ProjectStrategy {
   available: { id: string; reference: string; label: string }[];
 }
 
+/** A run row from `run.list` / `run.get` (camelCase as returned by the service). */
+export interface RunSummary {
+  id: string;
+  workflow: string;
+  version: number;
+  title: string;
+  status: string;
+  rev: number;
+  reason?: string;
+  createdAt: number;
+  updatedAt: number;
+  auto?: boolean;
+  priority?: string;
+  letter?: string;
+  orchestratorTaskId?: string;
+  orchestrator?: { state: string; planner?: string; reason?: string; next_wake_at?: number };
+}
+export interface RunStepRow {
+  runId: string;
+  stepId: string;
+  attempt: number;
+  branch?: string;
+  taskId?: string;
+  status: string;
+  result?: unknown;
+  error?: string;
+  startedAt: number;
+  endedAt?: number;
+}
+export interface RunGraphSummary {
+  stepId: string;
+  attempt: number;
+  version: number;
+  status: string;
+  stepCount: number;
+}
+/** Additive `run.get` graph projection (types + edges); clients must not invent parentage. */
+export interface RunDefinitionSummary {
+  entry: string;
+  edges: Array<{ from: string; to: string; when?: string; maxLoops?: number }>;
+  steps: Record<string, { type: string; branches?: string[] }>;
+}
+export interface RunPendingApproval {
+  stepId: string;
+  attempt: number;
+  version: number;
+  replanSummary?: string;
+}
+export interface RunQuestion {
+  id: string;
+  runId: string;
+  stepId?: string;
+  /** Step attempt the question belongs to (from `question.list` / attention). */
+  attempt?: number;
+  branch?: string;
+  text: string;
+  answerType: string;
+  options?: { value: string; note?: string }[];
+  recommended?: string;
+  blocks: string;
+  status: string;
+  answerer: string;
+  rev: number;
+  answer?: string;
+  note?: string;
+}
+export interface RunDecision {
+  id: string;
+  runId: string;
+  stepId: string;
+  attempt: number;
+  actor: string;
+  kind: string;
+  choice: string;
+  reason: string;
+  at: number;
+}
+export interface RunDetail {
+  run: RunSummary;
+  steps: RunStepRow[];
+  graphs: RunGraphSummary[];
+  definition?: RunDefinitionSummary;
+  pendingApproval?: RunPendingApproval;
+  questions?: RunQuestion[];
+  decisions?: RunDecision[];
+}
+
 export interface DashData {
   details: ReadonlyMap<string, Resource<TaskDetail>>;
   history?: Resource<{tasks: import("../../view-model/snapshot").ClientTask[]; next:string|null}>;
   settings: SettingsData;
+  /** Live runs from `run.list` (Phase 8). `stamp` is snapshot.seq. */
+  runs?: Resource<RunSummary[]> & { stamp?: string };
+  /** `run.get` (+ questions) keyed by run id. */
+  runDetails?: ReadonlyMap<string, Resource<RunDetail> & { stamp?: string }>;
 }
 
 export interface ScreenCtx {

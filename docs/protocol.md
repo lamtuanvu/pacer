@@ -6919,6 +6919,10 @@ Params JSON Schema:
       "minLength": 1,
       "maxLength": 4000
     },
+    "note": {
+      "type": "string",
+      "maxLength": 4000
+    },
     "expect_rev": {
       "type": "integer",
       "exclusiveMinimum": 0,
@@ -7088,7 +7092,7 @@ Params JSON Schema:
 
 ### `run.get`
 
-One run with its step instances and generated graph versions. Person, or a live run grant for its own run (expect_rev for sync/publish).
+One run with its step instances and generated graph versions. When the exact workflow@version definition is stored, the result includes additive `definition` `{ entry, edges[{ from, to, when?, maxLoops? }], steps{ id: { type, branches? } } }` (fanout steps carry `branches`); the field is omitted when that version is missing. Person, or a live run grant for its own run (expect_rev for sync/publish).
 
 Params JSON Schema:
 

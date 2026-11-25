@@ -5,10 +5,11 @@ import { processIdentitySync } from "./control/lease";
 import { basename, join, resolve } from "node:path";
 import { atomicWrite, checkout, launch, record, run, SANDBOX_PASSTHROUGH, sandboxEnv, saveSession, shellQuote, type Session } from "./core";
 import { assertNotRealInstall } from "../lib/real-install-guard";
+import { liveTmuxArgs, liveTmuxSocket } from "./tmux-socket";
 
 export async function tui(session: Session, action: string, keys: string[], out?: string): Promise<string> {
   if (!Bun.which("tmux")) throw Error("tmux is required for the TUI; record this surface as UNVERIFIED if unavailable");
-  const target = `pacer-live-${session.id}`;
+  const target = liveTmuxSocket(session.id);
   let args: string[];
   switch (action) {
     case "start": {
@@ -17,15 +18,16 @@ export async function tui(session: Session, action: string, keys: string[], out?
       const assignments = ["HOME", "PATH", "PACER_BIN", "PACER_HOME", "PACER_PORT", "PACER_BACKEND", "PACER_NO_UPDATE_CHECK", "PACER_ORCA_USER_DATA", ...SANDBOX_PASSTHROUGH].filter(key => env[key] !== undefined)
         .map(key => `${key}=${env[key]!}`);
       const command = ["/usr/bin/env", ...assignments, env.PACER_BIN!, "dashboard"].map(shellQuote).join(" ");
-      args = ["new-session", "-d", "-x", "120", "-y", "40", "-s", target, "-c", join(session.root, "repo"), command];
+      // Private socket (`-L`) so live TUI never touches the maintainer's default tmux server.
+      args = liveTmuxArgs(session.id, ["new-session", "-d", "-x", "120", "-y", "40", "-s", target, "-c", join(session.root, "repo"), command]);
       break;
     }
     case "keys":
       if (!keys.length) throw Error("tui keys requires at least one tmux key, e.g. Down or Enter");
-      args = ["send-keys", "-t", target, "--", ...keys];
+      args = liveTmuxArgs(session.id, ["send-keys", "-t", target, "--", ...keys]);
       break;
-    case "capture": args = ["capture-pane", "-p", "-t", target]; break;
-    case "stop": args = ["kill-session", "-t", target]; break;
+    case "capture": args = liveTmuxArgs(session.id, ["capture-pane", "-p", "-t", target]); break;
+    case "stop": args = liveTmuxArgs(session.id, ["kill-server"]); break;
     default: throw Error("usage: live tui start|keys <keys...>|capture [--out <name>]|stop");
   }
   const result = await run(["tmux", ...args], session);

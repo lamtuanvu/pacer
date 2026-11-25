@@ -465,10 +465,12 @@ export async function down(session: Session, keep = false): Promise<void> {
     saveSession(session);
   }
   if (Bun.which("tmux")) {
-    const target = `pacer-live-${session.id}`;
-    const check = await run(["tmux", "has-session", "-t", target], session, false);
+    // Tear down only this sandbox's private tmux server — never the default socket.
+    const { liveTmuxArgs, liveTmuxSocket } = await import("./tmux-socket");
+    const target = liveTmuxSocket(session.id);
+    const check = await run(["tmux", ...liveTmuxArgs(session.id, ["has-session", "-t", target])], session, false);
     if (!check.code) {
-      const result = await run(["tmux", "kill-session", "-t", target], session);
+      const result = await run(["tmux", ...liveTmuxArgs(session.id, ["kill-server"])], session);
       if (result.code) throw Error(result.stderr);
     }
   }
