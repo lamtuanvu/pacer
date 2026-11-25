@@ -1560,12 +1560,66 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-desktop-admission"
+version = "0.0.0"
+dependencies = [
+ "libproc",
+ "nix",
+ "pacer-store",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "pacer-desktop-native"
+version = "0.0.0"
+dependencies = [
+ "core-foundation 0.10.1",
+ "hex",
+ "libproc",
+ "nix",
+ "pacer-desktop-update",
+ "pacer-foundation",
+ "pacer-js-json",
+ "pacer-update",
+ "rand 0.9.5",
+ "security-framework",
+ "serde_json",
+ "sha2",
+ "socket2",
+ "tempfile",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "pacer-desktop-protocol"
 version = "0.0.0"
 dependencies = [
  "regress",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "pacer-desktop-update"
+version = "0.0.0"
+dependencies = [
+ "getrandom 0.2.17",
+ "nix",
+ "pacer-desktop-admission",
+ "pacer-foundation",
+ "pacer-js-json",
+ "pacer-update",
+ "rusqlite",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]
@@ -1891,6 +1945,7 @@ dependencies = [
  "hmac",
  "libc",
  "nix",
+ "pacer-desktop-admission",
  "pacer-js-json",
  "pacer-plugin-policy-protocol",
  "pacer-plugin-protocol",
@@ -2044,7 +2099,6 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "chrono-tz",
- "core-foundation 0.10.1",
  "form_urlencoded",
  "futures-util",
  "hex",
@@ -2052,13 +2106,13 @@ dependencies = [
  "hyper",
  "hyper-util",
  "icu_collator",
- "libproc",
  "nix",
  "pacer-account-ops",
  "pacer-assistant-ops",
  "pacer-config",
  "pacer-config-ops",
  "pacer-core-bridge",
+ "pacer-desktop-native",
  "pacer-discovery-ops",
  "pacer-dispatch-ops",
  "pacer-engine",
@@ -2079,11 +2133,9 @@ dependencies = [
  "pacer-update",
  "rand 0.9.5",
  "ryu-js",
- "security-framework",
  "serde",
  "serde_json",
  "sha2",
- "socket2",
  "subtle",
  "tempfile",
  "tokio",
