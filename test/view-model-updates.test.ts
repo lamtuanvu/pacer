@@ -170,17 +170,60 @@ test('interrupted and transient checks are neutral, plain-language and offer a c
   }
 });
 
-test('refused and retired parent-channel wording is internal and never rendered raw', () => {
+test('a retired helper channel keeps its one recovery step; other refusals stay internal and red', () => {
   for (const message of [
     'Desktop update helper launch was refused by the parent channel',
     'Native parent helper launch was refused',
-    'Native parent helper channel is retired; restart the service to recover',
   ]) {
     const view = desktopUpdateView(desktopStatus({ phase: 'error', actions: ['check'], error: { code: 'update_failed', message } }));
     expect(view.detail).not.toContain(message);
     expect(view.detail).not.toContain('parent channel');
-    expect(view.detail).not.toContain('retired');
     expect(view.detail).toBe("The update couldn't finish. Check again when you're ready.");
+    expect(view.tone).toBe('bad');
+  }
+  const retired = desktopUpdateView(desktopStatus({ phase: 'error', actions: ['check'], error: {
+    code: 'update_failed', message: 'Native parent helper channel is retired; restart the service to recover',
+  } }));
+  expect(retired.label).toBe('Update needs attention');
+  expect(retired.tone).toBe('bad');
+  expect(retired.detail).not.toContain('retired');
+  expect(retired.detail).toBe("Updates stopped working until pacer's service restarts. Restart pacer, then check again.");
+});
+
+test('helper integrity and verification refusals stay real failures', () => {
+  for (const message of [
+    'Desktop update helper launch was refused by the parent channel',
+    'desktop update could not be verified',
+    'Desktop update adapter protocol was rejected',
+  ]) {
+    const view = desktopUpdateView(desktopStatus({ phase: 'error', actions: ['check'], error: { code: 'update_failed', message } }));
+    expect(view.tone).toBe('bad');
+    expect(view.label).toBe('Update needs attention');
+    expect(view.detail).not.toContain(message);
+  }
+});
+
+test('a failed download with a target stays red and ranked by the indicator', () => {
+  const failed = desktopStatus({ phase: 'error', target: '1.1.0', actions: ['check', 'download'], error: {
+    code: 'download_failed', message: "The update couldn't be downloaded. Check your connection, then choose Check for updates to try again.",
+  } });
+  const view = desktopUpdateView(failed);
+  expect(view.tone).toBe('bad');
+  expect(view.label).toBe('Update needs attention');
+  expect(view.detail).toContain("couldn't be downloaded");
+  expect(view.detail).not.toContain('Desktop update adapter');
+  expect(desktopUpdateIndicator([failed])?.label).toBe('Update needs attention');
+});
+
+test('legacy raw-message and check-code records with a target are never neutralised', () => {
+  for (const error of [
+    { code: 'update_failed', message: 'Desktop update adapter closed before successful completion' },
+    { code: 'update_failed', message: 'Desktop update adapter operation timed out' },
+    { code: 'check_unavailable', message: "Couldn't check for updates. Check your connection, then try again." },
+  ]) {
+    const status = desktopStatus({ phase: 'error', target: '1.1.0', actions: ['check', 'download'], error });
+    expect(desktopUpdateView(status).tone).toBe('bad');
+    expect(desktopUpdateIndicator([status])).not.toBeNull();
   }
 });
 

@@ -69,6 +69,9 @@ export const NIGHTLY_HELPER_TOO_OLD = "This desktop app is too old for the night
 /** Persisted codes for a check that could not complete. They are diagnostics, never user-facing copy. */
 export const CHECK_UNAVAILABLE = "check_unavailable";
 export const CHECK_INTERRUPTED = "check_interrupted";
+/** A failed download is a real failure, never an interrupted check. The copy is user-facing plain text. */
+export const DOWNLOAD_FAILED = "download_failed";
+const DOWNLOAD_FAILED_DETAIL = "The update couldn't be downloaded. Check your connection, then choose Check for updates to try again.";
 const CHECK_RETRY_DELAYS = [60_000, 300_000, 900_000] as const;
 const TRANSIENT_CHECK_REASONS: ReadonlySet<AdapterFailure> = new Set(["unavailable", "closed", "cancelled", "timeout"]);
 const transientCheckFailure = (command: string, error: unknown) =>
@@ -106,7 +109,7 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
   const coordinationErrors = new Set<string>(), deliveryErrors = new Set<string>();
   const pendingPublications = new Map<string, UpdateStatus>();
   const recoveryAttempts = new Map<string, { transactionId: string; count: number; retryAt: number | null }>();
-  /** Bounded automatic retries of interrupted/transient CHECKs. Installs keep their own recovery loop. */
+  /** Bounded automatic retries of interrupted/transient CHECKs, with up to an hour of jitter. Installs keep their own recovery loop. */
   const checkRetries = new Map<string, { count: number; retryAt: number }>();
   let publications = Promise.resolve(), started = false, stopped = false, ticking = false;
   let unsubscribe: (() => void) | undefined, cancelTimer: (() => void) | undefined;
@@ -140,8 +143,10 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
   /** Back off after a failed/interrupted check, with a hard attempt budget. Never arms installs. */
   const armCheckRetry = (id: string, immediate = false) => {
     const prior = checkRetries.get(id);
-    // All three delays (1, 5 and 15 minutes) are reachable; only the next failure
-    // spends the budget and falls back to the normal daily cadence.
+    // Each base delay (1, 5 and 15 minutes) carries up to 60 minutes of jitter, so
+    // the real waits are 1–61, 5–65 and 15–75 minutes. All three are reachable;
+    // only the next failure spends the budget and falls back to the daily cadence,
+    // which has no jitter.
     const count = Math.min((prior?.count ?? 0) + 1, CHECK_RETRY_DELAYS.length + 1);
     const daily = count > CHECK_RETRY_DELAYS.length;
     const retryAt = clock.monotonicMs() + (daily ? 86_400_000 : immediate ? 0 : CHECK_RETRY_DELAYS[count - 1]! + jitter());
@@ -247,11 +252,15 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
           // A helper that predates channels closes on the nightly `channel` key without sending a frame.
           const tooOld = request.command === "check" && request.channel === "nightly" && error instanceof AdapterError && error.reason === "closed" && error.beforeFrames;
           const transient = !tooOld && transientCheckFailure(request.command, error);
+          const download = request.command === "download";
           const message = tooOld ? NIGHTLY_HELPER_TOO_OLD : error instanceof AdapterError ? error.message : "Desktop update could not be verified";
           persist({ ...restored, phase: restored.phase === "ready" ? "ready" : "error", error: {
-            code: transient ? CHECK_UNAVAILABLE : "update_failed",
-            // The adapter's own wording is a diagnostic; the view model shows plain copy for these.
-            message: transient ? "Couldn't check for updates. Check your connection, then try again." : message,
+            // A failed download keeps its own code so it stays a ranked, red failure
+            // with plain copy. An adapter close/timeout is only a transient CHECK.
+            code: transient ? CHECK_UNAVAILABLE : download ? DOWNLOAD_FAILED : "update_failed",
+            // The adapter's own wording is a diagnostic; never persist it as user-facing copy.
+            message: transient ? "Couldn't check for updates. Check your connection, then try again."
+              : download ? DOWNLOAD_FAILED_DETAIL : message,
           } });
           if (request.command === "check") armCheckRetry(id);
           else {

@@ -397,7 +397,10 @@ test("download and install failures never arm a check retry", async () => {
   await download.runtime.check(download.request("check")); await download.runtime.settled();
   // The download launch was attempted and refused; no command frame was written.
   expect(attempts).toBe(2);
-  expect(download.runtime.status("desktop").error?.code).toBe("update_failed");
+  const failed = download.runtime.status("desktop");
+  expect(failed.error?.code).toBe("download_failed");
+  expect(failed.error?.message).toContain("couldn't be downloaded");
+  expect(JSON.stringify(failed)).not.toContain("Desktop update adapter");
   download.reconnectDesktop(); await download.runtime.tick(); await download.runtime.settled();
   expect(attempts).toBe(2);
   expect(JSON.stringify(download.runtime.status("desktop"))).not.toContain("helper failed");

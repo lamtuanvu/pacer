@@ -6,9 +6,10 @@ const labels: Record<DesktopAction, string> = { check: "Check for updates", down
 export type DesktopUpdateView = Status & { detail: string; primary: string | null; action: DesktopAction | null; cancellable: boolean };
 
 /**
- * An interrupted or transient CHECK is not a failed update. The service persists these codes
- * (and, from older builds, the raw adapter messages below); none are user-facing copy. Real
- * failures — verification, disk, a failed install, uncertain recovery — stay in the red state.
+ * An interrupted or transient CHECK is not a failed update. The service persists these codes;
+ * older builds left only raw adapter messages, which are treated as a check only when the
+ * record cannot be a download. Real failures — a failed download, verification, disk, a failed
+ * install, uncertain recovery — stay in the red state and never get neutralised.
  */
 const interruptedCheckCodes = new Set(["check_unavailable", "check_interrupted"]);
 const interruptedAdapterMessages = new Set([
@@ -17,12 +18,19 @@ const interruptedAdapterMessages = new Set([
   "Desktop update adapter operation was cancelled",
   "Desktop update adapter operation timed out",
 ]);
-const interruptedCheck = (error: UpdateStatus["error"]) => !!error && (
-  interruptedCheckCodes.has(error.code) ||
-  (error.code === "update_failed" && interruptedAdapterMessages.has(error.message))
-);
+const interruptedCheck = (update: UpdateStatus) => {
+  const error = update.error;
+  // A failed download keeps its target (and, with it, an available update), so a
+  // record with a target must never be filtered, downgraded or hidden from the tray.
+  if (!error || update.target) return false;
+  if (interruptedCheckCodes.has(error.code)) return true;
+  return error.code === "update_failed" && interruptedAdapterMessages.has(error.message);
+};
 /** Adapter internals are diagnostics, never user-facing copy. Service-authored hints stay visible. */
 const internalAdapterMessage = (message: string) => /^(Verified )?desktop update adapter |^Desktop update helper launch was refused( by the parent channel)?|^Native parent helper (launch was refused|channel is retired)|^desktop update could not be verified$/i.test(message);
+/** A retired helper channel only recovers when the service restarts; keep that step in the copy. */
+const retiredChannel = (error: UpdateStatus["error"]) => !!error && /^Native parent helper channel is retired/i.test(error.message);
+const RETIRED_CHANNEL_DETAIL = "Updates stopped working until pacer's service restarts. Restart pacer, then check again.";
 
 /** Presentation never grants authority: every control still needs an advertised action. */
 export function desktopUpdateView(update: UpdateStatus): DesktopUpdateView {
@@ -49,8 +57,11 @@ export function desktopUpdateView(update: UpdateStatus): DesktopUpdateView {
   // `?` is the neutral "not done, not failed" glyph; `…` would read as still working.
   // Copy names the advertised button and stays true when automatic checks are off or
   // the retry budget is spent.
-  if (update.phase === "error" && interruptedCheck(update.error)) {
+  if (update.phase === "error" && interruptedCheck(update)) {
     [label, tone, glyph, detail] = ["Couldn't check for updates", "neutral", "?", "pacer couldn't check for updates. Check your connection, then choose Check for updates to try again."];
+  } else if (update.phase === "error" && retiredChannel(update.error)) {
+    // UI-12 keeps the raw refusal internal, but the one working recovery step survives.
+    detail = RETIRED_CHANNEL_DETAIL;
   }
   if (update.ownership === "attached" && update.phase === "idle" && update.actions.length === 0) detail = "This desktop is connected to an externally managed service. Update that service separately.";
   const adoption = update.adoption;
@@ -103,8 +114,9 @@ export function updateIntent(makeId: () => string = () => `ui_${crypto.randomUUI
 
 export function desktopUpdateIndicator(updates: UpdateStatus[] = []) {
   // A check that could not complete but retries on its own is neutral: rank it like
-  // idle, never as the top attention item across the app. Real failures stay ranked.
-  const ranked = updates.filter(item => item.phase !== "error" || !interruptedCheck(item.error));
+  // idle, never as the top attention item across the app. A record with a target —
+  // a failed download or an available update — is always kept and ranked.
+  const ranked = updates.filter(item => item.phase !== "error" || !interruptedCheck(item));
   const update = ranked.find(item => ["recovery-failed", "error", "restored"].includes(item.phase) || item.adoption?.phase === "recovery-failed") ?? ranked.find(item => !["idle", "complete"].includes(item.phase) || item.target || (item.adoption && !["available", "cancelled", "committed"].includes(item.adoption.phase)));
   return update ? { ...desktopUpdateView(update), route: "/settings/updates" } : null;
 }

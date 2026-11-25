@@ -10,9 +10,11 @@ import { ApiError } from "../app/src/data/api";
 import type { UpdateStatus } from "../src/update/desktop/types";
 const api = { call: async <T,>() => ({} as T), hello: async () => ({ protocol: "3.0.0", pacer: "0.2.3", ops: [], events: [] }), snapshot: async () => ({ protocol: "3.0.0", seq: 0, snapshot: emptySnapshot() }) };
 const render = (status: UpdateStatus, ops = status.actions.map(action => `desktop.update.${action}`), connected = true) => renderToString(<TaskContext.Provider value={{ api, state: { ...initialState(), connected, features: { readModel: true, ops: new Set(ops) }, snapshot: { ...emptySnapshot(), desktopUpdates: [status] } } }}><DesktopUpdate status={status}/></TaskContext.Provider>);
-test("an unchecked desktop says Not checked yet instead of Last checked Not checked", () => {
+test("an unchecked desktop says Not checked yet once visibly, not in both the pill and the muted line", () => {
   const html = render(desktopStatus({ checkedAt: null, actions: ["check"] }));
   expect(html).toContain("Not checked yet");
+  // The only other copy is the screen-reader-only live region, not a second visible line.
+  expect(html).not.toMatch(/class="u3-muted">Not checked yet/);
   expect(html).not.toContain("Last checked Not checked");
   expect(render(desktopStatus({ checkedAt: 10, actions: ["check"] }))).toContain("Last checked");
 });
@@ -24,6 +26,22 @@ test("an interrupted check is neutral on screen and never shows adapter internal
   expect(html).toContain("Check for updates");
   expect(html).not.toContain("Update needs attention");
   expect(html).not.toContain("Desktop update adapter");
+});
+
+test("a failed download stays red with plain copy and a retired channel keeps its recovery step", () => {
+  const failed = render(desktopStatus({ phase: "error", target: "1.1.0", actions: ["check", "download"], error: {
+    code: "download_failed", message: "The update couldn't be downloaded. Check your connection, then choose Check for updates to try again.",
+  } }));
+  expect(failed).toContain("Update needs attention");
+  expect(failed).toContain("couldn't be downloaded");
+  expect(failed).not.toContain("Couldn't check for updates");
+  expect(failed).not.toContain("Desktop update adapter");
+
+  const retired = render(desktopStatus({ phase: "error", actions: ["check"], error: {
+    code: "update_failed", message: "Native parent helper channel is retired; restart the service to recover",
+  } }));
+  expect(retired).toContain("Updates stopped working until pacer's service restarts. Restart pacer, then check again.");
+  expect(retired).not.toContain("channel is retired");
 });
 
 test("desktop ready renders one primary action, checked time and safely escaped release notes", () => {
