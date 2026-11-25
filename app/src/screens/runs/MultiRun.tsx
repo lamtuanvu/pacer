@@ -16,6 +16,7 @@ import { SectionHeading } from "../../ds/SectionHeading";
 import { PageHead } from "../../shell/slots";
 import type { RouteQuery } from "../../router";
 import { useTaskContext } from "../task-shared";
+import { createLoadGuard } from "./run-data";
 import { RunQuestionCard } from "./run-shared";
 import { useLiveStyles } from "./LiveBoard";
 import { Creature } from "./MascotArt";
@@ -58,19 +59,17 @@ export function MultiRun({ query }: { query: RouteQuery }) {
   const [store, setStore] = useState<RunsStoreState>(() => initialRunsStore());
   const storeRef = useRef(store);
   storeRef.current = store;
-  const mounted = useRef(true);
-  const seq = useRef(0);
+  const guard = useRef(createLoadGuard());
   const queueHeading = useRef<HTMLHeadingElement>(null);
   const [focusId, setFocusId] = useState<string | null>(null);
   const [quiet, setQuiet] = useState(false);
   const [answerId, setAnswerId] = useState<string | null>(null);
   const [announce, setAnnounce] = useState("");
-  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  useEffect(() => { guard.current.mount(); return () => guard.current.unmount(); }, []);
 
   /** Latest load wins. The list first, then each live run's detail for its summary. */
   const load = async () => {
-    const mine = ++seq.current;
-    const current = () => mounted.current && mine === seq.current;
+    const current = guard.current.begin();
     let next = await refreshRunsList(api, storeRef.current, ops);
     if (!current()) return;
     setStore(next);

@@ -235,3 +235,29 @@ test("a failed list load with nothing to show says so and offers Try again; with
     expect(queueIds(second.dom.container).length).toBeGreaterThan(0);
   } finally { await done(second.dom); }
 });
+
+test("overlapping loads: a slow older list never overwrites a newer one", async () => {
+  const dom = installDom();
+  const calls: Calls = { ops: [] };
+  let n = 0;
+  let release: () => void = () => {};
+  const gate = new Promise<void>(r => { release = r; });
+  const api = apiFor(fixture, calls, {
+    "run.get": p => details[(p as { id: string }).id] ?? details.run_a,
+    "run.list": async () => { n++; if (n === 1) { await gate; return [...(fixture.list ?? []), { id: "run_z", workflow: "pacer-dev/feature", title: "Stale zombie run", status: "running", priority: "normal", createdAt: 990_000 }]; } return fixture.list; },
+  });
+  const base = stateFor(fixture, ALL_OPS);
+  const stateAt = (bump: number) => ({ ...base, snapshot: { ...base.snapshot!, runs: snapshotRuns, attention, executors } as never, invalidations: { ...base.invalidations, runs: bump } });
+  const render = (bump: number) => mount(dom, <TaskContext.Provider value={{ state: stateAt(bump), api }}><MultiRun query={query} /></TaskContext.Provider>);
+  try {
+    await render(0);                                   // load #1 starts and is held
+    await until(() => n >= 1, 2000);
+    await render(1);                                   // an invalidation starts load #2, which is fast and newest
+    await until(() => domText(dom.container).includes("Executor bench"), 3000);
+    await act(async () => { await tick(); });
+    release();                                         // the old response now arrives
+    await new Promise(resolve => setTimeout(resolve, 250));
+    expect(domText(dom.container)).not.toContain("Stale zombie run");
+    expect(n).toBeGreaterThanOrEqual(2);
+  } finally { await unmount(dom); dom.restore(); }
+});

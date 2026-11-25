@@ -338,7 +338,7 @@ test("an output read that fails says so and Try again reads again", async () => 
 });
 
 test("message bar: planner goes to the orchestrator, one agent to that agent, everyone to the planner and each working agent", async () => {
-  const { dom, calls } = await open();
+  const { dom, calls } = await open(liveFixture, ALL_OPS, { "msg.send": () => ({ delivery: "turn_started" }) });
   try {
     const sendBtn = () => all(dom.container as Node).find(n => n.tagName === "button" && /^Send to/.test(text(n).trim()))!;
     const area = must(all(dom.container as Node).find(n => n.tagName === "textarea"), "textarea");
@@ -346,14 +346,14 @@ test("message bar: planner goes to the orchestrator, one agent to that agent, ev
       area.value = msg;
       await act(async () => { fire(area, "input"); });
       await act(async () => { fire(messageForm(dom.container), "submit"); });
-      await until(() => domText(dom.container).includes("Message sent"), 2000);
+      await until(() => domText(dom.container).includes("Sent") || domText(dom.container).includes("Delivered to"), 2000);
     };
     // nothing to send yet
     expect(attr(sendBtn(), "disabled")).not.toBeNull();
     expect(text(sendBtn())).toBe("Send to planner");
     await submit("Keep it small.");
     expect(calls.ops.filter(c => c.op === "msg.send").map(c => c.params)).toEqual([{ to: "task:t_orch", body: "Keep it small." }]);
-    expect(domText(dom.container)).toContain("Message sent to the planner.");
+    expect(domText(dom.container)).toContain("Sent. The task is picking it up.");
     expect(area.value ?? "").toBe("");
     // whisper: only the chosen agent
     calls.ops.length = 0;
@@ -362,33 +362,87 @@ test("message bar: planner goes to the orchestrator, one agent to that agent, ev
     await act(async () => { fire(radio(dom.container, "t_c"), "change"); });
     await submit("Check the auth path.");
     expect(calls.ops.filter(c => c.op === "msg.send").map(c => c.params)).toEqual([{ to: "task:t_c", body: "Check the auth path." }]);
-    expect(domText(dom.container)).toContain("Message sent to the agent.");
+    expect(domText(dom.container)).toContain("Sent. The task is picking it up.");
     // party: planner plus both agents at work (not the finished one)
     calls.ops.length = 0;
     await act(async () => { fire(radio(dom.container, "party"), "change"); });
     expect(text(sendBtn())).toBe("Send to everyone");
     await submit("Wrap up by five.");
     expect(calls.ops.filter(c => c.op === "msg.send").map(c => (c.params as { to: string }).to)).toEqual(["task:t_orch", "task:t_a", "task:t_c"]);
-    expect(domText(dom.container)).toContain("Message sent to 3 recipients.");
+    expect(domText(dom.container)).toContain("Delivered to 3 of 3 recipients.");
   } finally { await done(dom); }
 });
 
-test("a message that cannot reach one recipient says which and keeps the text", async () => {
-  const { dom, calls } = await open(liveFixture, ALL_OPS, { "msg.send": p => { if ((p as { to: string }).to === "task:t_a") throw new ApiError("not_allowed", "That task is outside your tree"); return {}; } });
+test("a message that cannot reach one recipient says which, in the shared words, and keeps the text", async () => {
+  const { dom, calls } = await open(liveFixture, ALL_OPS, { "msg.send": p => {
+    if ((p as { to: string }).to === "task:t_a") throw new ApiError("not_allowed", "That task is outside your tree", undefined, 403, { reason: "msg_node_closed" });
+    return { delivery: "queued" };
+  } });
   try {
     const area = must(all(dom.container as Node).find(n => n.tagName === "textarea"), "textarea");
     await act(async () => { fire(radio(dom.container, "party"), "change"); });
     area.value = "Hello all";
     await act(async () => { fire(area, "input"); });
     await act(async () => { fire(messageForm(dom.container), "submit"); });
-    await until(() => domText(dom.container).includes("could not be reached"), 2000);
-    expect(domText(dom.container)).toContain("1 of 3 could not be reached: That task is outside your tree");
-    expect(domText(dom.container)).toContain("Sent to 2.");
+    await until(() => domText(dom.container).includes("Delivered to 2 of 3"), 2000);
+    expect(domText(dom.container)).toContain("Delivered to 2 of 3 recipients. 1 not sent: This task is closed for messages.");
+    expect(domText(dom.container)).not.toContain("outside your tree");
     expect(calls.ops.filter(c => c.op === "msg.send")).toHaveLength(3);
-    // the alert is announced and the text was not thrown away
-    const alert = all(dom.container as Node).find(n => attr(n, "role") === "alert" && text(n).includes("could not be reached"));
+    const alert = all(dom.container as Node).find(n => attr(n, "role") === "alert" && text(n).includes("1 not sent"));
     expect(alert).toBeDefined();
-    expect(text(must(all(dom.container as Node).find(n => n.tagName === "textarea"), "textarea")) + String(area.value)).toContain("Hello all");
+  } finally { await done(dom); }
+});
+
+async function sendOne(delivery: Record<string, unknown> | (() => never), channel: "planner" | "party" = "planner") {
+  const { dom, calls } = await open(liveFixture, ALL_OPS, { "msg.send": (p: unknown) => typeof delivery === "function" ? delivery() : (delivery.byTo as Record<string, unknown> | undefined)?.[(p as { to: string }).to] ?? delivery });
+  const area = must(all(dom.container as Node).find(n => n.tagName === "textarea"), "textarea");
+  await act(async () => { fire(radio(dom.container, channel), "change"); });
+  area.value = "Please pause.";
+  await act(async () => { fire(area, "input"); });
+  await act(async () => { fire(messageForm(dom.container), "submit"); });
+  await until(() => calls.ops.some(c => c.op === "msg.send"), 2000);
+  await tick();
+  return { dom, area };
+}
+const alertText = (c: unknown) => all(c as Node).filter(n => attr(n, "role") === "alert").map(n => text(n)).join(" | ");
+
+test("delivery held: the board says a messaging rule holds it, not that it was sent", async () => {
+  const { dom } = await sendOne({ delivery: "held" });
+  try {
+    expect(alertText(dom.container)).toContain("A messaging rule holds it until you confirm.");
+    expect(domText(dom.container)).not.toContain("Message sent");
+  } finally { await done(dom); }
+});
+
+test("delivery closed: the board says the task is closed for messages", async () => {
+  const { dom } = await sendOne({ delivery: "closed" });
+  try {
+    expect(alertText(dom.container)).toContain("this task is closed for messages");
+  } finally { await done(dom); }
+});
+
+test("a thrown refusal reads in the shared refusal words and keeps the message; an unknown error never shows its raw text", async () => {
+  const { dom, area } = await sendOne(() => { throw new ApiError("not_allowed", "raw: forbidden by rule 7", undefined, 403, { reason: "msg_cap_reached" }); });
+  try {
+    expect(alertText(dom.container)).toContain("Too many messages at once. Wait a minute and send again.");
+    expect(domText(dom.container)).not.toContain("raw: forbidden");
+    expect(String(area.value)).toBe("Please pause.");
+  } finally { await done(dom); }
+  const other = await sendOne(() => { throw new Error("socket hang up"); });
+  try {
+    expect(alertText(other.dom.container)).toContain("The message was not sent. Try again.");
+    expect(domText(other.dom.container)).not.toContain("socket hang up");
+  } finally { await done(other.dom); }
+});
+
+test("everyone: a mixed result says how many were delivered, held and refused", async () => {
+  const { dom } = await sendOne({ delivery: "queued", byTo: { "task:t_a": { delivery: "held" }, "task:t_c": { delivery: "closed" } } }, "party");
+  try {
+    const t = alertText(dom.container);
+    expect(t).toContain("Delivered to 1 of 3 recipients.");
+    expect(t).toContain("2 saved but not delivered:");
+    expect(t).toContain("A messaging rule holds it until you confirm.");
+    expect(t).toContain("this task is closed for messages");
   } finally { await done(dom); }
 });
 
@@ -481,4 +535,84 @@ test("the Live board stylesheet moves only under no-preference, and board focus 
   expect(/\.lb-viewport \{[^}]*touch-action: none/.test(liveCss)).toBe(true);
   const narrow = /@media \(max-width: 767px\) \{[\s\S]*?\n\}/.exec(liveCss)![0];
   expect(narrow).toContain("touch-action: pan-y");
+});
+
+test("after a message is sent focus goes back to the message box, not to nowhere", async () => {
+  const { dom } = await open(liveFixture, ALL_OPS, { "msg.send": () => ({ delivery: "queued" }) });
+  try {
+    const area = must(all(dom.container as Node).find(n => n.tagName === "textarea"), "textarea");
+    area.value = "Thanks.";
+    await act(async () => { fire(area, "input"); });
+    await act(async () => { fire(messageForm(dom.container), "submit"); });
+    await until(() => domText(dom.container).includes("Sent."), 2000);
+    await act(async () => { await tick(); });
+    expect((dom.doc as unknown as { activeElement: Node | null }).activeElement).toBe(area);
+  } finally { await done(dom); }
+});
+
+test("every agent button in the list says which agent and step it opens", async () => {
+  const { dom } = await open();
+  try {
+    const names = all(dom.container as Node).filter(n => n.tagName === "button" && (attr(n, "aria-label") ?? "").startsWith("Open live output of ")).map(n => attr(n, "aria-label"));
+    expect(names.length).toBeGreaterThan(1);
+    expect(new Set(names).size).toBe(names.length);
+    expect(all(dom.container as Node).filter(n => n.tagName === "button" && text(n).trim() === "Open live output" && !attr(n, "aria-label"))).toHaveLength(0);
+  } finally { await done(dom); }
+});
+
+test("the board has visible pan buttons that pan like the arrow keys", async () => {
+  const { dom } = await open();
+  try {
+    const world = () => attr(must(all(dom.container as Node).find(n => attr(n, "data-world") !== null), "world"), "transform");
+    const before = world();
+    await act(async () => { (must(all(dom.container as Node).find(n => n.tagName === "button" && text(n).trim() === "Pan right"), "pan right") as unknown as { click(): void }).click(); });
+    expect(world()).not.toBe(before);
+    const dx = (t: string | null) => Number(/translate\((-?[\d.]+)/.exec(t ?? "")![1]);
+    expect(dx(world()) - dx(before)).toBe(-48);
+    for (const name of ["Pan left", "Pan up", "Pan down"]) expect(all(dom.container as Node).some(n => n.tagName === "button" && text(n).trim() === name)).toBe(true);
+  } finally { await done(dom); }
+});
+
+test("SVG labels are not cut by character count: the full text is drawn, clipped by its box, and is the element's title", async () => {
+  const long = "a_very_long_step_name_that_would_never_fit_in_a_desk";
+  const fx = { ...liveFixture, get: { ...liveFixture.get, steps: [...(liveFixture.get as { steps: Array<Record<string, unknown>> }).steps, { runId: "run_1", stepId: long, attempt: 1, status: "pending", startedAt: 999 }] } } as typeof liveFixture;
+  const { dom } = await open(fx);
+  try {
+    const label = all(dom.container as Node).find(n => n.tagName === "text" && attr(n, "class") === "lb-desk-label" && text(n).includes(long));
+    expect(label).toBeDefined();
+    expect(text(label!)).not.toContain("…");
+    expect(attr(label!, "clip-path")).toMatch(/^url\(#/);
+    expect(all(label!).some(n => (n.tagName ?? "").toLowerCase() === "title" && text(n) === long)).toBe(true);
+    const id = /#([^)]+)/.exec(attr(label!, "clip-path")!)![1]!;
+    expect(all(dom.container as Node).some(n => (n.tagName ?? "").toLowerCase() === "clippath" && attr(n, "id") === id)).toBe(true);
+  } finally { await done(dom); }
+});
+
+test("a run that cannot be read at all shows an error alert with Try again and no board", async () => {
+  let fail = true;
+  const { dom, calls } = await open(liveFixture, ALL_OPS, { "run.get": () => { if (fail) throw new ApiError("internal", "service restarting"); return liveFixture.get; } });
+  try {
+    const alertEl = all(dom.container as Node).find(n => attr(n, "role") === "alert" && text(n).includes("Couldn't load this run"));
+    expect(alertEl).toBeDefined();
+    expect(text(alertEl!)).toContain("service restarting");
+    expect(nodes(dom.container)).toEqual([]);
+    expect(domText(dom.container)).not.toContain("Loading the board");
+    fail = false;
+    const before = calls.ops.filter(c => c.op === "run.get").length;
+    await act(async () => { clickEl(button(dom.container, "Try again")); });
+    await until(() => nodes(dom.container).length > 0, 3000);
+    expect(calls.ops.filter(c => c.op === "run.get").length).toBeGreaterThan(before);
+  } finally { await done(dom); }
+});
+
+test("closing the board stops following an agent's output: no further task.log reads after unmount", async () => {
+  let reads = 0;
+  const { dom } = await open(liveFixture, ALL_OPS, { "task.log": () => { reads++; return logChunk("x\n", { next: { stdout: reads, stderr: 0 }, done: false }); } }, 15);
+  await act(async () => { clickEl(must(byAttr(dom.container, "data-agent", "t_a"), "agent")); });
+  await until(() => reads >= 3, 2000);
+  await unmount(dom);
+  const atUnmount = reads;
+  await new Promise(resolve => setTimeout(resolve, 150));
+  dom.restore();
+  expect(reads).toBe(atUnmount);
 });

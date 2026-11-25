@@ -173,3 +173,16 @@ test("the person stands inside the waiting desk, bottom right, clear of the desk
   }
   expect(lanes.person.y).toBeGreaterThanOrEqual(ux.y);
 });
+
+test("rows equal in step, branch, attempt and start time resolve the same way whatever the input order", () => {
+  const a = step("build", "failed", { taskId: "t_a", startedAt: 100 });
+  const b = step("build", "done", { taskId: "t_b", startedAt: 100 });
+  const fwd = layoutLiveBoard({ ...plainInput, steps: [a, b] });
+  const rev = layoutLiveBoard({ ...plainInput, steps: [b, a] });
+  expect(rev).toEqual(fwd);
+  expect(fwd.nodes.find(n => n.stepId === "build")?.status).toBe("done");
+  // same task id: the status decides, still order independent
+  const c = step("lint", "failed", { startedAt: 5 });
+  const d = step("lint", "done", { startedAt: 5 });
+  expect(layoutLiveBoard({ ...plainInput, steps: [c, d] })).toEqual(layoutLiveBoard({ ...plainInput, steps: [d, c] }));
+});

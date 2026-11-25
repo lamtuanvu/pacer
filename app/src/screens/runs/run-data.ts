@@ -3,21 +3,31 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { initialRunsStore, refreshRunDetail, refreshRunsList, type RunsStoreState } from "../../data/runs";
 import { useTaskContext } from "../task-shared";
 
+/** Latest load wins: `begin()` returns a check that is true only while that load is the newest and the owner is still mounted. */
+export function createLoadGuard() {
+  let seq = 0;
+  let alive = true;
+  return {
+    begin(): () => boolean { const mine = ++seq; return () => alive && mine === seq; },
+    mount() { alive = true; },
+    unmount() { alive = false; },
+  };
+}
+
 export function useRunDetail(runId: string) {
   const { state, api } = useTaskContext();
   const ops = state.features.ops;
   const [store, setStore] = useState<RunsStoreState>(() => initialRunsStore());
   const storeRef = useRef(store);
   storeRef.current = store;
-  const mounted = useRef(true);
-  const seq = useRef(0);
-  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  const guard = useRef(createLoadGuard());
+  useEffect(() => { guard.current.mount(); return () => guard.current.unmount(); }, []);
   /** A response that arrives after a newer load started, or after unmount, is dropped. */
   const load = async () => {
-    const mine = ++seq.current;
+    const current = guard.current.begin();
     const listed = await refreshRunsList(api, storeRef.current, ops);
     const next = await refreshRunDetail(api, listed, runId, ops);
-    if (mounted.current && mine === seq.current) setStore(next);
+    if (current()) setStore(next);
   };
   useEffect(() => {
     void load();

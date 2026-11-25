@@ -1,5 +1,5 @@
 /** Board 7: replay of a run's journey from recorded decisions, step rows and graph versions. Read-only. */
-import { useEffect, useId, useMemo, useState } from "preact/hooks";
+import { useEffect, useId, useMemo, useRef, useState } from "preact/hooks";
 import { orchestratorBlock, runStatus } from "../../../../src/view-model/runs";
 import { useLiveStyles } from "./LiveBoard";
 import { Alert } from "../../ds/Alert";
@@ -70,6 +70,12 @@ export function JourneyPlayback({ runId, query, stepMs = STEP_MS }: { runId: str
   const unavailable = !ops.has("run.get");
   const finished = journey?.finished ?? false;
   const go = (i: number) => { setPlaying(false); setIndex(Math.max(-1, Math.min(last, i))); };
+  // A button that disables itself when pressed (Restart at the start, Step forward at the end) must not drop keyboard focus: it goes to Play.
+  const playRef = useRef<HTMLButtonElement>(null);
+  const goKeepingFocus = (i: number, disablesAt: "start" | "end") => {
+    go(i);
+    if (disablesAt === "start" ? i < 0 : i >= last) queueMicrotask(() => playRef.current?.focus());
+  };
   const status = run ? runStatus(String(run.status ?? "running")) : null;
   const eventText = frame?.event ? frame.event.text : index < 0 && last >= 0 ? "Ready. Press Play to replay the run." : "";
 
@@ -96,11 +102,11 @@ export function JourneyPlayback({ runId, query, stepMs = STEP_MS }: { runId: str
         {journey.events.length === 0 ? <EmptyState title="Nothing to replay yet" description="This run has recorded no steps or decisions." /> : <>
           <p className="lb-cap">{finished ? `Replay of a finished run (${status!.label.toLowerCase()}). Read-only: nothing here changes the run.` : "This run is still in progress, so the replay shows what has happened so far. Read-only: nothing here changes the run."}</p>
           <div className="lb-player" role="group" aria-label="Playback">
-            <Button size="sm" onClick={() => go(-1)} disabled={index < 0}>Restart</Button>
-            <Button size="sm" onClick={() => go(index - 1)} disabled={index < 0}>Step back</Button>
-            <Button size="sm" variant="secondary" aria-pressed={running} onClick={() => { if (!running && index >= last) setIndex(-1); setPlaying(!running); }}>{running ? "Pause" : index >= last ? "Play again" : "Play"}</Button>
-            <Button size="sm" onClick={() => go(index + 1)} disabled={index >= last}>Step forward</Button>
-            <Button size="sm" variant="quiet" onClick={() => go(last)} disabled={index >= last}>Jump to end</Button>
+            <Button size="sm" onClick={() => goKeepingFocus(-1, "start")} disabled={index < 0}>Restart</Button>
+            <Button size="sm" onClick={() => goKeepingFocus(index - 1, "start")} disabled={index < 0}>Step back</Button>
+            <Button size="sm" variant="secondary" ref={playRef} onClick={() => { if (!running && index >= last) setIndex(-1); setPlaying(!running); }}>{running ? "Pause" : index >= last ? "Play again" : "Play"}</Button>
+            <Button size="sm" onClick={() => goKeepingFocus(index + 1, "end")} disabled={index >= last}>Step forward</Button>
+            <Button size="sm" variant="quiet" onClick={() => goKeepingFocus(last, "end")} disabled={index >= last}>Jump to end</Button>
             <RadioChoices label="Speed" name={`${markerId}-speed`} value={speed} onChange={setSpeed} options={SPEEDS} />
           </div>
           <Range className="lb-scrub" label={`Position: event ${index + 1} of ${journey.events.length}`} min={0} max={journey.events.length} value={index + 1}
@@ -127,7 +133,8 @@ export function JourneyPlayback({ runId, query, stepMs = STEP_MS }: { runId: str
                 const state = e.index < index ? "played" : e.index === index ? "now" : "next";
                 return (
                   <li key={e.index} className={`lb-item lb-item--${state}`} aria-current={state === "now" ? "step" : undefined} data-event={e.index}>
-                    <Button size="sm" variant="quiet" onClick={() => go(e.index)}>{state === "now" ? "Now" : state === "played" ? "Played" : "Next"}</Button>
+                    <Button size="sm" variant="quiet" aria-label={`Go to event ${e.index + 1}: ${e.text}`} onClick={() => go(e.index)}>Event {e.index + 1}</Button>
+                    <span className="lb-cap lb-item-state">{state === "now" ? "Now" : state === "played" ? "Played" : "Next"}</span>
                     <span className="lb-item-name">{e.text}</span>
                     {e.detail ? <span className="lb-cap">{e.detail}</span> : null}
                   </li>

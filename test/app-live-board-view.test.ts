@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import {
   MAX_ZOOM, MIN_ZOOM, PAN_STEP, PAN_STEP_LARGE, ZOOM_STEP, clampZoom, fitView, keyAction, panBy, zoomAt,
 } from "../app/src/screens/runs/live-board-view";
-import { messageTargets, sendToTargets } from "../app/src/screens/runs/live-board-messages";
+import { messageTargets, sendToTargets, summarizeSend } from "../app/src/screens/runs/live-board-messages";
 
 test("panBy moves the view by exactly the drag distance", () => {
   expect(panBy({ x: 10, y: 20, k: 1.5 }, 7, -3)).toEqual({ x: 17, y: 17, k: 1.5 });
@@ -70,9 +70,46 @@ test("message channels refuse an impossible target instead of sending somewhere 
   expect(messageTargets("party", { orchestratorTaskId: "t_x", agentTaskIds: ["t_x", "t_y"] })).toEqual({ ok: true, to: ["task:t_x", "task:t_y"] });
 });
 
-test("sendToTargets sends to each in order and reports the ones that failed without stopping", async () => {
+test("sendToTargets sends to each in order, keeps each result's delivery and turns a failure into the shared refusal words without stopping", async () => {
   const seen: string[] = [];
-  const out = await sendToTargets(async (to, body) => { seen.push(`${to}:${body}`); if (to === "task:t_a") throw new Error("not allowed"); }, ["task:t_orch", "task:t_a", "task:t_b"], "hi");
+  const out = await sendToTargets(async (to, body) => {
+    seen.push(`${to}:${body}`);
+    if (to === "task:t_a") throw Object.assign(new Error("raw service text"), { data: { reason: "msg_node_closed" } });
+    return to === "task:t_b" ? { delivery: "held" } : { delivery: "queued" };
+  }, ["task:t_orch", "task:t_a", "task:t_b"], "hi");
   expect(seen).toEqual(["task:t_orch:hi", "task:t_a:hi", "task:t_b:hi"]);
-  expect(out).toEqual({ sent: ["task:t_orch", "task:t_b"], failed: [{ to: "task:t_a", message: "not allowed" }] });
+  expect(out.results).toEqual([
+    { to: "task:t_orch", delivery: "queued" },
+    { to: "task:t_a", refusal: "This task is closed for messages." },
+    { to: "task:t_b", delivery: "held" },
+  ]);
+  const raw = await sendToTargets(async () => { throw new Error("socket hang up"); }, ["task:t_a"], "hi");
+  expect(raw.results).toEqual([{ to: "task:t_a", refusal: "The message was not sent. Try again." }]);
+});
+
+test("summarizeSend says what became of the message, one recipient or several, in the shared words", () => {
+  expect(summarizeSend([{ to: "a", delivery: "turn_started" }])).toEqual({ text: "Sent. The task is picking it up.", problem: false, stored: true });
+  expect(summarizeSend([{ to: "a", delivery: "held" }])).toEqual({ text: "Sent. A messaging rule holds it until you confirm.", problem: true, stored: true });
+  expect(summarizeSend([{ to: "a", delivery: "closed" }])).toMatchObject({ text: "Sent, but this task is closed for messages.", problem: true });
+  expect(summarizeSend([{ to: "a", refusal: "Too many messages at once. Wait a minute and send again." }])).toEqual({ text: "Too many messages at once. Wait a minute and send again.", problem: true, stored: false });
+  expect(summarizeSend([{ to: "a", delivery: "pending" }]).text).toBe("Message recorded; delivery is not confirmed yet.");
+  const mixed = summarizeSend([{ to: "a", delivery: "queued" }, { to: "b", delivery: "held" }, { to: "c", delivery: "cap" }, { to: "d", refusal: "This task is closed for messages." }]);
+  expect(mixed.text).toBe("Delivered to 1 of 4 recipients. 2 saved but not delivered: Sent. A messaging rule holds it until you confirm. Sent, but this task tree has reached its turn limit. 1 not sent: This task is closed for messages.");
+  expect(mixed).toMatchObject({ problem: true, stored: true });
+  expect(summarizeSend([{ to: "a", delivery: "queued" }, { to: "b", delivery: "live" }])).toEqual({ text: "Delivered to 2 of 2 recipients.", problem: false, stored: true });
+  expect(summarizeSend([{ to: "a", refusal: "x" }, { to: "b", refusal: "x" }]).stored).toBe(false);
+});
+
+test("createLoadGuard: only the newest load counts, and nothing counts after unmount", async () => {
+  const { createLoadGuard } = await import("../app/src/screens/runs/run-data");
+  const g = createLoadGuard();
+  const first = g.begin();
+  expect(first()).toBe(true);
+  const second = g.begin();
+  expect(first()).toBe(false);
+  expect(second()).toBe(true);
+  g.unmount();
+  expect(second()).toBe(false);
+  g.mount();
+  expect(second()).toBe(true);
 });
