@@ -7,7 +7,7 @@ import type { TaskRecord } from "../src/tasks/types";
 import { CoreError } from "../src/core/errors";
 import { callOp, type OpDeps } from "../src/api/ops";
 import { addDefinition, getRun, stepsOfRun, workflowDatabase, type RunRow } from "../src/workflow/store";
-import { onTaskSettled } from "../src/workflow/engine";
+import { defaultEngineDeps, onTaskSettled, startRun } from "../src/workflow/engine";
 import type { WorkflowError } from "../src/workflow/schema";
 
 /** The same delegation stub the engine tests use: createTask with the input's
@@ -161,6 +161,68 @@ edges:
   workflowDatabase(ctx).query("DELETE FROM workflow_defs WHERE id = ? AND version = ?").run("t/fan", 1);
   const missing = await callOp(ctx, "run.get", { id: run.id }) as { definition?: unknown };
   expect(missing.definition).toBeUndefined();
+});
+
+test("run.start records the caller origin and ignores request fields", async () => {
+  const ctx = fakeCtx();
+  await callOp(ctx, "workflow.add", { source: GOOD });
+  const human = await callOp(ctx, "run.start", { workflow: "t/demo", repo: tmpDir(), brief: "Human" }, {
+    ...stubDeps(), appAuthenticated: true,
+  }) as RunRow;
+  expect(human.origin).toBe("human");
+  const planner = await callOp(ctx, "run.start", { workflow: "t/demo", repo: tmpDir(), brief: "Planner" }, {
+    ...stubDeps(), participant: "external:codex:sess",
+  }) as RunRow;
+  expect(planner.origin).toBe("external:codex:sess");
+  // A request field cannot claim human ownership for an external caller.
+  const spoof = await callOp(ctx, "run.start", {
+    workflow: "t/demo", repo: tmpDir(), brief: "Spoof", origin: "human",
+  }, { ...stubDeps(), participant: "external:codex:sess" }) as RunRow;
+  expect(spoof.origin).toBe("external:codex:sess");
+  // A caller id that is neither the human nor an external participant gets an
+  // explicit non-human origin, so a new run never leaves origin NULL.
+  const other = await callOp(ctx, "run.start", { workflow: "t/demo", repo: tmpDir(), brief: "Other" }, {
+    ...stubDeps(), participant: "orchestrator",
+  }) as RunRow;
+  expect(other.origin).toBe("unknown:orchestrator");
+  // An unidentified local caller is the non-privileged external:local, never human.
+  // localHuman() reads process.stdin.isTTY, so pin it for a TTY-independent assertion.
+  const wasTTY = process.stdin.isTTY;
+  try {
+    (process.stdin as { isTTY?: boolean }).isTTY = false;
+    const unknown = await callOp(ctx, "run.start", { workflow: "t/demo", repo: tmpDir(), brief: "Unknown" }, stubDeps()) as RunRow;
+    expect(unknown.origin).toBe("external:local");
+  } finally {
+    (process.stdin as { isTTY?: boolean }).isTTY = wasTTY;
+  }
+});
+
+test("startRun children inherit the root origin through the production path", async () => {
+  const ctx = fakeCtx();
+  await callOp(ctx, "workflow.add", { source: GOOD });
+  const deps = { ...defaultEngineDeps, delegate: stubDeps().delegate ?? defaultEngineDeps.delegate };
+  const root = await startRun(ctx, {
+    workflow: "t/demo", repo: tmpDir(), brief: "root", origin: "human",
+  }, undefined, deps);
+  expect(root.origin).toBe("human");
+  const child = await startRun(ctx, {
+    workflow: "t/demo", repo: tmpDir(), brief: "child",
+  }, undefined, deps, { parentRunId: root.id, parentStep: "draft" });
+  expect(child.parentRunId).toBe(root.id);
+  expect(child.origin).toBe("human");
+  // Grandchildren inherit transitively because each child already carries the root origin.
+  const grandchild = await startRun(ctx, {
+    workflow: "t/demo", repo: tmpDir(), brief: "grandchild",
+  }, undefined, deps, { parentRunId: child.id, parentStep: "draft" });
+  expect(grandchild.origin).toBe("human");
+
+  const external = await startRun(ctx, {
+    workflow: "t/demo", repo: tmpDir(), brief: "external", origin: "external:codex:sess",
+  }, undefined, deps);
+  const externalChild = await startRun(ctx, {
+    workflow: "t/demo", repo: tmpDir(), brief: "external child",
+  }, undefined, deps, { parentRunId: external.id, parentStep: "draft" });
+  expect(externalChild.origin).toBe("external:codex:sess");
 });
 
 test("run.start with an unknown workflow is not_found", async () => {

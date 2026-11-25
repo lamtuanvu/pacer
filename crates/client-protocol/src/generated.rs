@@ -4937,6 +4937,7 @@ impl ::std::default::Default for ConfigGetParams {
 ///        "pacing.accounts",
 ///        "pacing.fill_threshold",
 ///        "pacing.balance",
+///        "pacing.planner_tier_fallback",
 ///        "update_check",
 ///        "update_channel",
 ///        "terminal.app",
@@ -5060,6 +5061,7 @@ impl ::std::convert::TryFrom<&str> for ConfigSetParamsIntegrations {
 ///    "pacing.accounts",
 ///    "pacing.fill_threshold",
 ///    "pacing.balance",
+///    "pacing.planner_tier_fallback",
 ///    "update_check",
 ///    "update_channel",
 ///    "terminal.app",
@@ -5113,6 +5115,8 @@ pub enum ConfigSetParamsKey {
     PacingFillThreshold,
     #[serde(rename = "pacing.balance")]
     PacingBalance,
+    #[serde(rename = "pacing.planner_tier_fallback")]
+    PacingPlannerTierFallback,
     #[serde(rename = "update_check")]
     UpdateCheck,
     #[serde(rename = "update_channel")]
@@ -5148,6 +5152,7 @@ impl ::std::fmt::Display for ConfigSetParamsKey {
             Self::PacingAccounts => f.write_str("pacing.accounts"),
             Self::PacingFillThreshold => f.write_str("pacing.fill_threshold"),
             Self::PacingBalance => f.write_str("pacing.balance"),
+            Self::PacingPlannerTierFallback => f.write_str("pacing.planner_tier_fallback"),
             Self::UpdateCheck => f.write_str("update_check"),
             Self::UpdateChannel => f.write_str("update_channel"),
             Self::TerminalApp => f.write_str("terminal.app"),
@@ -5175,6 +5180,7 @@ impl ::std::str::FromStr for ConfigSetParamsKey {
             "pacing.accounts" => Ok(Self::PacingAccounts),
             "pacing.fill_threshold" => Ok(Self::PacingFillThreshold),
             "pacing.balance" => Ok(Self::PacingBalance),
+            "pacing.planner_tier_fallback" => Ok(Self::PacingPlannerTierFallback),
             "update_check" => Ok(Self::UpdateCheck),
             "update_channel" => Ok(Self::UpdateChannel),
             "terminal.app" => Ok(Self::TerminalApp),
@@ -12285,6 +12291,14 @@ impl ::std::default::Default for RoutingGetParams {
 ///{
 ///  "type": "object",
 ///  "properties": {
+///    "difficulty": {
+///      "type": "string",
+///      "enum": [
+///        "simple",
+///        "standard",
+///        "complex"
+///      ]
+///    },
 ///    "goal": {
 ///      "type": "string",
 ///      "minLength": 1
@@ -12318,6 +12332,8 @@ impl ::std::default::Default for RoutingGetParams {
 #[serde(deny_unknown_fields)]
 pub struct RoutingRouteParams {
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub difficulty: ::std::option::Option<RoutingRouteParamsDifficulty>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub goal: ::std::option::Option<RoutingRouteParamsGoal>,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub kind: ::std::option::Option<RoutingRouteParamsKind>,
@@ -12327,10 +12343,77 @@ pub struct RoutingRouteParams {
 impl ::std::default::Default for RoutingRouteParams {
     fn default() -> Self {
         Self {
+            difficulty: Default::default(),
             goal: Default::default(),
             kind: Default::default(),
             repo: Default::default(),
         }
+    }
+}
+///`RoutingRouteParamsDifficulty`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "simple",
+///    "standard",
+///    "complex"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum RoutingRouteParamsDifficulty {
+    #[serde(rename = "simple")]
+    Simple,
+    #[serde(rename = "standard")]
+    Standard,
+    #[serde(rename = "complex")]
+    Complex,
+}
+impl ::std::convert::From<&Self> for RoutingRouteParamsDifficulty {
+    fn from(value: &RoutingRouteParamsDifficulty) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for RoutingRouteParamsDifficulty {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Simple => f.write_str("simple"),
+            Self::Standard => f.write_str("standard"),
+            Self::Complex => f.write_str("complex"),
+        }
+    }
+}
+impl ::std::str::FromStr for RoutingRouteParamsDifficulty {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "simple" => Ok(Self::Simple),
+            "standard" => Ok(Self::Standard),
+            "complex" => Ok(Self::Complex),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for RoutingRouteParamsDifficulty {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
     }
 }
 ///`RoutingRouteParamsGoal`

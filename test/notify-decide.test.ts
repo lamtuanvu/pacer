@@ -53,6 +53,22 @@ test("caller-gone grouping fires once per caller after threshold and not before"
   expect(candidates[0]!.ackKeys).toHaveLength(3);
 });
 
+test("caller-gone grouping also covers escalated run blocking items with waitingOn", () => {
+ const caller = "external:codex:sess";
+ const runItem = (id: string, notify: "important" | "all"): AttentionItem =>
+  item({ id: `budget_spent:${id}`, kind: "question", severity: "decide", taskId: undefined, since: 100, notify, waitingOn: caller, title: id, detail: "planning budget spent" });
+ // Level all is filtered out before grouping, like a pre-escalation planner run.
+ expect(toNotify([runItem("r1", "all")], "important", {}, 100 + 30 * 60)).toEqual([]);
+ // Once the caller-gone window escalates them, one banner covers all run items.
+ const candidates = toNotify([runItem("r1", "important"), runItem("r2", "important")], "important", {}, 100 + 30 * 60);
+ expect(candidates).toHaveLength(1);
+ expect(candidates[0]!.key).toBe(`caller_gone:${caller}`);
+ expect(candidates[0]!.ackKeys).toEqual(["budget_spent:r1:100", "budget_spent:r2:100"]);
+ // A human-owned item (no waitingOn) still fires on its own.
+ const human = item({ id: "orchestrator_failed:r3", kind: "failed", severity: "blocked", taskId: undefined, since: 100, notify: "important" });
+ expect(toNotify([human, runItem("r1", "important")], "important", {}, 100 + 30 * 60)).toHaveLength(2);
+});
+
 test("caller-gone re-banners after cooldown when a new member joins post-ack", () => {
   const caller = "external:claude-code:sess";
   const base = (id: string, since: number): AttentionItem =>

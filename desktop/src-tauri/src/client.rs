@@ -1267,9 +1267,9 @@ async fn wait_for_snapshot(app: &AppHandle, session: &Session) -> Result<Value, 
     }
 }
 
-fn retry_native_connection<T>(
-    mut connect: impl FnMut() -> Result<T, pacer_desktop::ota::OtaError>,
-) -> Result<T, pacer_desktop::ota::OtaError> {
+fn retry_native_connection<T, E>(
+    mut connect: impl FnMut() -> Result<T, E>,
+) -> Result<T, E> {
     for attempt in 0..3 {
         match connect() {
             Ok(value) => return Ok(value),
@@ -1310,6 +1310,51 @@ impl<T> std::ops::Deref for PendingConnection<T> {
     }
 }
 
+/// One native connection attempt that owns a retained connection under a
+/// close-on-drop guard. The guard is returned (still armed) only when the freshly
+/// verified service is the very one the connection was bound to; the caller then
+/// republishes it. A rejected reuse closes it here, and an inspection that fails
+/// on every attempt leaves it armed until this call — or its detached blocking
+/// task after a cancelled connect — drops it.
+fn connect_native_with_retained<T, O, E>(
+    mut observation: impl FnMut() -> Result<O, E>,
+    reuse_allowed: impl Fn(&T, &O) -> bool,
+    retained: Option<PendingConnection<T>>,
+    mut connect: impl FnMut(&O) -> Result<PendingConnection<T>, E>,
+) -> Result<PendingConnection<T>, E> {
+    let mut retained = retained;
+    retry_native_connection(|| {
+        let observed = observation()?;
+        if let Some(guard) = retained.take() {
+            if reuse_allowed(&*guard, &observed) {
+                return Ok(guard);
+            }
+            // Rejected: the guard drops here and closes the unpublished session.
+        }
+        connect(&observed)
+    })
+}
+
+/// Inputs for the pure `native_reuse_allowed` decision.
+pub(crate) struct NativeReuse<'a> {
+    pub(crate) alive: bool,
+    pub(crate) maintenance: bool,
+    pub(crate) reconnect_plan: bool,
+    pub(crate) service: Option<&'a pacer_desktop::ota::native::ProcessIdentity>,
+    pub(crate) registered: Option<&'a pacer_desktop::ota::native::ProcessIdentity>,
+}
+
+/// A retained native connection may be reused only while it is still live, ordinary,
+/// and bound to the very same verified service process that is registered now. A
+/// restart, reinstall, hand-off or dead connection must establish fresh authority.
+pub(crate) fn native_reuse_allowed(input: NativeReuse<'_>) -> bool {
+    input.alive
+        && !input.maintenance
+        && !input.reconnect_plan
+        && input.service.is_some()
+        && input.service == input.registered
+}
+
 /// One verified native connection attempt (bounded retries), off the async runtime.
 async fn connect_native(
     handle: AppHandle,
@@ -1319,6 +1364,7 @@ async fn connect_native(
     trust: pacer_desktop::ota::trust::ReleaseTrust,
     ticket: Option<pacer_desktop::ota::control::LaunchTicket>,
     adoption: Option<pacer_desktop::ota::control::AdoptionReconnectPlan>,
+    reuse: Option<PendingConnection<std::sync::Arc<pacer_desktop::ota::control::NativeConnection>>>,
 ) -> Result<
     Result<PendingConnection<std::sync::Arc<pacer_desktop::ota::control::NativeConnection>>, pacer_desktop::ota::OtaError>,
     String,
@@ -1343,24 +1389,68 @@ async fn connect_native(
                 handle.exit(0);
             }
         });
-        retry_native_connection(|| {
-            // Each attempt rechecks the registration and signed process;
-            // no failed observation becomes authority for the next one.
-            let registered = pacer_desktop::ota::control::inspect_registered_service(
-                &user_home, &home, port, &trust,
-            )?;
-            pacer_desktop::ota::control::NativeConnection::connect_adoption(
-                &registered.endpoint(),
-                &trust,
-                ticket.as_ref(),
-                adoption.as_ref(),
-                callback.clone(),
-            )
-            .map(|native| PendingConnection::new(native, |native| native.close()))
-        })
+        connect_native_with_retained(
+            // Each attempt rechecks the registration and signed process; no failed
+            // observation becomes authority for the next one.
+            || {
+                pacer_desktop::ota::control::inspect_registered_service(
+                    &user_home, &home, port, &trust,
+                )
+            },
+            // A retained connection is reused only while it still points at the very
+            // same verified service process. A restart, reinstall or hand-off must
+            // establish fresh authority instead of inheriting this control session.
+            |existing: &std::sync::Arc<pacer_desktop::ota::control::NativeConnection>,
+             registered: &pacer_desktop::ota::control::RegisteredService| {
+                native_reuse_allowed(NativeReuse {
+                    alive: existing.alive(),
+                    maintenance: existing.maintenance_active(),
+                    reconnect_plan: existing.reconnect_plan().is_some(),
+                    service: Some(&existing.service),
+                    registered: Some(&registered.process),
+                })
+            },
+            reuse,
+            |registered| {
+                pacer_desktop::ota::control::NativeConnection::connect_adoption(
+                    &registered.endpoint(),
+                    &trust,
+                    ticket.as_ref(),
+                    adoption.as_ref(),
+                    callback.clone(),
+                )
+                .map(|native| PendingConnection::new(native, |native| native.close()))
+            },
+        )
     })
     .await
     .map_err(|_| "Native service verification failed".to_owned())
+}
+
+/// Inputs for the pure `retain_native_on_session_end` decision.
+pub(crate) struct NativeRetention<'a> {
+    pub(crate) end_reason: Option<&'a str>,
+    pub(crate) shell_maintenance: bool,
+    pub(crate) shell_adoption: bool,
+    pub(crate) connection_alive: bool,
+    pub(crate) connection_maintenance: bool,
+    pub(crate) connection_reconnect_plan: bool,
+}
+
+/// A web session can end on a transient event-stream timeout ("stopped") or a slow
+/// heartbeat while the signed-in service is unchanged. The native update connection
+/// owns its own authenticated control session, and the helper is parented by the
+/// service rather than by the web session. Keeping this connection alive across the
+/// reconnect means the service never sees a native session close and never cancels an
+/// in-flight check or download. Maintenance/adoption hand-offs, an expired session,
+/// an explicit service move, or a dead connection still tear it down.
+pub(crate) fn retain_native_on_session_end(input: NativeRetention<'_>) -> bool {
+    input.end_reason == Some("stopped")
+        && input.connection_alive
+        && !input.shell_maintenance
+        && !input.shell_adoption
+        && !input.connection_maintenance
+        && !input.connection_reconnect_plan
 }
 
 /// When should a signed-in ordinary launch try to restore native update authority?
@@ -1400,7 +1490,7 @@ async fn supervise_native(app: &AppHandle, supervision: Option<NativeSupervision
             delay = Duration::from_secs(2);
             continue;
         }
-        match connect_native(app.clone(), user_home.clone(), home.clone(), port, trust.clone(), None, None).await {
+        match connect_native(app.clone(), user_home.clone(), home.clone(), port, trust.clone(), None, None, None).await {
             Ok(Ok(native)) => {
                 // An ordinary launch carries no readiness proof; the signed-in page already
                 // completed its own check, so only acknowledge after startup is ready.
@@ -1762,10 +1852,24 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
             .cloned();
         let adoption = app.state::<Shell>().adoption.lock().unwrap().clone();
         let maintenance_launch = ticket.is_some() || adoption.is_some();
+        // On an ordinary reconnect, a live native connection kept from the previous
+        // session is preferred: connect_native reuses it only if the same verified
+        // service process is still registered. Take it out of the published shell
+        // state first, so a connection that cannot be reused is never left pointing
+        // at a service that is no longer the registered one.
+        let reuse = if maintenance_launch {
+            None
+        } else {
+            // Guard the taken connection immediately: every exit that does not
+            // reuse and republish it closes the unpublished native session, including
+            // a failed inspection and cancellation while the handshake is awaiting.
+            app.state::<Shell>().native.lock().unwrap().take()
+                .map(|native| PendingConnection::new(native, |native| native.close()))
+        };
         if !maintenance_launch {
             supervision = Some((user_home.clone(), home.clone(), port, trust.clone()));
         }
-        let native = connect_native(
+        let native = match connect_native(
             handle,
             user_home.clone(),
             home.clone(),
@@ -1773,8 +1877,13 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
             trust.clone(),
             ticket,
             adoption,
+            reuse,
         )
-        .await?;
+        .await
+        {
+            Ok(native) => native,
+            Err(error) => return Err(error),
+        };
         match native {
             Ok(native) => {
                 *app.state::<Shell>().native_update_error.lock().unwrap() = None;
@@ -1824,11 +1933,31 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
         _ = supervise_native(app, supervision) => Err("stopped".into()),
         _ = shell.expired.notified() => Err(if shell.diagnosis.lock().unwrap().as_ref().is_some_and(|d| d.page == "takeover") { "takeover" } else { "sessionExpired" }.into()),
     };
-    if let Some(native) = shell.native.lock().unwrap().take() {
-        if let Some(plan) = native.reconnect_plan() {
-            *shell.adoption.lock().unwrap() = Some(plan);
+    let native_state = {
+        let guard = shell.native.lock().unwrap();
+        guard.as_ref().map(|native| {
+            (
+                native.alive(),
+                native.maintenance_active(),
+                native.reconnect_plan().is_some(),
+            )
+        })
+    };
+    let retain = retain_native_on_session_end(NativeRetention {
+        end_reason: result.as_ref().err().map(String::as_str),
+        shell_maintenance: shell.maintenance.load(Ordering::SeqCst),
+        shell_adoption: shell.adoption.lock().unwrap().is_some(),
+        connection_alive: native_state.is_some_and(|(alive, _, _)| alive),
+        connection_maintenance: native_state.is_some_and(|(_, maintenance, _)| maintenance),
+        connection_reconnect_plan: native_state.is_some_and(|(_, _, plan)| plan),
+    });
+    if !retain {
+        if let Some(native) = shell.native.lock().unwrap().take() {
+            if let Some(plan) = native.reconnect_plan() {
+                *shell.adoption.lock().unwrap() = Some(plan);
+            }
+            native.close();
         }
-        native.close();
     }
     shell.navigation.lock().unwrap().invalidate();
     result
@@ -2925,6 +3054,71 @@ pub async fn run(app: AppHandle) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn transient_web_session_end_keeps_the_native_update_connection() {
+        use super::{retain_native_on_session_end, NativeRetention};
+        fn ordinary(reason: Option<&str>) -> NativeRetention<'_> {
+            NativeRetention {
+                end_reason: reason,
+                shell_maintenance: false,
+                shell_adoption: false,
+                connection_alive: true,
+                connection_maintenance: false,
+                connection_reconnect_plan: false,
+            }
+        }
+        // The 15 s event-stream timeout is the observed hiccup; a slow heartbeat
+        // reports the same "stopped" reason.
+        assert!(retain_native_on_session_end(ordinary(Some("stopped"))));
+        // A clean end, an expired sign-in, a service move or a native drop is not
+        // a transient web-session hiccup.
+        for reason in [None, Some("sessionExpired"), Some("takeover"), Some("outdatedService"), Some("consent-takeover-ready"), Some("diagnose")] {
+            assert!(!retain_native_on_session_end(ordinary(reason)), "{reason:?} must tear down the native connection");
+        }
+        let mut input = ordinary(Some("stopped"));
+        input.connection_alive = false;
+        assert!(!retain_native_on_session_end(input));
+        let mut input = ordinary(Some("stopped"));
+        input.shell_maintenance = true;
+        assert!(!retain_native_on_session_end(input));
+        let mut input = ordinary(Some("stopped"));
+        input.shell_adoption = true;
+        assert!(!retain_native_on_session_end(input));
+        let mut input = ordinary(Some("stopped"));
+        input.connection_maintenance = true;
+        assert!(!retain_native_on_session_end(input));
+        let mut input = ordinary(Some("stopped"));
+        input.connection_reconnect_plan = true;
+        assert!(!retain_native_on_session_end(input));
+    }
+
+    #[test]
+    fn a_retained_native_connection_is_only_reused_for_the_registered_process() {
+        use super::{native_reuse_allowed, NativeReuse};
+        use pacer_desktop::ota::native::ProcessIdentity;
+        let registered = ProcessIdentity { pid: 42, boot_id: "boot".into(), birth: "birth".into() };
+        let same = registered.clone();
+        let replaced = ProcessIdentity { pid: 43, ..registered.clone() };
+        fn input<'a>(service: Option<&'a ProcessIdentity>, registered: &'a ProcessIdentity) -> NativeReuse<'a> {
+            NativeReuse { alive: true, maintenance: false, reconnect_plan: false, service, registered: Some(registered) }
+        }
+        // Same verified process: the retained control session may be published again.
+        assert!(native_reuse_allowed(input(Some(&same), &registered)));
+        // A different service incarnation must never inherit native authority, even
+        // when the retained connection is still alive and otherwise healthy.
+        assert!(!native_reuse_allowed(input(Some(&replaced), &registered)));
+        assert!(!native_reuse_allowed(input(None, &registered)));
+        let mut rejected = input(Some(&same), &registered);
+        rejected.alive = false;
+        assert!(!native_reuse_allowed(rejected));
+        let mut rejected = input(Some(&same), &registered);
+        rejected.maintenance = true;
+        assert!(!native_reuse_allowed(rejected));
+        let mut rejected = input(Some(&same), &registered);
+        rejected.reconnect_plan = true;
+        assert!(!native_reuse_allowed(rejected));
+    }
+
     #[tokio::test]
     async fn health_gateway_http_bodies_respect_connection_history() {
         use std::io::{Read, Write};
@@ -3024,6 +3218,70 @@ mod tests {
         });
         let native = pending.publish();
         assert!(!native.load(Ordering::SeqCst));
+    }
+
+    /// A retained connection behaves like the real one: clones share its liveness
+    /// and `close` is the only thing that ends the session (there is no `Drop`).
+    #[derive(Clone)]
+    struct RetainedNative {
+        closed: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    }
+    impl RetainedNative {
+        fn new() -> Self {
+            Self { closed: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)) }
+        }
+        fn close(&self) { self.closed.store(true, Ordering::SeqCst); }
+        fn is_closed(&self) -> bool { self.closed.load(Ordering::SeqCst) }
+    }
+
+    #[test]
+    fn retained_native_connection_closes_when_inspection_fails_every_attempt() {
+        let native = RetainedNative::new();
+        let guard = PendingConnection::new(native.clone(), |connection| connection.close());
+        let fresh = RetainedNative::new();
+        let fresh_clone = fresh.clone();
+        let result: Result<PendingConnection<RetainedNative>, ()> = connect_native_with_retained(
+            || Err(()),
+            |_, _: &()| true,
+            Some(guard),
+            move |_| Ok(PendingConnection::new(fresh_clone.clone(), |connection| connection.close())),
+        );
+        assert!(result.is_err());
+        assert!(native.is_closed(), "a failed inspection must close the taken session");
+    }
+
+    #[test]
+    fn retained_native_connection_is_disarmed_only_when_reused_and_republished() {
+        let native = RetainedNative::new();
+        let reused = connect_native_with_retained(
+            || Ok::<_, ()>(42),
+            |_, observed: &i32| *observed == 42,
+            Some(PendingConnection::new(native.clone(), |connection| connection.close())),
+            |_| Ok(PendingConnection::new(RetainedNative::new(), |connection| connection.close())),
+        )
+        .unwrap();
+        assert!(!native.is_closed());
+        let published = reused.publish();
+        assert!(!native.is_closed());
+        drop(PendingConnection::new(published, |connection| connection.close()));
+        assert!(native.is_closed());
+
+        // A different registered service rejects the retained session and connects
+        // fresh; the old session is closed even though a clone is still alive.
+        let old = RetainedNative::new();
+        let fresh = RetainedNative::new();
+        let fresh_clone = fresh.clone();
+        let connected = connect_native_with_retained(
+            || Ok::<_, ()>(7),
+            |_, observed: &i32| *observed == 42,
+            Some(PendingConnection::new(old.clone(), |connection| connection.close())),
+            move |_| Ok(PendingConnection::new(fresh_clone.clone(), |connection| connection.close())),
+        )
+        .unwrap();
+        assert!(old.is_closed());
+        assert!(!fresh.is_closed());
+        drop(connected);
+        assert!(fresh.is_closed());
     }
 
     #[test]

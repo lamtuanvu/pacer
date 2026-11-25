@@ -35,7 +35,9 @@ export function balanceByLoad(
   if (s.pacing.balance !== "least-loaded") return ranked;
   const fill = s.pacing.accounts === "fill";
   const cheapest = s.pacing.policy === "cheapest-first";
+  // The planner tier fallback pick keeps its own band, so load never moves it behind an under-qualified executor.
   const bandKey = (e: RankedExecutor): string => [
+    e.tierFallback ? "tier-fallback" : "",
     e.fallback === "uncertain" ? 1 : 0,
     verdictTier(e.verdict),
     fill ? (accountYielded(s, e.id, statuses) ? 1 : 0) : 0,

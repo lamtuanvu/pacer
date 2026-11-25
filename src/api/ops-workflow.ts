@@ -41,6 +41,7 @@ import { requireAskingExecutor } from "../core/tasks";
 import { spawnRunner, type SpawnRunner } from "../tasks/api";
 import { orchestratorTaskIdForGrant, verifyRunGrant } from "../workflow/run-grant";
 import { PLANNERS } from "../config/strategy";
+import { callerParticipant, localHuman } from "../messaging/participants";
 import { publish } from "../link/publish";
 import {
   applyPriorityToQueuedRunTasks, RUN_PRIORITIES, type RunPriority,
@@ -156,6 +157,17 @@ export const workflowOps: Record<string, OpDef> = {
     handler: async (ctx, p, deps) => {
       assertPersonCaller(ctx);
       const { deps: engine, spawn } = engineDeps(deps);
+      // Ownership comes from the caller identity, never from request fields. Human
+      // and identified external participants keep their id; any other caller gets
+      // an explicit non-human `unknown:<id>` so new runs never leave origin NULL
+      // (NULL identifies a pre-upgrade run, which stays human-owned).
+      const caller = callerParticipant(ctx, {
+        appAuthenticated: deps.appAuthenticated,
+        participant: deps.participant ?? localHuman(ctx),
+      }).id;
+      const origin = caller === "human" || caller.startsWith("external:")
+        ? caller
+        : `unknown:${caller}`;
       // The engine publishes the run entity: on creation, on a failed start and on
       // every status change it makes.
       // Return the store row (same shape as run.list); run.get adds the orchestrator block.
@@ -163,6 +175,7 @@ export const workflowOps: Record<string, OpDef> = {
         workflow: p.workflow,
         repo: p.repo,
         brief: p.brief,
+        origin,
         ...(p.title ? { title: p.title } : {}),
         ...(p.priority ? { priority: p.priority as RunPriority } : {}),
         ...(p.publish ? { publish: p.publish } : {}),

@@ -162,7 +162,10 @@ use std::{
         },
     },
     process::Stdio,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 use tokio::{
@@ -448,6 +451,7 @@ impl Broker {
         permit: tokio::sync::OwnedSemaphorePermit,
         channel: &tokio::net::UnixStream,
         trace: &mut Trace<'_>,
+        handed: &AtomicBool,
     ) -> io::Result<()> {
         trace.mark(Stage::GenerationBefore);
         self.trust.verify_generation(&self.generation)?;
@@ -506,6 +510,10 @@ impl Broker {
         let mut response = [b'H', 0, 0, 0, 0];
         response[1..].copy_from_slice(&pid.to_be_bytes());
         trace.mark(Stage::Handoff);
+        // Past this point a positive transfer may have delivered command
+        // authority to the peer. Any later failure is a desynchronised channel,
+        // not a per-request refusal: the broker must retire the channel.
+        handed.store(true, Ordering::SeqCst);
         let sent = send_rights(
             channel,
             &response,
@@ -569,6 +577,10 @@ impl Broker {
                     return;
                 }
             };
+            // A clean per-request refusal (parse, capacity, deadline or a verify
+            // step before handoff) leaves the framing intact and transfers no
+            // rights. Only a partial handoff makes the channel ambiguous.
+            let handed = AtomicBool::new(false);
             let result = async {
                 trace.mark(Stage::Request);
                 let request = request(&body, &self.home)?;
@@ -577,7 +589,7 @@ impl Broker {
                 let permit = slots.clone().try_acquire_owned().map_err(|_| denied())?;
                 tokio::time::timeout(
                     Duration::from_secs(10),
-                    self.spawn(request, permit, &socket, &mut trace),
+                    self.spawn(request, permit, &socket, &mut trace, &handed),
                 )
                 .await
                 .map_err(|_| denied())?
@@ -590,14 +602,24 @@ impl Broker {
                     Ok(_) => {
                         diagnostics.record(trace.stage, Event::WriteError);
                         diagnostics.record(trace.stage, Event::WriteShort);
+                        // A short refusal reply means the peer cannot resynchronise.
+                        receive_failure_diagnostic(&socket, &diagnostics, trace.stage);
+                        return;
                     }
                     Err(error) => {
                         diagnostics.record(trace.stage, Event::WriteError);
                         diagnostics.record(trace.stage, Event::write_failure(&error));
+                        return;
                     }
                 }
-                receive_failure_diagnostic(&socket, &diagnostics, trace.stage);
-                return;
+                if handed.load(Ordering::SeqCst) {
+                    // Rights may already have reached the peer; its next frame
+                    // cannot be trusted as a fresh request. Fail closed.
+                    receive_failure_diagnostic(&socket, &diagnostics, trace.stage);
+                    return;
+                }
+                // Intact E reply with no handoff: refuse only this request and
+                // keep serving the same authenticated generation on this channel.
             }
         }
     }

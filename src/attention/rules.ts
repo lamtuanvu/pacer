@@ -44,6 +44,65 @@ export function isExternalAgentOrigin(origin?: string | null): boolean {
   return !!origin && origin.startsWith("external:");
 }
 
+/** Minimal run shape needed for notify decisions (RunRow is structurally compatible). */
+export interface NotifyRun {
+  origin?: string | null;
+  parentRunId?: string | null;
+  updatedAt?: number;
+}
+/** Workflow attention situations whose notify level depends on run ownership. */
+export type RunAttentionKind =
+  | "budget_spent" | "budget_msg_spent" | "orchestrator_failed" | "orchestrator_blocked"
+  // `orchestrator_blocked` is reserved for the blocked-but-not-failed situation;
+  // attention.ts currently raises that surface as `orchestrator_failed`/`unresolved_wake`.
+  | "unresolved_wake" | "question" | "budget_warn" | "budget_msg_warn";
+
+const RUN_WARN_KINDS = new Set<RunAttentionKind>(["budget_warn", "budget_msg_warn"]);
+
+/**
+ * A run is human-owned when the human started it (`origin:"human"`). Child runs
+ * inherit the root's origin at insert, so the origin on any run in the tree
+ * already answers whether the root is human-owned. A missing/NULL origin is a
+ * pre-upgrade run: blocking items were always important before origin existed,
+ * so those runs stay human-owned. New runs always record an origin; a caller id
+ * that is neither human nor an external participant is recorded as
+ * `unknown:<caller id>` and is not human-owned.
+ */
+export function runOwnedByHuman(run: NotifyRun | null | undefined): boolean {
+  const origin = run?.origin;
+  return origin == null || origin === "human";
+}
+
+/** The external caller of a planner-started run, for caller-gone grouping. */
+export function runExternalCaller(run: NotifyRun | null | undefined): string | null {
+  const origin = run?.origin;
+  return origin && isExternalAgentOrigin(origin) ? origin : null;
+}
+
+/**
+ * Notify level for a workflow attention item. Blocking items interrupt at
+ * `important` only when the root run is human-owned; planner-owned ones stay
+ * quiet until the caller has been silent for CALLER_GONE_AFTER_S, when they
+ * escalate like stalled caller_decision items (and group by their origin).
+ * Warnings and questions that unblocks nothing never interrupt at default level.
+ *
+ * `since` is the moment the blocking condition was raised; when omitted the
+ * run's last update is used as the age bound.
+ */
+export function notifyLevelForRun(
+  kind: RunAttentionKind,
+  run: NotifyRun | null | undefined,
+  now: number,
+  opts: { since?: number; unblocks?: AttentionUnblocks } = {},
+): "important" | "all" {
+  if (RUN_WARN_KINDS.has(kind)) return "all";
+  if (kind === "question" && opts.unblocks === "nothing") return "all";
+  if (runOwnedByHuman(run)) return "important";
+  const since = opts.since ?? run?.updatedAt;
+  if (typeof since !== "number" || now < since) return "all";
+  return now - since >= CALLER_GONE_AFTER_S ? "important" : "all";
+}
+
 /**
  * Human owns the decision on this root when they started it (not a work-tree child).
  * `source` alone is not enough: CLI `pacer delegate` from a planner session still has

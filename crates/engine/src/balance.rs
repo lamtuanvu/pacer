@@ -56,7 +56,9 @@ pub fn balance_by_load(
     let threshold = number(&pacing["fillThreshold"]);
     let band_key = |entry: &Value| {
         let status = statuses.get(string(&entry["id"])).unwrap_or(&Value::Null);
+        // `tierFallback` keeps its own band, as in `balanceByLoad`.
         (
+            !entry["tierFallback"].is_null(),
             entry["fallback"] == "uncertain",
             verdict_tier(&entry["verdict"]),
             fill && !status.is_null() && yielded(status, threshold),
@@ -147,6 +149,22 @@ mod tests {
             limits,
         );
         assert_eq!(again, out);
+    }
+
+    #[test]
+    fn the_tier_fallback_pick_keeps_its_own_band() {
+        let mut planner = entry("planner", "AHEAD");
+        planner["tierFallback"] = json!({"targetTier": "frontier", "reason": "r"});
+        let ranked = [planner, entry("small", "AHEAD")];
+        let use_ = json!({"byExecutor": {"planner": 1}});
+        let out = balance_by_load(
+            &ranked,
+            &strategy("least-loaded", "spread", "priority"),
+            &use_,
+            &json!({}),
+            |_| 2,
+        );
+        assert_eq!(ids(&out), ["planner", "small"]);
     }
 
     #[test]

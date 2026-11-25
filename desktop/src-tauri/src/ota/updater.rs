@@ -428,11 +428,33 @@ fn assess_execution(app: &Path) -> Result<(), OtaError> {
     }
 }
 
+/// Injectable Gatekeeper assessment. Production uses the real `assess_execution`;
+/// tests substitute a fake so they never spawn `/usr/sbin/spctl`.
+#[cfg(target_os = "macos")]
+type Assessor = std::sync::Arc<dyn Fn(&std::path::Path) -> Result<(), OtaError> + Send + Sync>;
+
+/// Whether this compiled trust requires a Gatekeeper assessment (`spctl --assess`)
+/// when verifying a downloaded bundle. Fail closed: assess Team-ID-only (Developer
+/// ID), both-pin bridge trust and any other or unknown signer. Only a self-signed-only
+/// build skips the assessment, because its certificate has no Team ID and Gatekeeper
+/// always rejects it; the pinned certificate, static code requirement and Ed25519
+/// signature establish identity instead. Fixture trust is never assessed. Derived
+/// from compiled trust, never from runtime input or the package.
+#[cfg(target_os = "macos")]
+fn requires_gatekeeper_assessment(trust: &super::trust::ReleaseTrust) -> bool {
+    if trust.fixture_policy().is_some() {
+        return false;
+    }
+    trust.signer() != Some("self")
+}
+
 #[cfg(target_os = "macos")]
 pub struct NativeUpdater {
     updater: tauri_plugin_updater::Updater,
     trust: super::trust::ReleaseTrust,
     target: super::wire::Installation,
+    /// `None` selects the real `assess_execution`; `Some` overrides it for tests.
+    assess: Option<Assessor>,
 }
 #[cfg(target_os = "macos")]
 pub struct VerifiedPackage {
@@ -478,7 +500,20 @@ impl NativeUpdater {
             updater,
             trust,
             target,
+            assess: None,
         })
+    }
+    /// Runs the Gatekeeper assessment when the compiled trust requires it. A
+    /// per-signature refusal stays fail-closed (an `Err` is returned), while a
+    /// clean skip returns `Ok`. The assessor is injectable for tests.
+    fn run_assessment(&self, app: &std::path::Path) -> Result<(), OtaError> {
+        if !requires_gatekeeper_assessment(&self.trust) {
+            return Ok(());
+        }
+        match &self.assess {
+            Some(assess) => assess(app),
+            None => assess_execution(app),
+        }
     }
     fn client(&self) -> Result<reqwest::Client, OtaError> {
         reqwest::Client::builder()
@@ -588,9 +623,7 @@ impl NativeUpdater {
         )?;
         self.trust
             .verify_native_shim(&app.join("Contents/Frameworks/libpacer-native.dylib"))?;
-        if self.trust.fixture_policy().is_none() {
-            assess_execution(&app)?;
-        }
+        self.run_assessment(&app)?;
         Ok(VerifiedPackage {
             bytes,
             extracted,
@@ -615,6 +648,16 @@ mod tests {
             "darwin-aarch64":{"url":"https://github.com/lamtuanvu/pacer/releases/download/v0.2.4/desktop-pacer-0.2.4-darwin-aarch64.app.tar.gz","signature":"signed","sha256":"a".repeat(64),"bundleId":"dev.pacer.desktop","protocolMajors":[3],"admissionProtocol":1,"rollbackCompatible":true}
         }})
     }
+    fn public_key() -> String {
+        use base64::{engine::general_purpose::STANDARD, Engine};
+        let mut packet = vec![0u8; 42];
+        packet[..2].copy_from_slice(b"Ed");
+        packet[10..].fill(7);
+        STANDARD.encode(format!(
+            "untrusted comment: disposable public key\n{}\n",
+            STANDARD.encode(packet)
+        ))
+    }
     fn candidate() -> Candidate {
         Candidate {
             version: "0.2.4".into(),
@@ -637,6 +680,196 @@ mod tests {
         let app = temp.path().join("unsigned.app");
         std::fs::create_dir(&app).unwrap();
         assert_eq!(assess_execution(&app), Err(OtaError::Identity));
+    }
+    /// Builds an updater with a throwaway mock app and an injected assessor, so the
+    /// assessment tests never spawn `/usr/sbin/spctl`.
+    #[cfg(target_os = "macos")]
+    fn updater_with_assessor(
+        trust: super::super::trust::ReleaseTrust,
+        assess: Option<Assessor>,
+    ) -> NativeUpdater {
+        use serde_json::json;
+        use tauri::test::{mock_builder, mock_context, noop_assets};
+        let mut context = mock_context(noop_assets());
+        context
+            .config_mut()
+            .plugins
+            .0
+            .insert("updater".into(), json!({"pubkey": public_key()}));
+        let app = mock_builder()
+            .plugin(
+                tauri_plugin_updater::Builder::new()
+                    .pubkey(public_key())
+                    .build(),
+            )
+            .build(context)
+            .unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let app_path = dir.path().join("pacer.app");
+        std::fs::create_dir_all(app_path.join("Contents/MacOS")).unwrap();
+        let target = super::super::wire::Installation {
+            id: "test".into(),
+            app_path: app_path.to_str().unwrap().into(),
+            bundle_id: "dev.pacer.desktop".into(),
+            owner_uid: unsafe { libc::geteuid() } as u64,
+            arch: Arch::Aarch64,
+            pacer_home: dir.path().to_str().unwrap().into(),
+            port: 4317,
+            service_label: "com.pacer.serve".into(),
+            ownership: super::super::wire::Ownership::Managed,
+            version: "0.2.3".into(),
+        };
+        let mut updater = NativeUpdater::new(app.handle(), trust, target).unwrap();
+        updater.assess = assess;
+        updater
+    }
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn self_signed_trust_skips_the_gatekeeper_assessment() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let calls = std::sync::Arc::new(AtomicUsize::new(0));
+        let assess = {
+            let calls = calls.clone();
+            Some(std::sync::Arc::new(move |_path: &std::path::Path| {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            }) as Assessor)
+        };
+        let trust = super::super::trust::ReleaseTrust::from_production(
+            &public_key(),
+            None,
+            Some("2C5405FB6D2906AE2049D59B9DF5D42661997922"),
+        )
+        .unwrap();
+        let updater = updater_with_assessor(trust, assess);
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(
+            updater.run_assessment(&dir.path().join("pacer.app")),
+            Ok(())
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn team_id_trust_still_requires_the_gatekeeper_assessment() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let calls = std::sync::Arc::new(AtomicUsize::new(0));
+        let assess = {
+            let calls = calls.clone();
+            Some(std::sync::Arc::new(move |_path: &std::path::Path| {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Err(OtaError::Identity)
+            }) as Assessor)
+        };
+        let trust = super::super::trust::ReleaseTrust::from_production(
+            &public_key(),
+            Some("ABCDE12345"),
+            None,
+        )
+        .unwrap();
+        let updater = updater_with_assessor(trust, assess);
+        let dir = tempfile::tempdir().unwrap();
+        // The injected assessor runs (no real spctl), and its refusal propagates:
+        // the bay still fails closed even when the assessor returns an error.
+        assert_eq!(
+            updater.run_assessment(&dir.path().join("pacer.app")),
+            Err(OtaError::Identity)
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn both_pin_bridge_trust_is_gatekeeper_assessed() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let calls = std::sync::Arc::new(AtomicUsize::new(0));
+        let assess = {
+            let calls = calls.clone();
+            Some(std::sync::Arc::new(move |_path: &std::path::Path| {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            }) as Assessor)
+        };
+        // A both-pin bridge build may receive either a self-signed hotfix or the
+        // notarized Developer ID release. The candidate, not the running build, is
+        // what spctl assesses: the self-signed hotfix is refused, the release is
+        // assessed and accepted. This is intentionally stricter than release-time
+        // verification, which skips spctl for the certificate-pinned bridge build.
+        let trust = super::super::trust::ReleaseTrust::from_production(
+            &public_key(),
+            Some("ABCDE12345"),
+            Some("2C5405FB6D2906AE2049D59B9DF5D42661997922"),
+        )
+        .unwrap();
+        assert_eq!(trust.signer(), Some("both"));
+        assert!(requires_gatekeeper_assessment(&trust));
+        let updater = updater_with_assessor(trust, assess);
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(
+            updater.run_assessment(&dir.path().join("pacer.app")),
+            Ok(())
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn fixture_trust_is_not_gatekeeper_assessed() {
+        use std::os::unix::fs::PermissionsExt;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let calls = std::sync::Arc::new(AtomicUsize::new(0));
+        let assess = {
+            let calls = calls.clone();
+            Some(std::sync::Arc::new(move |_path: &std::path::Path| {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            }) as Assessor)
+        };
+        let temp = tempfile::tempdir().unwrap();
+        let base = temp
+            .path()
+            .canonicalize()
+            .unwrap()
+            .join(".work/live/native-trust");
+        let root = base.join("ota");
+        let home = base.join("home");
+        for path in [&base, &root, &home] {
+            std::fs::create_dir_all(path).unwrap();
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let policy = super::super::fixture_policy::FixturePolicy {
+            schema: 1,
+            root: root.clone(),
+            nonce: "b".repeat(32),
+            home: home.clone(),
+            port: 7433,
+            current_app: root.join("current.app"),
+            service_label: format!("com.pacer.live.{}.service", "b".repeat(32)),
+            recovery_label: format!("com.pacer.live.{}.recovery", "b".repeat(32)),
+            uid: unsafe { libc::geteuid() } as u32,
+            signing_cert_sha1: None,
+        };
+        std::fs::write(
+            root.join("record.json"),
+            serde_json::to_vec(&serde_json::json!({"schema":1,"phase":"prepared","root":root,"nonce":policy.nonce,"pacerHome":home,"innerPort":policy.port,"currentApp":policy.current_app,"serviceLabel":policy.service_label,"recoveryLabel":policy.recovery_label,"ownerUid":policy.uid})).unwrap(),
+        )
+        .unwrap();
+        std::fs::set_permissions(
+            root.join("record.json"),
+            std::fs::Permissions::from_mode(0o600),
+        )
+        .unwrap();
+        let trust = super::super::trust::ReleaseTrust::from_fixture(
+            &public_key(),
+            &serde_json::to_string(&policy).unwrap(),
+        )
+        .unwrap();
+        assert!(!requires_gatekeeper_assessment(&trust));
+        let updater = updater_with_assessor(trust, assess);
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(
+            updater.run_assessment(&dir.path().join("pacer.app")),
+            Ok(())
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
     }
     #[cfg(target_os = "macos")]
     #[test]

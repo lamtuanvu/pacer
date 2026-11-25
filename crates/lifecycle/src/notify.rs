@@ -153,15 +153,13 @@ fn one_per_task(items: &[&Item]) -> Vec<Candidate> {
     out
 }
 
-/// Group important stalled items by waitingOn into one banner per caller.
+/// Group important items that carry waitingOn (stalled tasks and planner-owned
+/// run blocking items) into one banner per caller.
 fn caller_gone_candidates(items: &[&Item], ledger: &Value, now: f64) -> Vec<Candidate> {
     // A Vec keeps the JS Map's first-seen caller order without a new dependency.
     let mut by_caller: Vec<(String, Vec<&Item>)> = vec![];
     for &item in items {
-        if item.get("kind") != "stalled"
-            || item.get("notify") != "important"
-            || !truth(item.get("waitingOn"))
-        {
+        if item.get("notify") != "important" || !truth(item.get("waitingOn")) {
             continue;
         }
         let caller = s(item.get("waitingOn"));
@@ -230,11 +228,7 @@ pub fn candidates(items: &[Item], level: &str, ledger: &Value, now: f64) -> Vec<
     // Caller-gone members stay out of per-task even when the group was skipped.
     let caller_gone: HashSet<&str> = eligible
         .iter()
-        .filter(|item| {
-            item.get("kind") == "stalled"
-                && item.get("notify") == "important"
-                && truth(item.get("waitingOn"))
-        })
+        .filter(|item| item.get("notify") == "important" && truth(item.get("waitingOn")))
         .map(|item| s(item.get("id")))
         .collect();
     let mut out = grouped;
