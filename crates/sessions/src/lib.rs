@@ -1,6 +1,7 @@
 //! Persisted local-session byte contracts. No operation or runtime caller is registered.
 pub mod attach;
 
+pub mod client;
 pub mod control;
 pub mod files;
 pub mod framing;

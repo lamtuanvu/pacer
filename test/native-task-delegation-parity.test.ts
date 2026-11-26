@@ -1,12 +1,16 @@
 import { expect, test } from "bun:test";
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
 import { join } from "node:path";
 import { callOp } from "../src/api/ops";
 import { CoreError } from "../src/core/errors";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
 import type { TaskRecord } from "../src/tasks/types";
 import type { Ctx } from "../src/types";
-import { closedPort, fakeCtx, pinnedPort } from "./helpers";
+import { closedPort, fakeCtx, pinnedPort, tmpDir } from "./helpers";
+import { FrameType, wire } from "../src/session/framing";
+import { ViewerHub } from "../src/session/viewers";
+import { killTree } from "../src/exec/process";
 
 const front = process.env.PACER_TEST_NATIVE_FRONT_DOOR;
 const core = JSON.stringify([process.execPath, join(import.meta.dir, "../src/cli.ts")]);
@@ -131,7 +135,7 @@ test.skipIf(!front)("executor and enforcement identities are refused as TypeScri
   expect(readTask(ctx, running)).toEqual(before);
 }, 60000);
 
-test.skipIf(!front)("task.ask record refusals match, and a question that can be recorded runs in Core", async () => {
+test.skipIf(!front)("task.ask record refusals match, and a question is recorded natively", async () => {
   const { ctx, make } = seeded();
   const asked = make("asked", t => { t.state = "running"; t.question = { text: "A or B?", at: 1 }; });
   const settled = make("settled", t => { t.state = "done"; });
@@ -155,24 +159,25 @@ test.skipIf(!front)("task.ask record refusals match, and a question that can be 
   const home = clone(ctx.home);
   try {
     const result = await stdio(home, [["task.ask", { id: running, text: "A or B?" }]], false, as(running));
-    expect(result.native).toEqual([]);
+    expect(result.native).toEqual([2]);
     expect(JSON.parse(result.replies[0]!).result).toMatchObject({ id: running, question: { text: "A or B?" } });
   } finally { rmSync(home, { recursive: true, force: true }); }
 }, 90000);
 
-test.skipIf(!front)("ids that cannot name a task are answered natively; well-formed ids and admitted requests reach Core", async () => {
+test.skipIf(!front)("ids that cannot name a task and admitted retries are answered natively", async () => {
   const { ctx } = seeded();
   const refused: Case[] = [
     ["task.retry", { id: "nope" }], ["task.answer", { id: "nope", text: "a" }],
     ["task.answer", { id: MISSING, text: "😀".repeat(1001) }],
     ["task.retry_all", { ids: ["b", "a", "b"] }],
+    ["task.retry", { id: MISSING }], ["task.answer", { id: MISSING, text: "a" }],
+    ["task.retry_all", { ids: ["nope", MISSING] }],
   ];
   const result = await same(ctx.home, refused);
   expect(result.native).toEqual(all(refused));
   expect(JSON.parse(result.replies[3]!).result).toEqual({ retried: [], skipped: [{ id: "b", reason: "unknown task b" }, { id: "a", reason: "unknown task a" }] });
 
   const routed: Case[] = [
-    ["task.retry", { id: MISSING }], ["task.answer", { id: MISSING, text: "a" }], ["task.retry_all", { ids: ["nope", MISSING] }],
     ["task.retry", { id: "", expect_rev: 1.5 }],
     ["doctor.fix.delegate", { check: "No such check", scope: "investigate" }],
   ];
@@ -344,4 +349,82 @@ test("a policy plugin denies delegation as TypeScript denies it", async () => {
   await expect(applyPolicy(ctx, "delegate", {
     goal: "g", repo: join(ctx.home, "repo"), kind: null, requestedExecutor: null, placement: "auto",
   }, { contextFingerprint: () => "context" })).rejects.toMatchObject({ code: "not_allowed", hint: "plugin fx-policy" });
+}, 60000);
+
+// --- B3-7: native retry / retry_all / answer / ask effects -------------------
+
+function seedRetryHome() {
+  const { home, bin } = delegateHome();
+  const ctx = fakeCtx({ home, pacerHome: join(home, ".pacer") });
+  const make = (goal: string, state: "failed" | "running") => {
+    const task = createTask(ctx, { brief: { goal, repo: ctx.home }, kind: null, requestedExecutor: "codex", timeoutS: 600 });
+    updateTask(ctx, task.id, t => { t.state = state; t.title = goal; });
+    return task.id;
+  };
+  return { home, bin, failed: make("retry me", "failed"), running: make("keep running", "running") };
+}
+
+test.skipIf(!front)("task.retry and task.retry_all run natively with a fake executor", async () => {
+  const { home, bin, failed, running } = seedRetryHome();
+  const cases: Case[] = [
+    ["task.retry", { id: failed }],
+    ["task.retry_all", { ids: [failed, running] }],
+  ];
+  const env = { PATH: `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}` };
+  const result = await stdio(home, cases, false, env);
+  expect(result.native).toEqual(all(cases));
+  expect(JSON.parse(result.replies[0]!).result).toMatchObject({
+    retry: expect.objectContaining({ task_id: expect.any(String) }),
+    of: expect.objectContaining({ state: "failed" }),
+  });
+  const batch = JSON.parse(result.replies[1]!).result;
+  expect(batch.retried.length + batch.skipped.length).toBe(2);
+}, 180000);
+
+test.skipIf(!front)("task.answer on a needs_input task runs natively", async () => {
+  const { home, bin } = seedRetryHome();
+  const ctx = fakeCtx({ home, pacerHome: join(home, ".pacer") });
+  const task = createTask(ctx, { brief: { goal: "answer me", repo: ctx.home }, kind: null, requestedExecutor: "codex", timeoutS: 600 });
+  updateTask(ctx, task.id, t => {
+    t.state = "needs_input"; t.title = "answer me"; t.executor = "codex";
+    t.question = { text: "A or B?", at: ctx.now };
+  });
+  const result = await stdio(home, [["task.answer", { id: task.id, text: "A" }]], false,
+    { PATH: `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}` });
+  expect(result.native).toEqual([2]);
+  const reply = JSON.parse(result.replies[0]!).result;
+  expect(reply).toMatchObject({ task: expect.objectContaining({ id: expect.any(String) }), retry: expect.objectContaining({ id: expect.any(String) }) });
+}, 180000);
+
+test.skipIf(!front)("task.answer on a live built-in PTY runs natively", async () => {
+  const { home } = seedRetryHome();
+  const ctx = fakeCtx({ home, pacerHome: join(home, ".pacer") });
+  const task = createTask(ctx, { brief: { goal: "live", repo: ctx.home }, kind: null, requestedExecutor: "codex", timeoutS: 600 });
+  const dir = tmpDir();
+  const script = join(dir, "run.sh");
+  writeFileSync(join(dir, "interactive.json"), "{}");
+  writeFileSync(script, "#!/bin/sh\nwhile :; do sleep 0.1; done\n", { mode: 0o700 });
+  const proc = Bun.spawn(["/bin/sh", script, dir], { detached: true, stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+  writeFileSync(join(dir, "pid"), String(proc.pid));
+  const sock = join(tmpDir(), "s.sock");
+  writeFileSync(join(dir, "session.sock.path"), sock);
+  const input: Buffer[] = [];
+  const hub = new ViewerHub(() => wire(FrameType.snapshot, {}), () => null, fn => fn(), () => {},
+    () => {}, { input: b => { input.push(Buffer.from(b)); }, resize() {} });
+  const server = createServer(s => hub.add(s));
+  await new Promise<void>(resolve => server.listen(sock, resolve));
+  try {
+    updateTask(ctx, task.id, t => {
+      t.state = "running"; t.title = "live"; t.question = { text: "A or B?", at: ctx.now };
+      t.run = { dir, attempt: 1, executor: "codex", startedAt: 1, mode: "new", workdir: ctx.home, logFile: "/dev/null" };
+    });
+    const result = await stdio(home, [["task.answer", { id: task.id, text: "A" }]], false, {});
+    expect(result.native).toEqual([2]);
+    expect(JSON.parse(result.replies[0]!).result).toMatchObject({ task: expect.any(Object) });
+    expect(Buffer.concat(input).toString()).toContain("A");
+  } finally {
+    server.close();
+    killTree(proc.pid, "SIGKILL");
+    await proc.exited;
+  }
 }, 60000);

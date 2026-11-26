@@ -234,7 +234,7 @@ pub fn user_started_work(strategy: &Value, input: &Value, origin: Option<&str>) 
 }
 
 /// `summarizeTask` (`src/tasks/api.ts`) for the stored record.
-fn summarize(task: &Value) -> Value {
+pub(crate) fn summarize(task: &Value) -> Value {
     let goal = task
         .pointer("/brief/goal")
         .and_then(Value::as_str)
@@ -373,7 +373,7 @@ fn lease_id(ctx: &Ctx) -> String {
 }
 
 /// Persist a pending launch lease before any side effect. Mirrors `beginWorkSync`.
-fn begin_work(ctx: &Ctx, id: &str, label: &str) -> Result<String, CoreError> {
+pub(crate) fn begin_work(ctx: &Ctx, id: &str, label: &str) -> Result<String, CoreError> {
     let mut store = TaskStore::open(&ctx.pacer_home).map_err(|e| internal(e.to_string()))?;
     let db = store.connection().map_err(|e| internal(e.to_string()))?;
     db.execute_batch(
@@ -405,7 +405,7 @@ fn begin_work(ctx: &Ctx, id: &str, label: &str) -> Result<String, CoreError> {
 }
 
 /// Release an unused preallocation. Mirrors `finishUnlaunchedWorkSync`.
-fn finish_unlaunched_work(ctx: &Ctx, lease: Option<&str>) {
+pub(crate) fn finish_unlaunched_work(ctx: &Ctx, lease: Option<&str>) {
     let Some(lease) = lease else {
         return;
     };
@@ -508,7 +508,14 @@ pub async fn delegate(
     let requested_repo = params.get("repo").and_then(Value::as_str).unwrap_or_default();
     let parsed =
         pacer_lifecycle::parse_delegate_brief(params, requested_repo).map_err(|e| invalid(e.0))?;
-    let mut brief = parsed.get("brief").cloned().unwrap_or(Value::Null);
+    // A retry carries the stored brief verbatim (including accumulated qa/feedback).
+    // `retryTask` supplies it through `brief`; an ordinary delegate has none and uses
+    // the brief assembled from the public fields by `parse_delegate_brief`.
+    let mut brief = params
+        .get("brief")
+        .cloned()
+        .or_else(|| parsed.get("brief").cloned())
+        .unwrap_or(Value::Null);
     let repo_path = if Path::new(requested_repo).is_absolute() {
         requested_repo.to_owned()
     } else {

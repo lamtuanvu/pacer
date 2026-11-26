@@ -1571,6 +1571,7 @@ dependencies = [
  "pacer-lifecycle",
  "pacer-models",
  "pacer-plugin-host",
+ "pacer-read-model",
  "pacer-repos",
  "pacer-sessions",
  "pacer-store",
@@ -2131,6 +2132,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
+ "tokio",
 ]
 
 [[package]]

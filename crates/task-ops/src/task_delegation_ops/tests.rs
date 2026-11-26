@@ -162,18 +162,29 @@ fn only_ids_that_cannot_name_a_task_are_answered_natively() {
         message(&ctx, "task.answer", json!({"id": "nope", "text": "a"})),
         "unknown task nope"
     );
-    // A well-formed id takes Core's work lease before it is found missing.
+    // A well-formed id now reaches the native effect, which takes the lease itself.
     for (op, params) in [
         ("task.retry", json!({"id": MISSING})),
         ("task.answer", json!({"id": MISSING, "text": "a"})),
-        ("task.retry_all", json!({"ids": ["nope", MISSING]})),
     ] {
-        assert_eq!(
+        assert!(matches!(
             admit(&ctx, op, &params, &NoDelegationEffects).unwrap(),
-            Admission::Core
-        );
+            Admission::Effect(_)
+        ));
     }
-    assert_eq!(
+    // The effect skips every id that cannot name a task, in input order.
+    assert!(matches!(
+        admit(
+            &ctx,
+            "task.retry_all",
+            &json!({"ids": ["nope", MISSING]}),
+            &NoDelegationEffects
+        )
+        .unwrap(),
+        Admission::Effect(_)
+    ));
+    // `retry_all` now runs as a native effect; its per-id skips are produced there.
+    assert!(matches!(
         admit(
             &ctx,
             "task.retry_all",
@@ -181,16 +192,13 @@ fn only_ids_that_cannot_name_a_task_are_answered_natively() {
             &NoDelegationEffects
         )
         .unwrap(),
-        Admission::Native(json!({"retried": [], "skipped": [
-            {"id": "b", "reason": "unknown task b"},
-            {"id": "a", "reason": "unknown task a"},
-        ]}))
-    );
+        Admission::Effect(_)
+    ));
 }
 
 #[test]
-fn managed_work_stays_with_core() {
-    let (_dir, ctx) = ctx_with(&[("PACER_ROLE", "executor")]);
+fn managed_work_reaches_the_native_effect() {
+    let (_dir, ctx) = ctx_with(&[]);
     let mut store = TaskStore::open(&ctx.pacer_home).unwrap();
     store
         .connection()
@@ -201,7 +209,9 @@ fn managed_work_stays_with_core() {
              INSERT INTO work_nodes VALUES('t-20261119-000000-abcd',NULL,'t-20261119-000000-abcd',0,'{}','[]');",
         )
         .unwrap();
-    assert_eq!(
+    // Managed ids reach the native effect, which returns TypeScript's
+    // `dispatch.answer` refusal until B2-11 lands `work::answer_work`.
+    assert!(matches!(
         admit(
             &ctx,
             "task.answer",
@@ -209,8 +219,8 @@ fn managed_work_stays_with_core() {
             &NoDelegationEffects
         )
         .unwrap(),
-        Admission::Core
-    );
+        Admission::Effect(_)
+    ));
 }
 
 #[test]
@@ -234,15 +244,29 @@ fn ask_is_for_the_asking_executor_of_a_running_task() {
         "pacer ask works only inside a delegated task"
     );
     let (_dir, ctx) = ctx_with(&[("PACER_ROLE", "executor"), ("PACER_TASK_ID", MISSING)]);
-    assert_eq!(
-        message(&ctx, "task.ask", json!({"id": MISSING, "text": "q"})),
-        format!("unknown task {MISSING}")
-    );
+    // A well-formed id reaches the effect, which returns `unknown_task`.
+    assert!(matches!(
+        admit(
+            &ctx,
+            "task.ask",
+            &json!({"id": MISSING, "text": "q"}),
+            &NoDelegationEffects
+        )
+        .unwrap(),
+        Admission::Effect(_)
+    ));
     insert(&ctx, MISSING, json!({"question": {"text": "q", "at": 1.0}}));
-    assert_eq!(
-        message(&ctx, "task.ask", json!({"id": MISSING, "text": "q"})),
-        "already asked; stop and wait for the answer"
-    );
+    // The record refusal now lives in `pacer_delegation::ask::ask_task`.
+    assert!(matches!(
+        admit(
+            &ctx,
+            "task.ask",
+            &json!({"id": MISSING, "text": "q"}),
+            &NoDelegationEffects
+        )
+        .unwrap(),
+        Admission::Effect(_)
+    ));
 }
 
 #[test]
@@ -250,7 +274,7 @@ fn ask_admits_a_running_task_and_refuses_a_settled_one() {
     let running = "t-20261119-000000-aaaa";
     let (_dir, ctx) = ctx_with(&[("PACER_ROLE", "executor"), ("PACER_TASK_ID", running)]);
     insert(&ctx, running, json!({}));
-    assert_eq!(
+    assert!(matches!(
         admit(
             &ctx,
             "task.ask",
@@ -258,13 +282,19 @@ fn ask_admits_a_running_task_and_refuses_a_settled_one() {
             &NoDelegationEffects
         )
         .unwrap(),
-        Admission::Core
-    );
+        Admission::Effect(_)
+    ));
     let settled = "t-20261119-000000-bbbb";
     let (_dir, ctx) = ctx_with(&[("PACER_ROLE", "executor"), ("PACER_TASK_ID", settled)]);
     insert(&ctx, settled, json!({"state": "done"}));
-    assert_eq!(
-        message(&ctx, "task.ask", json!({"id": settled, "text": "q"})),
-        "task is not running"
-    );
+    assert!(matches!(
+        admit(
+            &ctx,
+            "task.ask",
+            &json!({"id": settled, "text": "q"}),
+            &NoDelegationEffects
+        )
+        .unwrap(),
+        Admission::Effect(_)
+    ));
 }

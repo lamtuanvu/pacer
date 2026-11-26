@@ -3,12 +3,11 @@
 //!
 //! Each front door asks [`admit`] once per request. Rust answers what TypeScript decides before
 //! any effect (the enforcement identity, Zod issues in schema key order, executor refusals and
-//! task-record refusals) and now admits `task.delegate` to a native effect over
-//! [`DelegationEffects`]. The other operations still reach Core unchanged.
+//! ids that cannot name a task). Every admitted delegation operation runs as a native effect over
+//! [`DelegationEffects`]; none returns `Admission::Core`.
 //!
-//! A task id that is well formed but missing stays with Core for `task.retry` and `task.answer`:
-//! `retryTask` takes a desktop-update work lease first, and that lease can refuse with a conflict.
-//! A store Rust cannot read also stays with Core, which owns that failure's reply.
+//! The native retry takes the desktop-update work lease and the sorted task locks itself. A store
+//! Rust cannot read is answered by the effect, which owns that failure's reply.
 #![allow(clippy::result_large_err)]
 use pacer_foundation::{
     Ctx,
@@ -18,7 +17,6 @@ use pacer_foundation::{
 use pacer_lifecycle::{files_search::executor_session, work_node_exists};
 use pacer_store::{TaskStore, is_task_id};
 use serde_json::{Map, Value, json};
-use std::collections::HashSet;
 
 use super::files_search_ops::providers;
 use super::lifecycle_ops::{invalid, type_name};
@@ -37,10 +35,18 @@ pub const DELEGATION_OPS: &[&str] = &[
 const EXECUTOR_DELEGATE_ERROR: &str = "PACER_ROLE=executor: pacer executors cannot delegate onward; complete the assigned task directly.";
 const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
 
-/// Native effects for `task.delegate`, supplied by the front door.
+/// Native effects for the delegation operations, supplied by the front door.
 pub trait DelegationEffects: Send + Sync {
     /// Runs the whole native delegation and returns `summarizeTask`.
     fn delegate<'a>(&'a self, ctx: &'a Ctx, params: &'a Value) -> OpFuture<'a>;
+    /// Re-delegates a stored brief (`task.retry`).
+    fn retry<'a>(&'a self, ctx: &'a Ctx, params: &'a Value) -> OpFuture<'a>;
+    /// Re-delegates several stored briefs (`task.retry_all`).
+    fn retry_all<'a>(&'a self, ctx: &'a Ctx, params: &'a Value) -> OpFuture<'a>;
+    /// Answers an executor question (`task.answer`).
+    fn answer<'a>(&'a self, ctx: &'a Ctx, params: &'a Value) -> OpFuture<'a>;
+    /// Records a question from the current executor (`task.ask`).
+    fn ask<'a>(&'a self, ctx: &'a Ctx, params: &'a Value) -> OpFuture<'a>;
 }
 
 /// What a front door does with a request [`admit`] did not refuse.
@@ -503,45 +509,44 @@ fn unmanaged(ctx: &Ctx, id: &str) -> Option<bool> {
     work_node_exists(&mut store, id).map(|managed| !managed)
 }
 
-fn retry(ctx: &Ctx, p: &Map<String, Value>) -> Result<Admission<'static>, CoreError> {
+/// `task.retry` after the schema and identity checks. Every admitted request now
+/// runs as a native effect; only ids that cannot name a task are answered here.
+fn retry<'a>(
+    ctx: &'a Ctx,
+    params: &'a Value,
+    effects: &'a dyn DelegationEffects,
+) -> Result<Admission<'a>, CoreError> {
     if is_executor(ctx) {
         return Err(not_allowed(EXECUTOR_DELEGATE_ERROR));
     }
+    let p = params.as_object().unwrap_or(&EMPTY_PARAMS);
     let id = p["id"].as_str().unwrap_or_default();
     if !is_task_id(id) && unmanaged(ctx, id) == Some(true) {
         return Err(unknown(id));
     }
-    Ok(Admission::Core)
+    Ok(Admission::Effect(effects.retry(ctx, params)))
 }
 
-/// The reply when no id can name a task; each id is skipped as `task.retry_all` skips it.
-fn retry_all(ctx: &Ctx, p: &Map<String, Value>) -> Result<Admission<'static>, CoreError> {
+/// `task.retry_all` after the schema and identity checks: one native effect
+/// retries each id and reports individual skips.
+fn retry_all<'a>(
+    ctx: &'a Ctx,
+    params: &'a Value,
+    effects: &'a dyn DelegationEffects,
+) -> Result<Admission<'a>, CoreError> {
     if is_executor(ctx) {
         return Err(not_allowed(EXECUTOR_DELEGATE_ERROR));
     }
-    let mut seen = HashSet::new();
-    let mut skipped = Vec::new();
-    for id in p["ids"].as_array().into_iter().flatten() {
-        let id = id.as_str().unwrap_or_default();
-        if !seen.insert(id) {
-            continue;
-        }
-        if is_task_id(id) || unmanaged(ctx, id) != Some(true) {
-            return Ok(Admission::Core);
-        }
-        skipped.push(json!({"id": id, "reason": format!("unknown task {id}")}));
-    }
-    Ok(Admission::Native(
-        json!({"retried": [], "skipped": skipped}),
-    ))
+    Ok(Admission::Effect(effects.retry_all(ctx, params)))
 }
 
-fn answer(ctx: &Ctx, p: &Map<String, Value>) -> Result<Admission<'static>, CoreError> {
+fn answer<'a>(
+    ctx: &'a Ctx,
+    params: &'a Value,
+    effects: &'a dyn DelegationEffects,
+) -> Result<Admission<'a>, CoreError> {
+    let p = params.as_object().unwrap_or(&EMPTY_PARAMS);
     let id = p["id"].as_str().unwrap_or_default();
-    // The handler's managed-work refusal comes before every refusal below.
-    if unmanaged(ctx, id) != Some(true) {
-        return Ok(Admission::Core);
-    }
     if is_executor(ctx) {
         return Err(not_allowed("executors cannot delegate onward"));
     }
@@ -549,14 +554,19 @@ fn answer(ctx: &Ctx, p: &Map<String, Value>) -> Result<Admission<'static>, CoreE
     if text.encode_utf16().count() > 2000 {
         return Err(invalid("answer must contain 1–2000 characters"));
     }
-    if !is_task_id(id) {
+    if !is_task_id(id) && unmanaged(ctx, id) == Some(true) {
         return Err(unknown(id));
     }
-    Ok(Admission::Core)
+    Ok(Admission::Effect(effects.answer(ctx, params)))
 }
 
 /// `requireAskingExecutor`, then `ask` up to its first write.
-fn ask(ctx: &Ctx, p: &Map<String, Value>) -> Result<Admission<'static>, CoreError> {
+fn ask<'a>(
+    ctx: &'a Ctx,
+    params: &'a Value,
+    effects: &'a dyn DelegationEffects,
+) -> Result<Admission<'a>, CoreError> {
+    let p = params.as_object().unwrap_or(&EMPTY_PARAMS);
     let id = p["id"].as_str().unwrap_or_default();
     let own = ctx.env.get("PACER_TASK_ID").map(String::as_str);
     if !is_executor(ctx) || own.is_none_or(str::is_empty) || own != Some(id) {
@@ -569,28 +579,11 @@ fn ask(ctx: &Ctx, p: &Map<String, Value>) -> Result<Admission<'static>, CoreErro
     if text.encode_utf16().count() > 1000 {
         return Err(invalid("question must contain 1–1000 characters"));
     }
-    let Ok(mut store) = TaskStore::open(&ctx.pacer_home) else {
-        return Ok(Admission::Core);
-    };
-    let task = match store.read(id) {
-        Ok(Some(task)) => task,
-        Ok(None) => return Err(unknown(id)),
-        Err(_) => return Ok(Admission::Core),
-    };
-    if task
-        .get("question")
-        .is_some_and(|q| q.is_object() && q.get("answer").is_none())
-    {
-        return Err(CoreError::new(
-            Code::Conflict,
-            "already asked; stop and wait for the answer",
-        ));
-    }
-    if task.get("state").and_then(Value::as_str) != Some("running") {
-        return Err(CoreError::new(Code::Conflict, "task is not running"));
-    }
-    Ok(Admission::Core)
+    Ok(Admission::Effect(effects.ask(ctx, params)))
 }
+
+static EMPTY_PARAMS: std::sync::LazyLock<Map<String, Value>> =
+    std::sync::LazyLock::new(Map::new);
 
 /// Decides one request, once. `Err` is the reply TypeScript would give.
 pub fn admit<'a>(
@@ -631,10 +624,10 @@ pub fn admit<'a>(
     match op {
         "task.delegate" if is_executor(ctx) => Err(not_allowed(EXECUTOR_DELEGATE_ERROR)),
         "task.delegate" => Ok(Admission::Effect(effects.delegate(ctx, params))),
-        "task.retry" => retry(ctx, p),
-        "task.retry_all" => retry_all(ctx, p),
-        "task.answer" => answer(ctx, p),
-        "task.ask" => ask(ctx, p),
+        "task.retry" => retry(ctx, params, effects),
+        "task.retry_all" => retry_all(ctx, params, effects),
+        "task.answer" => answer(ctx, params, effects),
+        "task.ask" => ask(ctx, params, effects),
         _ if is_executor(ctx) => Err(not_allowed(EXECUTOR_DELEGATE_ERROR)),
         _ => Ok(Admission::Core),
     }
@@ -644,6 +637,18 @@ pub fn admit<'a>(
 pub struct NoDelegationEffects;
 impl DelegationEffects for NoDelegationEffects {
     fn delegate<'a>(&'a self, _: &'a Ctx, _: &'a Value) -> OpFuture<'a> {
+        Box::pin(async { Ok(json!({})) })
+    }
+    fn retry<'a>(&'a self, _: &'a Ctx, _: &'a Value) -> OpFuture<'a> {
+        Box::pin(async { Ok(json!({})) })
+    }
+    fn retry_all<'a>(&'a self, _: &'a Ctx, _: &'a Value) -> OpFuture<'a> {
+        Box::pin(async { Ok(json!({"retried": [], "skipped": []})) })
+    }
+    fn answer<'a>(&'a self, _: &'a Ctx, _: &'a Value) -> OpFuture<'a> {
+        Box::pin(async { Ok(json!({})) })
+    }
+    fn ask<'a>(&'a self, _: &'a Ctx, _: &'a Value) -> OpFuture<'a> {
         Box::pin(async { Ok(json!({})) })
     }
 }
