@@ -1,8 +1,9 @@
 //! `msg.send`, `msg.confirm`, `msg.close` and `msg.wait` from `src/api/ops-msg.ts` and
 //! `src/messaging/send.ts`. Rust owns validation, the caller, the guardrail and every store
 //! write. The Core [`Bridge`] runs only what needs the live TypeScript service: a task
-//! recipient's turn (`deliver`: project-policy admission and runner spawn), the human's task
-//! and attention republication, and worktree auto-clean.
+//! recipient's turn (`deliver`: project-policy admission and runner spawn) and the human's
+//! task and attention republication. Worktree auto-clean (`clean`) is answered natively by
+//! the `pacer-server` bridge implementation of [`Bridge`].
 #![allow(clippy::result_large_err)] // CoreError is part of the public handler API by value.
 use crate::msg_ops::{
     MSG_KINDS, PARTICIPANT, Params, forbidden, is_closed, open, participant, participant_id,

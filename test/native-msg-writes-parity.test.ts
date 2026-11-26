@@ -101,7 +101,7 @@ async function stdio(home: string, extra: Record<string, string>, requests: stri
     const lines = stdout.trim().split("\n");
     expect(JSON.parse(lines[0]!).result.protocol).toBe("3.0.0");
     const markers = stderr.split("\n").filter(line => /^native msg\.\S+ \d+$/.test(line));
-    return { lines: lines.slice(1), markers };
+    return { lines: lines.slice(1), markers, stderr };
   } finally { if (child.exitCode === null) { child.kill("SIGTERM"); await child.exited; } }
 }
 
@@ -256,7 +256,7 @@ test.skipIf(!front)("HTTP message writes resolve bearer, cookie and TUI session 
   }
 }, 120000);
 
-test.skipIf(!front)("msg.close removes an accepted task worktree without the old bridge", async () => {
+async function seedCloseHome() {
   const home = realpathSync(mkdtempSync("/tmp/mwc-"));
   const pacerHome = join(home, ".pacer");
   mkdirSync(pacerHome, { recursive: true, mode: 0o700 });
@@ -275,15 +275,28 @@ test.skipIf(!front)("msg.close removes an accepted task worktree without the old
     x.review = { accepted: true, kind: null, note: null, at: 1 };
     x.origin = "external:local";
   });
+  return { home, pacerHome, id: t.id, worktree: w.path, runRoot: join(pacerHome, "runs", t.id) };
+}
+
+test.skipIf(!front)("msg.close removes an accepted worktree without the old bridge", async () => {
+  const native = await seedCloseHome();
+  const forwarded = await seedCloseHome();
   try {
-    const request = JSON.stringify({ jsonrpc: "2.0", id: 7, method: "msg.close", params: { task: t.id } });
-    const { lines, markers } = await stdio(home, {}, [request], false);
-    const reply = JSON.parse(lines[0]!);
-    expect(reply.error).toBeUndefined();
-    expect(reply.result).toEqual({ task: t.id, closed: true });
-    expect(existsSync(w.path)).toBe(false);
-    expect(existsSync(join(pacerHome, "runs", t.id))).toBe(false);
-    expect(markers).toContain("native msg.close 7");
-    expect(lines.join("\n")).not.toContain("task-auto-clean");
-  } finally { rmSync(home, { recursive: true, force: true }); }
+    const request = (id: string) => JSON.stringify({ jsonrpc: "2.0", id: 7, method: "msg.close", params: { task: id } });
+    const nativeRun = await stdio(native.home, {}, [request(native.id)], false);
+    const forwardedRun = await stdio(forwarded.home, {}, [request(forwarded.id)], true);
+    for (const run of [nativeRun, forwardedRun]) {
+      const reply = JSON.parse(run.lines[0]!);
+      expect(reply.error).toBeUndefined();
+      expect(reply.result).toEqual({ task: reply.result.task, closed: true });
+    }
+    // Both paths release the worktree; only the native path emits the marker.
+    expect(existsSync(native.worktree)).toBe(false);
+    expect(existsSync(forwarded.worktree)).toBe(false);
+    expect(existsSync(native.runRoot)).toBe(false);
+    expect(existsSync(forwarded.runRoot)).toBe(false);
+    expect(nativeRun.markers).toContain("native msg.close 7");
+    expect(forwardedRun.markers).toEqual([]);
+    expect(nativeRun.stderr).not.toContain("task-auto-clean");
+  } finally { rmSync(native.home, { recursive: true, force: true }); rmSync(forwarded.home, { recursive: true, force: true }); }
 }, 30_000);

@@ -241,3 +241,37 @@ async fn retry_chain_locks_in_sorted_order() {
         .await;
     assert_eq!(order, ["clean-t-a", "clean-t-b", "agent-sessions"]);
 }
+
+#[tokio::test]
+async fn active_agent_session_keeps_the_worktree() {
+    let _serial = TEST_SERIAL.lock().unwrap();
+    let f = Fixture::accepted_task_with_worktree();
+    let db = rusqlite::Connection::open(f.ctx.pacer_home.join("state/tasks.db")).unwrap();
+    db.execute(
+        "CREATE TABLE agent_sessions (id TEXT PRIMARY KEY, task TEXT NOT NULL, request_id TEXT NOT NULL UNIQUE, payload TEXT NOT NULL, record TEXT NOT NULL)",
+        [],
+    ).unwrap();
+    let record = json!({"id": "s-1", "task_id": f.id, "state": "starting", "cwd": f.worktree.to_string_lossy()});
+    db.execute(
+        "INSERT INTO agent_sessions(id, task, request_id, payload, record) VALUES(?1,?2,?3,?4,?5)",
+        rusqlite::params!["s-1", f.id, "r-1", "{}", record.to_string()],
+    ).unwrap();
+    drop(db);
+    auto_clean_task(&f.ctx, &f.rt, &f.id).await;
+    assert!(f.worktree.exists());
+    assert_eq!(f.last_activity_text(), "Kept worktree: worktree has an active agent session or pending checks");
+}
+
+#[tokio::test]
+async fn unreadable_safety_state_fails_closed() {
+    let _serial = TEST_SERIAL.lock().unwrap();
+    let f = Fixture::accepted_task_with_worktree();
+    // A malformed reservation table makes the safety query fail; cleanup must
+    // keep the worktree instead of treating the error as "no blocker".
+    let db = rusqlite::Connection::open(f.ctx.pacer_home.join("state/tasks.db")).unwrap();
+    db.execute("CREATE TABLE agent_session_checks (task TEXT)", []).unwrap();
+    drop(db);
+    auto_clean_task(&f.ctx, &f.rt, &f.id).await;
+    assert!(f.worktree.exists());
+    assert!(f.last_activity_text().starts_with("Kept worktree: cleanup state unavailable"));
+}

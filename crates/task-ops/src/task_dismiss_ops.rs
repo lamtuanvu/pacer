@@ -52,7 +52,7 @@ pub fn task_dismiss_stub(_: &Ctx, _: Value) -> OpFuture<'_> {
     Box::pin(async move {
         Err(CoreError::new(
             Code::Unavailable,
-            "task clean bridge unavailable",
+            "task delegation runtime unavailable",
         ))
     })
 }

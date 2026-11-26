@@ -3,7 +3,8 @@
 //! Keeping these behind traits lets domain crates stay transport-free and lets tests
 //! run the whole lifecycle with inert doubles.
 
-use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
+use std::sync::Arc;
+use std::time::Duration;
 
 use pacer_foundation::{
     Ctx,
@@ -93,6 +94,3 @@ impl Default for Runtime {
         }
     }
 }
-
-/// Boxed unit future used by best-effort effects that never report an error.
-pub type UnitFuture<'a> = Pin<Box<dyn Future<Output = ()> + Send + 'a>>;

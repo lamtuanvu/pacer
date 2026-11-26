@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Changed
+
+- `task.dismiss` and `msg.close` now release settled task worktrees in the Rust front door through `pacer-delegation`, replacing the internal TypeScript auto-clean bridge. Dirty worktrees stay in place with a verdict line in Activity.
+
 ## [0.18.6] - 2026-11-26
 
 ### Fixed

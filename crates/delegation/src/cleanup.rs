@@ -326,12 +326,12 @@ fn paths_overlap(a: &str, b: &Path) -> bool {
     x == y || x.starts_with(&y) || y.starts_with(&x)
 }
 
-fn shared(ctx: &Ctx, task: &Value, path: &Path) -> bool {
-    if agent_workspace_busy(ctx, path) {
-        return true;
+fn shared(ctx: &Ctx, db: &Connection, task: &Value, path: &Path) -> Result<bool, String> {
+    if agent_workspace_busy(ctx, db, path)? {
+        return Ok(true);
     }
     let id = task.get("id").and_then(Value::as_str).unwrap_or_default();
-    list_tasks(ctx).iter().any(|other| {
+    Ok(list_tasks(ctx).iter().any(|other| {
         if other.get("id").and_then(Value::as_str) == Some(id) {
             return false;
         }
@@ -345,7 +345,7 @@ fn shared(ctx: &Ctx, task: &Value, path: &Path) -> bool {
         .filter_map(|p| str_field(other, p))
         .any(|p| paths_overlap(&p, path));
         overlaps && !cleanable(other)
-    })
+    }))
 }
 
 fn runs_root(ctx: &Ctx, id: &str) -> PathBuf {
@@ -465,13 +465,7 @@ fn auto_clean_enabled(ctx: &Ctx) -> bool {
     !matches!(value, Value::Bool(false))
 }
 
-fn pending_turn(ctx: &Ctx, id: &str) -> bool {
-    let Ok(db) = Connection::open_with_flags(
-        ctx.pacer_home.join("state/tasks.db"),
-        OpenFlags::SQLITE_OPEN_READ_ONLY,
-    ) else {
-        return false;
-    };
+fn pending_turn(db: &Connection, id: &str) -> Result<bool, String> {
     db.query_row(
         "SELECT COUNT(*) FROM messages WHERE (recipient=?1 AND status IN ('pending','held')) \
          OR (sender=?1 AND kind='question' AND status IN ('pending','delivered'))",
@@ -479,22 +473,16 @@ fn pending_turn(ctx: &Ctx, id: &str) -> bool {
         |row| row.get::<_, i64>(0),
     )
     .map(|n| n > 0)
-    .unwrap_or(false)
+    .map_err(|e| format!("message state unreadable: {e}"))
 }
 
-fn last_message_at(ctx: &Ctx, id: &str) -> Option<f64> {
-    let db = Connection::open_with_flags(
-        ctx.pacer_home.join("state/tasks.db"),
-        OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )
-    .ok()?;
+fn last_message_at(db: &Connection, id: &str) -> Result<Option<f64>, String> {
     db.query_row(
         "SELECT MAX(created_at) FROM messages WHERE task_id=?1",
         [id],
         |row| row.get::<_, Option<f64>>(0),
     )
-    .ok()
-    .flatten()
+    .map_err(|e| format!("message state unreadable: {e}"))
 }
 
 fn turn_capable(task: &Value) -> bool {
@@ -508,22 +496,22 @@ fn turn_capable(task: &Value) -> bool {
             .map_or(true, |b| b == "direct")
 }
 
-fn kept_for_messages(ctx: &Ctx, task: &Value) -> Option<String> {
+fn kept_for_messages(ctx: &Ctx, task: &Value, db: &Connection) -> Result<Option<String>, String> {
     if is_closed(task)
         || task.get("interactionMode").and_then(Value::as_str) == Some("conversation")
         || !turn_capable(task)
     {
-        return None;
+        return Ok(None);
     }
     let id = task.get("id").and_then(Value::as_str).unwrap_or_default();
-    if truthy(task.get("pendingTurn")) || pending_turn(ctx, id) {
-        return Some(AWAITING_TURN.to_owned());
+    if truthy(task.get("pendingTurn")) || pending_turn(db, id)? {
+        return Ok(Some(AWAITING_TURN.to_owned()));
     }
     let days = strategy_value(ctx)
         .and_then(|s| s["messaging"]["keep_worktree_days"].as_f64())
         .unwrap_or(7.0);
     if days == 0.0 {
-        return None;
+        return Ok(None);
     }
     let attempts = task.get("attempts").and_then(Value::as_array);
     let ended = attempts
@@ -532,98 +520,153 @@ fn kept_for_messages(ctx: &Ctx, task: &Value) -> Option<String> {
         .and_then(Value::as_f64)
         .unwrap_or(0.0);
     let settled = task.get("settledAt").and_then(Value::as_f64).unwrap_or(0.0);
-    let last = last_message_at(ctx, id).unwrap_or(0.0).max(ended).max(settled);
+    let last = last_message_at(db, id)?.unwrap_or(0.0).max(ended).max(settled);
     if ctx.now - last >= days * DAY_S {
-        return None;
+        return Ok(None);
     }
-    Some(format!(
+    Ok(Some(format!(
         "task is open for messages (last activity under {days} day{} ago); review, dismiss or close it (pacer msg close) to clean",
         if days == 1.0 { "" } else { "s" }
-    ))
+    )))
 }
 
-fn read_only_db(ctx: &Ctx) -> Option<Connection> {
+fn read_only_db(ctx: &Ctx) -> Result<Connection, String> {
     Connection::open_with_flags(
         ctx.pacer_home.join("state/tasks.db"),
         OpenFlags::SQLITE_OPEN_READ_ONLY,
     )
-    .ok()
+    .map_err(|e| format!("state database unreadable: {e}"))
 }
 
-fn agent_checks_pending(ctx: &Ctx, task_id: &str) -> bool {
-    let Some(db) = read_only_db(ctx) else {
-        return false;
-    };
+/// A DB read error keeps the worktree: cleanup must fail closed at the safety
+/// checks, as `src/tasks/cleanup.ts` does when `awaitingTurn` or the session
+/// store throws.
+fn db_guard<T>(value: Result<T, String>, result: &mut CleanResult, id: &str) -> Option<T> {
+    match value {
+        Ok(value) => Some(value),
+        Err(error) => {
+            result.kept.push(Kept {
+                id: id.to_owned(),
+                reason: format!("cleanup state unavailable: {error}"),
+            });
+            None
+        }
+    }
+}
+
+fn agent_checks_pending(db: &Connection, task_id: &str) -> Result<bool, String> {
+    // A table that does not exist means no reservations, as in TypeScript's
+    // `db.has('agent_session_checks')` check. A query failure on a real table is
+    // an error and must keep the worktree.
+    if db
+        .query_row("SELECT 1 FROM sqlite_master WHERE type='table' AND name='agent_session_checks'", [], |_| Ok(()))
+        .optional()
+        .map_err(|e| e.to_string())?
+        .is_none()
+    {
+        return Ok(false);
+    }
     db.query_row(
         "SELECT 1 FROM agent_session_checks WHERE task=?1 AND generation>verified LIMIT 1",
         [task_id],
         |_| Ok(()),
     )
     .optional()
-    .ok()
-    .flatten()
-    .is_some()
+    .map(|row| row.is_some())
+    .map_err(|e| format!("agent session state unreadable: {e}"))
 }
 
 /// `pacer_sessions::agents::agent_workspace_busy` is a B5 step-2 prerequisite. This
 /// local read covers the same SQLite reservations and active-session rows at this
 /// base; B5 will replace it with the shared crate function when it lands.
-fn agent_workspace_busy(ctx: &Ctx, path: &Path) -> bool {
-    let Some(db) = read_only_db(ctx) else {
-        return false;
+fn agent_workspace_busy(ctx: &Ctx, db: &Connection, path: &Path) -> Result<bool, String> {
+    let has_table = |name: &str| -> Result<bool, String> {
+        db.query_row(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1",
+            [name],
+            |_| Ok(()),
+        )
+        .optional()
+        .map(|row| row.is_some())
+        .map_err(|e| e.to_string())
     };
-    let mut checks = db
-        .prepare("SELECT task, workspace FROM agent_session_checks WHERE generation>verified")
-        .ok();
-    if let Some(stmt) = checks.as_mut() {
-        let rows: Vec<(String, Option<String>)> = stmt
-            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
-            .ok()
-            .into_iter()
-            .flatten()
-            .flatten()
-            .collect();
-        for (task, workspace) in rows {
+    if has_table("agent_session_checks")? {
+        let mut stmt = db
+            .prepare("SELECT task, workspace FROM agent_session_checks WHERE generation>verified")
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)))
+            .map_err(|e| format!("agent session state unreadable: {e}"))?;
+        for row in rows {
+            let (task, workspace) = row.map_err(|e| format!("agent session state unreadable: {e}"))?;
             let candidate = workspace.or_else(|| worktree_of(&read_task(ctx, &task)?));
             if let Some(candidate) = candidate
                 && paths_overlap(&candidate, path)
             {
-                return true;
+                return Ok(true);
             }
         }
     }
-    let mut sessions = db.prepare("SELECT cwd FROM agent_sessions").ok();
-    if let Some(stmt) = sessions.as_mut() {
-        let rows: Vec<String> = stmt
-            .query_map([], |row| row.get::<_, Option<String>>(0))
-            .ok()
-            .into_iter()
-            .flatten()
-            .filter_map(Result::ok)
-            .flatten()
-            .collect();
-        if rows.iter().any(|cwd| paths_overlap(cwd, path)) {
-            return true;
+    if has_table("agent_sessions")? {
+        // `agent_sessions` has columns (id, task, request_id, payload, record);
+        // `cwd` and `state` live in the `record` JSON (src/session/agents.ts:44).
+        let mut stmt = db
+            .prepare("SELECT record FROM agent_sessions")
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(|e| format!("agent session state unreadable: {e}"))?;
+        for row in rows {
+            let record: String = row.map_err(|e| format!("agent session state unreadable: {e}"))?;
+            let session: Value = serde_json::from_str(&record)
+                .map_err(|e| format!("session reservations could not be read: {e}"))?;
+            if session.get("state").and_then(Value::as_str) == Some("ended") {
+                continue;
+            }
+            let Some(cwd) = session.get("cwd").and_then(Value::as_str) else {
+                continue;
+            };
+            if paths_overlap(cwd, path) {
+                return Ok(true);
+            }
         }
     }
-    false
+    Ok(false)
 }
 
-fn run_git(ctx: &Ctx, args: &[&str]) -> Result<std::process::Output, String> {
-    std::process::Command::new("git")
-        .args(args)
-        .env("HOME", &ctx.home)
-        .env("PACER_HOME", &ctx.pacer_home)
-        .output()
-        .map_err(|e| e.to_string())
+/// Git runs off the reactor thread and under the same deadlines as
+/// `src/supervisor/worktree.ts` (15 s status, 60 s remove), so a hung git cannot
+/// hold the clean locks or stall the caller indefinitely.
+async fn git_output(
+    ctx: &Ctx,
+    args: &[&str],
+    timeout: Duration,
+) -> Result<std::process::Output, String> {
+    let home = ctx.home.clone();
+    let pacer_home = ctx.pacer_home.clone();
+    let argv: Vec<String> = args.iter().map(|arg| (*arg).to_owned()).collect();
+    let handle = tokio::task::spawn_blocking(move || {
+        std::process::Command::new("git")
+            .args(&argv)
+            .env("HOME", &home)
+            .env("PACER_HOME", &pacer_home)
+            .output()
+    });
+    match tokio::time::timeout(timeout, handle).await {
+        Ok(Ok(result)) => result.map_err(|error| error.to_string()),
+        Ok(Err(error)) => Err(format!("git task failed: {error}")),
+        Err(_) => Err(format!(
+            "git {} timed out",
+            args.first().copied().unwrap_or("command")
+        )),
+    }
 }
 
-fn worktree_dirty(ctx: &Ctx, path: &Path) -> Option<bool> {
-    let out = run_git(
-        ctx,
-        &["-C", &path.to_string_lossy(), "status", "--porcelain"],
-    )
-    .ok()?;
+async fn worktree_dirty(ctx: &Ctx, path: &Path) -> Option<bool> {
+    let path_arg = path.to_string_lossy().into_owned();
+    let out = git_output(ctx, &["-C", &path_arg, "status", "--porcelain"], Duration::from_secs(15))
+        .await
+        .ok()?;
     if out.status.success() {
         Some(String::from_utf8_lossy(&out.stdout).trim() != "")
     } else {
@@ -631,7 +674,7 @@ fn worktree_dirty(ctx: &Ctx, path: &Path) -> Option<bool> {
     }
 }
 
-fn git_worktree_remove(ctx: &Ctx, top: &Path, path: &Path, force: bool) -> Result<(), String> {
+async fn git_worktree_remove(ctx: &Ctx, top: &Path, path: &Path, force: bool) -> Result<(), String> {
     let top_arg = top.to_string_lossy().into_owned();
     let path_arg = path.to_string_lossy().into_owned();
     let mut args: Vec<&str> = vec!["-C", &top_arg, "worktree", "remove"];
@@ -639,7 +682,7 @@ fn git_worktree_remove(ctx: &Ctx, top: &Path, path: &Path, force: bool) -> Resul
         args.push("--force");
     }
     args.push(&path_arg);
-    let out = run_git(ctx, &args)?;
+    let out = git_output(ctx, &args, Duration::from_secs(60)).await?;
     if out.status.success() {
         Ok(())
     } else {
@@ -708,7 +751,23 @@ async fn clean_task_sessions_locked(
     }
 
     let workspace = worktree_of(&task).unwrap_or_default();
-    if agent_checks_pending(ctx, id) || agent_workspace_busy(ctx, Path::new(&workspace)) {
+    let db = match read_only_db(ctx) {
+        Ok(db) => db,
+        Err(error) => {
+            result.kept.push(Kept {
+                id: id.to_owned(),
+                reason: format!("cleanup state unavailable: {error}"),
+            });
+            return Ok(result);
+        }
+    };
+    let Some(checks) = db_guard(agent_checks_pending(&db, id), &mut result, id) else {
+        return Ok(result);
+    };
+    let Some(busy) = db_guard(agent_workspace_busy(ctx, &db, Path::new(&workspace)), &mut result, id) else {
+        return Ok(result);
+    };
+    if checks || busy {
         result.kept.push(Kept {
             id: id.to_owned(),
             reason: "worktree has an active agent session or pending checks".to_owned(),
@@ -716,8 +775,8 @@ async fn clean_task_sessions_locked(
         return Ok(result);
     }
 
-    // Remote host worktree cleanup is owned by the hosts plugin (B0a prerequisite).
-    // With no provider registered, pacer's own local cleanup applies.
+    // Host-owned worktrees are kept until a B0a hosts-plugin provider claims
+    // them; this slice never deletes a remote workspace locally.
 
     if task.pointer("/run/mode").and_then(Value::as_str) != Some("new") {
         return Ok(result);
@@ -781,9 +840,12 @@ async fn clean_task_sessions_locked(
     }
 
     let kept = if options.force {
-        None
+        Ok(None)
     } else {
-        kept_for_messages(ctx, &task)
+        kept_for_messages(ctx, &task, &db)
+    };
+    let Some(kept) = db_guard(kept, &mut result, id) else {
+        return Ok(result);
     };
     if let Some(reason) = kept {
         result.kept.push(Kept {
@@ -792,7 +854,10 @@ async fn clean_task_sessions_locked(
         });
         return Ok(result);
     }
-    if shared(ctx, &task, &own.path) {
+    let Some(is_shared) = db_guard(shared(ctx, &db, &task, &own.path), &mut result, id) else {
+        return Ok(result);
+    };
+    if is_shared {
         result.kept.push(Kept {
             id: id.to_owned(),
             reason: "worktree is shared with an active or unreviewed task".to_owned(),
@@ -803,9 +868,9 @@ async fn clean_task_sessions_locked(
     let top = top.filter(|p| p.exists());
     if top.is_none() {
         // Without the repository git cannot check or remove the worktree. The
-        // direct-delete path below is intentionally not ported: it relies on the
-        // accepted `rmSync` window documented in `.project/decisions.md` and will
-        // be added with the B0a host-clean provider.
+        // direct-delete path is intentionally not ported: it relies on the
+        // accepted `rmSync` window documented in `.project/decisions.md`. B0a
+        // owns remote host clean, which is a separate path.
         if !options.force {
             result.kept.push(Kept {
                 id: id.to_owned(),
@@ -825,13 +890,20 @@ async fn clean_task_sessions_locked(
                 id: id.to_owned(),
                 reason: WORKTREE_CHANGED.to_owned(),
             });
+        } else {
+            // The accepted direct-delete (`rmSync`) window is deliberately not
+            // ported; report the no-op instead of silently claiming success.
+            result.kept.push(Kept {
+                id: id.to_owned(),
+                reason: "direct delete not available natively; source repository is missing".to_owned(),
+            });
         }
         return Ok(result);
     }
 
     if own.path.exists()
         && !options.force
-        && worktree_dirty(ctx, &own.path) != Some(false)
+        && worktree_dirty(ctx, &own.path).await != Some(false)
     {
         result.kept.push(Kept {
             id: id.to_owned(),
@@ -853,7 +925,7 @@ async fn clean_task_sessions_locked(
     }
     if own.path.exists() {
         let top = top.unwrap_or_else(|| root.clone());
-        if let Err(reason) = git_worktree_remove(ctx, &top, &own.path, options.force) {
+        if let Err(reason) = git_worktree_remove(ctx, &top, &own.path, options.force).await {
             result.kept.push(Kept {
                 id: id.to_owned(),
                 reason,
@@ -926,7 +998,7 @@ fn auto_clean_locked<'a>(
             record_lock(&name);
             let next = auto_clean_locked(ctx, rt, ids, locks, index + 1);
             if let Err(e) = with_lock_async(ctx, &name, LockOptions::default(), move || next).await {
-                record_error(ctx, id_of(ids, index), &e.to_string());
+                record_error(ctx, &locks[index], &e.to_string());
             }
             return;
         }
@@ -953,10 +1025,6 @@ fn auto_clean_locked<'a>(
             }
         }
     })
-}
-
-fn id_of(ids: &[String], index: usize) -> &str {
-    ids.get(index).map_or("", String::as_str)
 }
 
 /// Auto-clean each id in order, replacing the former Core bridge effect.

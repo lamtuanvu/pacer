@@ -257,19 +257,36 @@ test.skipIf(!productionFront)("HTTP config environment matches the forwarded cor
 }, 120_000);
 
 test.skipIf(!front)("task.dismiss removes an accepted worktree without the old bridge", async () => {
-  const fixture = setup();
-  const seed = await acceptedWorktree(fixture.home);
-  const child = spawnPinned([front!, "api", "--stdio"], { env: fixture.env, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+  const nativeFixture = setup();
+  const forwardedFixture = setup();
+  const native = await acceptedWorktree(nativeFixture.home);
+  const forwarded = await acceptedWorktree(forwardedFixture.home);
+  const dismiss = async (home: string, env: Record<string, string | undefined>) => {
+    const child = spawnPinned([front!, "api", "--stdio"], { env, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+    try {
+      // Native stdio dispatch only engages after a protocol-3 hello.
+      await child.stdin.write([
+        rpc(1, "hello", { protocol: 3 }),
+        rpc(2, "task.dismiss", { ids: [home === nativeFixture.home ? native.id : forwarded.id] }),
+      ].join("\n") + "\n");
+      await child.stdin.end();
+      const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+      expect(exit, stderr).toBe(0);
+      const reply = stdout.trim().split("\n").map(line => JSON.parse(line)).find(r => r.id === 2);
+      expect(reply?.error).toBeUndefined();
+      return stderr;
+    } finally { if (child.exitCode === null) { child.kill("SIGTERM"); await child.exited; } }
+  };
   try {
-    await child.stdin.write([rpc(1, "task.dismiss", { ids: [seed.id] })].join("\n") + "\n");
-    await child.stdin.end();
-    const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
-    expect(exit, stderr).toBe(0);
-    const reply = stdout.trim().split("\n").map(line => JSON.parse(line)).find(r => r.id === 1);
-    expect(reply?.error).toBeUndefined();
-    expect(existsSync(seed.worktree)).toBe(false);
-    expect(existsSync(seed.runDir)).toBe(false);
-    expect(stderr).toContain("native task.dismiss 1");
-    expect(stderr).not.toContain("task-auto-clean");
-  } finally { if (child.exitCode === null) { child.kill("SIGTERM"); await child.exited; } fixture.cleanup(); }
+    const nativeStderr = await dismiss(nativeFixture.home, nativeFixture.env);
+    const forwardedStderr = await dismiss(forwardedFixture.home, { ...forwardedFixture.env, PACER_FORWARD_OPS: "task.dismiss" });
+    // Both paths release the worktree and run files; only the native path emits the marker.
+    expect(existsSync(native.worktree)).toBe(false);
+    expect(existsSync(forwarded.worktree)).toBe(false);
+    expect(existsSync(native.runDir)).toBe(false);
+    expect(existsSync(forwarded.runDir)).toBe(false);
+    expect(nativeStderr).toContain("native task.dismiss 2");
+    expect(forwardedStderr).not.toContain("native task.dismiss");
+    expect(nativeStderr).not.toContain("task-auto-clean");
+  } finally { nativeFixture.cleanup(); forwardedFixture.cleanup(); }
 }, 30_000);
