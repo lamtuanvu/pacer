@@ -556,3 +556,16 @@ test("S1/S7: Save sends nothing while Takes work is saving", async () => {
   expect(s.calls.slice(before).filter(call => call.op === "runner.models.set_many" || call.op === "runner.settings.save")).toEqual([]);
   await page.unmount();
 });
+
+test("removing the only declared model and adding another leaves just the new one, as the default", async () => {
+  const s = server({ go: { default: "a", models: [{ id: "a", tier: "small" }] } });
+  const page = await models(s);
+  await act(async () => page.get().edits.remove("go", "a"));
+  await act(async () => page.get().edits.add("go", "b", "medium"));
+  const draft = page.get().draftOf("go")!;
+  expect(draft.rows.map(row => row.id)).toEqual(["b"]);
+  expect(draft.default).toBe("b");
+  await act(async () => { await page.get().save(); });
+  expect(sets(s)[0]!.params.runners).toEqual([{ id: "go", default: "b", models: [{ id: "b", tier: "medium" }] }]);
+  await page.unmount();
+});

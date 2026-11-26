@@ -118,11 +118,14 @@ export function useModelDrafts(runners: readonly string[], targets: TierTargets)
     add: (runner: string, id: string, tier: MatrixTier | null) => update(runner, d => {
       const value = id.trim();
       if (!value || d.rows.some(r => r.id === value)) return d;
-      // A pinned default with no declared models stays: it becomes the first row, so adding never replaces it.
-      const keep = !d.rows.some(r => r.on) && d.default && d.default !== value && !d.rows.some(r => r.id === d.default) ? addModel(d.rows, d.default) : d.rows;
-      let rows = addModel(keep, value);
+      // A pinned default the saved state never declared (no models at all) stays: it becomes the first row, so
+      // adding never replaces it. A default left behind by removing every row in this draft does not come back.
+      const savedRows = basesRef.current.find(base => base.runner === runner)?.rows ?? [];
+      const pinned = savedRows.length === 0 && !!d.default && d.default !== value && !d.rows.some(r => r.id === d.default);
+      let rows = addModel(pinned ? addModel(d.rows, d.default!) : d.rows, value);
       if (tier) rows = setTier(rows, value, tier);
-      return { ...d, rows, default: d.default ?? (rows.filter(r => r.on).length === 1 ? value : null) };
+      const valid = !!d.default && rows.some(r => r.id === d.default && r.on);
+      return { ...d, rows, default: valid ? d.default : rows.filter(r => r.on).length === 1 ? value : d.default };
     }),
     /** Swap a model the agent no longer offers for another, keeping its place, size and default. */
     replace: (runner: string, id: string, next: string, tier: MatrixTier | null) => update(runner, d => {
