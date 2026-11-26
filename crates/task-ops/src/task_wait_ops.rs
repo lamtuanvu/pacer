@@ -58,6 +58,8 @@ fn optional_timeout_s(params: &Map<String, Value>) -> Result<(), CoreError> {
 
 pub fn task_wait(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
+        let is_executor = ctx.env.get("PACER_ROLE").map(String::as_str) == Some("executor");
+        pacer_work::authorize_work_operation(ctx, "task.wait", &params, is_executor)?;
         let p = object(&params)?;
         let id = require_task_id(p, "id")?;
         optional_timeout_s(p)?;

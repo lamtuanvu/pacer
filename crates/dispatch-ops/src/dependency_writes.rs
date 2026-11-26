@@ -266,7 +266,7 @@ fn clock(ctx: &Ctx) -> f64 {
 
 pub fn dispatch_dependencies(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
-        authorize(ctx)?;
+        authorize(ctx, "dispatch.dependencies", &params)?;
         let p = params_object(&params)?;
         let mut issues = Vec::new();
         string_issues("id", p.get("id"), Some(128), &mut issues);
@@ -341,7 +341,7 @@ pub fn dispatch_dependencies(ctx: &Ctx, params: Value) -> OpFuture<'_> {
 
 pub fn dispatch_dependencies_waive(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
-        authorize(ctx)?;
+        authorize(ctx, "dispatch.dependencies.waive", &params)?;
         let p = params_object(&params)?;
         let mut issues = Vec::new();
         string_issues("id", p.get("id"), Some(128), &mut issues);

@@ -76,35 +76,29 @@ fn set_params_normalize_to_schema_order() {
 }
 
 #[test]
-fn forwards_paths_nested_issues_and_unusable_files() {
-    let dir = tempfile::tempdir().unwrap();
-    let ctx = Ctx::with(
-        dir.path().into(),
-        dir.path().into(),
-        Default::default(),
-        1.0,
-    );
+fn nested_rule_and_liveness_issues_match_zod_text() {
     let set = "project.messaging.set";
-    let base = json!({"repo":"github.com/a/b","expect_rev":0,"rules":[]});
-    assert!(!project_messaging_stays_forwarded(&ctx, set, &base));
-    assert!(!project_messaging_stays_forwarded(
-        &ctx,
-        "config.set",
-        &json!({"repo":"/x"})
-    ));
-    assert!(project_messaging_stays_forwarded(
-        &ctx,
-        "project.messaging.get",
-        &json!({"repo":"/tmp/checkout"})
-    ));
-    let mut bad_rule = base.clone();
-    bad_rule["rules"] = json!([{"effect":"maybe"}]);
-    assert!(project_messaging_stays_forwarded(&ctx, set, &bad_rule));
-    let mut bad_liveness = base.clone();
-    bad_liveness["liveness"] = json!({"interval_s":1});
-    assert!(project_messaging_stays_forwarded(&ctx, set, &bad_liveness));
-    std::fs::write(dir.path().join("project-messaging.json"), "{}").unwrap();
-    assert!(project_messaging_stays_forwarded(&ctx, set, &base));
+    assert_eq!(
+        message(
+            set,
+            json!({"repo":"a/b/c","expect_rev":0,"rules":[{"from":"x"}]})
+        ),
+        "rules.0.effect: Invalid option: expected one of \"allow\"|\"deny\"; rules.0: Unrecognized key: \"from\""
+    );
+    assert_eq!(
+        message(
+            set,
+            json!({"repo":"a/b/c","expect_rev":0,"rules":[],"liveness":{"idle_s":-1}})
+        ),
+        "liveness: Unrecognized key: \"idle_s\""
+    );
+    assert_eq!(
+        message(
+            set,
+            json!({"repo":"a/b/c","expect_rev":0,"rules":[{"effect":"maybe"}]})
+        ),
+        "rules.0.effect: Invalid option: expected one of \"allow\"|\"deny\""
+    );
 }
 
 #[tokio::test]

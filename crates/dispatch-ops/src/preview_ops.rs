@@ -645,7 +645,7 @@ pub async fn dispatch_preview(
     params: Value,
     bridge: &mut dyn Bridge,
 ) -> Result<Value, CoreError> {
-    authorize(ctx)?;
+    authorize(ctx, op, &params)?;
     let ctx = &Ctx {
         now: now(ctx),
         ..ctx.clone()

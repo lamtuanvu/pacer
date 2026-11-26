@@ -4,12 +4,12 @@ use serde_json::json;
 
 #[test]
 fn merge_enrichment_overlays_git_and_tokens() {
-    let mut detail = json!({"id": "t-1", "files": []})
+    let detail = json!({"id": "t-1", "files": []})
         .as_object()
         .unwrap()
         .clone();
-    merge_enrichment(
-        &mut detail,
+    let detail = merge_enrichment(
+        detail,
         &json!({
             "files": [{"path": "a.ts", "status": "modified"}],
             "tokens": {"total": 1},
@@ -18,6 +18,10 @@ fn merge_enrichment_overlays_git_and_tokens() {
     );
     assert_eq!(detail["files"].as_array().unwrap().len(), 1);
     assert_eq!(detail["tokens"]["total"], 1);
+    // Overlay keys come first (TypeScript taskDetail spread order).
+    let keys: Vec<&str> = detail.keys().map(String::as_str).collect();
+    assert_eq!(keys.first().copied(), Some("files"));
+    assert!(keys.iter().position(|k| *k == "id") > keys.iter().position(|k| *k == "tokens"));
 }
 
 #[tokio::test(flavor = "current_thread")]

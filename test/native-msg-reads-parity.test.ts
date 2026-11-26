@@ -1,6 +1,6 @@
 import { childEnv } from "./child-env";
 import { expect, test } from "bun:test";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
@@ -110,13 +110,13 @@ test.skipIf(!front)("stdio msg.inbox, msg.log and msg.read match the TypeScript 
     rpc(base, "msg.read", { ids: [...ids, ids[0], "missing"] }), rpc(base + 1, "msg.read", { ids: [ids[0]] }),
     rpc(base + 2, "msg.inbox", {}), rpc(base + 3, "msg.inbox", { unread_only: false }),
   ];
-  const scenarios: { name: string; env: Record<string, string>; cwd: string; native: boolean; caller: string }[] = [
-    { name: "local", env: {}, cwd: ctx.home, native: true, caller: "external:local" },
-    { name: "planner", env: { PACER_PLANNER_SESSION: "codex:abc" }, cwd: ctx.home, native: true, caller: "external:codex:abc" },
-    { name: "executor", env: { PACER_ROLE: "executor", PACER_TASK_ID: leaf.id }, cwd: ctx.home, native: true, caller: `task:${leaf.id}` },
-    { name: "worktree", env: { PACER_TASK_ID: child.id }, cwd: ownWorktree, native: true, caller: `task:${child.id}` },
-    { name: "anonymous executor", env: { PACER_ROLE: "executor" }, cwd: ctx.home, native: true, caller: "Executor identity is unknown" },
-    { name: "orca worktree", env: {}, cwd: orcaWorktree, native: false, caller: "external:local" },
+  const scenarios: { name: string; env: Record<string, string>; cwd: string; caller: string }[] = [
+    { name: "local", env: {}, cwd: ctx.home, caller: "external:local" },
+    { name: "planner", env: { PACER_PLANNER_SESSION: "codex:abc" }, cwd: ctx.home, caller: "external:codex:abc" },
+    { name: "executor", env: { PACER_ROLE: "executor", PACER_TASK_ID: leaf.id }, cwd: ctx.home, caller: `task:${leaf.id}` },
+    { name: "worktree", env: { PACER_TASK_ID: child.id }, cwd: ownWorktree, caller: `task:${child.id}` },
+    { name: "anonymous executor", env: { PACER_ROLE: "executor" }, cwd: ctx.home, caller: "Executor identity is unknown" },
+    { name: "orca worktree", env: {}, cwd: orcaWorktree, caller: "external:local" },
   ];
   for (const scenario of scenarios) {
     const requests = [...reads(2), ...invalid(20), ...writes(40)];
@@ -128,7 +128,7 @@ test.skipIf(!front)("stdio msg.inbox, msg.log and msg.read match the TypeScript 
       expect(native.lines.map(receipts), scenario.name).toEqual(forwarded.lines.map(receipts));
       expect(rows(nativeHome), scenario.name).toEqual(rows(forwardHome));
       expect(forwarded.markers, scenario.name).toEqual([]);
-      const expected = scenario.native ? requests.map(request => { const r = JSON.parse(request); return `native ${r.method} ${r.id}`; }) : [];
+      const expected = requests.map(request => { const r = JSON.parse(request); return `native ${r.method} ${r.id}`; });
       expect(native.markers, scenario.name).toEqual(expected);
       const first = JSON.parse(native.lines[0]!);
       expect(first.result?.participant ?? first.error?.message, scenario.name).toBe(scenario.caller);
@@ -205,9 +205,9 @@ test.skipIf(!front)("HTTP msg reads resolve cookie, bearer and TUI session calle
     expect(results[0]!.bodies.map(receipts)).toEqual(results[1]!.bodies.map(receipts));
     expect(rows(runs[0]!)).toEqual(rows(runs[1]!));
     expect(results[1]!.markers).toEqual([]);
-    // Human read receipts republish task attention in TypeScript, so they stay forwarded.
+    // Every read is native now, including the human's read receipts.
     expect(results[0]!.markers).toEqual([...Array(16).fill(0).map((_, n) => `native ${["msg.inbox", "msg.inbox", "msg.log", "msg.inbox"][n % 4]}`),
-      "native msg.read", "native msg.inbox", "native msg.log"]);
+      "native msg.read", "native msg.read", "native msg.read", "native msg.inbox", "native msg.log"]);
     const parse = (body: string) => JSON.parse(body.slice(4));
     expect(parse(results[0]!.bodies[0]!).result.participant).toBe("external:local");
     expect(parse(results[0]!.bodies[4]!).result.participant).toBe("external:local");
@@ -216,5 +216,67 @@ test.skipIf(!front)("HTTP msg reads resolve cookie, bearer and TUI session calle
     expect(parse(results[0]!.bodies[17]!).result.read).toBe(4);
   } finally {
     for (const home of runs) rmSync(home, { recursive: true, force: true });
+  }
+}, 120000);
+
+/** The task event a human read republishes; times differ between runs, task bytes must match. */
+function taskEvents(home: string) {
+  const outbox = join(home, ".pacer/link/outbox.jsonl");
+  if (!existsSync(outbox)) return [];
+  return readFileSync(outbox, "utf8").trim().split("\n").filter(Boolean)
+    .map(line => JSON.parse(line).envelope)
+    .filter((e: { type: string }) => e.type === "task")
+    .map((e: { data: unknown }) => JSON.stringify(e.data)
+      .replace(/"(updatedAt|lastOutputAt|at)":\d+(?:\.\d+)?(?=[,}])/g, '"$1":"<time>"'));
+}
+
+test.skipIf(!front)("every caller is native", async () => {
+  const s = seed();
+  const orca = join(s.ctx.home, "orca", "workspaces", "ws", `pacer-${s.child.id}-codex`);
+  const requests = [rpc(2, "msg.inbox", {}), rpc(3, "msg.log", { task: s.child.id })];
+  const markers = ["native msg.inbox 2", "native msg.log 3"];
+  const scenarios: { name: string; strategy: string; env: Record<string, string> }[] = [
+    { name: "orca worktree with a matching provider", strategy: "planner: claude-code\nproviders: {claude-code: {}, codex: {}}\n", env: { PACER_TASK_ID: s.child.id } },
+    { name: "orca worktree with an unmatched provider", strategy: "planner: claude-code\nproviders: {claude-code: {}}\n", env: {} },
+  ];
+  for (const scenario of scenarios) {
+    const nativeHome = clone(s.ctx.home), forwardHome = clone(s.ctx.home);
+    try {
+      for (const home of [nativeHome, forwardHome]) {
+        mkdirSync(join(home, ".pacer"), { recursive: true });
+        mkdirSync(orca.split(s.ctx.home).join(home), { recursive: true });
+        writeFileSync(join(home, ".pacer/strategy.yaml"), scenario.strategy);
+      }
+      const cwd = (home: string) => orca.split(s.ctx.home).join(home);
+      const native = await stdio(nativeHome, scenario.env, cwd(nativeHome), requests, false);
+      const forwarded = await stdio(forwardHome, scenario.env, cwd(forwardHome), requests, true);
+      expect(native.lines, scenario.name).toEqual(forwarded.lines);
+      expect(native.markers, scenario.name).toEqual(markers);
+      expect(forwarded.markers, scenario.name).toEqual([]);
+    } finally {
+      rmSync(nativeHome, { recursive: true, force: true });
+      rmSync(forwardHome, { recursive: true, force: true });
+    }
+  }
+  // (c) A human cookie caller reading a question republishes the task natively.
+  const live = { ...s.ctx, now: Date.now() / 1000 };
+  updateTask(s.ctx, s.root.id, t => { t.question = { text: "which?", at: s.ctx.now }; });
+  const question = insertMessage(live, { taskId: s.root.id, rootId: `task:${s.root.id}`, from: `task:${s.root.id}`, to: "human", kind: "question", body: "which?", replyTo: null, requestId: null }).message.id;
+  const homes = [false, true].map(() => clone(s.ctx.home));
+  try {
+    const results: { bodies: string[]; markers: string[]; events: string[] }[] = [];
+    for (const [index, home] of homes.entries()) {
+      const server = await serve(home, index === 1);
+      const app = { ...server.app, Cookie: `pacer_session=${createSession({ ...live, pacerHome: join(home, ".pacer") })}` };
+      const bodies = [await server.post("msg.read", JSON.stringify({ ids: [question] }), app)];
+      results.push({ bodies, markers: await server.stop(), events: taskEvents(home) });
+    }
+    expect(results[0]!.bodies, "human read reply").toEqual(results[1]!.bodies);
+    expect(results[0]!.events, "task event").toEqual(results[1]!.events);
+    expect(results[0]!.events.length).toBeGreaterThan(0);
+    expect(results[0]!.markers).toContain("native msg.read");
+    expect(results[1]!.markers).toEqual([]);
+  } finally {
+    for (const home of homes) rmSync(home, { recursive: true, force: true });
   }
 }, 120000);

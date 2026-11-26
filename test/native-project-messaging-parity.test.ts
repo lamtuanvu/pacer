@@ -1,11 +1,11 @@
-import {expect, test} from "bun:test";
+import {afterAll, expect, test} from "bun:test";
 import {execFileSync} from "node:child_process";
-import {existsSync, mkdtempSync, readFileSync, writeFileSync} from "node:fs";
+import {existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {callOp} from "../src/api/ops";
 import {toApiError} from "../src/api/errors";
-import {fakeCtx} from "./helpers";
+import {fakeCtx, realRun} from "./helpers";
 
 let binary: string;
 function driver() {
@@ -29,14 +29,17 @@ const events = (path: string) => {
 async function compare(op: string, params: unknown, setup?: (home: string) => void, rawParams?: string) {
   const rs = mkdtempSync(join(tmpdir(), "native-pm-")), ts = mkdtempSync(join(tmpdir(), "native-pm-"));
   setup?.(rs); setup?.(ts);
-  const ctx = fakeCtx({pacerHome: ts, home: ts, now: 1_700_000_000, env: {}});
+  const ctx = fakeCtx({pacerHome: ts, home: ts, now: 1_700_000_000, env: {}, run: realRun});
   let expected: unknown;
   try { expected = {result: await callOp(ctx, op, params)}; } catch (error) { expected = {error: toApiError(error)}; }
   const input = `{"op":${JSON.stringify(op)},"params":${rawParams ?? JSON.stringify(params)},"home":${JSON.stringify(rs)},"now":${ctx.now}}\n`;
   const actual = JSON.parse(execFileSync(driver(), [], {input}).toString());
   const label = `${op} ${rawParams ?? JSON.stringify(params)}`;
+  // The driver answers every case in Rust; a predicate forward would show up as this reply.
+  expect(actual, `${label}: forwarded`).not.toEqual({forwarded: true});
   expect(normalize(actual, rs), `${label} actual=${JSON.stringify(actual)} expected=${JSON.stringify(expected)}`).toEqual(normalize(expected, ts));
-  const read = (path: string) => existsSync(join(path, FILE)) ? readFileSync(join(path, FILE), "utf8") : null;
+  const read = (path: string) => !existsSync(join(path, FILE)) ? null
+    : statSync(join(path, FILE)).isDirectory() ? "<dir>" : readFileSync(join(path, FILE), "utf8");
   expect(read(rs), `${label}: ${FILE}`).toBe(read(ts));
   expect(normalize(events(rs), rs), `${label}: events`).toEqual(normalize(events(ts), ts));
   return expected;
@@ -49,6 +52,17 @@ const existing = (path: string) => writeFileSync(join(path, FILE), JSON.stringif
   [repo]: {max_turns: 7, rev: 1, rules: [{relation: "any", effect: "allow", from_kind: "human"}]},
 }, version: 1}).replace('"max_nudges":0', '"max_nudges":-0'), {mode: 0o600});
 const rule = {limits: {per_minute: 2, confirm: false}, executor: "codex#work@local", repo, grant: "required", kinds: ["message", "report"], relation: ["parent", "child"], from_position: "top", to_kind: "launched", from_kind: "any", effect: "deny"};
+// A registered checkout: both runtimes resolve this absolute path to `repo` read-only.
+const checkout = mkdtempSync(join(tmpdir(), "native-pm-checkout-"));
+execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "init", "-q", "-b", "main", checkout]);
+execFileSync("git", ["-C", checkout, "remote", "add", "origin", `https://github.com/acme/app.git`]);
+const registered = (home: string) => {
+  const state = join(home, "state");
+  mkdirSync(state, {recursive: true, mode: 0o700});
+  writeFileSync(join(state, "repos.json"), JSON.stringify({[checkout]: {key: repo, path: checkout, lastUsed: 1}}));
+};
+const policyIsDirectory = (home: string) => mkdirSync(join(home, FILE));
+afterAll(() => rmSync(checkout, {recursive: true, force: true}));
 
 test("native project.messaging matches TypeScript results, file bytes and publication", async () => {
   const cases: [string, unknown, ((home: string) => void)?, string?][] = [
@@ -90,6 +104,11 @@ test("native project.messaging matches TypeScript results, file bytes and public
     ["project.messaging.set", {repo, expect_rev: 0, rules: [], max_turns: null}],
     ["project.messaging.set", {repo, expect_rev: 0, rules: [], max_turns: -1e18}],
     ["project.messaging.set", {repo: "checkout", expect_rev: 0, rules: []}],
+    // Fully native: absolute checkout resolution, nested Zod issues and Node read errors.
+    ["project.messaging.get", {repo: checkout}, registered],
+    ["project.messaging.set", {repo, expect_rev: 0, rules: [{from: "x"}]}],
+    ["project.messaging.set", {repo, expect_rev: 0, rules: [], liveness: {idle_s: -1}}],
+    ["project.messaging.get", {repo}, policyIsDirectory],
   ];
   for (const [op, params, setup, raw] of cases) await compare(op, params, setup, raw);
 }, 600_000);
