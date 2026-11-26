@@ -109,7 +109,7 @@ browserTest('Add agent: creates once with the chosen options, then is Ready only
     const adds = (await agentCalls(page)).filter(([op]) => op === 'runner.add');
     expect(adds).toHaveLength(1);
     expect(adds[0]![1]).toEqual({ agent: 'codex', account: 'team', host: 'devbox', kinds: ['tests'], max_tasks: 1, test: true });
-    expect(await page.getByRole('link', { name: 'Open agents' }).getAttribute('href')).toBe('#/settings/executors');
+    expect(await page.getByRole('link', { name: 'Open agents' }).getAttribute('href')).toMatch(/^#\/settings\/agents\?agent=/);
     expect(await page.getByRole('button', { name: 'Add agent and run test task' }).count()).toBe(0);
   });
 });
@@ -154,52 +154,12 @@ browserTest('Add host: a check that cannot start is reported, not silently retri
   });
 });
 
-browserTest('Agents: the save bar is hidden at all widths until there is a draft, save or error', async () => {
-  const built = await Bun.build({ entrypoints: ['test/fixtures/ui/executor-editor.tsx'], target: 'browser', minify: true });
-  const browser = await chromium.launch({ executablePath: process.env.PACER_TEST_BROWSER!, headless: true });
-  try {
-    const page = await browser.newPage({ viewport: { width: 375, height: 900 } });
-    await page.setContent('<div class="u3-settings" id="app"></div>');
-    await page.addStyleTag({ content: (await Promise.all(['app/src/ds/tokens.css','app/src/ds/components.css','app/src/ds/feedback.css','app/src/styles.css','app/src/screens/settings/settings.css'].map(path=>Bun.file(path).text()))).join('\n') });
-    await page.addStyleTag({ content: (await Promise.all(['app/src/ds/tokens.css', 'app/src/ds/components.css', 'app/src/ds/feedback.css', 'app/src/styles.css', 'app/src/screens/settings/settings.css'].map(path => Bun.file(path).text()))).join('\n') });
-    await page.addScriptTag({ content: await built.outputs[0]!.text() });
-    await page.getByRole('button', {name:'More actions for Codex',exact:true}).click();
-    const input = page.getByRole('spinbutton', { name: 'Parallel tasks for Codex', exact: true });
-    await input.waitFor();
-    const bar = page.locator('.u3-save-bar');
-    expect(await bar.isVisible()).toBe(false);
-    await input.fill('2');
-    expect(await bar.isVisible()).toBe(true);
-    await page.getByRole('button', { name: 'Discard', exact: true }).click();
-    expect(await bar.isVisible()).toBe(false);
-    await page.setViewportSize({ width: 1440, height: 900 });
-    expect(await bar.isVisible()).toBe(false);
-    const aside=await page.locator('.pc-page-columns__aside').evaluate(el=>({width:el.getBoundingClientRect().width,padding:getComputedStyle(el).padding}));
-    expect(aside).toEqual({width:400,padding:'28px 24px'});
-    await page.getByText('More agent settings', { exact: true }).click();
-    expect(await page.locator('.pc-setting-row--stacked').count()).toBe(3);
-    await input.fill('3');
-    expect(await bar.isVisible()).toBe(true);
-    await page.evaluate(() => (window as any).executorFixture.holdSave());
-    await page.getByRole('button', {name:'Save changes',exact:true}).click();
-    await page.waitForFunction(() => (window as any).executorFixture.writes()===1);
-    expect(await bar.isVisible()).toBe(true);
-    await page.evaluate(() => (window as any).executorFixture.release());
-    await page.getByRole('button', {name:'Save changes',exact:true}).waitFor({state:'hidden'});
-    await input.fill('4');
-    await page.evaluate(() => (window as any).executorFixture.fail(true));
-    await page.getByRole('button', {name:'Save changes',exact:true}).click();
-    await page.getByText('Service unavailable', {exact:true}).waitFor();
-    expect(await bar.isVisible()).toBe(true);
-    await page.getByRole('button',{name:'Close Codex details',exact:true}).click();
-    expect(await page.getByRole('button',{name:'More actions for Codex',exact:true}).evaluate(el=>el===document.activeElement)).toBe(true);
-  } finally { await browser.close(); }
-}, 20000);
+
 
 browserTest('Accounts policy saves spread/fill and threshold through the existing config operations',async()=>{
- const built=await Bun.build({entrypoints:['test/fixtures/ui/executor-editor.tsx'],target:'browser',minify:true,plugins:[{name:'account-policy',setup(builder){builder.onLoad({filter:/executor-editor\.tsx$/},()=>({loader:'tsx',resolveDir:process.cwd(),contents:`
+ const built=await Bun.build({entrypoints:['test/fixtures/ui/agents-editor.tsx'],target:'browser',minify:true,plugins:[{name:'account-policy',setup(builder){builder.onLoad({filter:/agents-editor\.tsx$/},()=>({loader:'tsx',resolveDir:process.cwd(),contents:`
  import {render} from 'preact';
- import {AccountPolicy} from '../../../app/src/screens/settings/Accounts';
+ import {AccountPolicy} from '../../../app/src/screens/settings/AgentAccount';
  import {TaskContext} from '../../../app/src/screens/task-shared';
  import {ActionContext} from '../../../app/src/data/action-context';
  import {createActionRunner} from '../../../app/src/data/actions';
@@ -229,27 +189,7 @@ browserTest('Accounts policy saves spread/fill and threshold through the existin
  }finally{await browser.close();}
 },20000);
 
-browserTest('Agents failing row and detail render the real readiness message in board geometry',async()=>{
- const built=await Bun.build({entrypoints:['test/fixtures/ui/executor-editor.tsx'],target:'browser',minify:true,plugins:[{name:'failing-agent',setup(builder){builder.onLoad({filter:/executor-editor\.tsx$/},async args=>({loader:'tsx',contents:(await Bun.file(args.path).text()).replace("state:'ready',slots","state:'failing',reason:'Endpoint returned 402',usedPct:45,pacePct:20,tone:'bad',slots")}));}}]});
- expect(built.success).toBe(true);
- const browser=await chromium.launch({executablePath:process.env.PACER_TEST_BROWSER!,headless:true});
- try{
-  const page=await browser.newPage({viewport:{width:1440,height:1000}});await page.setContent('<div id="app"></div>');
-  await page.addStyleTag({content:(await Promise.all(['app/src/ds/tokens.css','app/src/ds/components.css','app/src/ds/feedback.css','app/src/styles.css'].map(path=>Bun.file(path).text()))).join('\n')});
-  await page.addScriptTag({content:await built.outputs[0]!.text()});
-  const row=page.locator('tbody tr').first();await row.waitFor();expect(await row.getAttribute('class')).toContain('u3-row--bad');
-  expect(await row.evaluate(el=>getComputedStyle(el).boxShadow)).toContain('inset');
-  await page.getByRole('button',{name:'More actions for Codex',exact:true}).click();
-  const detail=page.getByRole('region',{name:'Codex details',exact:true});
-  expect(await detail.locator('.pc-card--bad').textContent()).toContain('Endpoint returned 402');
-  expect(await detail.locator('dt').allTextContents()).toEqual(['Account','Model','Runs on']);
-  expect(await detail.getByRole('heading',{name:'Codex',exact:true}).evaluate(el=>{const c=getComputedStyle(el);return [c.fontSize,c.lineHeight,c.fontWeight];})).toEqual(['16px','22px','650']);
-  expect(await detail.getByText('Removing keeps its task history.',{exact:true}).count()).toBe(1);
-  expect(await detail.getByText('Pause this agent',{exact:true}).count()).toBe(0);
-  await page.setViewportSize({width:768,height:1000});
-  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
- }finally{await browser.close();}
-},20000);
+
 
 browserTest('Machines board geometry, known capacity and narrow containment', async()=>{
  await open(async page=>{
@@ -292,7 +232,7 @@ browserTest('Add agent board geometry, install guidance, radio keyboard choices 
  await openAgent(async page=>{
   await page.setViewportSize({width:1440,height:1000});
   await page.getByText('Install: install-cursor',{exact:true}).waitFor();
-  expect(await page.getByRole('navigation',{name:'Breadcrumb'}).textContent()).toBe('Agents/Add an agent');
+  expect(await page.getByRole('navigation',{name:'Breadcrumb'}).textContent()).toBe('Dispatcher/Agents/Add an agent');
   expect(await page.locator('.pc-stepper').evaluate(el=>el.getBoundingClientRect().width)).toBe(230);
   expect(await page.locator('.pc-stepper').evaluate(el=>getComputedStyle(el).gap)).toBe('2px');
   expect(await page.locator('.u3-wizard').evaluate(el=>getComputedStyle(el).gap)).toBe('24px');
@@ -412,42 +352,7 @@ browserTest('Add agent steps 1–4 fit the actual Settings container at desktop,
   }
 },30000);
 
-browserTest('Agents five columns and More actions remain contained with the aside and in narrow cards',async()=>{
-  const built=await Bun.build({entrypoints:['test/fixtures/ui/executor-editor.tsx'],target:'browser',minify:true});
-  const browser=await chromium.launch({executablePath:process.env.PACER_TEST_BROWSER!,headless:true});
-  try {
-    for(const {viewport,content} of settingsWidths) {
-      const page=await browser.newPage();
-      await page.setContent('<div id="app"></div>');
-      await page.addStyleTag({content:(await Promise.all(['app/src/ds/tokens.css','app/src/ds/components.css','app/src/ds/feedback.css','app/src/styles.css','app/src/screens/settings/settings.css'].map(path=>Bun.file(path).text()))).join('\n')});
-      await emulateSettingsWidth(page,viewport,content);
-      await page.addScriptTag({content:await built.outputs[0]!.text()});
-      const action=page.getByRole('button',{name:'More actions for Codex',exact:true});
-      await action.click();
-      expect(await page.locator('thead th').allTextContents()).toEqual(['Executor','Status','This week','Parallel','Actions']);
-      expect(await page.locator('tbody tr').first().locator('td').count()).toBe(5);
-      await assertContained(page);
-      const edges=await page.locator('.u3-agents-table').evaluate(el=>({right:el.getBoundingClientRect().right,cells:[...el.querySelectorAll('td')].map(cell=>cell.getBoundingClientRect().right)}));
-      for(const right of edges.cells) expect(right).toBeLessThanOrEqual(edges.right);
-      // With the aside open at 1440 the table keeps the board's five columns instead of collapsing to cards.
-      if(viewport===1440) {
-        expect(await page.locator('thead').evaluate(el=>getComputedStyle(el).display)).not.toBe('none');
-        await assertHeaderBand(page);
-      }
-      await action.scrollIntoViewIfNeeded();
-      expect(await action.isVisible()).toBe(true);
-      const bounds=await action.boundingBox();
-      expect(bounds!.x).toBeGreaterThanOrEqual(0);expect(bounds!.x+bounds!.width).toBeLessThanOrEqual(viewport);
-      if(viewport===375) {
-        await page.getByText('More agent settings', { exact: true }).click();
-        const toggle=page.getByRole('switch',{name:'Enable Codex',exact:true}).locator('..');
-        const size=await toggle.boundingBox();expect(size!.width).toBeGreaterThanOrEqual(44);expect(size!.height).toBeGreaterThanOrEqual(44);
-        expect((await page.getByRole('link',{name:'Dispatcher',exact:true}).boundingBox())!.height).toBeGreaterThanOrEqual(44);
-      }
-      await page.close();
-    }
-  } finally {await browser.close();}
-},30000);
+
 
 browserTest('Unknown host errors keep the settings frame and a scoped Machines destination',async()=>{
   const built=await Bun.build({entrypoints:['test/fixtures/ui/add-host.tsx'],target:'browser',minify:true,plugins:[{name:'unknown-host',setup(builder){builder.onLoad({filter:/add-host\.tsx$/},()=>({loader:'tsx',resolveDir:process.cwd(),contents:`
@@ -484,68 +389,4 @@ async function assertHeaderBand(page: import('playwright-core').Page) {
   }
 }
 
-browserTest('Accounts six board tracks, conditional actions and labelled cards fit their Settings container', async () => {
-  const built = await Bun.build({ entrypoints: ['test/fixtures/ui/accounts-table.tsx'], target: 'browser', minify: true });
-  expect(built.success).toBe(true);
-  const browser = await chromium.launch({ executablePath: process.env.PACER_TEST_BROWSER!, headless: true });
-  try {
-    for (const { viewport, content } of settingsWidths) {
-      const page = await browser.newPage();
-      await page.setContent('<div id="app"></div>');
-      await page.addStyleTag({ content: (await Promise.all(['app/src/ds/tokens.css', 'app/src/ds/components.css', 'app/src/ds/feedback.css', 'app/src/styles.css', 'app/src/screens/settings/settings.css'].map(path => Bun.file(path).text()))).join('\n') });
-      await emulateSettingsWidth(page, viewport, content);
-      await page.addScriptTag({ content: await built.outputs[0]!.text() });
-      await page.locator('#accounts tbody tr').first().waitFor();
-      expect(await page.locator('thead th').allTextContents()).toEqual(['Account', 'Sign-in', 'Quota', 'Status', 'Used by', 'Actions']);
-      expect(await page.getByRole('button', { name: 'More actions for Codex · team', exact: true }).count()).toBe(0);
-      expect(await page.locator('tbody tr').first().locator('td').count()).toBe(6);
-      if (viewport === 1440) {
-        const tracks = await page.locator('thead tr').evaluate(el => getComputedStyle(el).gridTemplateColumns.split(' ').map(parseFloat));
-        expect(tracks).toHaveLength(6);
-        expect(tracks[1]).toBe(130);
-        expect(tracks[3]).toBe(150);
-        expect(tracks[5]).toBe(180);
-        console.log('Accounts tracks at 1000px content:', tracks.join('/'));
-        await assertHeaderBand(page);
-      } else {
-        expect(await page.locator('thead').evaluate(el => getComputedStyle(el).display)).toBe('none');
-        expect(await page.locator('tbody tr').first().evaluate(el => getComputedStyle(el).gridTemplateColumns.split(' ').length)).toBe(1);
-      }
-      const checkCells = async () => {
-        await assertContained(page);
-        const geometry = await page.locator('.u3-agents-table').evaluate(el => ({
-          right: el.getBoundingClientRect().right,
-          cells: [...el.querySelectorAll('td')].map(cell => ({ right: cell.getBoundingClientRect().right, fits: cell.scrollWidth <= cell.clientWidth })),
-          text: [...el.querySelectorAll('td[data-label="Status"],td[data-label="Used by"]')].map(cell => {
-            const range = document.createRange(); range.selectNodeContents(cell);
-            return { text: cell.textContent, right: range.getBoundingClientRect().right, edge: cell.getBoundingClientRect().right };
-          }),
-        }));
-        for (const cell of geometry.cells) {
-          expect(cell.right).toBeLessThanOrEqual(geometry.right);
-          expect(cell.fits).toBe(true);
-        }
-        for (const text of geometry.text) {
-          expect(text.text!.trim().length).toBeGreaterThan(0);
-          expect(text.right).toBeLessThanOrEqual(text.edge);
-        }
-      };
-      await checkCells();
-      const action = page.getByRole('button', { name: 'More actions for Codex · out', exact: true });
-      await action.focus(); await page.keyboard.press('Enter');
-      expect(await action.getAttribute('aria-expanded')).toBe('true');
-      await page.getByText('Fix sign-in for Codex · out', { exact: true }).click();
-      await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-      await page.waitForFunction(() => (window as any).accountFixture.calls().some(([op, p]: any[]) => op === 'account.signin' && p.name === 'out'));
-      await checkCells();
-      await action.click();
-      expect(await page.getByRole('button', { name: 'Sign in', exact: true }).isVisible()).toBe(false);
-      await page.getByRole('button', { name: 'More actions for ark', exact: true }).click();
-      await page.getByText('Fix Ark CLI sign-in for ark', { exact: true }).click();
-      await page.getByRole('button', { name: 'Check usage for ark', exact: true }).click();
-      await page.waitForFunction(() => (window as any).accountFixture.calls().some(([op, p]: any[]) => op === 'account.usage.check' && p.account === 'ark'));
-      await checkCells();
-      await page.close();
-    }
-  } finally { await browser.close(); }
-}, 30000);
+

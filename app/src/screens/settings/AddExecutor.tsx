@@ -18,6 +18,7 @@ import { Button, ButtonLink, TextAction } from "../../ds/Button";
 import type { Account } from "../../model/accounts";
 import { AGENT_KINDS, REMOTE_AGENTS, accountRequired, agentStepProblem, agents, blankAgentDraft, furthestAgentStep, type AgentDraft } from "../../model/wizard";
 import { useDraft, useTaskContext } from "../task-shared";
+import { hrefFor, routes } from "../../router";
 import { OpencodeSetup, ProviderModelPicker } from "./OpencodeSetup";
 import { useDialogs } from "../../ds/useDialogs";
 import { Feedback, Field, latestJob, ResourceState, SettingsBoard, useOperation, useResource, useScoped, words } from "./shared";
@@ -92,7 +93,7 @@ export function AddExecutor({ host: prefillHost = "", initialDraft = {}, initial
   const values = [name, draft.account || (accountRequired(draft.agent) ? "" : "Its own sign-in"), `${facts.hosts.includes(draft.host) ? draft.host : "This machine"} · ${draft.maxTasks} parallel`, ready ? "Ready" : job ? "Test task run" : "Not tested yet"];
   return (
     <div className="u3-add-agent">
-      <nav className="u3-breadcrumb" aria-label="Breadcrumb"><TextAction href={scoped("#/settings/executors")}>Agents</TextAction><span aria-hidden="true">/</span><span>Add an agent</span></nav>
+      <nav className="u3-breadcrumb" aria-label="Breadcrumb"><TextAction href={scoped("#/settings/dispatcher")}>Dispatcher</TextAction><span aria-hidden="true">/</span><TextAction href={scoped("#/settings/agents")}>Agents</TextAction><span aria-hidden="true">/</span><span>Add an agent</span></nav>
       <SettingsBoard id="add-agent" title="Add an agent" caption="pacer finds the agent CLIs on this machine. Four short steps, and the agent is checked with a real test task before it gets work.">
       <div className="u3-wizard">
       {dialogs.dialog}
@@ -173,9 +174,9 @@ export function AddExecutor({ host: prefillHost = "", initialDraft = {}, initial
           <span className="u3-muted">{problem ?? (step === 4 ? modelProblem : null) ?? `Step ${step} of 4 · Your draft is kept if you leave${locked ? "; agent added; test before Ready" : ""}`}</span>
           {ready ? <>
             <Button onClick={() => { action.clear(); setResumed(undefined); setResumeError(""); setUrlForm(false); setDraft({ ...blankAgentDraft }); }}>Add another agent</Button>
-            <ButtonLink variant="primary" href={scoped("#/settings/executors")} onClick={clearDraft}>Open agents</ButtonLink>
+            <ButtonLink variant="primary" href={scoped(hrefFor(routes.agents(draft.createdId || undefined)))} onClick={clearDraft}>Open agents</ButtonLink>
           </> : <>
-            {locked ? <><Button disabled={action.busy} onClick={() => void removeAgent()}>Remove this agent</Button><Button variant="quiet" disabled={action.busy} onClick={startOver}>Start over</Button></> : <TextAction href={scoped("#/settings/executors")}>Cancel</TextAction>}
+            {locked ? <><Button disabled={action.busy} onClick={() => void removeAgent()}>Remove this agent</Button><Button variant="quiet" disabled={action.busy} onClick={startOver}>Start over</Button></> : <TextAction href={scoped("#/settings/agents")}>Cancel</TextAction>}
             {step > 1 && !locked && <Button disabled={action.busy} onClick={() => patch({ step: String(step - 1) })}>Back</Button>}
             {step < 4 ? !picker && <Button variant="primary" disabled={action.busy || !!problem} onClick={() => patch({ step: String(step + 1) })}>Continue</Button>
               : null}

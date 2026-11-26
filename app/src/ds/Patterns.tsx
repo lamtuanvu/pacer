@@ -33,7 +33,7 @@ export function ListRow({ leading, content, meta, actions, children, className, 
   </div>;
 }
 /** Whole-row navigation is appropriate only when the row has no secondary controls. */
-export function ListRowLink({ className, children, layout, ...props }: JSX.AnchorHTMLAttributes<HTMLAnchorElement> & { layout?: "dispatch" }) {
+export function ListRowLink({ className, children, layout, ...props }: JSX.AnchorHTMLAttributes<HTMLAnchorElement> & { layout?: "dispatch" | "nav" }) {
   const density = useDensity();
   return <a {...props} className={classes('pc-list-row', `pc-list-row--${density}`, layout && `pc-list-row--${layout}`, 'pc-list-row--link', className)}>{children}</a>;
 }

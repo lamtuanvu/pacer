@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { hrefFor, parentFor, primaryFor, resolveRoute, routes, titleFor, withQuery, type Route } from "../app/src/router";
+import { hrefFor, parentFor, primaryFor, resolveRoute, routes, settingsPath, titleFor, withQuery, type Route } from "../app/src/router";
 
 const q = { repo: null, scope: null };
 const route = (hash: string, setup: boolean | null = true) => resolveRoute(hash, setup) as Route;
@@ -12,7 +12,9 @@ test("new routes resolve with their ids and sections", () => {
   expect(route("#/tasks")).toEqual({ name: "sessions", query: q });
   expect(route("#/tasks/a%20b")).toEqual({ name: "sessions", id: "a b", query: q });
   expect(route("#/settings")).toEqual({ name: "settings", query: q });
-  expect(route("#/settings/executors")).toEqual({ name: "settings", section: "executors", query: q });
+  expect(route("#/settings/agents")).toEqual({ name: "settings", section: "agents", query: q });
+  expect(route("#/settings/agents?agent=codex%23team")).toEqual({ name: "settings", section: "agents", agent: "codex#team", query: q });
+  for (const section of ["rules", "profiles"]) expect(route(`#/settings/${section}`)).toEqual({ name: "settings", section, query: q });
   expect(route("#/settings/hosts")).toEqual({ name: "hosts", query: q });
   expect(route("#/settings/hosts/devbox")).toEqual({ name: "hosts", alias: "devbox", query: q });
   expect(route("#/settings/add-executor")).toEqual({ name: "add-executor", query: q });
@@ -125,10 +127,12 @@ test("canonical route targets generate URLs that round-trip with metadata", () =
   [routes.needsYou(), "#/needs-you", "Needs you", "review", null],
   [routes.tasks(), "#/tasks", "Tasks", "sessions", null],
   [routes.task("a b/c"), "#/tasks/a%20b%2Fc", "Task", "sessions", routes.tasks()],
-  [routes.settings("executors"), "#/settings/executors", "Agents", "settings", routes.settings()],
+  [routes.agents(), "#/settings/agents", "Dispatcher", "settings", routes.settings()],
+  [routes.agents("codex#team"), "#/settings/agents?agent=codex%23team", "Dispatcher", "settings", routes.settings()],
+  [routes.settings("rules"), "#/settings/rules", "Dispatcher", "settings", routes.settings()],
   [routes.hosts(), "#/settings/hosts", "Machines", "settings", routes.settings()],
   [routes.host("dev box/a"), "#/settings/hosts/dev%20box%2Fa", "Host", "settings", routes.hosts()],
-  [routes.addExecutor(), "#/settings/add-executor", "Add an agent", "settings", routes.settings()],
+  [routes.addExecutor(), "#/settings/add-executor", "Add an agent", "settings", routes.agents()],
   [routes.setup(), "#/setup", "Set up pacer", null, null],
  ] as const;
  for (const [target, href, title, primary, parent] of cases) {
@@ -166,4 +170,16 @@ test("#/overview redirects to the Dispatch home and keeps its repo and scope", (
 test("withQuery joins with & when the link already has a query string", () => {
   expect(withQuery("#/settings/add-executor?host=gpu-1", { repo: "acme", scope: "mine" })).toBe("#/settings/add-executor?host=gpu-1&repo=acme&scope=mine");
   expect(withQuery("#/settings/accounts", { repo: "acme", scope: null })).toBe("#/settings/accounts?repo=acme");
+});
+
+test("retired Agents, Accounts and Model matrix links redirect to Dispatcher › Agents with their agent and scope", () => {
+  for (const name of ["executors", "accounts", "models"]) {
+    expect(resolveRoute(`#/settings/${name}`)).toEqual({ redirect: "#/settings/agents" });
+    expect(resolveRoute(`#/settings/${name}?repo=acme`)).toEqual({ redirect: "#/settings/agents?repo=acme" });
+  }
+  expect(resolveRoute("#/settings/executors?agent=codex%23team&scope=all")).toEqual({ redirect: "#/settings/agents?agent=codex%23team&scope=all" });
+  expect(settingsPath("executors")).toBe("/settings/agents");
+  expect(settingsPath("models")).toBe("/settings/agents");
+  expect(settingsPath("routing")).toBe("/settings/dispatcher");
+  expect(hrefFor(routes.agents("codex#team"), { repo: "acme", scope: null })).toBe("#/settings/agents?agent=codex%23team&repo=acme");
 });

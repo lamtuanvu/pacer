@@ -6,30 +6,23 @@ Import `screens/settings/index` explicitly. This barrel exports the U3 screens m
 | --- | --- |
 | `#/settings` | `SettingsGeneral` (Overview) |
 | `#/settings/<section>` | `SettingsGeneral section={section}` (only the selected editor mounts) |
-| `#/settings/executors` | Agents, Executors tab (`ExecutorsSection`) |
-| `#/settings/accounts` | Agents, Accounts tab (`AccountsSection`) |
+| `#/settings/dispatcher` | Dispatcher › Overview: model choice and preview (`DispatcherSection tab="overview"`, lazy) |
+| `#/settings/agents` | Dispatcher › Agents (`AgentsTab`, lazy through `LazyAgents`); `?agent=<runner id>` selects an agent |
+| `#/settings/rules` | Dispatcher › Who can run what: guided rules and draft preview (`DispatcherSection tab="rules"`) |
+| `#/settings/profiles` | Dispatcher › Profiles: saved setups (`DispatcherSection tab="profiles"`) |
+| `#/settings/executors`, `#/settings/accounts`, `#/settings/models` | Redirect to `#/settings/agents` (keeping `agent`, `repo`, `scope`) |
 | `#/settings/add-executor` | Add agent wizard (`AddExecutor`); `?host=<alias>` prefills the host |
 | `#/settings/machine` | Machines: This machine, guided Add remote host (`AddHost`), host list |
 | `#/settings/hosts` | Machines (same page) |
 | `#/settings/hosts/<alias>` | `HostDetail alias={alias}` |
 
-The Accounts tab, Add agent and host detail are part of the Agents and Machines menu entries (`settingsPageId` maps them). The screens register their token-based constructed stylesheet on mount; the shared build and stylesheet need no edits. `initialData` is optional preloaded data for rendering before requests complete. The API remains authoritative after mounting.
+The Dispatcher tabs and Add agent are part of the Dispatcher menu entry, host detail of Machines (`settingsNavId` maps them). The screens register their token-based constructed stylesheet on mount; the shared build and stylesheet need no edits. `initialData` is optional preloaded data for rendering before requests complete. The API remains authoritative after mounting.
 
 Jobs use store events plus `job.get` polling. Host detail also recovers retained jobs with `job.list`. The Add agent draft preserves the service-returned id and job id across reloads. Host detail shows the Full live sessions switch only when `host.get` returns a `session` field; it sends `host.set` with `session: 'full' | 'recording'`.
 
-Settings category metadata lives in `app/src/settings-pages.ts`; board pages own their h1 and caption. Agents (both tabs), Machines and Add an agent use the shared board header with 18px block gaps; host detail keeps its breadcrumb without an h1. Settings forms use DS `settings` density (32px) and small table actions use 28px; narrow layouts retain touch targets.
+Settings category metadata lives in `app/src/settings-pages.ts`; board pages own their h1 and caption. Every Dispatcher tab shares one page head (`DispatcherHead`: the h1 and `NavTabs`, with the Agents tab's unrated count from `dispatch.models`). Machines and Add an agent use the shared board header; host detail keeps its breadcrumb without an h1. Settings forms use DS `settings` density (32px) and small table actions use 28px; narrow layouts retain touch targets.
 
-The planner card appears only on Executors. Both tabs use bordered board-density
-tables; Accounts adds a sign-in column and a factual information banner. Account
-spread/fill controls bind to `pacing.accounts` and `pacing.fill_threshold` through
-`config.get`/`config.set`. Executor parallel limits are counts in the table and
-editable in Details, joining the existing page draft. The save bar is hidden at
-all widths while idle. Takes work saves immediately from the latest saved revision, independently of priority
-and parallel-task drafts; its switch is busy during the write and reverts with an
-inline error on failure. Conflicts reload saved data and preserve page drafts.
-Escape and Close return focus to the opening Details button; successful removal
-focuses Add agent. Details retain readiness, account/model/host facts, a test
-task and removal; removal changes configuration and keeps task history.
+Dispatcher › Agents (`Agents.tsx`) is master-detail. The agent list fills the shell's right panel (`FrameSlot name="right"`, opened once on arrival) or renders in page when panels cannot show; entries are links to `?agent=`, so choosing another agent keeps the page and its draft mounted (the navigation guard lets `#/settings/agents` targets through). The detail shows readiness (with Unblock for a blocked agent), Usage (`AccountUsage` for Check usage), Account (`AgentAccount`: sign-in state and fix, the agent's other accounts, the spread/fill policy when it has several, adding an account), Runs on (host link, Run test task), the planner's tier fallback switch (`pacing.planner_tier_fallback`, immediate), the Models table and Add a model (`AgentModels`), and limits. Models (`useModelDrafts`, `runner.models.set_many`) and limits (`useExecutorSettings`, `runner.settings.save`) form one page draft and one `SaveBar`, hidden while idle; the models save first and the limits save against the revision it returned. Takes work saves immediately from the latest saved revision and keeps the draft; its switch is busy during the write and reverts with an inline error on failure. Conflicts preserve drafts: limits show Reload saved settings, models ask to Discard unless the reloaded models are identical (then the newer revision is adopted, and a save that meets a moved revision with unchanged models retries once). Removal asks first, keeps task history and focuses Add agent. No new service operations.
 
 Machines uses two equal bordered cards with a 20px gap and a narrow single-column
 layout. Header tiles, service version, running capacity and executor caps use

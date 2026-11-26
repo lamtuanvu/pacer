@@ -207,7 +207,7 @@ browserTest("narrow_settings_topbar_touches_the_tab_strip", async () => {
   const built = await frame();
   const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
   try {
-    for (const hash of ["#/settings", "#/settings/app", "#/settings/dispatcher", "#/settings/executors"]) {
+    for (const hash of ["#/settings", "#/settings/app", "#/settings/dispatcher", "#/settings/agents"]) {
       const page = await browser.newPage({ viewport: { width: 375, height: 812 } });
       await open(page, built, hash);
       const geometry = () => page.evaluate(() => ({
@@ -759,15 +759,14 @@ browserTest("Trace, Setup and Agents fill shell panels through FrameSlot", async
     await setupRail.waitFor();
     await setupRail.getByRole("list", { name: "Setup steps" }).waitFor();
     expect(await page.locator(".pc-setup-layout--framed .pc-setup-rail").count()).toBe(0);
-    await page.evaluate(() => { location.hash = "#/settings/executors"; });
-    await page.getByRole("heading", { level: 1, name: "Agents" }).waitFor();
+    await page.evaluate(() => { location.hash = "#/settings/agents"; });
+    await page.getByRole("heading", { level: 1, name: "Dispatcher" }).waitFor();
     await page.getByRole("complementary", { name: "Settings" }).waitFor();
-    // Inspector stays closed until an executor is selected.
-    expect(await page.getByRole("complementary", { name: "Inspector" }).count()).toBe(0);
-    await page.locator('button[aria-label^="More actions for"]').first().click();
+    // Dispatcher › Agents opens the inspector for its agent list (UI-28); the selected agent fills main.
     const agentsInspector = page.getByRole("complementary", { name: "Inspector" });
     await agentsInspector.waitFor();
-    await agentsInspector.getByRole("heading", { level: 2 }).first().waitFor();
+    await agentsInspector.getByRole("navigation", { name: "Agents" }).waitFor();
+    expect(await page.locator("#main-content .pc-agent-list").count()).toBe(0);
   } finally { await browser.close(); }
 }, 30_000);
 
@@ -791,7 +790,7 @@ const ROUTED_PAGES: [hash: string, title: string][] = [
   ["#/", "Dispatch"], ["#/needs-you", "Needs you"], ["#/insights", "Insights"], ["#/tasks", "Tasks"], ["#/tasks/new", "New task"],
   ["#/tasks/t-0412", "Fix flaky retry test in the payments client"], ["#/setup", "Set up pacer"],
   ["#/settings", "Overview"], ["#/settings/app", "App preferences"], ["#/settings/planner", "Budget & pacing"],
-  ["#/settings/diagnostics", "Diagnostics"], ["#/settings/plugins", "Plugins"], ["#/settings/executors", "Agents"],
+  ["#/settings/diagnostics", "Diagnostics"], ["#/settings/plugins", "Plugins"], ["#/settings/agents", "Dispatcher"],
   ["#/settings/assistant", "Assistant"],
 ];
 browserTest("every routed page's header is non-empty, singular and stays fixed while main scrolls", async () => {

@@ -16,6 +16,7 @@ import { initialState } from '../app/src/data/store';
 import { resolveRoute, titleFor, type Route } from '../app/src/router';
 import { settingsPageTitle, updateNoticeHiddenOn } from '../app/src/settings-pages';
 import { settings, executor } from './fixtures/ui/settings';
+import { AgentsPage } from './fixtures/ui/agents';
 
 const query = { repo: null, scope: null };
 const state = { ...initialState(), snapshot: { executors: [], accounts: [], hosts: [], repos: [] } } as any;
@@ -86,7 +87,7 @@ const navOrder = (html: string) => [...html.matchAll(/<a\b[^>]*href="([^"]+)"/g)
 test('settings panel groups pages and keeps a stable keyboard order', () => {
   const html = renderToString(<SettingsPanel route={{ name: 'settings', query }} counts={null} />);
   expect(navOrder(html)).toEqual([
-    '#/', '#/settings', '#/settings/executors', '#/settings/dispatcher', '#/settings/models', '#/settings/planner', '#/settings/machine',
+    '#/', '#/settings', '#/settings/dispatcher', '#/settings/planner', '#/settings/machine',
     '#/settings/plugins', '#/settings/apps', '#/settings/app', '#/settings/diagnostics',
   ]);
   expect(html).not.toMatch(/tabindex="[1-9]/);
@@ -159,7 +160,7 @@ test('Overview shows only real readiness and setup facts', () => {
   const html = render(<SettingsGeneral initialData={settings} />, { ...state, snapshot: { ...state.snapshot, executors: [{...executor,eligibility:eligible}, down, stale], machine: { used: 0, max: 4 } } });
   expect(html).toContain('1 of 3 agents can take work. 1 needs you.');
   for (const title of ['Readiness', 'Current setup']) expect(html).toMatch(new RegExp(`<h2[^>]*>${title}</h2>`));
-  for (const href of ['executors', 'dispatcher', 'planner', 'machine']) expect(html).toContain(`href="#/settings/${href}"`);
+  for (const href of ['agents', 'dispatcher', 'planner', 'machine']) expect(html).toContain(`href="#/settings/${href}"`);
   expect(html).toContain('No active subscription');
   expect(html).toContain('Usage reading needs refreshing');
   expect(html).toContain('Saved setup default');
@@ -196,14 +197,17 @@ test('existing settings actions send the same operations', async () => {
   };
   const calls: unknown[] = [];
   const runner = { run: async (_key: string, request: any) => { calls.push({ op: request.op, params: request.params }); return { status: 'done' }; }, result: () => ({}) } as any;
-  const mount = (section: string) => renderToString(<ActionContext.Provider value={runner}><TaskContext.Provider value={{ state, api: {call: async (op: string, params: unknown) => {calls.push({op,params});return {};}} as any }}><SettingsGeneral section={section} initialData={{ ...settings, notifications: { level: 'all', sound: 'pacer' } }} /></TaskContext.Provider></ActionContext.Provider>);
+  // Account policy lives in Dispatcher › Agents, on an agent that has several accounts.
+  const agentState = { ...state, snapshot: { ...state.snapshot, at: 1000, executors: [executor] } };
+  const withSibling = { ...settings, accounts: [...settings.accounts, { name: 'second', kind: 'codex' }] } as any;
+  const mount = (section: string) => renderToString(<ActionContext.Provider value={runner}><TaskContext.Provider value={{ state: section === 'agents' ? agentState : state, api: {call: async (op: string, params: unknown) => {calls.push({op,params});return {};}} as any }}>{section === 'agents' ? <AgentsPage initialAccounts={withSibling.accounts} initialConfig={withSibling.config} /> : <SettingsGeneral section={section} initialData={{ ...settings, notifications: { level: 'all', sound: 'pacer' } }} />}</TaskContext.Provider></ActionContext.Provider>);
   try {
     // Let each operation settle before the next control is used.
     const settle = () => new Promise(resolve => setTimeout(resolve, 0));
     mount('planner');
     handlers.get('Pacing policy')!('even');
     await settle();
-    mount('accounts');
+    mount('agents');
     handlers.get('Multiple accounts')!('fill');
     await settle();
     mount('app');
@@ -269,7 +273,8 @@ test('update, reserve and threshold controls send the same operations', async ()
   };
   const calls: unknown[] = [];
   const runner = { run: async (_key: string, request: any) => { calls.push({ op: request.op, params: request.params }); return { status: 'done' }; }, result: () => ({}) } as any;
-  const mount = (section: string) => renderToString(<ActionContext.Provider value={runner}><TaskContext.Provider value={{ state, api: {call: async (op: string, params: unknown) => {calls.push({op,params});return {};}} as any }}><SettingsGeneral section={section} initialData={{ ...settings, config: { ...settings.config, keys: { ...settings.config.keys, 'pacing.accounts': { value: 'fill' }, 'pacing.fill_threshold': { value: 80 } } } }} /></TaskContext.Provider></ActionContext.Provider>);
+  const agentState = { ...state, snapshot: { ...state.snapshot, at: 1000, executors: [executor] } };
+  const mount = (section: string) => renderToString(<ActionContext.Provider value={runner}><TaskContext.Provider value={{ state: section === 'agents' ? agentState : state, api: {call: async (op: string, params: unknown) => {calls.push({op,params});return {};}} as any }}>{section === 'agents' ? <AgentsPage initialAccounts={[...settings.accounts, { name: 'second', kind: 'codex' }] as any} initialConfig={{ ...settings.config, keys: { ...settings.config.keys, 'pacing.accounts': { value: 'fill' }, 'pacing.fill_threshold': { value: 80 } } } as any} /> : <SettingsGeneral section={section} initialData={{ ...settings, config: { ...settings.config, keys: { ...settings.config.keys, 'pacing.accounts': { value: 'fill' }, 'pacing.fill_threshold': { value: 80 } } } }} />}</TaskContext.Provider></ActionContext.Provider>);
   const settle = () => new Promise(resolve => setTimeout(resolve, 0));
   const input = (value: string, checked = false) => ({ currentTarget: { validity: { valid: true }, value, checked } });
   try {
@@ -278,7 +283,7 @@ test('update, reserve and threshold controls send the same operations', async ()
     handlers.autoCheck!(input('', false)); await settle();
     mount('planner');
     handlers.reserve!(input('25')); await settle();
-    mount('accounts');
+    mount('agents');
     handlers.threshold!(input('90')); await settle();
   } finally { options.vnode = old; }
   expect(calls).toEqual([
@@ -322,11 +327,13 @@ test.skipIf(!browserPath)('setting_row_toggle_hit_area_meets_density', async () 
 
 test('secondary settings routes select their parent category and retain page titles', () => {
   for (const [hash, current, title] of [
-    ['#/settings/accounts', 'executors', 'Accounts'],
-    ['#/settings/add-executor', 'executors', 'Add an agent'],
+    ['#/settings/agents', 'dispatcher', 'Dispatcher'],
+    ['#/settings/agents?agent=codex', 'dispatcher', 'Dispatcher'],
+    ['#/settings/rules', 'dispatcher', 'Dispatcher'],
+    ['#/settings/profiles', 'dispatcher', 'Dispatcher'],
+    ['#/settings/add-executor', 'dispatcher', 'Add an agent'],
     ['#/settings/hosts', 'machine', 'Machines'],
     ['#/settings/hosts/devbox', 'machine', 'Host'],
-    ['#/settings/executors', 'executors', 'Agents'],
     ['#/settings/machine', 'machine', 'Machines'],
   ]) {
     const route = resolveRoute(hash!) as Route;
@@ -342,14 +349,16 @@ test('board navigation includes its back link and save guidance without unsuppor
   expect(html).toMatch(/<a(?=[^>]*href="#\/")(?=[^>]*aria-label="Back to Dispatch")/);
   expect(html).toContain('Nothing saves silently');
   expect(html).toContain('Lists and editors show unsaved changes until you save. Switches save at once.');
-  for (const label of ['Agents', 'Machines', 'Settings']) expect(html).toContain(`>${label}<`);
+  for (const label of ['Dispatcher', 'Machines', 'Settings']) expect(html).toContain(`>${label}<`);
+  for (const text of ['>Agents<', '>Model matrix<']) expect(html).not.toContain(text);
   for (const text of ['>Accounts<', '>Add executor<', '>Remote hosts<']) expect(html).not.toContain(text);
 });
 
-test('Agents retain links to secondary pages with the current scope', () => {
+test('Agents retain links to secondary pages, the other agents and the Dispatcher tabs with the current scope', () => {
   const scoped = { repo: '', scope: 'repo:example' };
-  const agents = render(<SettingsGeneral section="executors" query={scoped} />);
-  for (const page of ['accounts', 'add-executor']) expect(agents).toContain(`href="#/settings/${page}?repo=&amp;scope=repo%3Aexample"`);
+  const agents = render(<><SettingsGeneral section="agents" query={scoped} /><AgentsPage query={scoped} /></>, { ...state, snapshot: { ...state.snapshot, at: 1000, executors: [executor] } });
+  for (const page of ['add-executor', 'dispatcher', 'rules', 'profiles', 'agents']) expect(agents).toContain(`href="#/settings/${page}?repo=&amp;scope=repo%3Aexample"`);
+  expect(agents).toContain(`href="#/settings/agents?agent=codex%23team%40devbox&amp;repo=&amp;scope=repo%3Aexample"`);
 });
 
 test.skipIf(!browserPath)('settings navigation matches board geometry in its panel and remains a narrow strip', async () => {

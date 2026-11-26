@@ -99,32 +99,79 @@ why each attempt chose its model across retries. Selected identity is not eviden
 of the actual model used; actual identity remains unknown without executor evidence.
 Managed work also retains the tier choice in its decision history.
 
-## Model matrix (Settings → Dispatcher)
+## Agents and their models (Settings → Dispatcher → Agents)
 
-The **Model matrix** page (`#/settings/models`) shows every model each executor
-can run, as the union of the provider's model listing and the executor's
-declared `runners.<id>.models`. For each executor you can turn a model on or
-off, set its size (Small, Medium, Frontier, or return it to Unrated), and add a
-model by ID when the listing is unknown. The planner executor is read-only
-here, matching `runner.models.set`. **Suggest** proposes turning models on and
-a size from each provider's price and tool support; suggestions only apply to
-models with listing facts, and **Accept all** never turns off an enabled model
-without such facts. Coverage cards show how many rated models can take each
-difficulty. **Save matrix** writes only the executors whose models or default
-actually changed, in one revision-checked **`runner.models.set_many`** edit, and
-preserves each declared model's strengths, tools and context. On a clean page the matrix reloads whenever the dispatcher settings or the model
-inventory refresh, so edits made through pacer (a CLI or another window) appear
-without discarding anything. If settings change while the page is dirty, it keeps
-your edits and asks you to Discard to load them only when the loaded runner
-models actually differ from what your edits build on; an unrelated refresh with
-identical models stays silent. A hand edit of `strategy.yaml` that changes the
-strategy revision while you have unsaved edits is not visible until you save, and
-surfaces as a save conflict instead. Coverage follows `dispatch.tierTargets` and
-updates when the tier choices change.
+**Settings → Dispatcher** has four tabs, each its own route: **Overview**
+(`#/settings/dispatcher`), **Agents** (`#/settings/agents`, optionally
+`?agent=<runner id>`), **Who can run what** (`#/settings/rules`) and **Profiles**
+(`#/settings/profiles`). The former Agents, Accounts and Model matrix pages are
+the Agents tab now; their old links (`#/settings/executors`, `#/settings/accounts`,
+`#/settings/models`) redirect there and keep the selected agent.
+
+The Agents tab lists the planner and the executors (in priority order) beside the
+selected agent's details: usage, account and sign-in, where it runs and its test
+task, and its models. **Refresh** re-reads that agent's model listing
+(`executor.models.available` with `refresh: true`, once) and its usage
+(`limits.refresh`); **Refresh all** does the same for every agent.
+
+The **Models** table lists the models the agent declares in
+`runners.<id>.models`: each row has a size (Small, Medium, Frontier, or none set:
+Unrated), a Default choice, an On switch and Remove. **Add a model** is a combobox:
+it offers the agent's live listing (with context, tools and a size suggested from
+the listed price), or for Claude Code the aliases `opus`, `sonnet`, `haiku` and
+pinned ids; any other id can be typed. A picked model is added with its suggested
+size. A model turned off or removed is saved as undeclared, so it returns to the
+pick list. The planner's models are editable; they only matter through the tier
+fallback, whose switch (`pacing.planner_tier_fallback`) sits on the planner's page.
+
+Decisions kept from the redesign:
+
+- **Off is removed on save.** Strategy files have no "declared but off" state, so a
+  model you turn off is saved as undeclared: after Save it leaves the table and
+  returns to the pick list. Remove does the same immediately in the draft.
+- **No automatic test task after a model save.** Run the test task from the
+  agent's Runs on card when you want to confirm a new model.
+- **No coverage cards, Takes column, or Price and Context columns.** The size of each
+  model says which difficulties it can take; the listing's context, tools and
+  price-based size suggestion appear in the Add a model pick list instead.
+
+An agent with a default model but no declared models says "uses <model> for every
+task"; the first model you add keeps that default as a row, so it is never
+replaced silently. A size can be set back to Unrated. A model the agent's provider
+no longer offers has **Replace…**, which swaps in another model and keeps its size
+and default. An id that is already on the agent is listed as "Already added" and
+cannot be added twice; with nothing highlighted, Enter adds exactly what you typed.
+Accounts that no agent uses are listed under **Accounts without an agent**, with
+their usage, sign-in and an **Add as agent** link. **Find an agent** filters the list.
+
+Links that name one agent (`?agent=<runner id>`) open it: the command palette,
+Needs you, the Settings overview readiness rows, and `ui.open` actions that carry an
+`agent` parameter. The desktop app's native deep links accept no query string, so
+a native notification about an executor opens Dispatcher › Agents without
+selecting that agent.
+
+Models and the agent's limits (Tasks at once, Priority) share one page draft and
+one save bar. Saving writes the changed agents' models in one revision-checked
+**`runner.models.set_many`** edit, preserving each declared model's strengths,
+tools and context, then the limits with **`runner.settings.save`** against the
+revision that edit returned. **Takes work** applies at once from the saved
+settings and keeps the draft. The page's other immediate writes (the planner tier
+fallback, the account policy, Add account) move the strategy revision too; a limits
+draft whose saved order and limits are unchanged rebases onto the new revision
+instead of reporting a conflict, while a real change to them elsewhere still
+conflicts. A save whose response was lost is confirmed against what the service
+holds, for models as for limits. Choosing another agent keeps the draft. On a clean
+page, models reload when settings change elsewhere; with unsaved edits the page
+keeps them and asks you to Discard only when the loaded models actually differ,
+while an unrelated refresh with identical models is adopted silently (also when a
+save meets a revision moved by another write with unchanged models: it retries
+once). Coverage follows `dispatch.tierTargets`; when your draft would give an
+executor a model at the complex target while none had one, the page says it frees
+the planner.
 
 ## Configure the choice ladder
 
-In the app, open **Settings → Dispatcher** to see the default session planner and account, the active ladder, allowed model choices, and a read-only task preview. **Saved profiles** switches the complete global planner, pacing, eligibility and dispatch policy. **Executor eligibility** sets an ordered executor list for each task kind; a **project override** supplies the list for one repository and stays in place when global profiles change. The decision engine ranks eligible account and model choices from that list. **Edit decision ladder** saves and activates a new named profile; the built-in ladder favors a capable model with spare capacity, then tries a usable fallback. Older Settings → Routing and Settings → Strategies links open Dispatcher. Any local executor holding a valid work grant can ask Pacer to delegate child work; the configured planner is the default for new sessions.
+In the app, open **Settings → Dispatcher**: **Overview** shows the model choice for each difficulty and a read-only task preview, **Who can run what** holds the guided rules and executor eligibility (with a preview of the draft), and **Profiles** lists the saved setups. **Saved profiles** switches the complete global planner, pacing, eligibility and dispatch policy. **Executor eligibility** sets an ordered executor list for each task kind; a **project override** supplies the list for one repository and stays in place when global profiles change. The decision engine ranks eligible account and model choices from that list. **Edit decision ladder** saves and activates a new named profile; the built-in ladder favors a capable model with spare capacity, then tries a usable fallback. Older Settings → Routing and Settings → Strategies links open Dispatcher. Any local executor holding a valid work grant can ask Pacer to delegate child work; the configured planner is the default for new sessions.
 
 ```yaml
 planner: claude-code
