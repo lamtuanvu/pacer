@@ -12,11 +12,15 @@ pacer-foundation = { path = "../foundation" }
 pacer-js-json = { path = "../js-json" }
 pacer-engine = { path = "../engine" }
 pacer-store = { path = "../store" }
+pacer-config = { path = "../config" }
+pacer-repos = { path = "../repos" }
+tokio.workspace = true
 rusqlite = { version = "0.41", features = ["bundled"] }
 sha2 = "0.10"
 
 [dev-dependencies]
 tempfile = "3"
+tokio.workspace = true
 
 [lints]
 workspace = true

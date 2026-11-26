@@ -47,6 +47,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::any,
 };
+use pacer_dispatch::VersionCache;
 use pacer_foundation::{
     Ctx,
     api::{Code, CoreError, Registry},
@@ -84,6 +85,8 @@ struct Listener {
     plugins: crate::native::plugins::Service,
     forward_log_follow: bool,
     forward_events: bool,
+    /// Native dispatch-parts `--version` checks share this cache across requests.
+    versions: VersionCache,
 }
 async fn forward_plugin_read(
     state: &Listener,
@@ -124,14 +127,15 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
         auth::Decision::AppAuth => auth::AuthKind::Bearer,
         auth::Decision::Forward { auth } => auth,
     };
-    // The core remains authoritative for task grants and scoped work sessions.
+    // The core remains authoritative for assistant (`pag_`) task grants. Work/enforcement
+    // grants (`AuthKind::Grant`) and ordinary callers run the native predicate chain.
     if !state.scoped_work
-        && auth != auth::AuthKind::Task
+        && !matches!(auth, auth::AuthKind::Task)
         && req.method() == axum::http::Method::POST
         && let Some(name) = req.uri().path().strip_prefix("/v3/ops/")
         && let Some(op) = state.registry.get(name)
     {
-        let ctx = if crate::native::msg_ops::is_msg_caller_op(op.name) {
+        let mut ctx = if crate::native::msg_ops::is_msg_caller_op(op.name) {
             let human_session = auth == auth::AuthKind::Bearer
                 && header_value(req.headers(), "x-pacer-session").is_some_and(|session| {
                     session.len() == 64
@@ -148,6 +152,35 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
         } else {
             ctx
         };
+        if let auth::AuthKind::Grant(token) = &auth {
+            if token.starts_with("pet_") {
+                ctx.env
+                    .insert("PACER_ENFORCEMENT_TOKEN".into(), token.clone());
+            } else {
+                ctx.env.insert("PACER_WORK_GRANT".into(), token.clone());
+            }
+        }
+        // Grant callers: refuse ops outside the work-grant allow-list before any forward predicate.
+        if ctx.env.contains_key("PACER_WORK_GRANT")
+            || ctx.env.contains_key("PACER_ENFORCEMENT_TOKEN")
+        {
+            let allowed = pacer_work::WORK_GRANT_OPS.contains(&op.name)
+                || (op.name == "dispatch.enforcement.denied"
+                    && ctx.env.contains_key("PACER_ENFORCEMENT_TOKEN"));
+            if !allowed {
+                let is_executor = ctx.env.get("PACER_ROLE").map(String::as_str) == Some("executor");
+                let empty = serde_json::json!({});
+                return native_error(
+                    match pacer_work::authorize_work_operation(&ctx, op.name, &empty, is_executor) {
+                        Err(error) => error,
+                        Ok(()) => pacer_foundation::api::CoreError::new(
+                            pacer_foundation::api::Code::NotAllowed,
+                            "Operation is not allowed by this work grant",
+                        ),
+                    },
+                );
+            }
+        }
         let max = 256 * 1024;
         if header_value(req.headers(), "content-length")
             .and_then(|v| v.parse::<usize>().ok())
@@ -188,8 +221,6 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             || crate::native::status_residue_stays_forwarded(&ctx, op.name, &params)
             || (op.name == "repo.remove"
                 && crate::native::repo_remove_stays_forwarded(&ctx, &params))
-            || crate::native::project_messaging_stays_forwarded(&ctx, op.name, &params)
-            || crate::native::msg_stays_forwarded(op.name, &ctx)
             || crate::native::msg_answer_stays_forwarded(op.name, &ctx, &params)
             || crate::native::repo_registry_stays_forwarded(&ctx, op.name, &params)
             || crate::native::discovery_stays_forwarded(&ctx, op.name, &params)
@@ -338,8 +369,10 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
         }
         if crate::native::preview_ops::needs_dispatch_parts(op.name) {
             crate::native::msg_write_sync::trace(op.name, None);
-            let mut bridge = crate::native::dispatch_preview_sync::HttpBridge {
+            let mut bridge = crate::native::dispatch_preview::NativeParts {
                 target: state.core.target().await,
+                ctx: &ctx,
+                cache: &state.versions,
             };
             let result =
                 crate::native::preview_ops::dispatch_preview(&ctx, op.name, params, &mut bridge);
@@ -350,8 +383,9 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
         }
         if crate::native::enforcement_ops::needs_dispatch_parts(op.name) {
             crate::native::msg_write_sync::trace(op.name, None);
-            let mut bridge = crate::native::dispatch_enforcement_sync::HttpBridge {
-                target: state.core.target().await,
+            let mut bridge = crate::native::dispatch_enforcement_sync::NativeParts {
+                ctx: &ctx,
+                cache: &state.versions,
             };
             let result = match op.name {
                 "dispatch.enforcement" => {
@@ -790,7 +824,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
     }
     if !state.scoped_work
         && !state.forward_log_follow
-        && auth != auth::AuthKind::Task
+        && !matches!(auth, auth::AuthKind::Task)
         && req.uri().path().starts_with("/v3/tasks/")
         && req.uri().path().ends_with("/log")
         && req.uri().query().is_some_and(|query| {
@@ -822,7 +856,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
     let path = req.uri().path();
     if !state.scoped_work
         && !state.forward_events
-        && auth != auth::AuthKind::Task
+        && !matches!(auth, auth::AuthKind::Task)
         && (path == "/v3/events" || path == "/v2/events")
     {
         if req.method() != axum::http::Method::GET {
@@ -910,7 +944,9 @@ pub async fn run_serve(
     if !forward.is_empty() {
         eprintln!("pacer: PACER_FORWARD_OPS={forward}");
     }
-    let registry = service_registry(if scoped_work { "*" } else { forward });
+    // Scoped work grants no longer force a full-forward registry; grant refusals
+    // and allow-listed ops run natively (B2-1).
+    let registry = service_registry(forward);
     let forward_log_follow = forward.split(',').any(|name| {
         js_trim::js_trim(name) == "*" || js_trim::js_trim(name) == "http.task_log_follow"
     });
@@ -988,6 +1024,7 @@ pub async fn run_serve(
         plugins,
         forward_log_follow,
         forward_events,
+        versions: VersionCache::default(),
     });
     let app = Router::new()
         .fallback(any(handle))

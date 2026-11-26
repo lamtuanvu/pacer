@@ -1,6 +1,7 @@
 use crate::core_secrets::{self, CoreSecrets};
 use crate::native::{call_native, service_registry};
 use crate::stdio_plugins::{self, Done, Line, Ownership, PluginLink};
+use pacer_dispatch::VersionCache;
 use pacer_foundation::{
     Ctx,
     api::{Code, CoreError, Registry},
@@ -193,6 +194,7 @@ async fn forward_input<
     sync: (&str, &str, &mut tokio::sync::mpsc::UnboundedReceiver<Value>),
     core_build: &CoreBuild<'_>,
     plugins: &mut Plugins,
+    versions: &VersionCache,
 ) -> io::Result<()> {
     let mut line = Vec::new();
     let mut protocol = 2;
@@ -301,6 +303,46 @@ async fn forward_input<
             }
             continue;
         }
+        // Grant callers: refuse anything outside the allow-list before plugins,
+        // native handlers, or Core forward — including unknown methods and
+        // `_internal.*`. Front-door bridges write to Core directly and bypass this.
+        if protocol == 3
+            && valid
+            && native_id
+            && let Some(name) = method
+            && (ctx.env.contains_key("PACER_WORK_GRANT")
+                || ctx.env.contains_key("PACER_ENFORCEMENT_TOKEN"))
+        {
+            let allowed = pacer_work::WORK_GRANT_OPS.contains(&name)
+                || (name == "dispatch.enforcement.denied"
+                    && ctx.env.contains_key("PACER_ENFORCEMENT_TOKEN"));
+            if !allowed {
+                let request_ctx = ctx.at_now();
+                let params = request
+                    .as_ref()
+                    .and_then(|r| r.get("params").cloned())
+                    .unwrap_or_else(|| json!({}));
+                let is_executor =
+                    request_ctx.env.get("PACER_ROLE").map(String::as_str) == Some("executor");
+                let error = match pacer_work::authorize_work_operation(
+                    &request_ctx,
+                    name,
+                    &params,
+                    is_executor,
+                ) {
+                    Err(error) => error,
+                    Ok(()) => CoreError::new(
+                        Code::NotAllowed,
+                        "Operation is not allowed by this work grant",
+                    ),
+                };
+                if let Some(id) = request.as_ref().and_then(|r| r.get("id")) {
+                    crate::native::msg_write_sync::trace(name, Some(id));
+                    write_line(out, &rpc_line(id, Err(error))?).await?;
+                }
+                continue;
+            }
+        }
         // Plugin ops decode with the JavaScript-compatible codec, which also
         // reads lines serde refuses (lone surrogates, nesting past 128).
         if protocol == 3
@@ -331,60 +373,75 @@ async fn forward_input<
             && let Some(request) = request.as_ref()
         {
             let params = request.get("params").cloned().unwrap_or_else(|| json!({}));
+            let request_ctx = ctx.at_now();
+            // Grant callers: refuse ops outside the work-grant allow-list before any forward predicate.
+            if request_ctx.env.contains_key("PACER_WORK_GRANT")
+                || request_ctx.env.contains_key("PACER_ENFORCEMENT_TOKEN")
+            {
+                let allowed = pacer_work::WORK_GRANT_OPS.contains(&op.name)
+                    || (op.name == "dispatch.enforcement.denied"
+                        && request_ctx.env.contains_key("PACER_ENFORCEMENT_TOKEN"));
+                if !allowed {
+                    let is_executor =
+                        request_ctx.env.get("PACER_ROLE").map(String::as_str) == Some("executor");
+                    let error = match pacer_work::authorize_work_operation(
+                        &request_ctx,
+                        op.name,
+                        &params,
+                        is_executor,
+                    ) {
+                        Err(error) => error,
+                        Ok(()) => CoreError::new(
+                            Code::NotAllowed,
+                            "Operation is not allowed by this work grant",
+                        ),
+                    };
+                    crate::native::msg_write_sync::trace(op.name, request.get("id"));
+                    if let Some(id) = request.get("id") {
+                        write_line(out, &rpc_line(id, Err(error))?).await?;
+                    }
+                    continue;
+                }
+            }
             // Changed-planner installs and Orca backend readiness remain on the TypeScript path.
             if !(op.name == "config.set"
-                && crate::native::config_set_stays_forwarded(&ctx.at_now(), &params))
-                && !crate::native::status_residue_stays_forwarded(&ctx.at_now(), op.name, &params)
+                && crate::native::config_set_stays_forwarded(&request_ctx, &params))
+                && !crate::native::status_residue_stays_forwarded(&request_ctx, op.name, &params)
                 && !(op.name == "repo.remove"
-                    && crate::native::repo_remove_stays_forwarded(&ctx.at_now(), &params))
-                && !crate::native::project_messaging_stays_forwarded(
-                    &ctx.at_now(),
-                    op.name,
-                    &params,
-                )
-                && !crate::native::msg_stays_forwarded(op.name, ctx)
-                && !crate::native::msg_answer_stays_forwarded(op.name, ctx, &params)
-                && !crate::native::repo_registry_stays_forwarded(&ctx.at_now(), op.name, &params)
-                && !crate::native::discovery_stays_forwarded(&ctx.at_now(), op.name, &params)
+                    && crate::native::repo_remove_stays_forwarded(&request_ctx, &params))
+                && !crate::native::msg_answer_stays_forwarded(op.name, &request_ctx, &params)
+                && !crate::native::repo_registry_stays_forwarded(&request_ctx, op.name, &params)
+                && !crate::native::discovery_stays_forwarded(&request_ctx, op.name, &params)
                 && !crate::native::desktop_reconcile_stays_forwarded(op.name)
-                && !crate::native::assistant_stays_forwarded(&ctx.at_now(), op.name, &params)
+                && !crate::native::assistant_stays_forwarded(&request_ctx, op.name, &params)
                 && !crate::native::dependencies_waive_stays_forwarded(op.name, &params)
                 && !crate::native::insights_stays_forwarded(op.name, &params)
-                && !crate::native::planning_stays_forwarded(&ctx.at_now(), op.name, &params)
+                && !crate::native::planning_stays_forwarded(&request_ctx, op.name, &params)
                 && !crate::native::dispatch_lifecycle_stays_forwarded(
-                    &ctx.at_now(),
+                    &request_ctx,
                     op.name,
                     &params,
                 )
                 && !crate::native::job_strategy_setup_stays_forwarded(
-                    &ctx.at_now(),
+                    &request_ctx,
                     op.name,
                     &params,
                 )
-                && !crate::native::runner_attention_stays_forwarded(&ctx.at_now(), op.name, &params)
-                && !crate::native::service_agent_stays_forwarded(&ctx.at_now(), op.name, &params)
-                && !crate::native::account_stays_forwarded(&ctx.at_now(), op.name, &params)
-                && !crate::native::host_stays_forwarded(&ctx.at_now(), op.name, &params)
-                && !crate::native::strategy_settings_stays_forwarded(
-                    &ctx.at_now(),
-                    op.name,
-                    &params,
-                )
-                && !crate::native::dispatch_preview_stays_forwarded(&ctx.at_now(), op.name, &params)
+                && !crate::native::runner_attention_stays_forwarded(&request_ctx, op.name, &params)
+                && !crate::native::service_agent_stays_forwarded(&request_ctx, op.name, &params)
+                && !crate::native::account_stays_forwarded(&request_ctx, op.name, &params)
+                && !crate::native::host_stays_forwarded(&request_ctx, op.name, &params)
+                && !crate::native::strategy_settings_stays_forwarded(&request_ctx, op.name, &params)
+                && !crate::native::dispatch_preview_stays_forwarded(&request_ctx, op.name, &params)
                 && !crate::native::dispatch_enforcement_stays_forwarded(
-                    &ctx.at_now(),
+                    &request_ctx,
                     op.name,
                     &params,
                 )
-                && !crate::native::session_lifecycle_stays_forwarded(
-                    &ctx.at_now(),
-                    op.name,
-                    &params,
-                )
-                && !crate::native::client_stays_forwarded(&ctx.at_now(), op.name)
-                && !crate::native::terminal_stays_forwarded(&ctx.at_now(), op.name, &params)
+                && !crate::native::session_lifecycle_stays_forwarded(&request_ctx, op.name, &params)
+                && !crate::native::client_stays_forwarded(&request_ctx, op.name)
+                && !crate::native::terminal_stays_forwarded(&request_ctx, op.name, &params)
             {
-                let request_ctx = ctx.at_now();
                 if crate::native::task_delegation_ops::is_delegation_op(op.name) {
                     use crate::native::task_delegation_ops::{Admission, admit};
                     let result = match admit(&request_ctx, op.name, &params) {
@@ -532,11 +589,13 @@ async fn forward_input<
                 }
                 if crate::native::preview_ops::needs_dispatch_parts(op.name) {
                     crate::native::msg_write_sync::trace(op.name, request.get("id"));
-                    let mut bridge = crate::native::dispatch_preview_sync::StdioBridge {
+                    let mut bridge = crate::native::dispatch_preview::NativeStdioParts {
                         core: &mut core,
                         prefix: sync.0,
                         key: sync.1,
                         replies: &mut *sync.2,
+                        ctx: &request_ctx,
+                        cache: &versions,
                     };
                     let result = crate::native::preview_ops::dispatch_preview(
                         &request_ctx,
@@ -552,11 +611,9 @@ async fn forward_input<
                 }
                 if crate::native::enforcement_ops::needs_dispatch_parts(op.name) {
                     crate::native::msg_write_sync::trace(op.name, request.get("id"));
-                    let mut bridge = crate::native::dispatch_enforcement_sync::StdioBridge {
-                        core: &mut core,
-                        prefix: sync.0,
-                        key: sync.1,
-                        replies: &mut *sync.2,
+                    let mut bridge = crate::native::dispatch_enforcement_sync::NativeParts {
+                        ctx: &request_ctx,
+                        cache: &versions,
                     };
                     let result = match op.name {
                         "dispatch.enforcement" => {
@@ -1324,18 +1381,23 @@ async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i3
     if !forward.is_empty() {
         eprintln!("pacer: PACER_FORWARD_OPS={forward}");
     }
-    let registry = service_registry(if scoped_work { "*" } else { forward });
-    let forward_hello = scoped_work
-        || forward
-            .split(',')
-            .map(str::trim)
-            .any(|name| name == "*" || name == "hello");
+    // Scoped work grants no longer force a full-forward registry; grant refusals
+    // and allow-listed ops run natively (B2-1).
+    let registry = service_registry(forward);
+    // Scoped work no longer forces hello through Core; grant callers use the native
+    // hello so request replies stay ordered with natively answered ops (B2-1).
+    let forward_hello = forward
+        .split(',')
+        .map(str::trim)
+        .any(|name| name == "*" || name == "hello");
     let (program, prefix) = core
         .split_first()
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "empty core argv"))?;
     let sync_id = hex::encode(rand::random::<[u8; 32]>());
     let sync_key = hex::encode(rand::random::<[u8; 32]>());
     let (sync_tx, mut sync_rx) = tokio::sync::mpsc::unbounded_channel();
+    // Shared by every dispatch-parts call in this stdio session (Core's checkedVersions).
+    let versions = VersionCache::default();
     let core_build = CoreBuild {
         forward_hello,
         program,
@@ -1407,6 +1469,7 @@ async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i3
             (&sync_id, &sync_key, &mut sync_rx),
             &core_build,
             &mut plugins,
+            &versions,
         );
         let outgoing = forward_output(BufReader::new(output), &out, &sync_id, sync_tx, &link);
         tokio::pin!(incoming, outgoing);
