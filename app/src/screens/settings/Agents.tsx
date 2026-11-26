@@ -215,7 +215,7 @@ function AgentDetail({ executor, planner, position, count, settings, models, acc
   const blocked = executor.state === "blocked" || executor.eligibility?.reasons.some(reason => reason.code === "blocked");
   const signIn = readiness.reason.includes("Sign-in");
   // A problem the user can act on gets its own card; the reason is then stated there only (UI-15).
-  const attention = (readiness.tone === "bad" || readiness.tone === "warn") && (!!blocked || signIn);
+  const attention = readiness.tone === "bad" || readiness.tone === "warn";
   const account = accounts?.find(a => a.name === executor.account);
   // The agent's own usage record (ADR 0030), else its account's: one record, quoted through usageView.
   const summary = snapshot.accounts?.find(a => a.name === executor.account);
@@ -272,10 +272,10 @@ function AgentDetail({ executor, planner, position, count, settings, models, acc
       </div>
     </header>
     {dialogs.dialog}
-    {attention && <Card tone={readiness.tone === "bad" ? "bad" : "warn"}><strong>{readiness.label}</strong><span className="u3-muted">{readiness.reason}</span><div className="u3-actions">
+    {attention && <Card tone={readiness.tone === "bad" ? "bad" : "warn"}><strong>{readiness.label}</strong><span className="u3-muted">{readiness.reason}</span>{(blocked || signIn) && <div className="u3-actions">
       {blocked && <Button size="sm" disabled={!!action.unavailable || action.busy || disabled} onClick={() => void independent(async () => { await action.run("runner.unblock", { id: executor.id }); })}>Unblock {name}</Button>}
       {signIn && <span className="u3-muted">Fix sign-in under Account below.</span>}
-    </div></Card>}
+    </div>}</Card>}
     <div className="pc-agent-cards">
       <FactCard title="Usage">
         {usageStatus && <span><StatusPill status={usageStatus} /></span>}

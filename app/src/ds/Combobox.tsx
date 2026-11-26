@@ -97,7 +97,7 @@ export function Combobox({ label, options, onPick, placeholder, source, hint, em
           placeholder={placeholder} value={query} disabled={disabled}
           onFocus={() => setOpen(true)}
           onBlur={() => { setOpen(false); setActive(-1); }}
-          onInput={event => { setQuery(event.currentTarget.value); setOpen(true); setActive(event.currentTarget.value.trim() ? 0 : -1); }}
+          onInput={event => { setQuery(event.currentTarget.value); setOpen(true); setActive(-1); }}
           onKeyDown={event => {
             if (event.key === "Escape") {
               if (!open && !query) return;
