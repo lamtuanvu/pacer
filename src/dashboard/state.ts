@@ -39,7 +39,9 @@ export interface Act {
   subject?: string;
 }
 /** A consent question. `alt` offers a second answer, such as "Change only" beside "Change and connect". */
-export interface Confirm { title: string; body?: string[]; yes?: string; alt?: { key: string; label: string; act: Act } }
+export interface Confirm { title: string; body?: string[]; yes?: string; alt?: { key: string; label: string; act: Act };
+  /** Enter cancels; only `y` goes ahead. */
+  defaultNo?: boolean }
 /** A selectable row. `primary` is the region's one primary action (UI-14); `keys` are screen keys such as x, b, a. */
 export interface Item { id: string; primary?: Act; actions: Act[]; keys: Record<string, Act> }
 
@@ -69,7 +71,7 @@ export type Overlay =
   /** `scroll` is the first help row shown when the help is taller than the screen. */
   | { kind: "help"; scroll?: number }
   | { kind: "menu"; title: string; actions: Act[]; index: number }
-  | { kind: "confirm"; title: string; body: string[]; yes: string; act: Act; alt?: Confirm["alt"] }
+  | { kind: "confirm"; title: string; body: string[]; yes: string; act: Act; alt?: Confirm["alt"]; defaultNo?: boolean }
   | { kind: "prompt"; spec: PromptSpec; value: string; error?: string; submitting?: boolean }
   | {
     kind: "answer";
@@ -155,7 +157,7 @@ export function trigger(state: UiState, act: Act | undefined, confirmed = false)
   if (!act) return { state };
   if (!confirmed) {
     const confirm = guardConfirm(act);
-    if (confirm) return { state: { ...state, overlay: { kind: "confirm", title: confirm.title, body: confirm.body ?? [], yes: confirm.yes ?? act.label, act: { ...act, confirm }, ...(confirm.alt ? { alt: confirm.alt } : {}) } } };
+    if (confirm) return { state: { ...state, overlay: { kind: "confirm", title: confirm.title, body: confirm.body ?? [], yes: confirm.yes ?? act.label, act: { ...act, confirm }, ...(confirm.alt ? { alt: confirm.alt } : {}), ...(confirm.defaultNo ? { defaultNo: true } : {}) } } };
   }
   if (act.effect.type === "prompt") return { state: { ...state, overlay: { kind: "prompt", spec: act.effect.prompt, value: act.effect.prompt.value ?? "" } } };
   if (act.effect.type === "choose") return { state: { ...state, overlay: { kind: "menu", title: act.effect.title, actions: act.effect.options, index: 0 } } };
@@ -194,6 +196,7 @@ function overlayKey(state: UiState, overlay: Overlay, key: string, page: number)
       return { state: key === "?" || key === "escape" || key === "q" || key === "enter" ? close : state };
     }
     case "confirm":
+      if (key === "enter" && overlay.defaultNo) return { state: close };
       if (key === "y" || key === "Y" || key === "enter") {
         const { confirm: _, ...act } = overlay.act;
         return trigger(close, act, true);

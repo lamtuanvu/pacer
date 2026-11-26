@@ -20,7 +20,7 @@ import { submitGraph } from "../src/workflow/generate";
 import { advanceRuns } from "../src/workflow/tick";
 import { askQuestion } from "../src/workflow/questions";
 import { issueRunGrant } from "../src/workflow/run-grant";
-import { liveTurn, openWakeups } from "../src/workflow/wakeups";
+import { enqueueWakeup, liveTurn, openWakeups } from "../src/workflow/wakeups";
 import { deriveWorkflowAttention } from "../src/workflow/attention";
 import type { WorkflowDef } from "../src/workflow/schema";
 
@@ -410,6 +410,45 @@ test("the planner may ask about a fan-out step without naming a branch", async (
   await expect(askQuestion(w.grantCtx(run.id), { ...question, stepId: "review" })).resolves.toMatchObject({ stepId: "review", attempt: 1 });
 });
 
+test("the planner asks about a chosen workflow's failed step without naming the run", async () => {
+  const w = world();
+  w.install(plain);
+  const router = w.install({
+    id: "t/route", version: 1, entry: "pick",
+    steps: { pick: { type: "choose_workflow", from: ["t/plain"] }, done: { type: "end" } },
+    edges: [{ from: "pick", to: "done" }],
+  });
+  const run = await w.start(router);
+  await w.turn(run.id);
+  const child = await chooseWorkflow(w.ctx, { runId: run.id, stepId: "pick", workflow: "t/plain", reason: "r" }, w.spawn, w.deps);
+  w.finish(w.row(child.id, "work").taskId!, "failed");
+  await w.tick(1);
+  expect(w.row(child.id, "work").status).toBe("failed");
+  await w.turn(run.id);
+  const q = await askQuestion(w.grantCtx(run.id), { ...question, stepId: "work" });
+  expect(q).toMatchObject({ runId: child.id, stepId: "work", attempt: 1 });
+});
+
+test("an unnamed fan-out question binds after a branch retry", async () => {
+  const w = world();
+  const def = w.install({
+    id: "t/fan-retry", version: 1, entry: "review",
+    steps: {
+      review: { type: "fanout", branches: ["a", "b"], each: { type: "agent", kind: "research", prompt: "R" }, join: "all" },
+      done: { type: "end" },
+    },
+    edges: [{ from: "review", to: "done" }],
+  });
+  const run = await w.start(def);
+  updateStep(w.ctx, { runId: run.id, stepId: "review", attempt: 1, branch: "b" }, { status: "failed", error: "review rejected" });
+  await w.person("step.retry", { id: run.id, step: "review", expect_rev: getRun(w.ctx, run.id)!.rev });
+  updateRun(w.ctx, run.id, getRun(w.ctx, run.id)!.rev, {});
+  enqueueWakeup(w.ctx, { runId: run.id, cause: "message", ref: "m1", byPerson: true });
+  await w.turn(run.id);
+  await expect(askQuestion(w.grantCtx(run.id), { ...question, stepId: "review" }))
+    .resolves.toMatchObject({ runId: run.id, stepId: "review", attempt: 2 });
+});
+
 test("a paused run refuses a retry before anything changes", async () => {
   for (const by of ["person", "planner"] as const) {
     const w = world();
@@ -464,12 +503,17 @@ test("approval: auto with auto mode off asks the person, visibly", async () => {
   const [q] = openQs(w, run.id);
   expect(q).toMatchObject({ stepId: "plan", answerType: "approve_revise", answerer: "person", blocks: "step", status: "open" });
   expect(q!.text).toContain("build");
+  // Every client shows this text: plain words only, no command and no run id.
+  expect(q!.text).not.toMatch(/pacer |--json|run_[a-z2-7]{10}/);
+  const [shownItem] = deriveWorkflowAttention(w.ctx);
+  expect(`${shownItem!.title} ${shownItem!.actions[0]!.confirm}`).not.toMatch(/pacer |--json|run_[a-z2-7]{10}/);
   expect(openQs(w, run.id)).toHaveLength(1);
   expect(await w.person("question.list", {})).toMatchObject([{ id: q!.id }]);
   expect(deriveWorkflowAttention(w.ctx).map(i => i.id)).toEqual([`question:${q!.id}`]);
   const shown = await runCmd(["show", run.id], w.ctx, { spawnRunner: w.spawn });
   expect(shown.out).toContain(q!.id);
   expect(shown.out).toContain(`pacer answer ${q!.id}`);
+  expect(shown.out).toContain(`full plan: pacer run show ${run.id} --json`);
 });
 
 test("answering the plan question starts the child run once", async () => {

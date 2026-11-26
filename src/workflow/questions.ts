@@ -190,14 +190,19 @@ function requireRunGrant(ctx: Ctx) {
 }
 
 /** The run of the step the orchestrator asks about when it names none: the one whose
- *  step holds the turn's task, else the only live one with that step, else the root. */
+ *  step holds the turn's task, else the only run where that step is open or failed. */
 function askingRunId(ctx: Ctx, rootId: string, stepId: string | undefined, orchTask: string | undefined): string {
-  const live = stepsOfRootTree(ctx, rootId)
-    .filter(s => s.stepId === stepId && (s.status === "running" || s.status === "waiting"));
-  const own = live.find(s => s.taskId === orchTask);
+  const rows = stepsOfRootTree(ctx, rootId).filter(s => s.stepId === stepId);
+  const open = rows.filter(s => s.status === "running" || s.status === "waiting");
+  const own = open.find(s => s.taskId === orchTask);
   if (own) return own.runId;
-  const runs = new Set(live.map(s => s.runId));
-  return runs.size === 1 ? [...runs][0]! : rootId;
+  // The planner asks about what is open, else what failed, else what ran: the first of
+  // these held by exactly one run names it.
+  for (const among of [open, rows.filter(s => s.status === "failed"), rows]) {
+    const runs = new Set(among.map(s => s.runId));
+    if (runs.size > 0) return runs.size === 1 ? [...runs][0]! : rootId;
+  }
+  return rootId;
 }
 
 /** Ask a structured question from an executor step or the orchestrator (run grant). */
@@ -359,8 +364,8 @@ export function raiseGenerateApprovalQuestion(
   const text = [
     `Approve the plan for step "${step.stepId}" (version ${version}, ${lines.length} ${lines.length === 1 ? "step" : "steps"})?`,
     ...(typeof summary === "string" ? [summary] : []),
-    lines.join(", "),
-    `Full graph: pacer run show ${run.id} --json. Revise with a note to have it rewritten`,
+    `${lines.join(", ")}.`,
+    "Revise with a note to have it rewritten",
   ].join(" ");
   const root = getRun(ctx, rootRunId(ctx, run.id)) ?? run;
   const q = insertQuestion(ctx, {

@@ -29,14 +29,17 @@ interface OpenQuestion { id: string; stepId: string; text: string; answerer: str
 
 /** What a live run waits on that can be acted on from here: open questions, and
  *  failed steps with no later attempt. */
-function nextActions(run: RunLike, steps: StepLike[], questions: OpenQuestion[]): string[] {
+function nextActions(
+  run: RunLike, steps: StepLike[], questions: OpenQuestion[], plan?: { stepId: string },
+): string[] {
   if (!["running", "waiting"].includes(run.status)) return [];
   const lines: string[] = [];
   for (const q of questions) {
     const who = q.answerer === "person" ? "waits on you" : "waits on the planner";
     const text = q.text.replace(/\s+/g, " ");
     lines.push(`question ${q.id}  step ${q.stepId}  ${who}`, `  ${text}`,
-      `  answer: pacer answer ${q.id} ${q.answerType === "approve_revise" ? "approve|revise [--note <text>]" : '"<answer>"'}`);
+      `  answer: pacer answer ${q.id} ${q.answerType === "approve_revise" ? "approve|revise [--note <text>]" : '"<answer>"'}`,
+      ...(plan?.stepId === q.stepId ? [`  full plan: pacer run show ${run.id} --json`] : []));
   }
   const failed = new Set(steps.filter(s => s.status === "failed"
     && !steps.some(later => later.stepId === s.stepId && later.branch === s.branch && later.attempt > s.attempt))
@@ -123,10 +126,12 @@ export async function runCmd(args: string[], ctx: Ctx, deps: OpDeps = {}): Promi
     if (sub === "show") {
       const { pos, flags } = commandArgs(rest, [], ["json"]);
       if (pos.length !== 1) throw Error(USAGE);
-      const got = await call(ctx, "run.get", { id: pos[0] }, deps) as { run: RunLike; steps: StepLike[] };
+      const got = await call(ctx, "run.get", { id: pos[0] }, deps) as {
+        run: RunLike; steps: StepLike[]; pendingApproval?: { stepId: string };
+      };
       if (json) return { code: 0, out: JSON.stringify(got, null, 2), err: "" };
       const questions = await call(ctx, "question.list", { run: pos[0], status: "open" }, deps) as OpenQuestion[];
-      return { code: 0, out: [renderRun(got.run, got.steps), ...nextActions(got.run, got.steps, questions)].join("\n"), err: "" };
+      return { code: 0, out: [renderRun(got.run, got.steps), ...nextActions(got.run, got.steps, questions, got.pendingApproval)].join("\n"), err: "" };
     }
     if (sub === "answer" || sub === "stop") {
       const { pos } = commandArgs(rest, [], ["json"]);

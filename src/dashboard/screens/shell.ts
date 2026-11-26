@@ -232,7 +232,7 @@ function overlayLines(input: FrameInput, overlay: Overlay, view: ScreenView, wid
       ...overlay.body.flatMap(text => wrap(text, w - 4).map(line => [span(line, { fg: "secondary" })])), [],
       // Enter confirms and Esc cancels for every confirm (same as y/n); document both so the hint matches keys.
       // Use glyph() so plain/ASCII themes show "Enter", not a bare "#" from ascii transliteration.
-      [span(`y/${glyph(theme, "⏎")}`, { bold: true }), span(` ${overlay.yes}`), ...(overlay.alt ? [span(" · "), span(overlay.alt.key, { bold: true }), span(` ${overlay.alt.label}`)] : []), span(" · "), span("n/Esc", { bold: true }), span(" Cancel")],
+      [span(overlay.defaultNo ? "y" : `y/${glyph(theme, "⏎")}`, { bold: true }), span(` ${overlay.yes}`), ...(overlay.alt ? [span(" · "), span(overlay.alt.key, { bold: true }), span(` ${overlay.alt.label}`)] : []), span(" · "), span(overlay.defaultNo ? `n/${glyph(theme, "⏎")}/Esc` : "n/Esc", { bold: true }), span(" Cancel")],
     ], w);
     case "menu": return box(theme, overlay.title, [...overlay.actions.map((a, i): Line => [span(i === overlay.index ? `${glyph(theme, "›")} ` : "  ", { fg: "focus", bold: true }), span(`${i + 1}`, { bold: true }), span(` ${a.label}`, a.danger ? { fg: "bad" } : {})]), [], [span("1-9 or ⏎ choose · Esc cancel", { fg: "muted" })]], w);
     case "prompt": {
@@ -356,10 +356,10 @@ function confirmKeyBar(
   const { theme } = input;
   const enter = glyph(theme, "⏎");
   const groups: Line[] = [
-    [span(`y/${enter}`, { bold: true }), span(` ${overlay.yes}`, { fg: "secondary" })],
+    [span(overlay.defaultNo ? "y" : `y/${enter}`, { bold: true }), span(` ${overlay.yes}`, { fg: "secondary" })],
   ];
   if (overlay.alt) groups.push([span(overlay.alt.key, { bold: true }), span(` ${overlay.alt.label}`, { fg: "secondary" })]);
-  groups.push([span("n/Esc", { bold: true }), span(" Cancel", { fg: "secondary" })]);
+  groups.push([span(overlay.defaultNo ? `n/${enter}/Esc` : "n/Esc", { bold: true }), span(" Cancel", { fg: "secondary" })]);
   const help: Line = [span("?", { bold: true }), span(" help", { fg: "secondary" })];
   const version = span(`pacer ${input.version}`, { fg: "muted" });
   const join = (list: Line[]) => list.flatMap((g, i) => i ? [span("  "), ...g] : g);

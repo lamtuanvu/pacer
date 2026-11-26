@@ -16,6 +16,10 @@ import type { ClientSnapshot } from "../src/view-model/snapshot";
 import type { ApiClient } from "../src/api/client";
 import { validateQuestionAnswer } from "../src/workflow/question-schema";
 import fixture from "./fixtures/ui/snapshot.json";
+import { serviceAct } from "../src/dashboard/screens/common";
+import { renderDashboard } from "../src/dashboard/render";
+
+const snapshot = () => structuredClone(fixture) as unknown as ClientSnapshot;
 
 const runsCtx = (items: Item[]): KeyContext => ({
   items, tabs: ["runs"] as ScreenId[], page: 10, wide: true, hasDetail: false, repos: [], supports: () => true,
@@ -675,5 +679,28 @@ describe("approvals and human steps take an explicit choice", () => {
   }
   test("an ordinary single choice keeps its first option ready", () => {
     expect(formSpecForQuestion({ ...base, answerType: "single", askerKind: "executor", options: [{ value: "a" }] }).explicit).toBeUndefined();
+  });
+});
+
+describe("confirming a one-click human-step answer", () => {
+  const action = { label: "Approve", op: "question.answer", params: { id: "q_1", expect_rev: 1, answer: "approve" }, confirm: "Answer \"approve\" to: Publish?" };
+  const ctx = { s: snapshot(), supports: () => true } as unknown as Parameters<typeof serviceAct>[0];
+  const open = () => trigger(initialState("home"), serviceAct(ctx, action)).state;
+  test("Enter cancels; only y answers", () => {
+    expect(open().overlay).toMatchObject({ kind: "confirm", defaultNo: true });
+    const entered = reduceKey(open(), "enter", runsCtx([]));
+    expect(entered.effect).toBeUndefined();
+    expect(entered.state.overlay).toBeNull();
+    expect(reduceKey(open(), "y", runsCtx([])).effect).toMatchObject({ type: "action", action: { op: "question.answer" } });
+  });
+  test("the dialog says that Enter cancels", () => {
+    const text = renderDashboard(snapshot(), 100, 30, snapshot().at, { theme: PLAIN_THEME, state: open(), version: "0.0.0-test", ops: [] });
+    expect(text).toContain("n/⏎/Esc Cancel");
+    expect(text).not.toContain("y/⏎");
+  });
+  test("other confirmations keep Enter as yes", () => {
+    const stop = serviceAct(ctx, { label: "Stop run", op: "run.stop", params: { id: "run_aaaaaaaaaa", expect_rev: 1 }, confirm: "Stop this run?" });
+    const state = trigger(initialState("home"), stop).state;
+    expect(reduceKey(state, "enter", runsCtx([])).effect).toBeDefined();
   });
 });
