@@ -490,8 +490,9 @@ export const OPS: Record<string, OpDef> = {
       const repoRef=await resolvePolicyRepoInput(ctx,p.repo);
       const input=parseDelegateBrief({...p,repo:repoRef.path},repoRef.path);
       await requireRepoDirectory(input.brief.repo);
-      const source=input.source ?? (/^(app|desktop|orca|tui|tray)/i.test(deps.client??"") ? "ui" : "planner");
       const participant=callerParticipant(ctx, deps).id;
+      // A person in the app or TUI is "human" even when the request names no client.
+      const source=input.source ?? (participant === "human" || /^(app|desktop|orca|tui|tray)/i.test(deps.client??"") ? "ui" : "planner");
       // This handler runs in the service over HTTP, so ctx.env is not the caller's: record no reach.
       const task = await (deps.delegate ?? core.tasks.delegate)(ctx, {...input, repoRef, repoValidated:true, client: deps.client, source, origin: participant}, deps.spawnRunner ?? spawnRunner);
       // The v1 notifier still uses this marker for short tasks started in a UI.

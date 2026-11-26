@@ -30,6 +30,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 - The desktop menu-bar indicator no longer shows an update failure when a check was only interrupted or unavailable, keeps an available update visible after a failed re-check, and reads "Not checked yet" like the app.
 - Keep sessions you start through pacer open until you end them: idle checks no longer stop them, an agent's done report no longer closes the terminal, and ending the session keeps the reported outcome for review.
+- Label tasks a person starts in the app or TUI as user-started even when the request names no client, so a Diagnostics "Fix with agent" task no longer shows as started by the planner.
 
 ## [0.18.4] - 2026-11-25
 
