@@ -1,5 +1,6 @@
 #![allow(clippy::unwrap_used)]
 use super::*;
+use serde_json::json;
 use std::collections::HashMap;
 
 const ID: &str = "t-20261110-000000-abcd";
@@ -7,13 +8,31 @@ const NOW: f64 = 1_000_000.0;
 
 #[derive(Default)]
 struct Recorder {
-    calls: Vec<Value>,
+    calls: std::sync::Mutex<Vec<Value>>,
 }
 
-impl Bridge for Recorder {
-    fn call(&mut self, request: Value) -> OpFuture<'_> {
-        self.calls.push(request.clone());
+impl SendEffects for Recorder {
+    fn send<'a>(
+        &'a self,
+        _: &'a Ctx,
+        id: &'a str,
+        text: &'a str,
+        by: &'a str,
+        force: bool,
+        expect_rev: Option<f64>,
+    ) -> OpFuture<'a> {
+        let mut request = json!({"kind": "send", "id": id, "text": text, "force": force, "by": by});
+        if let Some(expect_rev) = expect_rev {
+            request["expectRev"] = json!(expect_rev as u64);
+        }
+        self.calls.lock().unwrap().push(request.clone());
         Box::pin(async move { Ok(json!({"id": request["id"], "delivered": true})) })
+    }
+}
+
+impl Recorder {
+    fn calls(&self) -> Vec<Value> {
+        self.calls.lock().unwrap().clone()
     }
 }
 
@@ -43,7 +62,7 @@ async fn send(
     ctx: &Ctx,
     params: Value,
     by: &str,
-    bridge: &mut Recorder,
+    bridge: &Recorder,
 ) -> Result<Value, CoreError> {
     task_send(ctx, params, by.to_owned(), bridge).await
 }
@@ -138,12 +157,12 @@ async fn record_refusals_never_reach_core() {
     let dir = tempfile::tempdir().unwrap();
     let ctx = ctx(&dir, &[]);
     seed(&ctx, json!({}));
-    let mut bridge = Recorder::default();
+    let bridge = Recorder::default();
     let error = send(
         &ctx,
         json!({"id": "t-20261110-000000-ffff", "text": "hi"}),
         "me",
-        &mut bridge,
+        &bridge,
     )
     .await
     .unwrap_err();
@@ -155,12 +174,12 @@ async fn record_refusals_never_reach_core() {
         &ctx,
         json!({"id": "../escape", "text": "hi"}),
         "me",
-        &mut bridge,
+        &bridge,
     )
     .await
     .unwrap_err();
     assert_eq!(error.code, Code::UnknownTask);
-    let error = send(&ctx, json!({"id": ID, "text": "   "}), "me", &mut bridge)
+    let error = send(&ctx, json!({"id": ID, "text": "   "}), "me", &bridge)
         .await
         .unwrap_err();
     assert_eq!(
@@ -171,7 +190,7 @@ async fn record_refusals_never_reach_core() {
         &ctx,
         json!({"id": ID, "text": "😀".repeat(2001)}),
         "me",
-        &mut bridge,
+        &bridge,
     )
     .await
     .unwrap_err();
@@ -180,7 +199,7 @@ async fn record_refusals_never_reach_core() {
         &ctx,
         json!({"id": ID, "text": "hi", "expect_rev": 4}),
         "me",
-        &mut bridge,
+        &bridge,
     )
     .await
     .unwrap_err();
@@ -196,15 +215,15 @@ async fn record_refusals_never_reach_core() {
             .map(|t| t["id"].clone()),
         Some(json!(ID))
     );
-    assert!(bridge.calls.is_empty());
+    assert!(bridge.calls().is_empty());
 }
 
 #[tokio::test]
 async fn executors_are_refused_before_the_task_is_read() {
     let dir = tempfile::tempdir().unwrap();
     let ctx = ctx(&dir, &[("PACER_ROLE", "executor")]);
-    let mut bridge = Recorder::default();
-    let error = send(&ctx, json!({"id": ID, "text": "hi"}), "me", &mut bridge)
+    let bridge = Recorder::default();
+    let error = send(&ctx, json!({"id": ID, "text": "hi"}), "me", &bridge)
         .await
         .unwrap_err();
     assert_eq!(
@@ -214,7 +233,7 @@ async fn executors_are_refused_before_the_task_is_read() {
             "executors cannot use pacer send; use pacer ask"
         )
     );
-    assert!(bridge.calls.is_empty());
+    assert!(bridge.calls().is_empty());
 }
 
 #[tokio::test]
@@ -236,12 +255,12 @@ async fn a_waiting_or_settled_lane_is_a_conflict() {
         let dir = tempfile::tempdir().unwrap();
         let ctx = ctx(&dir, &[]);
         seed(&ctx, over);
-        let mut bridge = Recorder::default();
-        let error = send(&ctx, json!({"id": ID, "text": "hi"}), "me", &mut bridge)
+        let bridge = Recorder::default();
+        let error = send(&ctx, json!({"id": ID, "text": "hi"}), "me", &bridge)
             .await
             .unwrap_err();
         assert_eq!((error.code, error.message), (Code::Conflict, message));
-        assert!(bridge.calls.is_empty());
+        assert!(bridge.calls().is_empty());
     }
 }
 
@@ -253,11 +272,11 @@ async fn an_answered_question_does_not_block_a_send() {
         &ctx,
         json!({"question": {"text": "A or B?", "at": 1, "answer": "B"}}),
     );
-    let mut bridge = Recorder::default();
-    send(&ctx, json!({"id": ID, "text": "hi"}), "me", &mut bridge)
+    let bridge = Recorder::default();
+    send(&ctx, json!({"id": ID, "text": "hi"}), "me", &bridge)
         .await
         .unwrap();
-    assert_eq!(bridge.calls.len(), 1);
+    assert_eq!(bridge.calls().len(), 1);
 }
 
 #[tokio::test]
@@ -265,18 +284,18 @@ async fn a_free_lane_forwards_the_send_with_the_caller() {
     let dir = tempfile::tempdir().unwrap();
     let ctx = ctx(&dir, &[]);
     seed(&ctx, json!({"driving": {"by": "me", "at": NOW - 5.0}}));
-    let mut bridge = Recorder::default();
+    let bridge = Recorder::default();
     let result = send(
         &ctx,
         json!({"id": ID, "text": "go", "expect_rev": 3}),
         "me",
-        &mut bridge,
+        &bridge,
     )
     .await
     .unwrap();
     assert_eq!(result, json!({"id": ID, "delivered": true}));
     assert_eq!(
-        bridge.calls,
+        bridge.calls(),
         [
             json!({"kind": "send", "id": ID, "text": "go", "force": false, "by": "me", "expectRev": 3})
         ]
@@ -292,17 +311,17 @@ async fn another_callers_lease_is_left_to_cores_locked_check() {
         json!({"driving": {"by": "operator-a", "at": NOW - 12.5}}),
     );
     for force in [false, true] {
-        let mut bridge = Recorder::default();
+        let bridge = Recorder::default();
         send(
             &ctx,
             json!({"id": ID, "text": "hi", "force": force}),
             "operator-b",
-            &mut bridge,
+            &bridge,
         )
         .await
         .unwrap();
         assert_eq!(
-            bridge.calls,
+            bridge.calls(),
             [json!({"kind": "send", "id": ID, "text": "hi", "force": force, "by": "operator-b"})]
         );
     }
@@ -318,8 +337,8 @@ async fn enforcement_identities_are_refused_before_the_params_are_read() {
         json!({"id": "", "text": ""}),
         json!([]),
     ] {
-        let mut bridge = Recorder::default();
-        let error = send(&enforced, params, "me", &mut bridge)
+        let bridge = Recorder::default();
+        let error = send(&enforced, params, "me", &bridge)
             .await
             .unwrap_err();
         assert_eq!(
@@ -329,14 +348,14 @@ async fn enforcement_identities_are_refused_before_the_params_are_read() {
                 "Enforcement identity only reports a native child denial"
             )
         );
-        assert!(bridge.calls.is_empty());
+        assert!(bridge.calls().is_empty());
     }
     let empty = ctx(&dir, &[("PACER_ENFORCEMENT_TOKEN", "")]);
-    let mut bridge = Recorder::default();
-    send(&empty, json!({"id": ID, "text": "hi"}), "me", &mut bridge)
+    let bridge = Recorder::default();
+    send(&empty, json!({"id": ID, "text": "hi"}), "me", &bridge)
         .await
         .unwrap();
-    assert_eq!(bridge.calls.len(), 1);
+    assert_eq!(bridge.calls().len(), 1);
 }
 
 #[tokio::test]
@@ -363,10 +382,10 @@ async fn record_refusals_are_decided_under_the_shared_task_lock() {
         std::thread::sleep(std::time::Duration::from_millis(200));
         go_tx.send(()).unwrap();
     });
-    let mut bridge = Recorder::default();
-    send(&ctx, json!({"id": ID, "text": "hi"}), "me", &mut bridge)
+    let bridge = Recorder::default();
+    send(&ctx, json!({"id": ID, "text": "hi"}), "me", &bridge)
         .await
         .unwrap();
     writer.join().unwrap();
-    assert_eq!(bridge.calls[0]["kind"], "send");
+    assert_eq!(bridge.calls()[0]["kind"], "send");
 }

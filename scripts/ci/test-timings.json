@@ -1106,7 +1106,6 @@
  "test/task-resolution.test.ts": 2.78,
  "test/task-rev.test.ts": 0.53,
  "test/task-review-request.test.ts": 0.08,
- "test/task-send-bridge-access.test.ts": 0.04,
  "test/task-states.test.ts": 0.01,
  "test/task-supervision.test.ts": 0.04,
  "test/task-wait-settled-parity.test.ts": 2.43,

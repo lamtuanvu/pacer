@@ -1561,6 +1561,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-delegation"
+version = "0.0.0"
+dependencies = [
+ "pacer-config",
+ "pacer-dispatch",
+ "pacer-foundation",
+ "pacer-js-json",
+ "pacer-lifecycle",
+ "pacer-models",
+ "pacer-plugin-host",
+ "pacer-read-model",
+ "pacer-repos",
+ "pacer-sessions",
+ "pacer-store",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "pacer-desktop-protocol"
 version = "0.0.0"
 dependencies = [
@@ -2060,6 +2082,7 @@ dependencies = [
  "pacer-config",
  "pacer-config-ops",
  "pacer-core-bridge",
+ "pacer-delegation",
  "pacer-discovery-ops",
  "pacer-dispatch-ops",
  "pacer-engine",
@@ -2109,6 +2132,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
+ "tokio",
 ]
 
 [[package]]
@@ -2143,6 +2167,7 @@ dependencies = [
  "chrono-tz",
  "pacer-config",
  "pacer-config-ops",
+ "pacer-delegation",
  "pacer-dispatch-ops",
  "pacer-engine",
  "pacer-foundation",

@@ -69,6 +69,13 @@ fn stdio_env(
     strip(core)
 }
 
+/// At start-up, before any Core child is considered, record the front door's
+/// own working directory and environment (minus the consumed keys) so model
+/// discovery can run even when no Core child exists.
+pub(crate) fn record_startup() {
+    record(std::env::vars_os().collect());
+}
+
 pub(crate) fn record_serve(env: &HashMap<String, String>) {
     record(serve_env(env));
 }

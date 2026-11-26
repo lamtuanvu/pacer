@@ -18,6 +18,7 @@ pacer-engine = { path = "../engine" }
 pacer-repos = { path = "../repos" }
 pacer-store = { path = "../store" }
 pacer-lifecycle = { path = "../lifecycle" }
+pacer-delegation = { path = "../delegation" }
 pacer-read-model = { path = "../read-model" }
 pacer-sessions = { path = "../sessions" }
 chrono-tz = { version = "0.10.4", default-features = false, features = ["std"] }

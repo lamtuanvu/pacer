@@ -1,12 +1,16 @@
 import { expect, test } from "bun:test";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
 import { join } from "node:path";
 import { callOp } from "../src/api/ops";
 import { CoreError } from "../src/core/errors";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
 import type { TaskRecord } from "../src/tasks/types";
 import type { Ctx } from "../src/types";
-import { closedPort, fakeCtx, pinnedPort } from "./helpers";
+import { closedPort, fakeCtx, pinnedPort, tmpDir } from "./helpers";
+import { FrameType, wire } from "../src/session/framing";
+import { ViewerHub } from "../src/session/viewers";
+import { killTree } from "../src/exec/process";
 
 const front = process.env.PACER_TEST_NATIVE_FRONT_DOOR;
 const core = JSON.stringify([process.execPath, join(import.meta.dir, "../src/cli.ts")]);
@@ -131,7 +135,7 @@ test.skipIf(!front)("executor and enforcement identities are refused as TypeScri
   expect(readTask(ctx, running)).toEqual(before);
 }, 60000);
 
-test.skipIf(!front)("task.ask record refusals match, and a question that can be recorded runs in Core", async () => {
+test.skipIf(!front)("task.ask record refusals match, and a question is recorded natively", async () => {
   const { ctx, make } = seeded();
   const asked = make("asked", t => { t.state = "running"; t.question = { text: "A or B?", at: 1 }; });
   const settled = make("settled", t => { t.state = "done"; });
@@ -155,30 +159,46 @@ test.skipIf(!front)("task.ask record refusals match, and a question that can be 
   const home = clone(ctx.home);
   try {
     const result = await stdio(home, [["task.ask", { id: running, text: "A or B?" }]], false, as(running));
-    expect(result.native).toEqual([]);
+    expect(result.native).toEqual([2]);
     expect(JSON.parse(result.replies[0]!).result).toMatchObject({ id: running, question: { text: "A or B?" } });
   } finally { rmSync(home, { recursive: true, force: true }); }
 }, 90000);
 
-test.skipIf(!front)("ids that cannot name a task are answered natively; well-formed ids and admitted requests reach Core", async () => {
+test.skipIf(!front)("ids that cannot name a task and admitted retries are answered natively", async () => {
   const { ctx } = seeded();
   const refused: Case[] = [
     ["task.retry", { id: "nope" }], ["task.answer", { id: "nope", text: "a" }],
     ["task.answer", { id: MISSING, text: "😀".repeat(1001) }],
     ["task.retry_all", { ids: ["b", "a", "b"] }],
+    ["task.retry", { id: MISSING }], ["task.answer", { id: MISSING, text: "a" }],
+    ["task.retry_all", { ids: ["nope", MISSING] }],
   ];
   const result = await same(ctx.home, refused);
   expect(result.native).toEqual(all(refused));
   expect(JSON.parse(result.replies[3]!).result).toEqual({ retried: [], skipped: [{ id: "b", reason: "unknown task b" }, { id: "a", reason: "unknown task a" }] });
 
   const routed: Case[] = [
-    ["task.retry", { id: MISSING }], ["task.answer", { id: MISSING, text: "a" }], ["task.retry_all", { ids: ["nope", MISSING] }],
-    ["task.delegate", { goal: "g", repo: join(ctx.home, "missing-repo") }],
-    ["task.delegate", { goal: "", repo: "", base: "not a ref.." }], ["task.delegate", { goal: "", repo: "", messaging: 1 }],
-    ["task.delegate", { goal: "g", repo: "/r", timeout_min: 1.5, kind: "x" }], ["task.retry", { id: "", expect_rev: 1.5 }],
+    ["task.retry", { id: "", expect_rev: 1.5 }],
     ["doctor.fix.delegate", { check: "No such check", scope: "investigate" }],
   ];
   expect((await same(ctx.home, routed)).native).toEqual([]);
+
+  // `task.delegate` no longer reaches Core: validation, base/messaging and the
+  // repository directory are all answered natively.
+  const delegated: Case[] = [
+    ["task.delegate", { goal: "g", repo: join(ctx.home, "missing-repo") }],
+    ["task.delegate", { goal: "", repo: "", base: "not a ref.." }], ["task.delegate", { goal: "", repo: "", messaging: 1 }],
+    ["task.delegate", { goal: "g", repo: "/r", timeout_min: 1.5, kind: "x" }],
+    ["task.delegate", { goal: "g", repo: "/tmp", base: "" }],
+    ["task.delegate", { goal: "g", repo: "/tmp", base: "x".repeat(5000) }],
+    ["task.delegate", { goal: "g", repo: "/tmp", messaging: { max_turns: 0 } }],
+    ["task.delegate", { goal: "g", repo: "/tmp", messaging: { liveness: { interval_s: 1 } } }],
+    ["task.delegate", { goal: "g", repo: "/tmp", messaging: { unexpected: 1 } }],
+    ["task.delegate", { goal: "g", repo: "/tmp", messaging: { rules: [{}] } }],
+  ];
+  const admitted = await same(ctx.home, delegated);
+  expect(admitted.native).toEqual(all(delegated));
+  for (const reply of admitted.replies) expect(errorOf(reply).data.code).toBe("invalid_input");
 }, 120000);
 
 async function serve(home: string, forward: boolean) {
@@ -219,7 +239,7 @@ test.skipIf(!front)("HTTP replies match forced forwarding, including bodies serd
     { op: "doctor.fix.delegate", body: '{"check":"","scope":"x"}', native: true },
     { op: "task.retry", body: `{"id":"${MISSING}"}` },
     { op: "task.answer", body: `{"id":"${MISSING}","text":"a"}` },
-    { op: "task.delegate", body: '{"goal":"","repo":"","timeout_min":1.5}' },
+    { op: "task.delegate", body: '{"goal":"","repo":"","timeout_min":1.5}', native: true },
     { op: "task.answer", body: String.raw`{"id":"nope","text":"\ud800"}` },
     { op: "task.retry", body: '{"id":"nope","expect_rev":1e400}' },
     { op: "task.retry_all", body: "{" },
@@ -240,3 +260,171 @@ test.skipIf(!front)("HTTP replies match forced forwarding, including bodies serd
   expect(markers(native.stderr)).toEqual(cases.filter(c => c.native).map(c => `native ${c.op}`));
   expect(markers(forwarded.stderr)).toEqual([]);
 }, 120000);
+
+// Native task.delegate parity. Task ids come from the service clock and the task JSON
+// names a cloned home, so replies and stored records are normalized before comparison.
+const DELEGATE_STRATEGY = "planner: claude-code\nproviders:\n  claude-code: {}\n  codex: {}\nexecution:\n  launch_mode: headless\n";
+
+function delegateHome() {
+  const home = realpathSync(mkdtempSync("/tmp/ptd-"));
+  mkdirSync(join(home, ".pacer"), { mode: 0o700 });
+  mkdirSync(join(home, ".pacer", "state"), { recursive: true, mode: 0o700 });
+  writeFileSync(join(home, ".pacer", "strategy.yaml"), DELEGATE_STRATEGY);
+  const bin = join(home, "bin");
+  mkdirSync(bin);
+  writeFileSync(join(bin, "codex"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  return { home, bin };
+}
+
+function delegateNormalizer(home: string) {
+  const ids = new Map<string, string>();
+  return (text: string) => text
+    .replaceAll(home, "<home>")
+    .replace(/t-\d{8}-\d{6}-[0-9a-f]{4}/g, id =>
+      ids.get(id) ?? (ids.set(id, `t#${ids.size}`), `t#${ids.size - 1}`))
+    .replace(/"(createdAt|updatedAt|startedAt|endedAt|at|since)":\d+(?:\.\d+)?(?=[,}])/g, '"$1":"<time>"');
+}
+
+function taskJson(home: string, normalize: (text: string) => string) {
+  const dir = join(home, ".pacer", "tasks");
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir).filter(name => name.endsWith(".json")).sort().map(name => normalize(readFileSync(join(dir, name), "utf8")));
+}
+
+async function delegateSame(cases: Case[], extra: Record<string, string> = {}) {
+  const { home, bin } = delegateHome();
+  const [nativeHome, forwardedHome] = [clone(home), clone(home)];
+  const env = { ...extra, PATH: `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}` };
+  try {
+    const native = await stdio(nativeHome, cases, false, env);
+    const forwarded = await stdio(forwardedHome, cases, true, env);
+    expect(forwarded.native).toEqual([]);
+    const [normNative, normForwarded] = [delegateNormalizer(nativeHome), delegateNormalizer(forwardedHome)];
+    native.replies.forEach((reply, index) => expect(normNative(reply), `${cases[index]![0]} ${JSON.stringify(cases[index]![1])}`).toBe(normForwarded(forwarded.replies[index]!)));
+    // Persisted records are compared only when no task was created; a real
+    // executor's live state is CT-11 evidence, not a byte-for-byte parity fixture.
+    if (native.replies.every(reply => "error" in JSON.parse(reply))) {
+      expect(taskJson(nativeHome, normNative)).toEqual(taskJson(forwardedHome, normForwarded));
+    }
+    return native;
+  } finally {
+    for (const dir of [home, nativeHome, forwardedHome]) rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test.skipIf(!front)("task.delegate answers natively and matches forced forwarding", async () => {
+  const cases: Case[] = [
+    ["task.delegate", { goal: "plain", repo: "/tmp" }],
+    ["task.delegate", { goal: "base", repo: "/tmp", base: "main" }],
+    ["task.delegate", { goal: "messaging", repo: "/tmp", messaging: { max_turns: 12 } }],
+    ["task.delegate", { goal: "number", repo: "/tmp", max_tasks: 1.5, acceptance_timeout_min: 1.5 }],
+    ["task.delegate", { goal: "model", repo: "/tmp", model: "codex-mini" }],
+  ];
+  const result = await delegateSame(cases);
+  expect(result.native).toEqual(all(cases));
+  expect(errorOf(result.replies[3]!).data.code).toBe("invalid_input");
+}, 180000);
+
+// The deny fixture is installed exactly as plugins-policy.test.ts installs fx-policy.
+// Native plugin discovery is owned by B0c, so this records the TypeScript denial text
+// the native path must reproduce; the native trace is UNVERIFIED until B0c lands.
+test("a policy plugin denies delegation as TypeScript denies it", async () => {
+  const ctx = fakeCtx();
+  const pacerHome = ctx.pacerHome;
+  mkdirSync(join(pacerHome, "plugins", "fx-policy"), { recursive: true });
+  writeFileSync(join(pacerHome, "strategy.yaml"), JSON.stringify({
+    planner: "claude-code", providers: { "claude-code": {}, codex: {} },
+    plugins: { policy: { mode: "closed" }, installed: { "fx-policy": { version: "1.0.0", capabilities: [] } } },
+  }));
+  writeFileSync(join(pacerHome, "plugins", "fx-policy", "pacer-plugin.json"), JSON.stringify({
+    id: "fx-policy", version: "1.0.0", publisher: "test", host: "^1.6", entry: "main.ts", contributes: { policy: {} }, capabilities: [],
+  }));
+  writeFileSync(join(pacerHome, "plugins", "fx-policy", "settings.json"), JSON.stringify({
+    verdict: { verdict: "veto", reason: "budget denied" },
+  }));
+  writeFileSync(join(pacerHome, "plugins", "fx-policy", "main.ts"),
+    `#!${process.execPath}\nimport {readFileSync} from "node:fs";for await(const line of console){const r=JSON.parse(line);if(!r.id)continue;const v=r.method==="plugin.hello"?{protocol:r.params.protocol,id:"fx-policy",version:"1.0.0",contributes:["policy"]}:JSON.parse(readFileSync("settings.json","utf8")).verdict;console.log(JSON.stringify({jsonrpc:"2.0",id:r.id,result:v}));}\n`);
+  chmodSync(join(pacerHome, "plugins", "fx-policy", "main.ts"), 0o755);
+  const { applyPolicy } = await import("../src/plugins/policy");
+  await expect(applyPolicy(ctx, "delegate", {
+    goal: "g", repo: join(ctx.home, "repo"), kind: null, requestedExecutor: null, placement: "auto",
+  }, { contextFingerprint: () => "context" })).rejects.toMatchObject({ code: "not_allowed", hint: "plugin fx-policy" });
+}, 60000);
+
+// --- B3-7: native retry / retry_all / answer / ask effects -------------------
+
+function seedRetryHome() {
+  const { home, bin } = delegateHome();
+  const ctx = fakeCtx({ home, pacerHome: join(home, ".pacer") });
+  const make = (goal: string, state: "failed" | "running") => {
+    const task = createTask(ctx, { brief: { goal, repo: ctx.home }, kind: null, requestedExecutor: "codex", timeoutS: 600 });
+    updateTask(ctx, task.id, t => { t.state = state; t.title = goal; });
+    return task.id;
+  };
+  return { home, bin, failed: make("retry me", "failed"), running: make("keep running", "running") };
+}
+
+test.skipIf(!front)("task.retry and task.retry_all run natively with a fake executor", async () => {
+  const { home, bin, failed, running } = seedRetryHome();
+  const cases: Case[] = [
+    ["task.retry", { id: failed }],
+    ["task.retry_all", { ids: [failed, running] }],
+  ];
+  const env = { PATH: `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}` };
+  const result = await stdio(home, cases, false, env);
+  expect(result.native).toEqual(all(cases));
+  expect(JSON.parse(result.replies[0]!).result).toMatchObject({
+    retry: expect.objectContaining({ task_id: expect.any(String) }),
+    of: expect.objectContaining({ state: "failed" }),
+  });
+  const batch = JSON.parse(result.replies[1]!).result;
+  expect(batch.retried.length + batch.skipped.length).toBe(2);
+}, 180000);
+
+test.skipIf(!front)("task.answer on a needs_input task runs natively", async () => {
+  const { home, bin } = seedRetryHome();
+  const ctx = fakeCtx({ home, pacerHome: join(home, ".pacer") });
+  const task = createTask(ctx, { brief: { goal: "answer me", repo: ctx.home }, kind: null, requestedExecutor: "codex", timeoutS: 600 });
+  updateTask(ctx, task.id, t => {
+    t.state = "needs_input"; t.title = "answer me"; t.executor = "codex";
+    t.question = { text: "A or B?", at: ctx.now };
+  });
+  const result = await stdio(home, [["task.answer", { id: task.id, text: "A" }]], false,
+    { PATH: `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}` });
+  expect(result.native).toEqual([2]);
+  const reply = JSON.parse(result.replies[0]!).result;
+  expect(reply).toMatchObject({ task: expect.objectContaining({ id: expect.any(String) }), retry: expect.objectContaining({ id: expect.any(String) }) });
+}, 180000);
+
+test.skipIf(!front)("task.answer on a live built-in PTY runs natively", async () => {
+  const { home } = seedRetryHome();
+  const ctx = fakeCtx({ home, pacerHome: join(home, ".pacer") });
+  const task = createTask(ctx, { brief: { goal: "live", repo: ctx.home }, kind: null, requestedExecutor: "codex", timeoutS: 600 });
+  const dir = tmpDir();
+  const script = join(dir, "run.sh");
+  writeFileSync(join(dir, "interactive.json"), "{}");
+  writeFileSync(script, "#!/bin/sh\nwhile :; do sleep 0.1; done\n", { mode: 0o700 });
+  const proc = Bun.spawn(["/bin/sh", script, dir], { detached: true, stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+  writeFileSync(join(dir, "pid"), String(proc.pid));
+  const sock = join(tmpDir(), "s.sock");
+  writeFileSync(join(dir, "session.sock.path"), sock);
+  const input: Buffer[] = [];
+  const hub = new ViewerHub(() => wire(FrameType.snapshot, {}), () => null, fn => fn(), () => {},
+    () => {}, { input: b => { input.push(Buffer.from(b)); }, resize() {} });
+  const server = createServer(s => hub.add(s));
+  await new Promise<void>(resolve => server.listen(sock, resolve));
+  try {
+    updateTask(ctx, task.id, t => {
+      t.state = "running"; t.title = "live"; t.question = { text: "A or B?", at: ctx.now };
+      t.run = { dir, attempt: 1, executor: "codex", startedAt: 1, mode: "new", workdir: ctx.home, logFile: "/dev/null" };
+    });
+    const result = await stdio(home, [["task.answer", { id: task.id, text: "A" }]], false, {});
+    expect(result.native).toEqual([2]);
+    expect(JSON.parse(result.replies[0]!).result).toMatchObject({ task: expect.any(Object) });
+    expect(Buffer.concat(input).toString()).toContain("A");
+  } finally {
+    server.close();
+    killTree(proc.pid, "SIGKILL");
+    await proc.exited;
+  }
+}, 60000);

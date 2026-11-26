@@ -27,8 +27,8 @@ pub use discover::{
     CoreProcess, STDOUT_CAP, TIMEOUT, core_process, discover, model_ids, run_models,
     set_core_process,
 };
-pub use reply::{available_needs_core, available_reply, listing, listing_needs_core, wire_value};
+pub use reply::{available_reply, listing, wire_value};
 pub use validate::{
-    Refusal, Validation, check_offered, model_check_needs_core, model_declaration_warnings,
-    provider_name, validate_runner_model, validate_runner_models,
+    Refusal, Validation, check_offered, model_declaration_warnings, provider_name,
+    validate_runner_model, validate_runner_models,
 };

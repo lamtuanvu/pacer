@@ -130,7 +130,7 @@ layer = 5
 [crates.pacer-plugin-runtime]
 layer = 6
 [crates.pacer-read-model]
-layer = 7
+layer = 6
 [crates.pacer-repos]
 layer = 4
 [crates.pacer-models]
@@ -148,6 +148,8 @@ layer = 6
 [crates.pacer-config-ops]
 layer = 7
 [crates.pacer-dispatch-ops]
+layer = 7
+[crates.pacer-delegation]
 layer = 7
 [crates.pacer-issues]
 layer = 7

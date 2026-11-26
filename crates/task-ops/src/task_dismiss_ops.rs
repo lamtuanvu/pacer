@@ -10,8 +10,18 @@ use serde_json::{Map, Value, json};
 
 use super::lifecycle_ops::{invalid, object, optional_expect_rev, project_api_task, type_name};
 
-pub fn needs_task_clean_bridge(op: &str) -> bool {
+/// `task.dismiss` auto-clean is native: the front door builds this future from
+/// `pacer_delegation::cleanup::auto_clean_tasks`, not from the deleted TS bridge.
+pub fn uses_native_clean(op: &str) -> bool {
     matches!(op, "task.dismiss")
+}
+
+pub fn auto_clean<'a>(
+    ctx: &'a Ctx,
+    runtime: &'a pacer_delegation::Runtime,
+    ids: &'a [String],
+) -> OpFuture<'a> {
+    pacer_delegation::cleanup::auto_clean_tasks(ctx, runtime, ids)
 }
 
 pub fn ids_from_params(params: &Value) -> Result<Vec<String>, CoreError> {
@@ -42,7 +52,7 @@ pub fn task_dismiss_stub(_: &Ctx, _: Value) -> OpFuture<'_> {
     Box::pin(async move {
         Err(CoreError::new(
             Code::Unavailable,
-            "task clean bridge unavailable",
+            "task delegation runtime unavailable",
         ))
     })
 }
@@ -113,7 +123,7 @@ fn publish_report(report: pacer_store::PublishReport) {
     }
 }
 
-pub fn task_dismiss<'a>(ctx: &'a Ctx, params: Value, clean: OpFuture<'a>) -> OpFuture<'a> {
+pub fn task_dismiss<'a>(ctx: &'a Ctx, params: Value, auto_clean: OpFuture<'a>) -> OpFuture<'a> {
     Box::pin(async move {
         let p = object(&params)?;
         let expect_rev = optional_expect_rev(p)?;
@@ -171,7 +181,7 @@ pub fn task_dismiss<'a>(ctx: &'a Ctx, params: Value, clean: OpFuture<'a>) -> OpF
             let event = json!({"type":"task","data": task_data(task, &|_| false)});
             publish_report(publish(ctx, &[event]));
         }
-        clean.await?;
+        auto_clean.await?;
         Ok(json!({
             "dismissed": dismissed_ids,
             "unknown": batch.unknown,

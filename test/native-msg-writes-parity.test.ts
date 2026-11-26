@@ -4,7 +4,9 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync,
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
-import { fakeCtx } from "./helpers";
+import { fakeCtx, gitRepo, realRun } from "./helpers";
+import { gitInfo } from "../src/core/git";
+import { createTaskWorktree } from "../src/supervisor/worktree";
 import { createTask, updateTask } from "../src/tasks/store";
 import { insertMessage } from "../src/messaging/store";
 import { getWork } from "../src/dispatch/work";
@@ -99,7 +101,7 @@ async function stdio(home: string, extra: Record<string, string>, requests: stri
     const lines = stdout.trim().split("\n");
     expect(JSON.parse(lines[0]!).result.protocol).toBe("3.0.0");
     const markers = stderr.split("\n").filter(line => /^native msg\.\S+ \d+$/.test(line));
-    return { lines: lines.slice(1), markers };
+    return { lines: lines.slice(1), markers, stderr };
   } finally { if (child.exitCode === null) { child.kill("SIGTERM"); await child.exited; } }
 }
 
@@ -253,3 +255,48 @@ test.skipIf(!front)("HTTP message writes resolve bearer, cookie and TUI session 
     for (const home of runs) rmSync(home, { recursive: true, force: true });
   }
 }, 120000);
+
+async function seedCloseHome() {
+  const home = realpathSync(mkdtempSync("/tmp/mwc-"));
+  const pacerHome = join(home, ".pacer");
+  mkdirSync(pacerHome, { recursive: true, mode: 0o700 });
+  const ctx = fakeCtx({ home, pacerHome, run: realRun, which: () => null });
+  const repo = gitRepo();
+  const t = createTask(ctx, { brief: { goal: "g", repo }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  const info = await gitInfo(realRun, repo); if ("error" in info) throw new Error(info.error);
+  const w = await createTaskWorktree(ctx, info, t.id, "main"); if ("error" in w) throw new Error(w.error);
+  const runDir = join(pacerHome, "runs", t.id, "1");
+  mkdirSync(runDir, { recursive: true });
+  writeFileSync(join(runDir, "stdout"), "disposable");
+  updateTask(ctx, t.id, x => {
+    x.state = "done";
+    x.worktree = w.workdir;
+    x.run = { dir: runDir, attempt: 1, executor: "codex", startedAt: 1, mode: "new", workdir: w.workdir, logFile: "" };
+    x.review = { accepted: true, kind: null, note: null, at: 1 };
+    x.origin = "external:local";
+  });
+  return { home, pacerHome, id: t.id, worktree: w.path, runRoot: join(pacerHome, "runs", t.id) };
+}
+
+test.skipIf(!front)("msg.close removes an accepted worktree without the old bridge", async () => {
+  const native = await seedCloseHome();
+  const forwarded = await seedCloseHome();
+  try {
+    const request = (id: string) => JSON.stringify({ jsonrpc: "2.0", id: 7, method: "msg.close", params: { task: id } });
+    const nativeRun = await stdio(native.home, {}, [request(native.id)], false);
+    const forwardedRun = await stdio(forwarded.home, {}, [request(forwarded.id)], true);
+    for (const run of [nativeRun, forwardedRun]) {
+      const reply = JSON.parse(run.lines[0]!);
+      expect(reply.error).toBeUndefined();
+      expect(reply.result).toEqual({ task: reply.result.task, closed: true });
+    }
+    // Both paths release the worktree; only the native path emits the marker.
+    expect(existsSync(native.worktree)).toBe(false);
+    expect(existsSync(forwarded.worktree)).toBe(false);
+    expect(existsSync(native.runRoot)).toBe(false);
+    expect(existsSync(forwarded.runRoot)).toBe(false);
+    expect(nativeRun.markers).toContain("native msg.close 7");
+    expect(forwardedRun.markers).toEqual([]);
+    expect(nativeRun.stderr).not.toContain("task-auto-clean");
+  } finally { rmSync(native.home, { recursive: true, force: true }); rmSync(forwarded.home, { recursive: true, force: true }); }
+}, 30_000);
