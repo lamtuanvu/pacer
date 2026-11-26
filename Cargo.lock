@@ -2075,6 +2075,7 @@ dependencies = [
  "pacer-plugin-ops",
  "pacer-plugin-runtime",
  "pacer-read-model",
+ "pacer-status",
  "pacer-store",
  "pacer-task-ops",
  "pacer-update",
