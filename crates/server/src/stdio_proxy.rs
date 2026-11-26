@@ -1316,7 +1316,13 @@ pub async fn run_stdio(core: Vec<String>, env: HashMap<String, String>) -> i32 {
 }
 
 async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i32> {
-    let scoped_work = env.contains_key("PACER_WORK_GRANT");
+    // A scoped session is authorized by the core alone, so nothing runs natively: a work grant
+    // (API-5), or an orchestrator turn with or without its run grant (API-5b).
+    let scoped_work = env.contains_key("PACER_WORK_GRANT")
+        || env.contains_key("PACER_RUN_GRANT")
+        || env
+            .get("PACER_ROLE")
+            .is_some_and(|role| role == "orchestrator");
     let forward = env
         .get("PACER_FORWARD_OPS")
         .map(String::as_str)

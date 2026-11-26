@@ -165,5 +165,60 @@
   },
   "status": 403,
   "body": "forbidden\n"
+ },
+ {
+  "name": "run-grant-get-ops",
+  "method": "GET",
+  "path": "/v3/ops/run.get",
+  "headers": {
+   "Host": "127.0.0.1:<port>",
+   "Authorization": "Bearer prg_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "status": 403,
+  "body": "forbidden\n"
+ },
+ {
+  "name": "run-grant-snapshot",
+  "method": "POST",
+  "path": "/v3/snapshot",
+  "headers": {
+   "Host": "127.0.0.1:<port>",
+   "Authorization": "Bearer prg_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "status": 403,
+  "body": "forbidden\n"
+ },
+ {
+  "name": "run-grant-v2-ops",
+  "method": "POST",
+  "path": "/v2/ops/run.get",
+  "headers": {
+   "Host": "127.0.0.1:<port>",
+   "Authorization": "Bearer prg_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "status": 403,
+  "body": "forbidden\n"
+ },
+ {
+  "name": "run-grant-app",
+  "method": "POST",
+  "path": "/app/x",
+  "headers": {
+   "Host": "127.0.0.1:<port>",
+   "Authorization": "Bearer prg_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "status": 403,
+  "body": "forbidden\n"
+ },
+ {
+  "name": "run-grant-malformed",
+  "method": "POST",
+  "path": "/v3/ops/run.get",
+  "headers": {
+   "Host": "127.0.0.1:<port>",
+   "Authorization": "Bearer prg_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  },
+  "status": 401,
+  "body": "unauthorized\n"
  }
 ]

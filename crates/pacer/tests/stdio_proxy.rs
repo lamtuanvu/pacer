@@ -309,3 +309,40 @@ fn hello_keeps_work_grant_snapshot_and_subscribe_scoped() {
     assert_eq!(actual[1]["error"]["data"]["code"], "not_allowed");
     assert_eq!(actual[2]["error"]["data"]["code"], "not_allowed");
 }
+
+#[test]
+fn run_grant_and_orchestrator_sessions_are_authorized_by_the_core_alone() {
+    // API-5b: a `prg_` session is never the operator, so no operation runs natively.
+    if Command::new("bun").arg("--version").output().is_err() {
+        return;
+    }
+    let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let cli = repo.join("src/cli.ts").to_string_lossy().into_owned();
+    let input = b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"hello\",\"params\":{\"protocol\":3}}\n{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"version.get\",\"params\":{}}\n{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"task.list\",\"params\":{}}\n".to_vec();
+    let grant = format!("prg_{}", "a".repeat(64));
+    for (name, value) in [
+        ("PACER_RUN_GRANT", grant.as_str()),
+        ("PACER_ROLE", "orchestrator"),
+    ] {
+        let home = tempfile::tempdir().unwrap();
+        let mut command = proxy(&["bun".into(), cli.clone()], home.path());
+        command.env(name, value).env("PACER_DEBUG_NATIVE", "1");
+        let output = exchange(command, input.clone());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "{name}: {stderr}");
+        assert!(!stderr.contains("native "), "{name}: {stderr}");
+        let replies: Vec<serde_json::Value> = output
+            .stdout
+            .split(|byte| *byte == b'\n')
+            .filter(|line| !line.is_empty())
+            .map(|line| serde_json::from_slice(line).unwrap())
+            .collect();
+        for id in [2, 3] {
+            let reply = replies.iter().find(|reply| reply["id"] == id).unwrap();
+            assert_eq!(
+                reply["error"]["data"]["code"], "not_allowed",
+                "{name}: {reply}"
+            );
+        }
+    }
+}
