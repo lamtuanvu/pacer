@@ -124,12 +124,43 @@ size. A model turned off or removed is saved as undeclared, so it returns to the
 pick list. The planner's models are editable; they only matter through the tier
 fallback, whose switch (`pacing.planner_tier_fallback`) sits on the planner's page.
 
+Decisions kept from the redesign:
+
+- **Off is removed on save.** Strategy files have no "declared but off" state, so a
+  model you turn off is saved as undeclared: after Save it leaves the table and
+  returns to the pick list. Remove does the same immediately in the draft.
+- **No automatic test task after a model save.** Run the test task from the
+  agent's Runs on card when you want to confirm a new model.
+- **No coverage cards, Takes column, or Price and Context columns.** The size of each
+  model says which difficulties it can take; the listing's context, tools and
+  price-based size suggestion appear in the Add a model pick list instead.
+
+An agent with a default model but no declared models says "uses <model> for every
+task"; the first model you add keeps that default as a row, so it is never
+replaced silently. A size can be set back to Unrated. A model the agent's provider
+no longer offers has **Replace…**, which swaps in another model and keeps its size
+and default. An id that is already on the agent is listed as "Already added" and
+cannot be added twice; with nothing highlighted, Enter adds exactly what you typed.
+Accounts that no agent uses are listed under **Accounts without an agent**, with
+their usage, sign-in and an **Add as agent** link. **Find an agent** filters the list.
+
+Links that name one agent (`?agent=<runner id>`) open it: the command palette,
+Needs you, the Settings overview readiness rows, and `ui.open` actions that carry an
+`agent` parameter. The desktop app's native deep links accept no query string, so
+a native notification about an executor opens Dispatcher › Agents without
+selecting that agent.
+
 Models and the agent's limits (Tasks at once, Priority) share one page draft and
 one save bar. Saving writes the changed agents' models in one revision-checked
 **`runner.models.set_many`** edit, preserving each declared model's strengths,
 tools and context, then the limits with **`runner.settings.save`** against the
 revision that edit returned. **Takes work** applies at once from the saved
-settings and keeps the draft. Choosing another agent keeps the draft. On a clean
+settings and keeps the draft. The page's other immediate writes (the planner tier
+fallback, the account policy, Add account) move the strategy revision too; a limits
+draft whose saved order and limits are unchanged rebases onto the new revision
+instead of reporting a conflict, while a real change to them elsewhere still
+conflicts. A save whose response was lost is confirmed against what the service
+holds, for models as for limits. Choosing another agent keeps the draft. On a clean
 page, models reload when settings change elsewhere; with unsaved edits the page
 keeps them and asks you to Discard only when the loaded models actually differ,
 while an unrelated refresh with identical models is adopted silently (also when a

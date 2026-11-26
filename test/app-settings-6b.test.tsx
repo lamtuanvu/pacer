@@ -303,3 +303,31 @@ test('Machines renders the measured local OS and architecture when the service r
   const html = render(<SettingsGeneral section="machine" initialData={settings}/>,withState({service:{version:'0.11.0'},machine:{used:0,max:4,os:'macOS 27.0',arch:'arm64'}}));
   expect(html).toContain('macOS 27.0 · arm64 · pacer 0.11.0');
 });
+
+test('S5: accounts no agent uses get their own group and an account-only page with usage, sign-in and Add as agent', () => {
+  const list = [{ name: 'team', kind: 'codex', signedIn: true, runners: [executor.id] }, { name: 'spare', kind: 'codex', signedIn: false, usageCheck: { action: 'refresh', consentRequired: false, description: 'Read usage' } }] as any;
+  const s = withState({ executors: [executor], accounts: [summary({ name: 'spare', signedIn: false })] });
+  const page = renderAgents(s, { initialAccounts: list });
+  expect(page).toContain('>Accounts without an agent</span>');
+  expect(page).toContain('href="#/settings/agents?account=spare"');
+  const spare = renderAgents(s, { account: 'spare', initialAccounts: list });
+  expect(spare).toContain('<a href="#/settings/agents?account=spare" aria-current="page"');
+  expect(spare.match(/aria-current="page"/g)).toHaveLength(1);
+  expect(spare).toContain('No agent</span>');
+  expect(spare).toContain('aria-label="Usage"');
+  expect(spare).toContain('Check usage<span class="sr-only"> for spare</span>');
+  expect(spare).toContain('<summary>Fix sign-in<span class="sr-only"> for Codex · spare</span></summary>');
+  expect(spare).toMatch(/<a href="#\/settings\/add-executor"[^>]*>Add as agent<\/a>/);
+  expect(spare).not.toContain('aria-label="Size of');
+  // A used account is not listed again.
+  expect(page).not.toContain('href="#/settings/agents?account=team"');
+});
+
+test('UI-6: in page (no side panel) the agent list and its Find field come before the detail', () => {
+  const html = renderAgents(withState({ executors: [executor] }));
+  expect(html).toMatch(/<div class="pc-agent-stack"><nav [^>]*aria-label="Agents"/);
+  expect(html.indexOf('aria-label="Agents"')).toBeLessThan(html.indexOf('class="pc-agent-detail"'));
+  expect(html).toContain('placeholder="Find an agent"');
+  expect(html).toContain('<span class="sr-only">Find an agent</span>');
+  expect(html).not.toContain('pc-page-columns');
+});

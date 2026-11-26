@@ -10,7 +10,7 @@ type RouteBase =
   | { name: "review" | "sessions" | "terminal"; id?: string; view?: "trace"; panel?: string }
   | { name: "runs"; id?: string }
   | { name: "live"; id?: string; view?: "journey" }
-  | { name: "settings"; section?: string; agent?: string }
+  | { name: "settings"; section?: string; agent?: string; account?: string }
   | { name: "hosts"; alias?: string }
   ;
 export type Route = RouteBase & { query: RouteQuery };
@@ -25,7 +25,7 @@ export type RouteTarget =
   | { name: "live"; id?: string; view?: "journey"; query?: TargetQuery }
   | { name: "sessions"; id?: string; view?: "trace"; query?: TargetQuery }
   | { name: "terminal"; id: string; panel?: string; query?: TargetQuery }
-  | { name: "settings"; section?: string; agent?: string; query?: TargetQuery }
+  | { name: "settings"; section?: string; agent?: string; account?: string; query?: TargetQuery }
   | { name: "hosts"; alias?: string; query?: TargetQuery }
   | { name: "add-executor"; host?: string; query?: TargetQuery };
 export const SETTINGS_SECTIONS = ["plugins", "apps", "planner", "machine", "dispatcher", "agents", "rules", "profiles", "app", "updates", "notifications", "appearance", "assistant", "diagnostics", "pairing"] as const;
@@ -55,6 +55,8 @@ export const routes = {
   settings: (section?: string, query?: TargetQuery) => withTargetQuery({ name: "settings", ...(section ? { section } : {}) } as const, query),
   /** Dispatcher › Agents, optionally with one agent (runner id) selected. */
   agents: (agent?: string, query?: TargetQuery) => withTargetQuery({ name: "settings", section: "agents", ...(agent ? { agent } : {}) } as const, query),
+  /** Dispatcher › Agents with an account that no agent uses selected. */
+  agentsAccount: (account: string, query?: TargetQuery) => withTargetQuery({ name: "settings", section: "agents", account } as const, query),
   hosts: (query?: TargetQuery) => withTargetQuery({ name: "hosts" } as const, query),
   host: (alias: string, query?: TargetQuery) => withTargetQuery({ name: "hosts", alias } as const, query),
   addExecutor: (host?: string, query?: TargetQuery) => withTargetQuery({ name: "add-executor", ...(host ? { host } : {}) } as const, query),
@@ -84,7 +86,7 @@ export function hrefFor(target: RouteTarget, current: RouteQuery = EMPTY_QUERY):
     case "setup": href = "#/setup"; break;
   }
   const query = mergedQuery(target, current);
-  const extra: Record<string, string> | null = target.name === "add-executor" && target.host ? { host: target.host } : target.name === "settings" && target.agent ? { agent: target.agent } : null;
+  const extra: Record<string, string> | null = target.name === "add-executor" && target.host ? { host: target.host } : target.name === "settings" && target.agent ? { agent: target.agent } : target.name === "settings" && target.account ? { account: target.account } : null;
   if (!extra) return withQuery(href, query);
   const params = new URLSearchParams(extra);
   if (query.repo !== null) params.set("repo", query.repo);
@@ -186,7 +188,7 @@ export function resolveRoute(hash: string, setupComplete: boolean | null = true,
     const destination = legacy[2] !== undefined ? `/tasks/${legacy[2]}` : legacy[1] === "review" ? "/needs-you" : "/tasks";
     if (legacy[2] === undefined || (!legacy[2].includes("/") && decode(legacy[2]) !== null)) return {redirect:withQuery(`#${destination}`,query)};
   }
-  return { ...route, ...(route.name === "add-executor" && params.has("host") ? { host: params.get("host")! } : {}), ...(route.name === "settings" && route.section === "agents" && params.get("agent") ? { agent: params.get("agent")! } : {}), query } as Route;
+  return { ...route, ...(route.name === "add-executor" && params.has("host") ? { host: params.get("host")! } : {}), ...(route.name === "settings" && route.section === "agents" && params.get("agent") ? { agent: params.get("agent")! } : {}), ...(route.name === "settings" && route.section === "agents" && params.get("account") ? { account: params.get("account")! } : {}), query } as Route;
 }
 function match(path: string): RouteBase {
   const result = /^\/tasks\/([^/]+)\/(failure|review)$/.exec(path);

@@ -20,7 +20,7 @@ export const accountAgent = (account: Account) => account.kind === "claude" ? "c
  * The account fact card of an agent: sign-in state and how to fix it, the agent's other accounts, the
  * spread/fill policy when the agent has several, and adding another account of the same kind.
  */
-export function AgentAccount({ executor, accounts, config, reload }: { executor: ExecutorRow; accounts?: Account[]; config?: ConfigData; reload: () => void }) {
+export function AgentAccount({ executor, accounts, config, reload }: { executor: Pick<ExecutorRow, "agent" | "account">; accounts?: Account[]; config?: ConfigData; reload: () => void }) {
   const scoped = useScoped(), { state } = useTaskContext(), action = useOperation(reload);
   const account = accounts?.find(a => a.name === executor.account);
   const summary = state.snapshot?.accounts?.find(a => a.name === executor.account);

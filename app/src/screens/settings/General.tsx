@@ -114,6 +114,7 @@ export function SettingsGeneral({
   host,
   alias,
   agent,
+  account,
 }: {
   section?: string;
   initialData?: SettingsData;
@@ -121,8 +122,9 @@ export function SettingsGeneral({
   /** Add agent prefills this host; host detail shows this alias. */
   host?: string;
   alias?: string;
-  /** Dispatcher › Agents opens this agent (runner id). */
+  /** Dispatcher › Agents opens this agent (runner id), or an account no agent uses. */
   agent?: string;
+  account?: string;
 }) {
   // Executors, Accounts and the Model matrix became Dispatcher › Agents; the router redirects their links.
   if (section === "executors" || section === "accounts" || section === "models") section = "agents";
@@ -132,7 +134,7 @@ export function SettingsGeneral({
       content = <PlannerPacing initialData={initialData.config} initialAccounts={initialData.accounts} />;
       break;
     case "agents":
-      content = <LazyAgents agent={agent} initialAccounts={initialData.accounts} initialConfig={initialData.config} />;
+      content = <LazyAgents agent={agent} account={account} initialAccounts={initialData.accounts} initialConfig={initialData.config} />;
       break;
     case "machine":
     case "hosts":
@@ -209,7 +211,7 @@ function GeneralOverview({ query, initialData }: { query: RouteQuery; initialDat
   const checks: { account?: string; title: string; detail?: string; tooltip?: string; tone: "good" | "bad" | "warn" | "neutral"; page: string; link: string }[] = [];
   for (const e of executors ?? []) {
     const status = readiness(e);
-    if (status.label !== "Ready") checks.push({ title: `${executorLabel(e.id)} · ${status.label}`, detail: status.reason, tone: status.tone === "info" ? "neutral" : status.tone, tooltip: status.tooltip, page: "agents", link: e.stale ? "Refresh usage" : "Open agent", ...(e.stale ? {account:e.account} : {}) });
+    if (status.label !== "Ready") checks.push({ title: `${executorLabel(e.id)} · ${status.label}`, detail: status.reason, tone: status.tone === "info" ? "neutral" : status.tone, tooltip: status.tooltip, page: `agents?${new URLSearchParams({ agent: e.id })}`, link: e.stale ? "Refresh usage" : "Open agent", ...(e.stale ? {account:e.account} : {}) });
   }
   for (const account of snapshot?.accounts ?? []) {
     // Freshness comes from the account's one usage record (ADR 0030); the view says why a reading needs refreshing.

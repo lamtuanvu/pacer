@@ -23,7 +23,7 @@ test.skipIf(!browserPath)("Needs you filters, opens a trapped Answer panel and s
     expect(await footnote.evaluate(el => el.getBoundingClientRect().top - document.querySelector(".pc-card--warn")!.getBoundingClientRect().bottom)).toBe(16);
     expect(await warning.locator(".ny-glyph").evaluate(el => getComputedStyle(el).lineHeight)).toBe("19px");
     const fix = warning.getByRole("link", { name: "Fix in Agents" });
-    expect(await fix.getAttribute("href")).toBe("#/settings/agents");
+    expect(await fix.getAttribute("href")).toMatch(/^#\/settings\/agents\?agent=/);
     expect(await fix.getAttribute("class")).toContain("pc-btn--secondary pc-btn--sm");
     expect(await warning.locator(".ny-cap").evaluate(el => el.getBoundingClientRect().height)).toBe(16);
     await page.getByRole("tab", { name: /Questions/ }).click();

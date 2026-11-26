@@ -34,13 +34,17 @@ async function open(fn: (page: Page) => Promise<void>, viewport = { width: 1440,
   }
 }
 const fixture = <T>(page: Page, call: string) => page.evaluate(name => (window as any).agentsFixture[name](), call) as Promise<T>;
-const pick = (page: Page, name: string) => page.getByRole('navigation', { name: 'Agents' }).getByRole('link', { name: new RegExp(`^${name}`) }).click();
+/** Choose an agent in the list; in page (this fixture has no shell panel) focus then moves to its heading. */
+const pick = async (page: Page, name: string) => {
+  await page.getByRole('navigation', { name: 'Agents' }).getByRole('link', { name: new RegExp(`^${name}(?! ·)`) }).click();
+  await page.waitForFunction(label => document.activeElement?.id === 'agent-detail-title' && !!document.activeElement.textContent?.includes(label), name);
+};
 
 browserTest('the list selects one agent at a time with aria-current; the planner comes first', async () => {
   await open(async page => {
     const links = page.getByRole('navigation', { name: 'Agents' }).getByRole('link');
     const names = (await links.allInnerTexts()).map(text => text.split('\n')[0]!.trim());
-    expect(names).toEqual(['Add agent', 'Claude Code', 'Codex', expect.stringContaining('tse')]);
+    expect(names).toEqual(['Add agent', 'Claude Code', 'Codex', expect.stringContaining('tse'), 'Claude Code · spare']);
     expect(await page.locator('[aria-current="page"]').count()).toBe(1);
     expect(await page.getByRole('heading', { level: 2 }).first().innerText()).toContain('Claude Code');
     await page.getByText('Take complex tasks when no executor can').waitFor();
@@ -68,8 +72,8 @@ browserTest('Tasks at once and priority stay in one draft across agents and save
     expect(await page.getByRole('dialog').count()).toBe(0);
     const priority = page.getByRole('spinbutton', { name: 'Priority', exact: true });
     await priority.fill('1');
-    expect(await page.locator('.pc-save-bar').innerText()).toContain('Codex runs 2 at once');
-    expect(await page.locator('.pc-save-bar').innerText()).toContain('Priority order changed');
+    // Wait for the summary to update instead of reading it once (it renders after the edit).
+    await page.locator('.pc-save-bar').filter({ hasText: 'Codex runs 2 at once' }).filter({ hasText: 'Priority order changed' }).waitFor();
     expect(await fixture<number>(page, 'writes')).toBe(0);
     await save.click();
     await page.getByRole('status').filter({ hasText: 'Agent settings saved' }).waitFor();
@@ -104,6 +108,9 @@ browserTest('Takes work saves immediately, stays busy, keeps page edits and reve
     await toggle.click();
     await page.waitForFunction(() => [...document.querySelectorAll('.pc-immediate-save__control')].some(el => el.getAttribute('aria-busy') === 'true'));
     expect(await toggle.isDisabled()).toBe(true);
+    // S1: Save waits for Takes work, with its reason shown.
+    expect(await page.getByRole('button', { name: 'Save changes', exact: true }).isDisabled()).toBe(true);
+    await page.getByText('Wait until Takes work has saved.').waitFor();
     await fixture(page, 'release');
     await page.waitForFunction(() => [...document.querySelectorAll('.pc-immediate-save__control')].every(el => el.getAttribute('aria-busy') === 'false'));
     expect(await toggle.isChecked()).toBe(false);
@@ -200,9 +207,13 @@ for (const width of [1440, 768, 375]) browserTest(`the Agents tab stays inside t
   await open(async page => {
     await pick(page, 'tse');
     await page.getByRole('combobox', { name: 'Add a model' }).focus();
+    // Nothing sticks out of the page except inside its own scroller (the models table).
+    const wide = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>('body *')].filter(el => !el.closest('.pc-agent-models') && el.getBoundingClientRect().right > innerWidth + 1).map(el => `${el.tagName}.${el.className}`));
+    expect(wide).toEqual([]);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     // Every control on the page keeps an accessible name.
-    const unnamed = await page.evaluate(() => [...document.querySelectorAll('button, input, a')].filter(el => !(el.getAttribute('aria-label') || el.getAttribute('aria-labelledby') || (el as HTMLElement).innerText.trim() || (el.id && document.querySelector(`label[for="${el.id}"]`)) || el.closest('label'))).map(el => el.outerHTML.slice(0, 120)));
+    // Only controls a person can reach: hidden ones (inside a closed disclosure, say) are not checked.
+    const unnamed = await page.evaluate(() => [...document.querySelectorAll('button, input, a')].filter(el => (el as HTMLElement).checkVisibility({ visibilityProperty: true }) && !(el.getAttribute('aria-label') || el.getAttribute('aria-labelledby') || (el as HTMLElement).innerText.trim() || (el.id && document.querySelector(`label[for="${el.id}"]`)) || el.closest('label'))).map(el => el.outerHTML.slice(0, 120)));
     expect(unnamed).toEqual([]);
   }, { width, height: 1000 });
 }, 20000);
@@ -227,5 +238,89 @@ browserTest('the planner fallback card keeps its switch beside the text, not und
     expect(box.height).toBeLessThan(text.height + 80);
     const toggle = (await card.getByRole('switch').boundingBox())!;
     expect(toggle.y).toBeLessThan(text.y + text.height);
+  });
+}, 20000);
+
+browserTest('B1: the planner fallback switch does not block a pending limits save', async () => {
+  await open(async page => {
+    await pick(page, 'Codex');
+    await page.getByRole('spinbutton', { name: 'Tasks at once', exact: true }).fill('3');
+    await pick(page, 'Claude Code');
+    await page.getByRole('switch', { name: 'Take complex tasks when no executor can' }).click();
+    await page.waitForFunction(() => (window as any).agentsFixture.calls().some(([op]: [string]) => op === 'config.set'));
+    await page.waitForTimeout(100);
+    expect(await page.getByText('Settings changed elsewhere', { exact: true }).count()).toBe(0);
+    await page.getByRole('button', { name: 'Save changes', exact: true }).click();
+    await page.getByRole('status').filter({ hasText: 'Agent settings saved' }).waitFor();
+    expect(await fixture<any>(page, 'settings')).toMatchObject({ runners: [{ id: 'codex', maxTasks: 3 }, { id: 'opencode#tse', maxTasks: 1 }] });
+  });
+}, 20000);
+
+browserTest('B2/UI-2: Enter adds what was typed; an id already on the agent is shown as Already added and not re-added', async () => {
+  await open(async page => {
+    await pick(page, 'tse');
+    const box = page.getByRole('combobox', { name: 'Add a model' });
+    await box.fill('terastor-ai');
+    await page.getByRole('option', { name: /^terastor-ai .*Already added/ }).waitFor();
+    await page.keyboard.press('Enter');
+    await page.getByRole('status').filter({ hasText: 'terastor-ai: Already added' }).waitFor();
+    expect(await page.getByText('Added, not saved', { exact: true }).count()).toBe(0);
+    // A prefix of a listed id adds the typed id, not the longer listed one.
+    await box.fill('terastor');
+    await page.keyboard.press('Enter');
+    await page.getByRole('group', { name: 'Size of terastor', exact: true }).waitFor();
+    expect(await page.getByRole('group', { name: 'Size of terastor-ai-pro', exact: true }).count()).toBe(0);
+  });
+}, 20000);
+
+browserTest('UI-5: removing a model focuses the next Remove (or Add a model); Save and Discard focus the agent heading', async () => {
+  await open(async page => {
+    await pick(page, 'tse');
+    const box = page.getByRole('combobox', { name: 'Add a model' });
+    await box.fill('second');
+    await page.keyboard.press('Enter');
+    await page.getByRole('button', { name: 'Remove terastor-ai', exact: true }).click();
+    await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Remove second');
+    await page.getByRole('button', { name: 'Remove second', exact: true }).click();
+    await page.waitForFunction(() => document.activeElement?.getAttribute('role') === 'combobox');
+    await page.getByRole('button', { name: 'Discard', exact: true }).click();
+    await page.waitForFunction(() => document.activeElement?.id === 'agent-detail-title');
+    await page.getByRole('combobox', { name: 'Add a model' }).fill('third');
+    await page.keyboard.press('Enter');
+    await page.getByRole('button', { name: 'Save changes', exact: true }).click();
+    await page.getByRole('status').filter({ hasText: 'Agent settings saved' }).waitFor();
+    await page.waitForFunction(() => document.activeElement?.id === 'agent-detail-title');
+  });
+}, 20000);
+
+browserTest('UI-6: at 375px the list comes first and choosing an agent moves focus to its heading', async () => {
+  await open(async page => {
+    const list = await page.getByRole('navigation', { name: 'Agents' }).boundingBox(), detail = await page.locator('.pc-agent-detail').boundingBox();
+    expect(list!.y).toBeLessThan(detail!.y);
+    await pick(page, 'Codex');
+    await page.waitForFunction(() => document.activeElement?.id === 'agent-detail-title' && !!document.activeElement.textContent?.includes('Codex'));
+  }, { width: 375, height: 800 });
+}, 20000);
+
+browserTest('Find an agent filters the list; an agent removed elsewhere says so', async () => {
+  await open(async page => {
+    const nav = page.getByRole('navigation', { name: 'Agents' });
+    await nav.getByRole('searchbox', { name: 'Find an agent' }).fill('tse');
+    await page.waitForFunction(() => document.querySelectorAll('nav[aria-label="Agents"] li').length === 1);
+    expect(await nav.locator('li').innerText()).toContain('tse');
+    await nav.getByRole('searchbox', { name: 'Find an agent' }).fill('');
+    await pick(page, 'tse');
+    await page.evaluate(() => (window as any).agentsFixture.removeElsewhere('opencode#tse'));
+    await page.getByText('Removed elsewhere', { exact: true }).waitFor();
+  });
+}, 20000);
+
+browserTest('S5: an account no agent uses opens an account-only page with sign-in and Add as agent', async () => {
+  await open(async page => {
+    await page.getByRole('navigation', { name: 'Agents' }).getByRole('link', { name: /Claude Code · spare/ }).click();
+    await page.getByRole('heading', { level: 2, name: /Claude Code · spare/ }).waitFor();
+    await page.getByRole('link', { name: 'Add as agent' }).waitFor();
+    await page.getByText(/Fix sign-in/).first().waitFor();
+    expect(await page.getByRole('combobox').count()).toBe(0);
   });
 }, 20000);

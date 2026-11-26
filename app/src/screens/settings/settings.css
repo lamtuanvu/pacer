@@ -320,19 +320,8 @@
 .pc-model-preview__chips{display:flex;flex-wrap:wrap;gap:var(--space-2);padding:var(--space-2) var(--space-4) var(--space-4);border-top:1px solid var(--surface-lane)}
 .pc-model-preview__empty{padding:var(--space-4)}
 
-/* Settings › Dispatcher › Model matrix */
-/* The On track (first) stays wide enough for the touch-size switch at narrow
-   widths (review F7); the Size track was trimmed so the column widths sum fits
-   the box at 1440 without a 2 px horizontal overflow (review F5). */
-/* The Size chips stay on one line next to a gap between the model id and its
-   Default tag (review N4). */
-
-/* Keep focused controls above the sticky save bars on both dispatcher pages.
-   The Matrix save bar is shorter than the Model choice dock (which also carries
-   the save copy and notices), so each gets its own scroll padding sized to the
-   bar it must clear (review N2). The Model choice selector is scoped inside
-   #model-choice and raised past the shared .pc-save-bar rule (0,3,0) so its
-   padding actually wins (review F3). */
+/* Keep focused controls above the Model choice save dock: its scroll padding is sized to the dock, scoped inside
+   #model-choice and raised past the shared .pc-save-bar rule (0,3,0) so it wins (review F3). */
 .pc-main-scroll:has(#model-choice .pc-model-choice__savedock){scroll-padding-bottom:calc(var(--size-176) + var(--space-6))}
 
 /* The preview scroller is keyboard-reachable (role=region, tabindex), so it
@@ -371,7 +360,7 @@
 .pc-agent-models th{padding:var(--space-2) var(--space-3);background:var(--surface-card);border-bottom:1px solid var(--line);font-size:var(--type-caption-size);line-height:var(--type-caption-line);font-weight:var(--type-label-weight);color:var(--ink-secondary)}
 .pc-agent-models td{padding:var(--space-2\.5) var(--space-3);border-top:1px solid var(--surface-lane);vertical-align:middle}
 .pc-agent-models th:first-child,.pc-agent-models td:first-child{padding-left:var(--space-4)}
-.pc-agent-models td:first-child{display:flex;flex-direction:column;gap:var(--space-half);min-width:0}
+.pc-agent-models__cell{display:flex;flex-direction:column;gap:var(--space-half);min-width:0}
 .pc-agent-models td:last-child{text-align:right}
 .pc-agent-models__id{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2)}
 .pc-agent-models__id code{font-family:var(--font-mono);font-size:var(--type-code-size);font-weight:var(--type-body-strong-weight);white-space:nowrap}
@@ -384,3 +373,8 @@
 .pc-agent-limits__row+.pc-agent-limits__row{border-top:1px solid var(--surface-lane)}
 .pc-agent-limits__text{display:flex;flex:1 1 var(--size-260);min-width:0;flex-direction:column}
 .pc-agent-limits__number{width:var(--size-72)}
+/* In page (narrow, or with the side panel closed) the agent list comes first, then the selected agent. */
+.pc-agent-stack{display:flex;flex-direction:column;align-items:stretch;gap:var(--space-6);min-width:0}
+.pc-agent-stack>.pc-agent-list{padding-bottom:var(--space-4);border-bottom:1px solid var(--line)}
+.pc-agent-detail__title .pc-section-heading:focus{outline:none}
+.pc-agent-detail__title .pc-section-heading:focus-visible{outline:var(--stroke-focus) solid var(--focus);outline-offset:var(--stroke-focus)}

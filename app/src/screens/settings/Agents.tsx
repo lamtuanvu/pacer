@@ -6,7 +6,7 @@ import { markAgent } from "../../../../src/view-model/agents";
 import { executorReadiness, machineHardCap } from "../../../../src/view-model/capacity";
 import { ago } from "../../../../src/view-model/time";
 import { captionReset, usageView } from "../../../../src/view-model/usage";
-import { executorLabel, paceStatus } from "../../../../src/view-model/words";
+import { accountLabel, executorLabel, paceStatus } from "../../../../src/view-model/words";
 import { spendCopy } from "../../../../src/view-model/copy";
 import { useActions } from "../../data/action-context";
 import { registerNavigationGuard, canLeaveScreen } from "../../data/navigation-guard";
@@ -14,11 +14,10 @@ import { useNotifications } from "../../data/notification-context";
 import { AgentMark } from "../../ds/AgentMark";
 import { Alert } from "../../ds/Alert";
 import { Button, ButtonLink, TextAction } from "../../ds/Button";
-import { Switch, TextInput } from "../../ds/Controls";
+import { SearchInput, Switch, TextInput } from "../../ds/Controls";
 import { Dialog } from "../../ds/Dialog";
 import { ImmediateSave } from "../../ds/ImmediateSave";
 import { Icon } from "../../ds/icons";
-import { PageColumns } from "../../ds/Page";
 import { Card, ListRowLink } from "../../ds/Patterns";
 import { Pill } from "../../ds/Pill";
 import { SaveBar } from "../../ds/SaveBar";
@@ -29,13 +28,15 @@ import { UsageMeter } from "../../ds/UsageMeter";
 import { useDialogs } from "../../ds/useDialogs";
 import { agentCaption, modelChanges, modelCoverage } from "../../model/agents";
 import { accountRecord, type Account } from "../../model/accounts";
+import type { UsageState } from "../../../../src/types";
 import { moveExecutor } from "../../model/executor-settings";
 import { tierLabels } from "../../model/executor-models";
 import type { ConfigData } from "../../model/strategy";
 import { FrameSlot, useFrame } from "../../shell/slots";
 import { ErrorMessage, useTaskContext } from "../task-shared";
 import { AccountUsage } from "./AccountUsage";
-import { AgentAccount } from "./AgentAccount";
+import { AgentAccount, accountAgent } from "./AgentAccount";
+import { saveAgentsDraft } from "./agents-save";
 import { AgentModels } from "./AgentModels";
 import { ImmediateSetting } from "./ImmediateSetting";
 import { Feedback, containTooltipEscape, time, useOperation, useResource, useScoped, useSettingsStyles } from "./shared";
@@ -46,13 +47,16 @@ import type { AgentsTabProps } from "./agents-tab-props";
 interface ConfigView { planner: string; plannerAccount: string; config: { tierTargets?: TierTargets } }
 const DEFAULT_TARGETS: TierTargets = { simple: "small", standard: "medium", complex: "frontier" };
 const agentsHref = (id?: string) => id ? `#/settings/agents?${new URLSearchParams({ agent: id })}` : "#/settings/agents";
+const accountHref = (name: string) => `#/settings/agents?${new URLSearchParams({ account: name })}`;
+/** Move focus (and the view) to the detail heading after the page changed what it shows. */
+const focusDetail = () => setTimeout(() => { const heading = document.getElementById("agent-detail-title"); heading?.focus({ preventScroll: true }); heading?.scrollIntoView?.({ block: "nearest" }); }, 0);
 
 /**
  * Dispatcher › Agents: the agent list (shell side panel, or in page when panels cannot show) and the selected
  * agent's usage, account, host, models and limits. Models and limits share one page draft and one save bar;
  * Takes work and the planner fallback apply immediately.
  */
-export function AgentsTab({ agent: requested, initialAccounts, initialConfig }: AgentsTabProps) {
+export function AgentsTab({ agent: requested, account: requestedAccount, initialAccounts, initialConfig }: AgentsTabProps) {
   useSettingsStyles();
   const { state, api } = useTaskContext(), scoped = useScoped(), frame = useFrame(), actions = useActions(), notifications = useNotifications(), dialogs = useDialogs();
   const rows = state.snapshot?.executors;
@@ -72,7 +76,13 @@ export function AgentsTab({ agent: requested, initialAccounts, initialConfig }: 
   const executorRows = [...ordered, ...(rows ?? []).filter(row => row.rank !== "planner" && !ordered.includes(row.id)).map(row => row.id)]
     .map(id => rows?.find(row => row.id === id) ?? known.current.get(id)).filter((row): row is ExecutorRow => !!row && row.id !== plannerId);
   const all = [...(plannerRow ? [plannerRow] : []), ...executorRows];
-  const selected = all.find(row => row.id === requested) ?? all[0];
+  // Accounts that no agent uses yet still get a page: usage, sign-in, and a way to add them as an agent.
+  const spare = (accounts.data ?? []).filter(account => !(rows ?? []).some(row => row.account === account.name));
+  const spareSelected = requestedAccount ? spare.find(account => account.name === requestedAccount) : undefined;
+  const selected = spareSelected ? undefined : all.find(row => row.id === requested) ?? all[0];
+  // The agent this link named was removed (here or elsewhere) while the page was open.
+  const removed = !!requested && !spareSelected && !all.some(row => row.id === requested) && known.current.has(requested) ? known.current.get(requested)! : null;
+  const [filter, setFilter] = useState("");
   const addAgent = useRef<HTMLAnchorElement>(null);
   const [saving, setSaving] = useState(false), [leaving, setLeaving] = useState(false), [refreshedAt, setRefreshedAt] = useState<number | null>(null), [refreshingAll, setRefreshingAll] = useState(false);
   const leave = useRef<(value: boolean) => void>();
@@ -81,6 +91,7 @@ export function AgentsTab({ agent: requested, initialAccounts, initialConfig }: 
   const count = modelLines.length + limitLines.length;
   const dirty = models.dirty || settings.dirty;
   const blockedReason = !state.connected ? "Save is available when the service reconnects."
+    : settings.enabledBusy ? "Wait until Takes work has saved."
     : Object.keys(settings.errors).length ? "Enter a whole number from 1 to 16 for Tasks at once."
     : settings.conflict ? "Settings changed elsewhere. Reload the saved settings first."
     : models.conflict ? "Model settings changed elsewhere. Discard to load them."
@@ -95,29 +106,22 @@ export function AgentsTab({ agent: requested, initialAccounts, initialConfig }: 
     if (saving || !dirty || blockedReason) return false;
     setSaving(true);
     try {
-      let revision: string | undefined;
-      if (models.dirty) {
-        const result = await models.save();
-        if (!result.ok) return false;
-        revision = result.revision;
-      }
-      if (settings.dirty) {
-        if (revision) settings.rebase(revision);
-        if (!await settings.save(revision)) return false;
-        models.reload();
-      } else if (revision) void settings.refresh();
+      const result = await saveAgentsDraft(models, settings);
+      if (!result.ok) return false;
       notifications?.notify({ key: "agents-save", tone: "success", title: "Agent settings saved" });
       void actions.refetch();
+      // Save and Discard leave the save bar; keep the keyboard on this agent instead of the page body.
+      focusDetail();
       return true;
     } finally { setSaving(false); }
   };
-  const discard = () => { settings.discard(); void models.discard(); };
+  const discard = () => { settings.discard(); void models.discard(); focusDetail(); };
   const current = useRef({ dirty, saveAll });
   current.current = { dirty, saveAll };
   useEffect(() => {
     const unregister = registerNavigationGuard(target => {
       // Choosing another agent keeps this page and its draft mounted.
-      if (!current.current.dirty || target?.startsWith("#/settings/agents")) return Promise.resolve(true);
+      if (!current.current.dirty || target?.split("?")[0] === "#/settings/agents") return Promise.resolve(true);
       if (leave.current) return Promise.resolve(false);
       setLeaving(true);
       return new Promise(resolve => { leave.current = resolve; });
@@ -145,9 +149,21 @@ export function AgentsTab({ agent: requested, initialAccounts, initialConfig }: 
   const now = state.snapshot?.at ?? Date.now() / 1000;
   const listedTimes = Object.values(models.available).map(listing => listing.fetchedAt).filter(at => at > 0);
   const checkedAt = refreshedAt ?? (listedTimes.length ? Math.min(...listedTimes) : null);
+  const side = !!frame?.right && !frame.inline;
+  // In page (narrow) the list sits above the detail: choosing an agent there brings its heading into view.
+  const shown = spareSelected ? `account:${spareSelected.name}` : selected?.id;
+  const lastShown = useRef(shown), removing = useRef(false);
+  useEffect(() => {
+    // A removal here sends focus to Add agent instead.
+    if (lastShown.current !== undefined && lastShown.current !== shown && !side) { if (removing.current) removing.current = false; else focusDetail(); }
+    lastShown.current = shown;
+  }, [shown, side]);
+  const needle = filter.trim().toLowerCase();
+  const matches = (...words: (string | null | undefined)[]) => !needle || words.some(word => word?.toLowerCase().includes(needle));
   const item = (row: ExecutorRow) => {
     const caption = models.errors[row.id] ? { text: "Models could not load", warn: true } : agentCaption(models.draftOf(row.id), row.model);
     const off = row.rank !== "planner" && !(settings.draft?.runners[row.id]?.enabled ?? row.enabled);
+    if (!matches(executorLabel(row.id), row.id, caption.text)) return null;
     return <li key={row.id}><ListRowLink layout="nav" href={scoped(agentsHref(row.id))} aria-current={row.id === selected?.id ? "page" : undefined}>
       <AgentMark agent={markAgent(row.id, row.account)} size={24} labelled={false} />
       <span className="pc-agent-list__text"><strong>{executorLabel(row.id)}</strong><span className={caption.warn ? "pc-agent-card__caption pc-agent-card__caption--warn" : "pc-agent-card__caption"}>{off ? `Off · ${caption.text}` : caption.text}</span></span>
@@ -155,6 +171,7 @@ export function AgentsTab({ agent: requested, initialAccounts, initialConfig }: 
   };
   const list = <nav className="pc-agent-list" aria-label="Agents">
     <ButtonLink ref={addAgent} variant="secondary" size="sm" href={scoped("#/settings/add-executor")}><Icon name="plus" />Add agent</ButtonLink>
+    <SearchInput label="Find an agent" placeholder="Find an agent" value={filter} onInput={event => setFilter(event.currentTarget.value)} />
     <div className="pc-agent-list__refresh">
       <span className="pc-agent-card__caption">{all.length} {all.length === 1 ? "agent" : "agents"}{checkedAt !== null ? ` · checked ${ago(checkedAt, Math.max(now, checkedAt))}` : ""}</span>
       <Button variant="ghost" size="sm" busy={refreshingAll} disabled={!state.connected} aria-label="Refresh all agents: models, sign-in and usage" onClick={() => void refreshAll()}><Icon name="refresh" />Refresh all</Button>
@@ -163,30 +180,37 @@ export function AgentsTab({ agent: requested, initialAccounts, initialConfig }: 
       {plannerRow && <div className="pc-agent-list__group"><span className="pc-agent-list__heading" id="agents-planner">Planner</span><ul aria-labelledby="agents-planner">{item(plannerRow)}</ul></div>}
       {executorRows.length > 0 && <div className="pc-agent-list__group"><span className="pc-agent-list__heading" id="agents-executors">Executors</span><ul aria-labelledby="agents-executors">{executorRows.map(item)}</ul></div>}
     </>}
+    {spare.some(account => matches(account.name, accountLabel({ ...account, agent: accountAgent(account) }))) && <div className="pc-agent-list__group"><span className="pc-agent-list__heading" id="agents-spare">Accounts without an agent</span><ul aria-labelledby="agents-spare">{spare.filter(account => matches(account.name, accountLabel({ ...account, agent: accountAgent(account) }))).map(account =>
+      <li key={account.name}><ListRowLink layout="nav" href={scoped(accountHref(account.name))} aria-current={account.name === spareSelected?.name ? "page" : undefined}>
+        <AgentMark agent={markAgent(accountAgent(account), account.name)} size={24} labelled={false} />
+        <span className="pc-agent-list__text"><strong>{accountLabel({ ...account, agent: accountAgent(account) })}</strong><span className="pc-agent-card__caption">No agent uses it</span></span>
+      </ListRowLink></li>)}</ul></div>}
+    {needle && !all.some(row => matches(executorLabel(row.id), row.id)) && !spare.some(account => matches(account.name)) && <p className="u3-muted" role="status">No agent matches “{filter.trim()}”.</p>}
   </nav>;
-  const detail = <section className="pc-agent-detail" aria-label={selected ? `${executorLabel(selected.id)} details` : "Agent details"}>
+  const detail = <section className="pc-agent-detail" aria-label={selected ? `${executorLabel(selected.id)} details` : spareSelected ? `${spareSelected.name} details` : "Agent details"}>
     {dialogs.dialog}
     {leaving && <Dialog title="Unsaved agent changes" close={() => finishLeave(false)}><p>Save your agent changes before leaving?</p><div className="u3-actions"><Button disabled={saving} onClick={() => finishLeave(false)}>Stay</Button><Button disabled={saving} onClick={() => { discard(); finishLeave(true); }}>Discard changes</Button><Button variant="primary" busy={saving} disabled={!!blockedReason} onClick={async () => { if (await current.current.saveAll()) finishLeave(true); }}>Save and leave</Button></div></Dialog>}
     <ErrorMessage error={settings.query.error} />
     {settings.conflict && <Alert tone="warning" title="Settings changed elsewhere">Your draft is preserved. Reload the saved settings before making further changes. <Button size="sm" onClick={async () => { if (await dialogs.confirm("Discard this draft and load the latest saved settings?", "Reload saved settings", "Reload")) discard(); }}>Reload saved settings</Button></Alert>}
     {!state.connected && <Alert tone="warning" title="Reconnecting">Your edits are preserved. Save will be available when the service reconnects.</Alert>}
-    {selected ? <AgentDetail key={selected.id} executor={selected} planner={selected.id === plannerId} position={settings.draft?.order.indexOf(selected.id) ?? -1} count={settings.draft?.order.length ?? 0}
+    {removed && <Alert tone="warning" title="Removed elsewhere">{executorLabel(removed.id)} is no longer configured{selected ? `, so this shows ${executorLabel(selected.id)}` : ""}. Unsaved edits to other agents are kept.</Alert>}
+    {spareSelected ? <AccountOnlyDetail key={spareSelected.name} account={spareSelected} accounts={accounts.data} config={settingsConfig.data} reload={accounts.reload} /> : selected ? <AgentDetail key={selected.id} executor={selected} planner={selected.id === plannerId} position={settings.draft?.order.indexOf(selected.id) ?? -1} count={settings.draft?.order.length ?? 0}
       settings={settings} models={models} accounts={accounts.data} config={settingsConfig.data} reloadAccounts={accounts.reload} independent={independent} busy={saving}
       fallback={fallbackValue === undefined ? undefined : { on: fallbackOn, reload: settingsConfig.reload, complex: coverageNow.counts.complex, plannerFits: coverageNow.plannerFits, target: targets.complex }}
-      onRemoved={() => queueMicrotask(() => addAgent.current?.focus())} />
+      onRemoving={active => { removing.current = active; }}
+      onRemoved={() => setTimeout(() => addAgent.current?.focus(), 0)} />
       : rows && <p className="u3-muted">Add an agent to give it delegated work.</p>}
     {freesPlanner && <Card tone="warn"><strong>These changes free the planner</strong><span className="u3-muted">Complex tasks would go to an executor with a {tierLabels[targets.complex].toLowerCase()} model instead of {executorLabel(plannerId)}, so the planner stops spending its quota on them.</span></Card>}
-    <SaveBar count={count} busy={saving || settings.busy || models.busy} onSave={() => void saveAll()} onDiscard={discard} blockedReason={blockedReason} notice={models.notice ?? undefined}>
+    <SaveBar count={count} busy={saving || settings.busy || settings.enabledBusy || models.busy} onSave={() => void saveAll()} onDiscard={discard} blockedReason={blockedReason} notice={models.notice ?? undefined}>
       {count > 0 || settings.error || models.error ? <>
         {count > 0 && <p className="pc-agent-card__caption">{[...modelLines, ...limitLines].join(" · ")}</p>}
         <ErrorMessage error={settings.error} /><ErrorMessage error={models.error} />
       </> : undefined}
     </SaveBar>
   </section>;
-  const side = !!frame?.right && !frame.inline;
   return <>
     <FrameSlot name="right">{side ? list : null}</FrameSlot>
-    {side ? detail : <PageColumns layout="agents" main={detail} aside={list} />}
+    {side ? detail : <div className="pc-agent-stack">{list}{detail}</div>}
   </>;
 }
 
@@ -199,15 +223,64 @@ function settingsChanges(settings: ExecutorSettingsState): string[] {
   return lines;
 }
 
+/**
+ * One usage record (ADR 0030): the agent's own, else its account's, quoted through usageView with the account's
+ * Check usage control.
+ */
+function UsageCard({ name, own, account, accountName, pacePct, reload }: { name: string; own?: UsageState; account?: Account; accountName: string; pacePct: number | null; reload: () => void }) {
+  const { state } = useTaskContext(), snapshot = state.snapshot;
+  const summary = snapshot?.accounts?.find(a => a.name === accountName);
+  const accountRecordNow = account ? accountRecord(account, summary) : summary?.usageState;
+  const record = own ?? accountRecordNow;
+  const view = usageView(record, snapshot?.at ?? Date.now() / 1000);
+  const stale = record?.freshness === "historical";
+  // A historical reading states its age instead of a reset it may already have passed.
+  const usageWords = [view.summary, stale ? "" : captionReset(view.reset), view.freshness].filter(Boolean).join(" · ");
+  const spend = spendCopy(record?.spend?.usdWeek ?? accountRecordNow?.spend?.usdWeek ?? null, record?.spend?.capUsdWeek ?? accountRecordNow?.spend?.capUsdWeek ?? null);
+  const signedIn = summary?.signedIn ?? account?.signedIn;
+  const usageStatus = record?.error ? { ...paceStatus("unknown"), label: "Usage check failed", tone: "warn" as const }
+    : signedIn !== false && record ? (stale && record.figure ? { ...paceStatus("unknown"), label: "Historical usage" } : record.verdict ? paceStatus(record.verdict) : null) : null;
+  return <FactCard title="Usage">
+    {usageStatus && <span><StatusPill status={usageStatus} /></span>}
+    <strong className="pc-agent-card__figure">{view.figure}</strong>
+    {view.meter !== null && <UsageMeter used={view.meter} pace={stale ? null : pacePct} tone={stale ? "neutral" : view.tone} size="slim" text="none" label={`${name} usage`} stale={stale} />}
+    {usageWords !== view.figure && <span className="pc-agent-card__caption">{usageWords}</span>}
+    <span className="pc-agent-card__caption">{view.source}</span>
+    {spend && <span className="pc-agent-card__caption">{spend}</span>}
+    {account && <AccountUsage account={account} reload={reload} sourceError={account.usageState?.error?.message} />}
+  </FactCard>;
+}
+
+/** An account that no agent uses: its usage and sign-in, and a way to put it to work. */
+function AccountOnlyDetail({ account, accounts, config, reload }: { account: Account; accounts?: Account[]; config?: ConfigData; reload: () => void }) {
+  const scoped = useScoped(), agent = accountAgent(account), label = accountLabel({ ...account, agent });
+  const summary = useTaskContext().state.snapshot?.accounts?.find(a => a.name === account.name);
+  return <>
+    <header className="pc-agent-detail__head">
+      <AgentMark agent={markAgent(agent, account.name)} size={40} />
+      <div className="pc-agent-detail__title">
+        <SectionHeading as="h2" variant="headline" id="agent-detail-title" tabIndex={-1}>{label} <Pill tone="neutral">No agent</Pill></SectionHeading>
+        <span className="pc-agent-card__caption"><code>{account.name}</code> · An account no agent uses yet</span>
+      </div>
+      <div className="pc-agent-detail__refresh"><ButtonLink size="sm" variant="secondary" href={scoped("#/settings/add-executor")}>Add as agent</ButtonLink></div>
+    </header>
+    <div className="pc-agent-cards">
+      <UsageCard name={label} account={account} accountName={account.name} pacePct={summary?.pacePct ?? null} reload={reload} />
+      <FactCard title="Account"><AgentAccount executor={{ agent, account: account.name }} accounts={accounts} config={config} reload={reload} /></FactCard>
+    </div>
+  </>;
+}
+
 function FactCard({ title, children }: { title: string; children: ComponentChildren }) {
   return <section className="pc-agent-card" aria-label={title}><span className="pc-agent-card__caption">{title}</span>{children}</section>;
 }
 
-function AgentDetail({ executor, planner, position, count, settings, models, accounts, config, reloadAccounts, independent, busy, fallback, onRemoved }: {
+function AgentDetail({ executor, planner, position, count, settings, models, accounts, config, reloadAccounts, independent, busy, fallback, onRemoving, onRemoved }: {
   executor: ExecutorRow; planner: boolean; position: number; count: number;
   settings: ExecutorSettingsState; models: ModelDraftsState; accounts?: Account[]; config?: ConfigData; reloadAccounts: () => void;
   independent: (action: () => void | Promise<void>) => Promise<void>; busy: boolean;
   fallback?: { on: boolean; reload: () => void; complex: number; plannerFits: boolean; target: TierTargets["complex"] };
+  onRemoving: (active: boolean) => void;
   onRemoved: () => void;
 }) {
   const { state, api } = useTaskContext(), scoped = useScoped(), action = useOperation(), check = useOperation(), dialogs = useDialogs();
@@ -218,18 +291,7 @@ function AgentDetail({ executor, planner, position, count, settings, models, acc
   // A problem the user can act on gets its own card; the reason is then stated there only (UI-15).
   const attention = readiness.tone === "bad" || readiness.tone === "warn";
   const account = accounts?.find(a => a.name === executor.account);
-  // The agent's own usage record (ADR 0030), else its account's: one record, quoted through usageView.
   const summary = snapshot.accounts?.find(a => a.name === executor.account);
-  const record = executor.usageState ?? (account ? accountRecord(account, summary) : summary?.usageState);
-  const view = usageView(record, snapshot.at ?? Date.now() / 1000);
-  const stale = record?.freshness === "historical";
-  // A historical reading states its age instead of a reset it may already have passed.
-  const usageWords = [view.summary, stale ? "" : captionReset(view.reset), view.freshness].filter(Boolean).join(" · ");
-  const accountRecordNow = account ? accountRecord(account, summary) : summary?.usageState;
-  const spend = spendCopy(record?.spend?.usdWeek ?? accountRecordNow?.spend?.usdWeek ?? null, record?.spend?.capUsdWeek ?? accountRecordNow?.spend?.capUsdWeek ?? null);
-  const signedIn = summary?.signedIn ?? account?.signedIn;
-  const usageStatus = record?.error ? { ...paceStatus("unknown"), label: "Usage check failed", tone: "warn" as const }
-    : signedIn !== false && record ? (stale && record.figure ? { ...paceStatus("unknown"), label: "Historical usage" } : record.verdict ? paceStatus(record.verdict) : null) : null;
   const value = settings.draft?.runners[executor.id];
   const cap = machineHardCap(snapshot.machine);
   const [refreshing, setRefreshing] = useState(false), [refreshNote, setRefreshNote] = useState<string>();
@@ -264,7 +326,7 @@ function AgentDetail({ executor, planner, position, count, settings, models, acc
     <header className="pc-agent-detail__head">
       <AgentMark agent={markAgent(executor.id, executor.account)} size={40} />
       <div className="pc-agent-detail__title">
-        <SectionHeading as="h2" variant="headline">{name} {planner && <Pill tone="info">Planner</Pill>} <span onKeyDown={containTooltipEscape}><Tooltip text={readiness.tooltip}><span tabIndex={0}><StatusPill status={readiness} /></span></Tooltip></span></SectionHeading>
+        <SectionHeading as="h2" variant="headline" id="agent-detail-title" tabIndex={-1}>{name} {planner && <Pill tone="info">Planner</Pill>} <span onKeyDown={containTooltipEscape}><Tooltip text={readiness.tooltip}><span tabIndex={0}><StatusPill status={readiness} /></span></Tooltip></span></SectionHeading>
         <span className="pc-agent-card__caption"><code>{executor.id}</code>{readiness.reason && !attention ? ` · ${readiness.reason}` : ""}</span>
       </div>
       <div className="pc-agent-detail__refresh">
@@ -278,15 +340,7 @@ function AgentDetail({ executor, planner, position, count, settings, models, acc
       {signIn && <span className="u3-muted">Fix sign-in under Account below.</span>}
     </div>}</Card>}
     <div className="pc-agent-cards">
-      <FactCard title="Usage">
-        {usageStatus && <span><StatusPill status={usageStatus} /></span>}
-        <strong className="pc-agent-card__figure">{view.figure}</strong>
-        {view.meter !== null && <UsageMeter used={view.meter} pace={stale ? null : executor.pacePct ?? summary?.pacePct ?? null} tone={stale ? "neutral" : view.tone} size="slim" text="none" label={`${name} usage`} stale={stale} />}
-        {usageWords !== view.figure && <span className="pc-agent-card__caption">{usageWords}</span>}
-        <span className="pc-agent-card__caption">{view.source}</span>
-        {spend && <span className="pc-agent-card__caption">{spend}</span>}
-        {account && <AccountUsage account={account} reload={reloadAccounts} sourceError={account.usageState?.error?.message} />}
-      </FactCard>
+      <UsageCard name={name} own={executor.usageState} account={account} accountName={executor.account} pacePct={executor.pacePct ?? summary?.pacePct ?? null} reload={reloadAccounts} />
       <FactCard title="Account"><AgentAccount executor={executor} accounts={accounts} config={config} reload={reloadAccounts} /></FactCard>
       <FactCard title="Runs on">
         <strong>{executor.host ? <TextAction href={scoped(`#/settings/hosts/${encodeURIComponent(executor.host)}`)}>{executor.host}</TextAction> : "This machine"}</strong>
@@ -326,7 +380,7 @@ function AgentDetail({ executor, planner, position, count, settings, models, acc
           </div>}
           <div className="pc-agent-limits__row">
             <span className="pc-agent-limits__text"><strong>Remove agent</strong><span className="pc-agent-card__caption">Removing keeps its task history.</span></span>
-            <Button size="sm" variant="secondary" disabled={!!action.unavailable || action.busy || disabled} onClick={() => void independent(async () => { if (await dialogs.confirm(`Remove ${name}? Its task history stays.`, "Remove agent", "Remove")) await action.run("runner.remove", { id: executor.id }, onRemoved); })}>Remove {name}</Button>
+            <Button size="sm" variant="secondary" disabled={!!action.unavailable || action.busy || disabled} onClick={() => void independent(async () => { if (await dialogs.confirm(`Remove ${name}? Its task history stays.`, "Remove agent", "Remove")) { onRemoving(true); const done = await action.run("runner.remove", { id: executor.id }, onRemoved); if (!done) onRemoving(false); } })}>Remove {name}</Button>
           </div>
         </>}
       </div>

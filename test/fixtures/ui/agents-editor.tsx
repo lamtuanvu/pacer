@@ -27,7 +27,8 @@ const models: Record<string, RunnerModels> = {
   'opencode#tse': { runner: 'opencode#tse', revision: '1', default: 'terastor-ai', models: [{ id: 'terastor-ai', tier: 'medium' }] },
 };
 const listing = { runner: 'opencode#tse', source: 'opencode', fetchedAt: 1800000000, provider: 'tse', models: [{ id: 'terastor-ai', context: 128000, tools: true, costOut: 2 }, { id: 'terastor-ai-pro', context: 1000000, tools: true, costOut: 12 }] };
-let writes = 0, modelWrites = 0, fail = false, hold = false, conflictNext = false, failing = false;
+let writes = 0, modelWrites = 0, fail = false, hold = false, conflictNext = false, failing = false, fallback = 'on';
+let gone: string[] = [];
 let release = () => {};
 let refresh = () => {};
 const calls: [string, unknown][] = [];
@@ -36,9 +37,12 @@ const fixture = {
   calls: () => calls, writes: () => writes, modelWrites: () => modelWrites, settings: () => settings, models: () => models, shellEscapes: () => shellEscapes,
   fail: (value: boolean) => { fail = value; }, holdSave: () => { hold = true; }, release: () => { hold = false; release(); },
   conflictNext: () => { conflictNext = true; }, failing: (value: boolean) => { failing = value; refresh(); },
-  external: () => { moveRevision(); refresh(); },
+  /** Another client changes the limits (a revision move alone is not a conflict). */
+  external: () => { moveRevision(); settings = { ...settings, runners: settings.runners.map(r => r.id === 'opencode#tse' ? { ...r, maxTasks: 2 } : r) }; refresh(); },
   setLimit: (maxTasks: number) => { moveRevision(); settings = { ...settings, runners: settings.runners.map(r => r.id === 'codex' ? { ...r, maxTasks } : r) }; refresh(); },
   leave: (target?: string) => canLeaveScreen(target), refresh: () => refresh(),
+  /** Another client removes an agent while the page is open. */
+  removeElsewhere: (id: string) => { gone.push(id); settings = { ...settings, order: settings.order.filter(x => x !== id), runners: settings.runners.filter(r => r.id !== id) }; moveRevision(); refresh(); },
 };
 Object.assign(window, { agentsFixture: fixture });
 const api = { call: async (op: string, p: any) => {
@@ -46,8 +50,10 @@ const api = { call: async (op: string, p: any) => {
   if (op === 'runner.settings.get') return structuredClone(settings);
   if (op === 'runner.models.get') return structuredClone(models[p.id] ?? { runner: p.id, revision: String(revision), default: null, models: [] });
   if (op === 'executor.models.available') return p.runner === 'opencode#tse' ? listing : { runner: p.runner, source: 'none', models: null, fetchedAt: 1800000000 };
-  if (op === 'account.list') return [{ name: 'claude-code', kind: 'claude', signedIn: true }, { name: 'codex', kind: 'codex', signedIn: true }, { name: 'tse', kind: 'endpoint', state: 'ready' }];
-  if (op === 'config.get') return { keys: { 'pacing.planner_tier_fallback': { value: 'on' } }, planners: [] };
+  if (op === 'account.list') return [{ name: 'claude-code', kind: 'claude', signedIn: true }, { name: 'codex', kind: 'codex', signedIn: true }, { name: 'tse', kind: 'endpoint', state: 'ready' }, { name: 'spare', kind: 'claude', signedIn: false }];
+  if (op === 'config.get') return { keys: { 'pacing.planner_tier_fallback': { value: fallback } }, planners: [] };
+  // config.set edits strategy.yaml: it moves the one strategy revision without touching the limits.
+  if (op === 'config.set') { if (p.key === 'pacing.planner_tier_fallback') fallback = p.value; moveRevision(); refresh(); return {}; }
   if (op === 'dispatch.config.get') return { planner: 'claude-code', plannerAccount: 'claude-code', config: { tierTargets: { simple: 'small', standard: 'medium', complex: 'frontier' } } };
   if (op === 'job.list') return [];
   if (op === 'runner.remove') { if (fail) throw new Error('Service unavailable'); settings = { ...settings, order: settings.order.filter(id => id !== p.id), runners: settings.runners.filter(r => r.id !== p.id) }; moveRevision(); refresh(); return {}; }
@@ -74,16 +80,17 @@ const api = { call: async (op: string, p: any) => {
 } } as any;
 const actions = createActionRunner({ call: api.call, waitFor: async () => true, refetch: () => {}, navigate: () => {} });
 const agentFromHash = () => new URLSearchParams(location.hash.split('?')[1] ?? '').get('agent') ?? undefined;
+const accountFromHash = () => new URLSearchParams(location.hash.split('?')[1] ?? '').get('account') ?? undefined;
 function App() {
-  const [tick, setTick] = useState(0), [agent, setAgent] = useState(agentFromHash());
+  const [tick, setTick] = useState(0), [agent, setAgent] = useState(agentFromHash()), [account, setAccount] = useState(accountFromHash());
   refresh = () => setTick(t => t + 1);
   // The router passes ?agent= to the tab; selecting an agent keeps the page (and its draft) mounted.
-  useEffect(() => { const sync = async () => { if (await canLeaveScreen(location.hash)) setAgent(agentFromHash()); }; addEventListener('hashchange', sync); return () => removeEventListener('hashchange', sync); }, []);
+  useEffect(() => { const sync = async () => { if (await canLeaveScreen(location.hash)) { setAgent(agentFromHash()); setAccount(accountFromHash()); } }; addEventListener('hashchange', sync); return () => removeEventListener('hashchange', sync); }, []);
   const row = (id: string, rank: number | 'planner') => ({ id, agent: id.split('#')[0], account: id.split('#')[1] ?? id, host: null, model: null, rank, enabled: settings.runners.find(r => r.id === id)?.enabled ?? true,
     state: failing && id === 'codex' ? 'failing' : 'ready', reason: failing && id === 'codex' ? 'Endpoint returned 402' : undefined, tone: failing && id === 'codex' ? 'bad' : 'good', sub: '', usedPct: null, pacePct: null, slots: { used: 0, max: 1 }, lastCheck: null, recentFailures: 0, next: false });
-  const executors = [row('claude-code', 'planner'), ...settings.order.map((id, i) => row(id, i + 1))];
+  const executors = [row('claude-code', 'planner'), ...settings.order.filter(id => !gone.includes(id)).map((id, i) => row(id, i + 1))];
   const state = { ...initialState(), connected: true, invalidations: { runners: tick }, features: { ...initialState().features, ops: new Set(['limits.refresh']) },
     snapshot: { at: 1800000000, executors, accounts: [], hosts: [], repos: [], planner: { agent: 'claude-code', runner: 'claude-code' } } } as any;
-  return <TaskContext.Provider value={{ state, api }}><ActionContext.Provider value={actions}><AgentsPage agent={agent} /></ActionContext.Provider></TaskContext.Provider>;
+  return <TaskContext.Provider value={{ state, api }}><ActionContext.Provider value={actions}><AgentsPage agent={agent} account={account} /></ActionContext.Provider></TaskContext.Provider>;
 }
 render(<NotificationProvider><App /></NotificationProvider>, document.getElementById('app')!);

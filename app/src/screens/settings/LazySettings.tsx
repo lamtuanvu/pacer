@@ -4,7 +4,7 @@ import type { RouteQuery } from '../../router';
 import { Button } from '../../ds/Button';
 import { Skeleton } from '../../ds/Patterns';
 import { Alert } from '../../ds/Alert';
-type Props = {section?:string;query:RouteQuery;host?:string;alias?:string;agent?:string};
+type Props = {section?:string;query:RouteQuery;host?:string;alias?:string;agent?:string;account?:string};
 /** Editors load on demand; overview and running work do not pay their bundle cost. */
 const resolvedViews = new Map<string, ComponentType<Props>>();
 export function LazySettings(props:Props) {

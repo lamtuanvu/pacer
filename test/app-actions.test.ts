@@ -27,6 +27,9 @@ test("ui.open navigates without calling the service", async () => {
   expect(uiHref({ view: "session", id: "t1" })).toBe("#/workspace?task=t1");
   expect(uiHref({ view: "task", id: "t1", tab: "answer" })).toBe("#/tasks/t1?tab=answer");
   expect(uiHref({ view: "settings", section: "executors" })).toBe("#/settings/agents");
+  // An item about one agent opens that agent.
+  expect(uiHref({ view: "settings", section: "executors", agent: "codex#team" })).toBe("#/settings/agents?agent=codex%23team");
+  expect(uiHref({ view: "settings", section: "planner", agent: "codex" })).toBe("#/settings/planner");
   expect(uiHref({ view: "settings" })).toBe("#/settings");
 });
 
