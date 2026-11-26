@@ -118,9 +118,18 @@ export function useModelDrafts(runners: readonly string[], targets: TierTargets)
     add: (runner: string, id: string, tier: MatrixTier | null) => update(runner, d => {
       const value = id.trim();
       if (!value || d.rows.some(r => r.id === value)) return d;
-      let rows = addModel(d.rows, value);
+      // A pinned default with no declared models stays: it becomes the first row, so adding never replaces it.
+      const keep = !d.rows.some(r => r.on) && d.default && d.default !== value && !d.rows.some(r => r.id === d.default) ? addModel(d.rows, d.default) : d.rows;
+      let rows = addModel(keep, value);
       if (tier) rows = setTier(rows, value, tier);
       return { ...d, rows, default: d.default ?? (rows.filter(r => r.on).length === 1 ? value : null) };
+    }),
+    /** Swap a model the agent no longer offers for another, keeping its place, size and default. */
+    replace: (runner: string, id: string, next: string, tier: MatrixTier | null) => update(runner, d => {
+      const value = next.trim();
+      if (!value || value === id || d.rows.some(r => r.id === value)) return d;
+      const rows = d.rows.map(r => r.id === id ? { id: value, on: r.on, tier: tier ?? r.tier, isDefault: r.isDefault, takes: [] } : r);
+      return { ...d, rows, default: d.default === id ? value : d.default };
     }),
     remove: (runner: string, id: string) => update(runner, d => {
       const rows = removeModel(d.rows, id);
@@ -150,33 +159,51 @@ export function useModelDrafts(runners: readonly string[], targets: TierTargets)
   const save = async (): Promise<SaveOutcome> => {
     if (pending.current || !dirty || blocked.length) return { ok: !dirty };
     pending.current = true; setBusy(true); setError(undefined); setNotice(""); setConflict(false);
-    const send = async (expected: string) => {
-      const current = draftsRef.current.filter(d => !errors[d.runner]);
-      const plan = buildSavePlan(current.map(d => {
-        const base = basesRef.current.find(b => b.runner === d.runner);
-        return { runner: d.runner, revision: d.revision, baseRows: base?.rows ?? [], rows: d.rows, default: d.default, baseDefault: base?.default ?? null };
-      }), targetsRef.current, expected);
-      if (!plan.changed) return null;
-      const started = versions.current;
-      const result = await api.call<{ revision: string; runners: RunnerModels[]; warnings?: string[] }>("runner.models.set_many", { expectedRevision: expected, runners: plan.runners });
-      const returned = new Map(result.runners.map(r => [r.runner, r]));
+    const planNow = (expected: string) => buildSavePlan(draftsRef.current.filter(d => !errors[d.runner]).map(d => {
+      const base = basesRef.current.find(b => b.runner === d.runner);
+      return { runner: d.runner, revision: d.revision, baseRows: base?.rows ?? [], rows: d.rows, default: d.default, baseDefault: base?.default ?? null };
+    }), targetsRef.current, expected);
+    const started = versions.current;
+    const fold = (changed: readonly string[], runners: RunnerModels[], next: string) => {
+      const returned = new Map(runners.map(r => [r.runner, r]));
       const baseline = (runner: string, saved: RunnerModels) => draftFrom(runner, saved, targetsRef.current);
       const now = (runner: string) => versions.current[runner] ?? 0, then = (runner: string) => started[runner] ?? 0;
-      setDrafts(list => rebaseSavedDrafts(list, plan.changedRunners, now, then, returned, baseline).drafts);
-      setBases(list => rebaseSavedDrafts(list, plan.changedRunners, now, then, returned, baseline).baseDrafts);
-      setRevision(result.revision); versions.current = {};
+      setDrafts(list => rebaseSavedDrafts(list, changed, now, then, returned, baseline).drafts);
+      setBases(list => rebaseSavedDrafts(list, changed, now, then, returned, baseline).baseDrafts);
+      setRevision(next); versions.current = {};
+    };
+    const send = async (expected: string) => {
+      const plan = planNow(expected);
+      if (!plan.changed) return null;
+      const result = await api.call<{ revision: string; runners: RunnerModels[]; warnings?: string[] }>("runner.models.set_many", { expectedRevision: expected, runners: plan.runners });
+      fold(plan.changedRunners, result.runners, result.revision);
       return result;
     };
     try {
       let result;
-      try { result = await send(revision || drafts[0]?.revision || ""); }
+      const first = revision || drafts[0]?.revision || "";
+      try { result = await send(first); }
       catch (failure) {
-        if (!isConflict(failure)) throw failure;
-        // Another write on this page (or elsewhere) moved the revision. Retry once when the models are unchanged.
-        const fresh = await fetchAll(key ? key.split("\n") : []);
-        if (modelSignature(fresh.drafts.filter(d => basesRef.current.some(b => b.runner === d.runner))) !== modelSignature(basesRef.current)) throw failure;
-        setRevision(fresh.drafts[0]?.revision ?? "");
-        result = await send(fresh.drafts[0]?.revision ?? "");
+        const plan = planNow(first);
+        const fresh = await fetchAll(key ? key.split("\n") : []).catch(() => null);
+        if (!fresh) throw failure;
+        const freshRevision = fresh.drafts[0]?.revision ?? "";
+        const declared = (runner: string) => fresh.drafts.find(d => d.runner === runner);
+        // A lost response can follow a committed write: the service already holds exactly what this save sent.
+        const committed = plan.runners.length > 0 && plan.runners.every(sent => {
+          const now = declared(sent.id);
+          return !!now && now.default === sent.default && JSON.stringify(now.rows.filter(r => r.on).map(r => [r.id, r.tier])) === JSON.stringify(sent.models.map(m => [m.id, m.tier]));
+        });
+        if (committed) {
+          fold(plan.changedRunners, plan.runners.map(sent => ({ runner: sent.id, revision: freshRevision, default: sent.default, models: declared(sent.id)!.rows.filter(r => r.on).map(r => r.declared ?? { id: r.id, tier: r.tier as never }) })), freshRevision);
+          result = { revision: freshRevision, runners: [], warnings: [] as string[] };
+        } else {
+          if (!isConflict(failure)) throw failure;
+          // Another write on this page (or elsewhere) moved the revision. Retry once when the models are unchanged.
+          if (modelSignature(fresh.drafts.filter(d => basesRef.current.some(b => b.runner === d.runner))) !== modelSignature(basesRef.current)) throw failure;
+          setRevision(freshRevision);
+          result = await send(freshRevision);
+        }
       }
       if (!result) { setNotice("No changes."); return { ok: true }; }
       const warnings = (result.warnings ?? []).filter(w => !ROUTINE_WARNINGS.test(w));

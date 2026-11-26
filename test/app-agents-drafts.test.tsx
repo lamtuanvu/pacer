@@ -10,6 +10,7 @@ import type { ExecutorSettings } from "../app/src/model/executor-settings";
 import type { RunnerModels } from "../src/core/runner-models";
 import type { AvailableModels } from "../src/models/available";
 import { fakeElement, installFakeDom, until } from "./fixtures/fake-dom";
+import { saveAgentsDraft } from "../app/src/screens/settings/agents-save";
 
 // Dispatcher › Agents keeps two page drafts: every agent's models (runner.models.set_many) and the executor
 // order/limits (runner.settings.save). Both are revision-checked against the one strategy revision. These tests
@@ -29,6 +30,10 @@ interface Server {
   fail?: unknown;
   /** Commit the next settings save, then lose its response. */
   lose?: boolean;
+  /** Commit the next set_many, then lose its response. */
+  loseModels?: boolean;
+  /** Only the limits save fails. */
+  failSettings?: unknown;
   warnings?: string[];
 }
 const server = (models: Record<string, Omit<RunnerModels, "revision" | "runner">>, available: Record<string, AvailableModels> = {}): Server => ({
@@ -57,11 +62,13 @@ const apiFor = (s: Server): BrowserApi => ({
         if (params.expectedRevision !== s.revision) throw new ApiError("conflict", "Executor settings changed elsewhere.");
         bump(s);
         for (const runner of params.runners as { id: string; default: string; models: RunnerModels["models"] }[]) s.models[runner.id] = { runner: runner.id, revision: s.revision, default: runner.default, models: runner.models };
+        if (s.loseModels) { s.loseModels = false; throw new Error("socket closed"); }
         return { revision: s.revision, runners: (params.runners as { id: string }[]).map(r => s.models[r.id]), warnings: s.warnings ?? [] } as T;
       }
       case "runner.settings.get": return structuredClone(s.settings) as T;
       case "runner.settings.save": {
         if (s.fail) throw s.fail;
+        if (s.failSettings) throw s.failSettings;
         if (params.expectedRevision !== s.revision) throw new ApiError("conflict", "Executor settings changed elsewhere.");
         bump(s);
         s.settings = { revision: s.revision, order: params.order as string[], runners: params.runners as ExecutorSettings["runners"] };
@@ -354,11 +361,11 @@ test("a lost save response is confirmed against the saved values before it count
   await page.unmount();
 });
 
-test("a draft against an older revision shows a conflict and Save waits for Reload", async () => {
+test("a draft against limits changed elsewhere shows a conflict and Save waits for Reload", async () => {
   const s = server({});
   const page = await limits(s);
   await act(async () => page.get().edit(draft => { draft.runners.go!.maxTasks = "4"; }));
-  bump(s);
+  bump(s); s.settings = { ...s.settings, order: ["go", "codex"] };
   await page.rerender();
   await until(() => page.get().conflict);
   expect(page.get().conflict).toBe(true);
@@ -398,5 +405,154 @@ test("after a models save on this page, the limits save uses the revision it ret
   await act(async () => { saved = await page.get().save(s.revision); });
   expect(saved).toBe(true);
   expect(saves(s)[0]!.params.expectedRevision).toBe("r2");
+  await page.unmount();
+});
+
+// Review fixes (B1, S2, S3, S7, parity).
+test("B1: a page write that moved the revision without touching the limits rebases the draft instead of conflicting", async () => {
+  const s = server({});
+  const page = await limits(s);
+  await act(async () => page.get().edit(draft => { draft.runners.go!.maxTasks = "4"; }));
+  bump(s); // config.set for the planner tier fallback, the account policy or account.add
+  await page.rerender();
+  await settle();
+  expect(page.get().conflict).toBe(false);
+  let saved: unknown;
+  await act(async () => { saved = await page.get().save(); });
+  expect(saved).toBe(true);
+  expect(saves(s).map(call => call.params.expectedRevision)).toEqual(["r2"]);
+  await page.unmount();
+});
+
+test("B1: a revision moved before the page noticed is retried once when the limits are unchanged", async () => {
+  const s = server({});
+  const page = await limits(s);
+  await act(async () => page.get().edit(draft => { draft.runners.go!.maxTasks = "4"; }));
+  bump(s); // no rerender: the page has not read the new settings yet
+  let saved: unknown;
+  await act(async () => { saved = await page.get().save(); });
+  expect(saved).toBe(true);
+  expect(saves(s).map(call => call.params.expectedRevision)).toEqual(["r1", "r2"]);
+  expect(s.settings.runners.find(runner => runner.id === "go")!.maxTasks).toBe(4);
+  await page.unmount();
+});
+
+test("B1: a real external change to the limits still conflicts", async () => {
+  const s = server({});
+  const page = await limits(s);
+  await act(async () => page.get().edit(draft => { draft.runners.go!.maxTasks = "4"; }));
+  bump(s); s.settings = { ...s.settings, runners: s.settings.runners.map(runner => runner.id === "codex" ? { ...runner, maxTasks: 7 } : runner) };
+  let saved: unknown;
+  await act(async () => { saved = await page.get().save(); });
+  expect(saved).toBe(false);
+  expect(String(page.get().error)).toContain("changed elsewhere");
+  await page.rerender();
+  await until(() => page.get().conflict);
+  expect(page.get().conflict).toBe(true);
+  expect(s.settings.runners.find(runner => runner.id === "go")!.maxTasks).toBe(2);
+  await page.unmount();
+});
+
+test("B1: Takes work proceeds when only the revision moved", async () => {
+  const s = server({});
+  const page = await limits(s);
+  bump(s);
+  await act(async () => { await page.get().saveEnabled("codex", false); });
+  expect(s.settings.runners.find(runner => runner.id === "codex")!.enabled).toBe(false);
+  await page.unmount();
+});
+
+test("S2: a lost set_many response that committed counts as saved, not changed elsewhere", async () => {
+  const s = server({ go: { default: "glm", models: [{ id: "glm", tier: "small" }] } });
+  const page = await models(s);
+  await act(async () => page.get().edits.size("go", "glm", "medium"));
+  s.loseModels = true;
+  let outcome: unknown;
+  await act(async () => { outcome = await page.get().save(); });
+  expect(outcome).toMatchObject({ ok: true, revision: "r2" });
+  expect(page.get().conflict).toBe(false);
+  expect(page.get().error).toBeUndefined();
+  expect(page.get().dirty).toBe(false);
+  expect(sets(s)).toHaveLength(1);
+  // A failure that did not commit is still an error and keeps the draft.
+  await act(async () => page.get().edits.size("go", "glm", "frontier"));
+  s.fail = new ApiError("unavailable", "Service unavailable");
+  await act(async () => { outcome = await page.get().save(); });
+  expect(outcome).toEqual({ ok: false });
+  expect(String(page.get().error)).toContain("Service unavailable");
+  expect(page.get().draftOf("go")!.rows[0]!.tier).toBe("frontier");
+  await page.unmount();
+});
+
+test("S3: a pinned default with no declared models is kept as a row when the first model is added", async () => {
+  const s = server({ codex: { default: "gpt-5", models: [] } });
+  const page = await models(s);
+  await act(async () => page.get().edits.add("codex", "gpt-5-mini", "small"));
+  const draft = page.get().draftOf("codex")!;
+  expect(draft.rows.map(row => [row.id, row.tier])).toEqual([["gpt-5", "unknown"], ["gpt-5-mini", "small"]]);
+  expect(draft.default).toBe("gpt-5");
+  await act(async () => { await page.get().save(); });
+  expect(sets(s)[0]!.params.runners).toEqual([{ id: "codex", default: "gpt-5", models: [{ id: "gpt-5", tier: "unknown" }, { id: "gpt-5-mini", tier: "small" }] }]);
+  await page.unmount();
+});
+
+test("Replace swaps a model in place and keeps its size and default; a size can go back to Unrated", async () => {
+  const s = server({ go: { default: "old", models: [{ id: "old", tier: "frontier" }, { id: "b", tier: "small" }] } });
+  const page = await models(s);
+  await act(async () => page.get().edits.replace("go", "old", "new", null));
+  await act(async () => page.get().edits.replace("go", "new", "b", null)); // already on the agent: ignored
+  await act(async () => page.get().edits.size("go", "b", "unknown"));
+  const draft = page.get().draftOf("go")!;
+  expect(draft.rows.map(row => [row.id, row.tier])).toEqual([["new", "frontier"], ["b", "unknown"]]);
+  expect(draft.default).toBe("new");
+  await page.unmount();
+});
+
+/** Both page drafts in one component, as the Agents tab holds them. */
+const both = async (s: Server, runners: string[]) => {
+  const page = await mount<{ models: ModelDraftsState; settings: ExecutorSettingsState }>(s, () => ({ models: useModelDrafts(runners, targets), settings: useExecutorSettings() }));
+  await until(() => page.get().models.loaded && page.get().models.drafts.length >= runners.length && !!page.get().settings.draft);
+  await settle();
+  return page;
+};
+
+test("S7: one Save writes the models, then the limits against the revision the models returned", async () => {
+  const s = server({ go: { default: "glm", models: [{ id: "glm", tier: "small" }] } });
+  const page = await both(s, ["go"]);
+  await act(async () => { page.get().models.edits.size("go", "glm", "medium"); page.get().settings.edit(draft => { draft.runners.go!.maxTasks = "3"; }); });
+  let result: unknown;
+  await act(async () => { result = await saveAgentsDraft(page.get().models, page.get().settings); });
+  expect(result).toEqual({ ok: true });
+  expect(s.calls.filter(call => call.op.endsWith(".set_many") || call.op === "runner.settings.save").map(call => [call.op, call.params.expectedRevision])).toEqual([["runner.models.set_many", "r1"], ["runner.settings.save", "r2"]]);
+  expect(s.models.go!.models).toEqual([{ id: "glm", tier: "medium" }]);
+  expect(s.settings.runners.find(runner => runner.id === "go")!.maxTasks).toBe(3);
+  await settle();
+  expect(page.get().models.dirty || page.get().settings.dirty).toBe(false);
+  await page.unmount();
+});
+
+test("S7: when the models save but the limits fail, the limits stay in the draft with their error and no Saved notice", async () => {
+  const s = server({ go: { default: "glm", models: [{ id: "glm", tier: "small" }] } });
+  const page = await both(s, ["go"]);
+  await act(async () => { page.get().models.edits.size("go", "glm", "medium"); page.get().settings.edit(draft => { draft.runners.go!.maxTasks = "3"; }); });
+  s.failSettings = new ApiError("unavailable", "Service unavailable");
+  let result: unknown;
+  await act(async () => { result = await saveAgentsDraft(page.get().models, page.get().settings); });
+  expect(result).toEqual({ ok: false, reason: "limits" });
+  expect(s.models.go!.models).toEqual([{ id: "glm", tier: "medium" }]);
+  expect(page.get().settings.draft!.runners.go!.maxTasks).toBe("3");
+  expect(String(page.get().settings.error)).toContain("Service unavailable");
+  expect(page.get().models.notice).toBe("");
+  await page.unmount();
+});
+
+test("S1/S7: Save sends nothing while Takes work is saving", async () => {
+  const s = server({ go: { default: "glm", models: [{ id: "glm", tier: "small" }] } });
+  const page = await both(s, ["go"]);
+  await act(async () => { page.get().models.edits.size("go", "glm", "medium"); });
+  const before = s.calls.length;
+  const result = await saveAgentsDraft(page.get().models, { ...page.get().settings, enabledBusy: true });
+  expect(result).toEqual({ ok: false, reason: "busy" });
+  expect(s.calls.slice(before).filter(call => call.op === "runner.models.set_many" || call.op === "runner.settings.save")).toEqual([]);
   await page.unmount();
 });

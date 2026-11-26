@@ -5,6 +5,9 @@ import { useTaskContext } from "../task-shared";
 import { useResource } from "./shared";
 
 type SaveResult = ExecutorSettings & { warnings?: string[] };
+/** Same order, Takes work and limits: a newer revision that differs only elsewhere in the strategy. */
+export const sameSettings = (a: ExecutorSettings, b: ExecutorSettings) => JSON.stringify(createExecutorDraft(a)) === JSON.stringify(createExecutorDraft(b));
+const isConflict = (error: unknown) => !!error && typeof error === "object" && ((error as { code?: unknown }).code === "conflict" || /changed elsewhere/i.test(String((error as { message?: unknown }).message ?? "")));
 
 /**
  * The page draft of executor order and parallel limits (`runner.settings.*`), plus the immediate Takes work write.
@@ -20,9 +23,13 @@ export function useExecutorSettings() {
   if (query.data) observed.current = query.data;
   const dirty = !!saved && !!draft && isExecutorDraftDirty(draft, saved);
   const errors = draft ? validateExecutorDraft(draft) : {};
-  const conflict = dirty && !!saved && !!query.data && saved.revision !== query.data.revision;
+  // Other writes (this page's switches, models, account policy) move the one strategy revision without touching
+  // these settings; only a different order or limit is a conflict.
+  const conflict = dirty && !!saved && !!query.data && saved.revision !== query.data.revision && !sameSettings(saved, query.data);
   useEffect(() => {
-    if (query.data && query.data.revision !== saved?.revision && !dirty && !pending.current) { setSaved(query.data); setDraft(createExecutorDraft(query.data)); }
+    if (!query.data || query.data.revision === saved?.revision || pending.current) return;
+    if (!dirty) { setSaved(query.data); setDraft(createExecutorDraft(query.data)); }
+    else if (saved && sameSettings(saved, query.data)) setSaved(query.data);
   }, [query.data]);
   const discard = () => { if (query.data) { setSaved(query.data); setDraft(createExecutorDraft(query.data)); setError(undefined); } query.reload(); };
   const edit = (fn: (next: ExecutorDraft) => void) => {
@@ -41,18 +48,24 @@ export function useExecutorSettings() {
     pending.current = true; setBusy(true); setError(undefined);
     try {
       let result: SaveResult;
+      let current = base;
       try { result = await api.call<SaveResult>("runner.settings.save", executorSavePayload(draft, base)); }
       catch (failure) {
         // A lost response can follow a committed write. Confirm actual values before retrying.
         const actual = await api.call<ExecutorSettings>("runner.settings.get", {}).catch(() => null);
-        if (!actual || actual.revision === base.revision || !matchesExecutorDraft(draft, actual)) { query.reload(); throw failure; }
-        result = actual;
-        notifications?.notify({ key: "executor-save-confirmed", tone: "warning", title: "Saved settings confirmed", message: "The save response was interrupted. Review routing warnings before delegating." });
+        if (actual && actual.revision !== base.revision && matchesExecutorDraft(draft, actual)) {
+          result = actual;
+          notifications?.notify({ key: "executor-save-confirmed", tone: "warning", title: "Saved settings confirmed", message: "The save response was interrupted. Review routing warnings before delegating." });
+        } else if (actual && isConflict(failure) && sameSettings(actual, base)) {
+          // The revision moved by a write that left these settings alone: retry once on top of it.
+          current = actual;
+          result = await api.call<SaveResult>("runner.settings.save", executorSavePayload(draft, actual));
+        } else { query.reload(); throw failure; }
       }
       // The response describes our write, not necessarily the latest settings:
       // another client can commit before that response reaches this window.
       const latest = await api.call<ExecutorSettings>("runner.settings.get", {}), event = observed.current;
-      const confirmed = event && event.revision !== seen && event.revision !== base.revision && event.revision !== result.revision && event.revision !== latest.revision ? event : latest;
+      const confirmed = event && event.revision !== seen && event.revision !== base.revision && event.revision !== current.revision && event.revision !== result.revision && event.revision !== latest.revision ? event : latest;
       if (!matchesExecutorDraft(draft, confirmed)) {
         query.setData(confirmed);
         throw new Error("Settings changed after this save. Your draft is preserved. Reload saved settings before retrying.");
@@ -69,7 +82,7 @@ export function useExecutorSettings() {
     pending.current = true; setEnabledBusy(true);
     try {
       const latest = await api.call<ExecutorSettings>("runner.settings.get", {});
-      if (latest.revision !== saved.revision) {
+      if (latest.revision !== saved.revision && !sameSettings(latest, saved)) {
         query.setData(latest);
         throw new Error("Settings changed elsewhere. Reload saved settings before retrying.");
       }
