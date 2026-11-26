@@ -221,6 +221,9 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             use crate::native::task_delegation_ops::{Admission, admit};
             let effects = crate::native::runtime::DelegateEffects {
                 runtime: std::sync::Arc::clone(&state.delegation),
+                origin: Some(crate::native::runtime::delegate_origin(
+                    header_value(&parts.headers, "x-pacer-client").as_deref(),
+                )),
             };
             let reply = match admit(&ctx, op.name, &params, &effects) {
                 Ok(Admission::Core) => {

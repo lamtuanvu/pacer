@@ -388,6 +388,7 @@ async fn forward_input<
                     use crate::native::task_delegation_ops::{Admission, admit};
                     let effects = crate::native::runtime::DelegateEffects {
                         runtime: std::sync::Arc::clone(&plugins.delegation),
+                        origin: Some("external:local"),
                     };
                     let result = match admit(&request_ctx, op.name, &params, &effects) {
                         Ok(Admission::Core) => {

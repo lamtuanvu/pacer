@@ -184,6 +184,12 @@ test.skipIf(!front)("ids that cannot name a task are answered natively; well-for
     ["task.delegate", { goal: "g", repo: join(ctx.home, "missing-repo") }],
     ["task.delegate", { goal: "", repo: "", base: "not a ref.." }], ["task.delegate", { goal: "", repo: "", messaging: 1 }],
     ["task.delegate", { goal: "g", repo: "/r", timeout_min: 1.5, kind: "x" }],
+    ["task.delegate", { goal: "g", repo: "/tmp", base: "" }],
+    ["task.delegate", { goal: "g", repo: "/tmp", base: "x".repeat(5000) }],
+    ["task.delegate", { goal: "g", repo: "/tmp", messaging: { max_turns: 0 } }],
+    ["task.delegate", { goal: "g", repo: "/tmp", messaging: { liveness: { interval_s: 1 } } }],
+    ["task.delegate", { goal: "g", repo: "/tmp", messaging: { unexpected: 1 } }],
+    ["task.delegate", { goal: "g", repo: "/tmp", messaging: { rules: [{}] } }],
   ];
   const admitted = await same(ctx.home, delegated);
   expect(admitted.native).toEqual(all(delegated));

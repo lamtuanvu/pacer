@@ -121,8 +121,8 @@ const KINDS: &[&str] = &[
     "research",
 ];
 
-/// `delegateSchema` with `repo` required. `dispatch` is `z.unknown()`; `base` and `messaging` are
-/// absent because any request carrying them goes to Core (see [`core_validates`]).
+/// `delegateSchema` with `repo` required. `dispatch` is `z.unknown()`; `base` and
+/// `messaging` are validated natively (see [`Field::Base`] and [`Field::Messaging`]).
 const DELEGATE: Shape = &[
     (
         "difficulty",
@@ -267,6 +267,110 @@ fn ids_issues(name: &str, value: &Value, issues: &mut Vec<String>) {
     }
 }
 
+/// `messagingOverrideSchema` (`src/messaging/types.ts`) issue text in Zod order.
+fn messaging_issues(name: &str, value: &Value, issues: &mut Vec<String>) {
+    let Some(fields) = value.as_object() else {
+        return issues.push(expected(name, "object", value));
+    };
+    for key in fields.keys() {
+        if !matches!(key.as_str(), "rules" | "max_turns" | "liveness") {
+            issues.push(format!("{name}: Unrecognized key: \"{key}\""));
+        }
+    }
+    if let Some(rules) = fields.get("rules") {
+        match rules.as_array() {
+            Some(items) if items.len() <= 50 => {
+                for (index, rule) in items.iter().enumerate() {
+                    let path = format!("{name}.rules.{index}");
+                    let Some(rule) = rule.as_object() else {
+                        issues.push(expected(&path, "object", rule));
+                        continue;
+                    };
+                    for key in rule.keys() {
+                        if !matches!(
+                            key.as_str(),
+                            "effect" | "from_kind" | "to_kind" | "from_position" | "relation"
+                                | "kinds" | "repo" | "executor" | "grant" | "limits"
+                        ) {
+                            issues.push(format!("{path}: Unrecognized key: \"{key}\""));
+                        }
+                    }
+                    if !rule
+                        .get("effect")
+                        .and_then(Value::as_str)
+                        .is_some_and(|effect| matches!(effect, "allow" | "deny"))
+                    {
+                        issues.push(format!(
+                            "{path}.effect: Invalid option: expected one of \"allow\"|\"deny\""
+                        ));
+                    }
+                    if let Some(kinds) = rule.get("kinds")
+                        && kinds.as_array().is_some_and(Vec::is_empty)
+                    {
+                        issues.push(format!(
+                            "{path}.kinds: Too small: expected array to have >=1 items"
+                        ));
+                    }
+                }
+            }
+            Some(_) => issues.push(format!(
+                "{name}.rules: Too big: expected array to have <=50 items"
+            )),
+            None => issues.push(expected(&format!("{name}.rules"), "array", rules)),
+        }
+    }
+    if let Some(turns) = fields.get("max_turns") {
+        match turns.as_f64() {
+            Some(n) if n.fract() != 0.0 => issues.push(format!(
+                "{name}.max_turns: Invalid input: expected int, received number"
+            )),
+            Some(n) if n <= 0.0 => issues.push(format!(
+                "{name}.max_turns: Too small: expected number to be >0"
+            )),
+            Some(n) if n > 10_000.0 => issues.push(format!(
+                "{name}.max_turns: Too big: expected number to be <=10000"
+            )),
+            Some(_) => {}
+            None => issues.push(expected(&format!("{name}.max_turns"), "number", turns)),
+        }
+    }
+    if let Some(liveness) = fields.get("liveness") {
+        match liveness.as_object() {
+            Some(liveness) => {
+                for key in liveness.keys() {
+                    if !matches!(key.as_str(), "interval_s" | "max_nudges" | "escalate_after_s") {
+                        issues.push(format!("{name}.liveness: Unrecognized key: \"{key}\""));
+                    }
+                }
+                for (key, min) in [
+                    ("interval_s", 10.0),
+                    ("max_nudges", 0.0),
+                    ("escalate_after_s", 10.0),
+                ] {
+                    if let Some(value) = liveness.get(key) {
+                        match value.as_f64() {
+                            Some(n) if n.fract() != 0.0 => issues.push(format!(
+                                "{name}.liveness.{key}: Invalid input: expected int, received number"
+                            )),
+                            Some(n) if n < min => issues.push(format!(
+                                "{name}.liveness.{key}: Too small: expected number to be >={:.0}",
+                                min
+                            )),
+                            Some(_) => {}
+                            None => issues.push(expected(
+                                &format!("{name}.liveness.{key}"),
+                                "number",
+                                value,
+                            )),
+                        }
+                    }
+                }
+            }
+            None => issues.push(expected(&format!("{name}.liveness"), "object", liveness)),
+        }
+    }
+}
+
 fn field_issues(name: &str, field: Field, value: &Value, issues: &mut Vec<String>) {
     match field {
         Field::Str(min, max) => string_issues(name, value, min, max, issues),
@@ -314,46 +418,17 @@ fn field_issues(name: &str, field: Field, value: &Value, issues: &mut Vec<String
             None => issues.push(expected(name, "number", value)),
         },
         Field::Base => match value {
-            Value::String(base) if pacer_lifecycle::valid_base(base) => {}
-            Value::String(_) => issues.push(format!(
-                "{name}: base must be a branch name or a 7–40 hex SHA"
-            )),
-            other => issues.push(expected(name, "string", other)),
-        },
-        Field::Messaging => match value {
-            Value::Object(fields) => {
-                if let Some(rules) = fields.get("rules") {
-                    match rules.as_array() {
-                        Some(items) if items.len() <= 50 => {}
-                        Some(_) => issues.push(format!(
-                            "{name}.rules: Too big: expected array to have <=50 items"
-                        )),
-                        None => issues.push(expected(&format!("{name}.rules"), "array", rules)),
-                    }
-                }
-                if let Some(turns) = fields.get("max_turns") {
-                    match turns.as_f64() {
-                        Some(n) if n.fract() == 0.0 && (1.0..=10_000.0).contains(&n) => {}
-                        Some(n) if n.fract() != 0.0 => issues.push(format!(
-                            "{name}.max_turns: Invalid input: expected int, received number"
-                        )),
-                        Some(n) if n < 1.0 => issues.push(format!(
-                            "{name}.max_turns: Too small: expected number to be >=1"
-                        )),
-                        Some(_) => issues.push(format!(
-                            "{name}.max_turns: Too big: expected number to be <=10000"
-                        )),
-                        None => issues.push(expected(&format!("{name}.max_turns"), "number", turns)),
-                    }
-                }
-                if let Some(liveness) = fields.get("liveness") {
-                    if !liveness.is_object() {
-                        issues.push(expected(&format!("{name}.liveness"), "object", liveness));
-                    }
+            Value::String(base) => {
+                length_issues(name, base, Some(1), Some(4096), issues);
+                if !pacer_lifecycle::valid_base(base) {
+                    issues.push(format!(
+                        "{name}: base must be a branch name or a 7–40 hex SHA"
+                    ));
                 }
             }
-            other => issues.push(expected(name, "object", other)),
+            other => issues.push(expected(name, "string", other)),
         },
+        Field::Messaging => messaging_issues(name, value, issues),
         Field::Bool if value.is_boolean() => {}
         Field::Bool => issues.push(expected(name, "boolean", value)),
         Field::Ids => ids_issues(name, value, issues),

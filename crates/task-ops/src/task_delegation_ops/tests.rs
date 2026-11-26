@@ -98,7 +98,7 @@ fn every_delegate_input_takes_the_native_effect() {
     let (_dir, ctx) = ctx_with(&[]);
     for params in [
         json!({"goal": "g", "repo": "/r", "base": "main"}),
-        json!({"goal": "g", "repo": "/r", "messaging": 1}),
+        json!({"goal": "g", "repo": "/r", "messaging": {"max_turns": 12}}),
         json!({"goal": "g", "repo": "/r", "timeout_min": 1.5}),
         json!({"goal": "g", "repo": "/r", "max_tasks": 1.5}),
         json!({"goal": "g", "repo": "/r"}),
@@ -111,6 +111,14 @@ fn every_delegate_input_takes_the_native_effect() {
             "{params}"
         );
     }
+    assert_eq!(
+        message(
+            &ctx,
+            "task.delegate",
+            json!({"goal": "g", "repo": "/r", "messaging": 1})
+        ),
+        "messaging: Invalid input: expected object, received number"
+    );
     for (op, params) in [
         ("task.answer", json!({"id": "", "expect_rev": 1e300})),
         (

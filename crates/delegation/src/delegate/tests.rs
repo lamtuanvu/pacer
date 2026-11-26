@@ -15,6 +15,7 @@ fn fixture() -> (TempDir, Ctx, Runtime, String) {
     std::fs::write(pacer_home.join("strategy.yaml"), STRATEGY).unwrap();
     let repo = home.join("repo");
     std::fs::create_dir_all(&repo).unwrap();
+    let repo = std::fs::canonicalize(repo).unwrap();
     let ctx = Ctx::with(home, pacer_home, Default::default(), 1_800_000_000.0);
     let runtime = Runtime {
         plugins: Arc::new(NoPlugins),

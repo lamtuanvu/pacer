@@ -184,23 +184,32 @@ pub fn session_runtime(
 /// Native `task.delegate` effects, backed by this front door's delegation runtime.
 pub struct DelegateEffects {
     pub runtime: Arc<Runtime>,
+    /// The caller participant: `human` for an authenticated app client, otherwise
+    /// `external:local` (`src/messaging/participants.ts`).
+    pub origin: Option<&'static str>,
 }
 
 impl pacer_task_ops::task_delegation_ops::DelegationEffects for DelegateEffects {
     fn delegate<'a>(&'a self, ctx: &'a Ctx, params: &'a Value) -> OpFuture<'a> {
+        let origin = self.origin;
         Box::pin(async move {
-            let client = ctx.env.get("PACER_CLIENT").map(String::as_str).unwrap_or_default();
-            let origin = if client.starts_with("app")
-                || client.starts_with("desktop")
-                || client.starts_with("tui")
-                || client.starts_with("tray")
-            {
-                "human"
-            } else {
-                "external:local"
-            };
-            pacer_delegation::delegate::delegate(ctx, &self.runtime, params, Some(origin)).await
+            pacer_delegation::delegate::delegate(ctx, &self.runtime, params, origin).await
         })
+    }
+}
+
+/// `callerParticipant` for a public operation client header.
+pub fn delegate_origin(client: Option<&str>) -> &'static str {
+    let client = client.unwrap_or_default();
+    if client == "human"
+        || client.starts_with("app")
+        || client.starts_with("desktop")
+        || client.starts_with("tui")
+        || client.starts_with("tray")
+    {
+        "human"
+    } else {
+        "external:local"
     }
 }
 
