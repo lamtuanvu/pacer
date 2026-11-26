@@ -2,7 +2,8 @@
 // Ops/CLI/MCP wire-up lands in a later task; this module is the engine API.
 import type { Ctx } from "../types";
 import { CoreError } from "../core/errors";
-import { answer as answerTask, requireAskingExecutor } from "../core/tasks";
+import { answer as answerTask } from "../core/tasks";
+import { requireStepWorker } from "./step-identity";
 import { isExecutorSession, isOrchestratorSession } from "../install/role";
 import { insertMessage } from "../messaging/store";
 import { rootOf } from "../messaging/participants";
@@ -222,7 +223,7 @@ export async function askQuestion(ctx: Ctx, raw: AskQuestionInput): Promise<Ques
     return q;
   }
 
-  const taskId = requireAskingExecutor(ctx);
+  const taskId = requireStepWorker(ctx);
   const step = stepByTask(ctx, taskId);
   if (!step) throw new CoreError("not_allowed", "Structured questions require a run step task");
   const run = getRun(ctx, step.runId);

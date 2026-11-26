@@ -22,6 +22,7 @@ import { type SpawnRunner, EXECUTOR_DELEGATE_ERROR, delegateSchema, parseDelegat
 import { appendLabel } from "../tasks/labels";
 import type { Ctx } from "../types";
 import { RUN_GRANT_OPS } from "../workflow/run-grant";
+import { verifiedStepWorker } from "../workflow/step-identity";
 
 import * as strategies from "../strategy/service";
 
@@ -75,6 +76,35 @@ function assistantMcpServer(getCtx: () => Ctx): McpServer {
     }
   });
   return server;
+}
+
+/**
+ * A workflow step worker's reports, run in this process like `pacer step result`: the identity is the
+ * attempt credential in this environment, which gains no HTTP operation. `authorizeWorkOperation`
+ * answers every call again, so a settled or revoked attempt is refused.
+ */
+function registerStepTools(server: McpServer, getCtx: () => Ctx): void {
+  const report = async (op: string, params: Record<string, unknown>) => {
+    try { return json(await callOp(getCtx(), op, params) as Record<string, unknown>); }
+    catch (error) { return { ...json({ error: error instanceof Error ? error.message : "Step report failed" }), isError: true }; }
+  };
+  server.registerTool("step_result", { description: "Record your workflow step's structured result.", inputSchema: { result: z.record(z.string(), z.unknown()) } },
+    async (p) => report("step.result", p));
+  server.registerTool("step_artifact", { description: "Attach a file from your step's worktree or evidence directory to the run.", inputSchema: { path: z.string(), label: z.string() } },
+    async (p) => report("step.artifact", p));
+  if (!getCtx().env.PACER_WORK_GRANT) return; // The unscoped server already has pacer_question.
+  server.registerTool("pacer_question", {
+    description: "Ask a structured question about your own workflow step, then stop and wait for the answer.",
+    inputSchema: {
+      action: z.enum(["ask"]),
+      text: z.string(),
+      answerType: z.enum(["single", "multi", "text", "yes_no", "approve_revise"]),
+      options: z.array(z.object({ value: z.string(), note: z.string().optional() })).optional(),
+      recommended: z.string().optional(),
+      blocks: z.enum(["step", "branch", "nothing"]).optional(),
+      artifact: z.string().optional(),
+    },
+  }, async ({ action: _, blocks, ...p }) => report("question.ask", { ...p, blocks: blocks ?? "step" }));
 }
 
 export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRunner; assistant?: boolean } = {}): McpServer {
@@ -197,10 +227,13 @@ export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRu
     server.registerTool("msg_read",{description:"Mark your messages read so msg_wait blocks for new ones.",inputSchema:{ids:z.array(z.string()).min(1)}},async(p)=>scoped("msg.read",p));
     server.registerTool("msg_close",{description:"Close a task in your subtree for further messages. Records no review verdict.",inputSchema:{task:z.string()}},async(p)=>scoped("msg.close",p));
     server.registerTool("tree_status",{description:"Turn state of a task tree.",inputSchema:{task:z.string()}},async(p)=>scoped("tree.status",p));
-    // Work grants cannot call question.* (authorizeWorkOperation); no dead pacer_question branch (M-i).
+    // A work grant calls question.* only as a step worker asking about its own step; no dead branch (M-i).
+    if (verifiedStepWorker(getCtx())) registerStepTools(server, getCtx);
     return server;
   }
   const spawnFn = opts.spawnRunner ?? spawnRunner;
+  // A strict step attempt without delegation holds only its enforcement token.
+  if (verifiedStepWorker(getCtx())) registerStepTools(server, getCtx);
 
   server.registerTool("budget_status", {
     description: "Budget status for every subscription: usage vs pace, verdicts, the planner's mode and the ranked executors. Call at session start and before large delegation decisions.",

@@ -9,7 +9,7 @@ import { createTask, readTask, TASK_DB_BUSY_TIMEOUT_MS, taskDatabase, updateTask
 import { TERMINAL_STATES } from "../tasks/types";
 import { stop as stopTaskCore } from "../core/tasks";
 import { appendActivity } from "../activity/log";
-import { resolveRunner } from "../config/runner-id";
+import { isPlannerRunner, resolveRunner } from "../config/runner-id";
 import { loadStrategy } from "../config/strategy";
 import { withoutPlannerSession } from "../exec/process";
 import { dataPreamble, renderPrompt, STEP_RESULT_INSTRUCTION } from "./template";
@@ -43,6 +43,7 @@ import type { AgentStep, ChooseWorkflowStep, GenerateStep, WorkflowDef } from ".
 import { limitObservation } from "../usage/reactive";
 import { executorGuard, isRequestedExecutorBudgetRefusal } from "../executors/availability";
 import { runPriorityOf } from "./priority";
+import { plannerRunnerId } from "./turn-planner";
 import {
   readPacingMode, wakeAllowsStart, type ModeReader, type PacingMode,
 } from "./pacing";
@@ -68,21 +69,16 @@ export function isPlannerHoldReason(reason: string | null | undefined): boolean 
 /** Sync pacing from exhausted marks and the same local eligibility guard the runner uses. */
 export function defaultPlannerPacing(ctx: Ctx, planner: string): PlannerPacing {
   try {
-    const ids = new Set<string>([planner]);
     let strategy: ReturnType<typeof loadStrategy> | undefined;
     try {
       strategy = loadStrategy(ctx);
     } catch { /* strategy optional in tests */ }
 
-    if (strategy) {
-      // Only alias strategy planner marks onto the run planner when they resolve to the same runner.
-      const runRunner = resolveRunner(strategy, planner);
-      const strategyRunner = resolveRunner(strategy, strategy.planner.agent);
-      if (runRunner && strategyRunner && runRunner.id === strategyRunner.id) {
-        ids.add(strategy.planner.agent);
-        ids.add(strategy.planner.account);
-      }
-    }
+    // The same runner the turn is pinned to; the planner's account marks apply to it only.
+    const id = strategy ? plannerRunnerId(strategy, planner) : planner;
+    const ids = new Set<string>([id]);
+    const runner = strategy ? resolveRunner(strategy, id) : null;
+    if (strategy && runner && isPlannerRunner(strategy, runner)) ids.add(runner.account);
 
     for (const id of ids) {
       const obs = limitObservation(ctx, id);
@@ -90,7 +86,7 @@ export function defaultPlannerPacing(ctx: Ctx, planner: string): PlannerPacing {
     }
 
     // Guard only the resolved run planner — a strategy-planner exhaustion must not block a switch.
-    const guard = strategy ? executorGuard(ctx, strategy, planner) : undefined;
+    const guard = strategy ? executorGuard(ctx, strategy, id) : undefined;
     if (guard) {
       return {
         eligible: false,
@@ -1472,9 +1468,7 @@ export async function orchestrateRuns(ctx: Ctx, deps: OrchestratorDeps = {}): Pr
       const countFailure = task.state !== "limit" && !budgetRefusal;
       const turn = getTurn(ctx, row.id);
       const resetAt = (task.state === "limit" || budgetRefusal) && turn
-        ? (limitObservation(ctx, turn.planner)?.until
-          ?? defaultPlannerPacing(ctx, turn.planner).until
-          ?? ctx.now + 3600)
+        ? (defaultPlannerPacing(ctx, turn.planner).until ?? ctx.now + 3600)
         : undefined;
       await settleTurn(ctx, row.id, {
         outcome: "failed",

@@ -753,8 +753,9 @@ export function startServer(
           }
         }
       }
-      const requestCtx = workGrant ? () => ({...getCtx(),env:{...getCtx().env,PACER_WORK_GRANT:workGrant,PACER_ROLE:"executor"}})
-        : enforcementToken ? () => ({...getCtx(),env:{...getCtx().env,PACER_ENFORCEMENT_TOKEN:enforcementToken,PACER_ROLE:"executor"}})
+      // A task bearer names no local task: without PACER_TASK_ID it can never act as a step worker.
+      const requestCtx = workGrant ? () => ({...getCtx(),env:{...getCtx().env,PACER_WORK_GRANT:workGrant,PACER_ROLE:"executor",PACER_TASK_ID:undefined}})
+        : enforcementToken ? () => ({...getCtx(),env:{...getCtx().env,PACER_ENFORCEMENT_TOKEN:enforcementToken,PACER_ROLE:"executor",PACER_TASK_ID:undefined}})
         // The assistant-turn identity: not the operator, not an executor session, and no PACER_ROLE.
         : assistantGrant ? () => ({...getCtx(),env:{...getCtx().env,PACER_ASSISTANT_GRANT:assistantGrant,PACER_ROLE:undefined}})
         // The run-grant identity (API-5b): orchestrator turn, not the operator, not an executor.

@@ -214,6 +214,7 @@ export const RUN_HEADING = "Run";
 export const RUN_MESSAGES_ERROR = "Couldn't load the latest messages.";
 export const RUN_MESSAGE_SEND_ERROR = "Couldn't send your message. It is still in the box; try again.";
 export const RUN_ARTIFACT_ERROR = "The file could not be read.";
+export const RUN_OUTPUT_ERROR = "The output could not be read.";
 export const QUESTION_SUBMIT_ERROR = "Couldn't submit your answer. Try again.";
 export const QUESTION_NO_OPTIONS = "This question has no options, so it can't be answered here. Answer it from a terminal with pacer.";
 export const QUESTION_ANSWER_TOO_LONG = "These choices are too long to send together. Choose fewer.";

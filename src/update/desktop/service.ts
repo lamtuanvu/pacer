@@ -11,7 +11,7 @@ import { updateChannel } from "../channel";
 import * as admission from "./admission";
 import { ownProcessIdentity, sameProcess, type ProcessIdentity } from "./process-identity";
 import { AdapterError, runAdapterCommand, type AdapterFailure, type AdapterRequest, type PreparedFrame, type VerifiedPipeFactory } from "./adapter";
-import { cancelRestart, checkDue, checksEnabled, rememberRequest, replayRequest, requestRestart, updateStatus } from "./policy";
+import { cancelRestart, checkDue, checksEnabled, reconcileStaleCandidate, rememberRequest, replayRequest, requestRestart, updateStatus } from "./policy";
 import { readUpdate, writeUpdate } from "./store";
 import { assertIdentifier, type Installation, type UpdateRecord, type UpdateRequest, type RestartRequest, type UpdateStatus, type UpdateAction } from "./types";
 
@@ -46,6 +46,8 @@ export interface DesktopUpdateDeps {
   schedule?: (callback: () => void, delayMs: number) => () => void;
   admission?: Pick<typeof admission, "reserveIdle" | "releaseReservation" | "reconcileAdmission">;
   publish?: (status: UpdateStatus) => Promise<void>;
+  /** The native commit signal: ask older runners to hand over once (ADR 2026-11-25 point 4). */
+  handover?: (ctx: Ctx) => Promise<{ summary: string }>;
 }
 export interface DesktopUpdateRuntime {
   status(installationId: string): UpdateStatus;
@@ -123,6 +125,23 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
   const recoveryAttempts = new Map<string, { transactionId: string; count: number; retryAt: number | null }>();
   /** Bounded automatic retries of interrupted/transient CHECKs, with up to an hour of jitter. Installs keep their own recovery loop. */
   const checkRetries = new Map<string, { count: number; retryAt: number }>();
+  /** Transactions whose commit already asked older runners to hand over in this service. */
+  const handedOver = new Set<string>();
+  const handover = deps.handover ?? (async (c: Ctx) => {
+    const { sharedHandover, triggerHandover } = await import("../../tasks/handover-service");
+    return sharedHandover(() => triggerHandover(c), "commit");
+  });
+  /**
+   * Native commit signal (ADR 2026-11-25 point 4): the committed outcome is recorded by the new
+   * service after the helper's rollback window, so survivors are never signalled before it. Plain
+   * start-up and a restored update signal nothing. Fire-and-forget; the report goes to the log.
+   */
+  const signalCommitted = (transactionId: string) => {
+    if (handedOver.has(transactionId)) return;
+    handedOver.add(transactionId);
+    // The run logs its own line ("pacer: handover (commit): …"); only an unexpected rejection is noted here.
+    void handover(ctx()).catch(() => {});
+  };
   let publications = Promise.resolve(), started = false, stopped = false, ticking = false;
   let unsubscribe: (() => void) | undefined, cancelTimer: (() => void) | undefined;
   let runtimeError = false;
@@ -152,6 +171,39 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
     }).catch(() => { deliveryErrors.add(id); });
   };
   const persist = (next: UpdateRecord) => { const saved = writeUpdate(ctx(), next, next.revision); emit(saved.installationId); return saved; };
+  /** A hand-installed release can move the registered installation up to the
+   * stored candidate's version. Clear the now-stale candidate/error, persist it
+   * with a revision bump and arm a fresh check so Settings stops reporting a
+   * failure that was already installed by another path. Settlement phases keep
+   * their candidate until their own durable work finishes. */
+  const refreshStaleCandidate = (id: string): UpdateRecord => {
+    const session = liveSession(id);
+    const installed = session?.installation ?? installation(id);
+    const value = record(id);
+    const reconciled = reconcileStaleCandidate(installed, value);
+    if (reconciled === value) return value;
+    // Arm the fresh check before writing: even a failed write must not leave a
+    // hand-installed target waiting for the normal daily check cadence.
+    nextCheck.set(id, clock.monotonicMs());
+    try {
+      return persist(reconciled);
+    } catch (error) {
+      let fallback = reconciled;
+      if (error instanceof CoreError && error.code === "conflict") {
+        // Another writer advanced the record. Retry once against its revision so
+        // a concurrent action cannot resurrect the stale candidate.
+        try {
+          const fresh = record(id);
+          const again = reconcileStaleCandidate(installed, fresh);
+          fallback = again;
+          return again === fresh ? fresh : persist(again);
+        } catch { /* Fall back to the masked view below. */ }
+      }
+      // Status stays readable even when a best-effort reconciliation cannot be
+      // persisted; updateStatus masks the stale candidate in the meantime.
+      return fallback;
+    }
+  };
   /** Back off after a failed/interrupted check, with a hard attempt budget. Never arms installs. */
   const armCheckRetry = (id: string, immediate = false) => {
     const prior = checkRetries.get(id);
@@ -221,7 +273,14 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
       if (resolve(session.installation.pacerHome) !== resolve(ctx().pacerHome)) throw unavailable();
       if (!known.has(session.installation.id)) known.set(session.installation.id, structuredClone(session.installation));
       if (watched.get(session.installation.id) !== session.sessionId) {
+        // A re-registered desktop can report a different installed version when
+        // a release was installed by hand. Refresh before reconciling the record.
+        known.set(session.installation.id, structuredClone(session.installation));
         watched.set(session.installation.id, session.sessionId);
+        // A corrupt or inaccessible record must poison only this installation,
+        // not abort the whole observation pass and pause every other desktop.
+        try { refreshStaleCandidate(session.installation.id); }
+        catch { failed(session.installation.id); }
         retryCheckOnReconnect(session.installation.id);
         void session.closed.then(() => {
           if (!stopped && watched.get(session.installation.id) === session.sessionId) {
@@ -377,7 +436,12 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
           markSetupHealthRequired(ctx());
         } catch { /* Health stamp is best-effort after a committed desktop update. */ }
       }
+      // Hand over only after the reservation is released, so replacement runners can start. If the
+      // release fails, nothing is signalled: runners keep running on old code (fail-safe), and
+      // `service.handover` keeps answering deferred while the reservation is held; the desktop calls
+      // again on its next connect, after reconciliation releases it.
       await release(id, transactionId);
+      if (completed) signalCommitted(transactionId);
       recoveryAttempts.delete(id);
     } catch (error) {
       const value = record(id);
@@ -415,7 +479,8 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
     if (!session || value.requesterBootId !== clock.bootId() || value.requestedBy !== session.desktopClientId || waitingSessions.get(tx) !== session.sessionId) { revokeWaiting(id); return; }
     await native.reverify(session);
     if (!isCurrent(session) || stopped) { revokeWaiting(id); return; }
-    const reservation = installation(id).ownership === "attached" ? { reserved: true, blockers: [] } : await gate.reserveIdle(ctx(), tx);
+    const survivors = admission.survivorSupport(installation(id).version, value.candidate?.version);
+    const reservation = installation(id).ownership === "attached" ? { reserved: true, blockers: [] } : await gate.reserveIdle(ctx(), tx, { survivors, target: value.candidate?.version });
     value = record(id);
     if (value.phase !== "waiting" || value.transactionId !== tx || !isCurrent(session) || stopped) {
       if (reservation.reserved) await release(id, tx);
@@ -470,7 +535,7 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
   const adoption=createAdoptionRuntime(ctx,{native,adapter:deps.adapter,admission:gate,bootId:clock.bootId,changed:value=>{if(known.has(value.installationId))emit(value.installationId);},completed:(_oldId,value)=>{known.set(value.id,structuredClone(value));}});
   const runtime: DesktopUpdateRuntime = {
     status(id) {
-      const value = record(id), status = updateStatus(installation(id), value);
+      const value = refreshStaleCandidate(id), status = updateStatus(installation(id), value);
       const adopted=readAdoption(ctx(),id),session=liveSession(id);
       let currentAdoption: ReturnType<NonNullable<AdoptionNative["inspectAdoption"]>> | undefined;
       if ((!adopted || !adoptionPending(adopted)) && session && adoption.capable() && session.installation.ownership === "attached") {

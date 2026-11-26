@@ -6,14 +6,11 @@ import {
   reviewerPanels, sentenceCase, stripSteps, testsAndPr, type BoardChild, type BoardInput, type BoardMessage, type BoardQuestion,
 } from "../../../../src/view-model/run-board";
 import {
-  displayRunLetter, orchestratorBlock, pausedReasonLabel, runAge, runPriorityLabel, runStatus, waitsOnLabel, awaitsVerdict,
-  RUN_HEADING, RUN_QUESTIONS_ERROR, RUN_SEEN_ERROR,
+  orchestratorBlock, pausedReasonLabel, runAge, runPriorityLabel, runStatus, waitsOnLabel, awaitsVerdict,
+  RUN_QUESTIONS_ERROR, RUN_SEEN_ERROR,
 } from "../../../../src/view-model/runs";
-import {
-  initialRunsStore, markRunSeen, mergeDetailRefresh, mergeListRefresh, mergeSnapshotRuns, refreshRunDetail, refreshRunsList,
-  type RunQuestionView, type RunsStoreState,
-} from "../../data/runs";
-import { runLettersForList } from "../../../../src/view-model/runs";
+import type { RunQuestionView } from "../../data/runs";
+import { runIdentity, useRetryFocus, useRunDetail, useRunSeen } from "./run-data";
 import { useActions } from "../../data/action-context";
 import { Alert } from "../../ds/Alert";
 import { Button, ButtonLink } from "../../ds/Button";
@@ -22,6 +19,7 @@ import { EmptyState } from "../../ds/Patterns";
 import { Pill } from "../../ds/Pill";
 import { FrameSlot, PageHead, useFrame } from "../../shell/slots";
 import { withQuery, type RouteQuery } from "../../router";
+import { liveHref } from "./live-links";
 import { useTaskContext } from "../task-shared";
 import { BoardButton, RunQuestionCard, useRunViewStyles, ArtifactLink, ArtifactText, type FetchText } from "./run-shared";
 import { RunStrip } from "./RunStrip";
@@ -51,64 +49,20 @@ export function RunView({ runId, query, fetchText }: { runId: string; query: Rou
   const frame = useFrame();
   const ops = state.features.ops;
   const now = state.snapshot?.at ?? Date.now() / 1000;
-  const [store, setStore] = useState<RunsStoreState>(() => initialRunsStore());
-  const storeRef = useRef(store);
-  storeRef.current = store;
   const [board, setBoard] = useState<BoardId>("overview");
   const [announce, setAnnounce] = useState("");
   const headingRef = useRef<HTMLHeadingElement>(null);
-  const seen = useRef<string | null>(null);
-  const [seenFailed, setSeenFailed] = useState<string | null>(null);
-
-  const mounted = useRef(true);
-  const loadSeq = useRef(0);
-  const appliedSeq = useRef(0);
-  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
-  /**
-   * A response is dropped after unmount, or once a newer load has been applied. One that is merely
-   * superseded still applies, so frequent invalidations cannot keep the view from ever updating.
-   */
-  /** Resolves true when this run was read without any error. */
-  const load = async () => {
-    const mine = ++loadSeq.current;
-    const listed = await refreshRunsList(api, storeRef.current, ops);
-    const next = await refreshRunDetail(api, listed, runId, ops);
-    if (mounted.current && mine > appliedSeq.current) {
-      appliedSeq.current = mine;
-      setStore(current => mergeDetailRefresh(mergeListRefresh(current, listed), next, runId));
-    }
-    return next.details[runId]?.error === null;
-  };
+  const seen = useRunSeen(runId);
+  const { store, detail: detailState, load } = useRunDetail(runId);
   useEffect(() => {
     // A different run in the same instance starts from its own overview.
     setBoard("overview");
     setAnnounce("");
   }, [runId]);
-  /** The failure alert stays until a call works, so its button keeps focus through a failed retry. */
-  const markSeen = async () => {
-    seen.current = runId;
-    const result = await markRunSeen(api, runId, ops);
-    if (seen.current !== runId) return false;
-    // A failed call is retried by the next refresh, or by the alert's button.
-    if (result === "failed") seen.current = null;
-    if (mounted.current) setSeenFailed(result === "failed" ? runId : null);
-    return result !== "failed";
-  };
   const focusHeading = () => headingRef.current?.focus({ preventScroll: true });
-  /** A retry button leaves the page only when it works: then move focus to the run title, unless the person moved on. */
-  const retry = async (button: EventTarget | null, attempt: () => Promise<boolean>) => {
-    if (!await attempt() || !mounted.current) return;
-    const active = document.activeElement;
-    if (!active || active === document.body || active === button) focusHeading();
-  };
+  const retry = useRetryFocus(headingRef);
   const retryLoad = (e: Event) => { void retry(e.currentTarget, load); };
-  useEffect(() => {
-    if (seen.current !== runId) void markSeen();
-    void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- load reads the latest store through a ref
-  }, [api, ops, runId, state.connectionRevision, state.invalidations.runs, state.invalidations.attention]);
 
-  const detailState = store.details[runId];
   const raw = detailState?.run ?? null;
 
   const view = useMemo(() => {
@@ -158,16 +112,10 @@ export function RunView({ runId, query, fetchText }: { runId: string; query: Rou
   };
 
   // Header facts
-  const letters = runLettersForList(mergeSnapshotRuns(store.list, state.snapshot?.runs));
   const snapRun = state.snapshot?.runs?.find(r => r.id === runId);
-  const listRow = store.list.find(r => r.id === runId);
-  // A letter only when the list, the snapshot or the run supplies it: a guessed one can name another run.
-  const letter = letters.get(runId) ?? (typeof run?.letter === "string" && run.letter ? displayRunLetter({ id: runId, letter: run.letter }) : undefined);
-  const runName = letter ? `Run ${letter}` : RUN_HEADING;
+  const { letter, runName, title } = runIdentity(runId, run, store.list, state.snapshot?.runs);
   const pausedReason = typeof run?.pausedReason === "string" ? run.pausedReason : typeof snapRun?.paused_reason === "string" ? snapRun.paused_reason : undefined;
   const status = runStatus(pausedReason ? "paused" : String(run?.status ?? "running"));
-  const title = (typeof run?.title === "string" && run.title) || (typeof run?.workflow === "string" && run.workflow)
-    || (listRow?.title !== runId && listRow?.title) || snapRun?.title || runName;
   const openQuestions = (view?.questions ?? []).filter(isOpenForPerson);
   const waits = !openQuestions.length && awaitsVerdict(runId, state.snapshot?.attention) ? "review"
     : snapRun?.waits_on ?? (openQuestions.length ? "you" : status.label === "Waiting" ? "orchestrator" : "-");
@@ -192,7 +140,10 @@ export function RunView({ runId, query, fetchText }: { runId: string; query: Rou
         <div className="runs-heading">
           <h1 ref={headingRef} tabIndex={-1}>{title}</h1>
         </div>
-        <ButtonLink typography="board" size="sm" href={backHref}>All runs</ButtonLink>
+        <div className="runs-heading-links">
+          <ButtonLink typography="board" size="sm" href={liveHref(runId, undefined, query)}>Live board</ButtonLink>
+          <ButtonLink typography="board" size="sm" href={backHref}>All runs</ButtonLink>
+        </div>
       </header>
     </PageHead>
     <p className="sr-only" role="status" aria-live="polite">{announce}</p>
@@ -204,9 +155,9 @@ export function RunView({ runId, query, fetchText }: { runId: string; query: Rou
           <Button size="sm" onClick={retryLoad}>Try again</Button>
         </Alert>
       )}
-      {seenFailed === runId ? (
+      {seen.failed ? (
         <Alert tone="error" title={RUN_SEEN_ERROR}>
-          <Button size="sm" onClick={e => { void retry(e.currentTarget, markSeen); }}>Mark as seen</Button>
+          <Button size="sm" onClick={e => { void retry(e.currentTarget, seen.markSeen); }}>Mark as seen</Button>
         </Alert>
       ) : null}
       {detailState?.error && raw && (

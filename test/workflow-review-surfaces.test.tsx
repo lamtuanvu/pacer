@@ -22,7 +22,9 @@ import type { ClientSnapshot } from "../src/view-model/snapshot";
 import { counts, needsYou } from "../src/view-model/selectors";
 import { decisionKindLabel, stripSteps } from "../src/view-model/run-board";
 import { buildRunTree } from "../src/view-model/run-tree";
-import { OutcomeError, taskStatusIn } from "../src/view-model/run-gate";
+import { conflictedTasks, OutcomeError, runGateNote, taskStatusIn } from "../src/view-model/run-gate";
+import { deskWords } from "../app/src/screens/runs/BoardCanvas";
+import { layoutLiveBoard } from "../app/src/screens/runs/live-board-layout";
 import { waitsOnLabel } from "../src/view-model/runs";
 
 const TASK = "t-20261001-100000-aaaa", RECORD = "t-20261001-100000-bbbb";
@@ -202,4 +204,17 @@ test("a task held by a gate never reads completed in a list", () => {
   expect(taskStatusIn([{ ...stepConflict, gate: { kind: "step_review" } }], task).label).toBe("Waiting for review");
   expect(taskStatusIn([stepConflict], { id: RECORD, state: "needs_input" }).label).toBe("Merge conflict");
   expect(taskStatusIn([], task).label).toBe("Completed");
+});
+
+test("the live board names review and conflict desks and never says nothing waits", () => {
+  const board = layoutLiveBoard({ steps: [
+    { runId: "run_abc", stepId: "impl", attempt: 1, status: "waiting", taskId: TASK, result: {}, startedAt: 1 },
+  ], graphs: [], children: [], openQuestions: [] } as never);
+  const desk = board.nodes[0]!;
+  expect(deskWords(desk).label).toBe("Waiting for review");
+  expect(deskWords({ ...desk, conflict: true }).label).toBe("Merge conflict");
+  expect(conflictedTasks([stepConflict]).has(TASK)).toBe(true);
+  expect(runGateNote("run_abc", [stepConflict])).toBe("A merge conflict needs you");
+  expect(runGateNote("run_abc", [{ ...stepConflict, gate: { kind: "step_review" } }])).toContain("A review waits");
+  expect(runGateNote("run_other", [stepConflict])).toBeNull();
 });

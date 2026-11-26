@@ -437,6 +437,8 @@ async function retryTask(
   const {adoptRetriedStep}=await import("../workflow/review");
   // Resolve repo identity before taking the synchronous task lock (it runs git).
   const before = readTask(ctx, id);
+  // A retry copies the brief outside its turn and could name an executor (P3, API-5b).
+  if (before?.kind === "orchestrate") throw new CoreError("not_allowed", "Orchestrator turns are started by the workflow engine and run only on the run's planner", "Change the planner with run.set_planner.");
   const repoRef = before ? before.repo && !before.repo.identityUnverified ? before.repo : await resolvePolicyRepo(ctx, before.brief.repo) : undefined;
   if (before) await requireRepoDirectory(before.brief.repo);
   // Phase 5: resolve outside the sync lock (send-back must not take this path).

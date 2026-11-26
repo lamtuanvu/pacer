@@ -38,7 +38,7 @@ import { listGraphSummaries, noteGenerateSubmitErrors, submitGraph } from "../wo
 import {
   checkWorkflowShape, isPlainObject, type GenerateStep, type HumanStep, type WorkflowError, type WorkflowDef,
 } from "../workflow/schema";
-import { requireAskingExecutor } from "../core/tasks";
+import { requireStepWorker } from "../workflow/step-identity";
 import { spawnRunner, type SpawnRunner } from "../tasks/api";
 import { orchestratorTaskIdForGrant, verifyRunGrant } from "../workflow/run-grant";
 import { PLANNERS } from "../config/strategy";
@@ -71,7 +71,7 @@ function assertPersonCaller(ctx: Ctx): void {
   if (isExecutorSession(ctx)) throw new CoreError("not_allowed", WORKFLOW_OPS_REFUSAL);
 }
 
-/** step.result identity: executor session, or a live run-grant whose task is a step of the grant's run. */
+/** step.result identity: the step's worker, or a live run-grant whose task is a step of the grant's run. */
 function requireStepResultCaller(ctx: Ctx): string {
   if (ctx.env.PACER_RUN_GRANT || isOrchestratorSession(ctx)) {
     const token = ctx.env.PACER_RUN_GRANT;
@@ -88,7 +88,7 @@ function requireStepResultCaller(ctx: Ctx): string {
     }
     return id;
   }
-  return requireAskingExecutor(ctx);
+  return requireStepWorker(ctx);
 }
 
 /** callOp deps → engine deps: tests stub delegation through OpDeps. */

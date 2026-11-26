@@ -1573,8 +1573,12 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
                 {
                     Ok(summary) => {
                         desktop_log!("pacer lifecycle: service handover: {}", summary);
-                        if let Some(config_dir) = config_dir.as_ref() {
-                            let _ = remember_service_version(config_dir, &new_version);
+                        // A deferred reply (a desktop update is still finishing) settles
+                        // nothing: keep the old version so the next connect calls again.
+                        if logic::handover_reply_settled(&summary) {
+                            if let Some(config_dir) = config_dir.as_ref() {
+                                let _ = remember_service_version(config_dir, &new_version);
+                            }
                         }
                     }
                     Err(error) => {

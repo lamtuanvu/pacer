@@ -4,8 +4,29 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Changed
+
+- **Desktop updates no longer wait for handover-capable work.** Runners that advertise the handover protocol, their executor sessions and session hosts started by this version are marked as survivors. When the installed app and the update both support it (0.18.7 or later), an in-app update installs while they run: the update helper checks each survivor's code signature against the release signer before installing, and the new service asks older runners to hand over once the update commits (never during the rollback window). Other work, such as queue drains, launches, Orca sessions, remote runs and work started on older versions, still makes the update wait. While an update can still roll back, `service.handover` signals nothing and returns `deferred: true` ([ADR 2026-11-25](docs/decisions/2026-11-25-desktop-update-with-running-work.md)).
 ### Fixed
 
+- `pacer service restart` and `pacer update` now hand running work to the new service instead of warning "running work was not handed over: pacer core is restarting".
+### Fixed
+
+- Settings › Updates no longer keeps showing a failed update after you install that release another way, such as by hand; pacer drops the installed offer and checks again.
+
+### Fixed
+
+- Live validation: executors, certification probes and orchestrator turns launched by a sandbox keep their own identity when they call the guarded `pacer`, so certification and orchestrator answers work without a wrapper script. Sandboxes also turn the login-shell environment off unless asked, so the login profile no longer reorders an executor's `PATH`; an unseeded sandbox still resolves agent CLIs from the inherited `PATH` behind its own `bin`.
+- Live validation: the guarded `pacer` keeps the caller's directory inside the sandbox home or repository, so relative paths from a task worktree resolve correctly. It ignores `.env` and `bunfig.toml` there, rejects identity paths with `..`, and passes the assistant server only a home inside the sandbox.
+
+### Fixed
+
+- **Workflow step workers can report.** An executor holding an attempt credential can now run `step.result`, `step.artifact` and `question.ask` (`pacer step result`, `pacer step artifact`, `pacer ask --type …`, and MCP tools) for its own step only. The identity comes from the verified credential and `PACER_TASK_ID`, which must agree; a step whose attempt was issued a credential cannot be reported on without it. No HTTP bearer gains an operation, and tasks that are not workflow steps are unchanged.
+- `pacer ask --blocks` without a value means `step`, as the workflow prompts show it.
+
+### Fixed
+
+- **Workflow orchestrator turns run only on the run's planner.** A turn queued for a busy planner is now started when the planner has a free slot instead of waiting out its deadline. When the planner is unavailable the turn stays queued with the reason, and no executor receives it or its run grant. `task.retry` refuses orchestrator tasks.
 - **Workflow code now reaches the run branch and the pull request.** A code step waits for review when its task finishes: the run's planner is woken to review it, and the person can accept or reject it from Needs you or `pacer review`. The next step starts only after the accepted work is merged into the run branch, and every later step of that run (reviewers and research steps included) starts from that branch. Steps that already advanced before an upgrade are left as they are.
 - **Executors on workflow code steps are told to commit.** Uncommitted tracked changes are refused when the step reports its result; accepting refuses uncommitted or untracked files and commits left on another branch, so no work is silently left out. Ordinary tasks keep their instructions and review behaviour.
 - A generated sub-workflow now works on its parent run's branch, so the parent's publish approval and `pacer run publish` include its code; a retry of a step under review takes the step over and its work is merged.

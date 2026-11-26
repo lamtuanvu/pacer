@@ -173,6 +173,10 @@ fn enforcement_identity_only_reaches_its_denial_operation() {
     for (method, path, forwarded) in [
         ("POST", "/v3/ops/dispatch.enforcement.denied", true),
         ("POST", "/v3/ops/dispatch.child", false),
+        // Step workers report in process; the identity gains no network operation.
+        ("POST", "/v3/ops/step.result", false),
+        ("POST", "/v3/ops/step.artifact", false),
+        ("POST", "/v3/ops/question.ask", false),
         ("GET", "/v3/ops/dispatch.enforcement.denied", false),
         ("GET", "/v3/snapshot", false),
     ] {

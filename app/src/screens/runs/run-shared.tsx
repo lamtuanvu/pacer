@@ -8,7 +8,7 @@ import { QuestionForm, type QuestionFormQuestion } from "../../ds/QuestionForm";
 import { useActions } from "../../data/action-context";
 import type { BrowserApi } from "../../data/api";
 import type { RunQuestionView } from "../../data/runs";
-import { runStatus, stepMarkerGlyph, RUN_ARTIFACT_ERROR, type StepMarker } from "../../../../src/view-model/runs";
+import { runStatus, stepMarkerGlyph, RUN_ARTIFACT_ERROR, RUN_QUESTIONS_ERROR, type StepMarker } from "../../../../src/view-model/runs";
 import type { ArtifactMeta } from "../../../../src/view-model/run-board";
 
 const styled = new WeakSet<Document>();
@@ -110,4 +110,18 @@ export function RunQuestionCard({ question, canAnswer, api, onAnswered, onConfli
 
 export function BoardButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: preact.ComponentChildren }) {
   return <Button size="sm" variant={active ? "secondary" : "quiet"} aria-pressed={active} onClick={onClick}>{children}</Button>;
+}
+
+/** The load failure of a run page: nothing to show, or older data kept with a warning. */
+export function RunLoadAlerts({ error, loaded, staleTitle, onRetry }: { error: string | null | undefined; loaded: boolean; staleTitle: string; onRetry: (e: Event) => void }) {
+  if (!error) return null;
+  const questions = error === RUN_QUESTIONS_ERROR;
+  return loaded ? (
+    <Alert tone="warning" title={questions ? RUN_QUESTIONS_ERROR : staleTitle}>
+      <p>{questions ? "The rest of the run is shown without them." : "The last refresh failed, so you are seeing the version loaded earlier."}</p>
+      <Button size="sm" onClick={onRetry}>Try again</Button>
+    </Alert>
+  ) : (
+    <Alert tone="error" title="Couldn't load this run"><p>{error}</p><Button size="sm" onClick={onRetry}>Try again</Button></Alert>
+  );
 }

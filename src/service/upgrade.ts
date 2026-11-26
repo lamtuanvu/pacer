@@ -5,12 +5,14 @@ import { runningWork, workCounts, type RunningWorkCounts } from "./running-work"
 import { upgradeSummary } from "../tasks/handover-service";
 import { currentVersion } from "../update/version";
 import type { Ctx } from "../types";
+import { CORE_RESTARTING, isCoreRestartingError, retryOnCoreRestart } from "./core-restarting";
+export { CORE_RESTARTING, isCoreRestartingError, retryOnCoreRestart } from "./core-restarting";
 import type { NativeFixture } from "../update/desktop/native-fixture";
 
 export const UPGRADE_CLI_REFUSAL = "upgrades are not allowed from a delegated task";
 export interface UpgradeDeps { fetch?: (url: string, init?: RequestInit) => Promise<Response>; sleep?: (ms: number) => Promise<void>; healthTimeoutMs?: number; handoverTimeoutMs?: number; expectedPid?: number | null }
 export interface RestartOutcome { restarted: boolean; summary: string | null; warning?: string }
-interface HandoverResult { pacer: string; tasks: number; sessions: number; handed_over: number; kept_on_previous_runner: number; summary: string }
+interface HandoverResult { pacer: string; tasks: number; sessions: number; handed_over: number; kept_on_previous_runner: number; summary: string; deferred?: boolean }
 
 /** A one-shot failure marker used only when the caller has a compiled native upgrade fixture lease. */
 export function consumeFixtureHandoverFailure(root: string): boolean {
@@ -32,7 +34,14 @@ async function call<T>(ctx: Ctx, deps: UpgradeDeps, op: string, params: unknown,
     method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
     body: JSON.stringify(params), signal: AbortSignal.timeout(timeoutMs), redirect: "error",
   });
-  const body = await response.json() as { result?: T; error?: { message?: string } };
+  const text = await response.text();
+  let body: { result?: T; error?: { message?: string } };
+  try { body = JSON.parse(text); }
+  catch {
+    // The front door answers a forwarded op with plain text until the core is ready.
+    if (isCoreRestartingError(new Error(text))) throw new Error(CORE_RESTARTING);
+    throw new Error(`HTTP ${response.status}`);
+  }
   if (!response.ok || body.result === undefined) throw new Error(body.error?.message ?? `HTTP ${response.status}`);
   return body.result;
 }
@@ -72,8 +81,16 @@ export async function restartAroundWork(ctx: Ctx, restart: () => Promise<boolean
   if (before && !before.tasks && !before.sessions) return { restarted: true, summary: upgradeSummary(o.prefix(o.expectedVersion ?? currentVersion()), { tasks: 0, sessions: 0, keptOnPreviousRunner: 0 }) };
   const version = await waitForService(ctx, deps, o.expectedVersion);
   if (!version) return { restarted: true, summary: null, warning: "the restarted service did not pass its health check; running work stays on its current runners" };
+  // Health and version.get are answered by the front door, so they can pass before the core is ready.
+  // Retry only that refusal while the core starts, for up to the health timeout.
+  // Each attempt keeps the full handover timeout, so a slow core start cannot cut the 60 s server wait short.
+  const coreReadyDeadline = Date.now() + (deps.healthTimeoutMs ?? 30_000);
   try {
-    const r = await call<HandoverResult>(ctx, deps, "service.handover", { wait_s: 60 }, deps.handoverTimeoutMs ?? 75_000);
+    const r = await retryOnCoreRestart(
+      () => call<HandoverResult>(ctx, deps, "service.handover", { wait_s: 60 }, deps.handoverTimeoutMs ?? 75_000),
+      { sleep: deps.sleep, deadline: coreReadyDeadline },
+    );
+    if (r.deferred) return { restarted: true, summary: `${o.prefix(r.pacer)} ${r.summary}`, warning: "running work was not handed over yet: a desktop update is still finishing and hands it over when it commits" };
     return { restarted: true, summary: upgradeSummary(o.prefix(r.pacer), { tasks: r.tasks, sessions: r.sessions, keptOnPreviousRunner: r.kept_on_previous_runner }) };
   } catch (error) {
     return { restarted: true, summary: null, warning: `running work was not handed over: ${(error as Error).message}` };
