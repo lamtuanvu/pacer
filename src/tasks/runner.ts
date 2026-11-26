@@ -210,7 +210,7 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
 function holdForPlanner(ctx: Ctx, id: string, planner: string, reason: string | undefined, since: number | undefined): TaskRecord {
   const now = Date.now() / 1000;
   return updateTask(ctx, id, t => {
-    if (t.state === "stopped") return;
+    if (TERMINAL_STATES.includes(t.state)) return;
     t.state = "queued";
     t.queue = {reason: "waiting_retry", detail: plannerWaitDetail(planner, reason), since: since ?? now, position: 1, nextAt: now + 30};
     delete t.runnerPid; delete t.executor; delete t.attemptStartedAt; delete t.run; delete t.pendingAttempt;

@@ -1,7 +1,8 @@
 // An orchestrator turn runs only on the run's planner (P3, API-5b): it waits for the planner
 // and never falls back to an executor, which would hand that executor the run grant.
 import { expect, test } from "bun:test";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { writeProjectStrategy } from "../src/config/project-strategies";
 import { resolveRepo } from "../src/core/repos";
 import { validateStrategy, type Strategy } from "../src/config/strategy";
@@ -13,7 +14,10 @@ import { drainQueue } from "../src/tasks/drain";
 import { runTask, type RunnerDeps } from "../src/tasks/runner";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
 import type { Ctx } from "../src/types";
-import { insertRun } from "../src/workflow/store";
+import { getRun, insertRun } from "../src/workflow/store";
+import { defaultPlannerPacing, orchestrateRuns } from "../src/workflow/orchestrator";
+import { markExhausted } from "../src/usage/reactive";
+import { TERMINAL_STATES } from "../src/tasks/types";
 import { insertTurn } from "../src/workflow/wakeups";
 import { fakeCtx, gitRepo, realRun } from "./helpers";
 import { queueDeps, queueStrategy, queueTask } from "./queue-helpers";
@@ -166,12 +170,55 @@ test("a run whose planner is another agent runs the turn there", async () => {
   expect(f.launched).toEqual([{ executor: "codex", role: "orchestrator", grant: true }]);
 });
 
+const twoAccounts = {
+  planner: { agent: "claude-code", account: "work" },
+  accounts: { "claude-code": { kind: "claude" }, work: { kind: "claude", home: "/tmp/claude-work" }, codex: { kind: "codex" } },
+  runners: { "claude-code": {}, "claude-code#work": {}, codex: {} },
+};
+const writeTwoAccounts = (ctx: Ctx) => {
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), JSON.stringify(twoAccounts));
+};
+
+for (const restriction of ["blocked", "limited"] as const) test(`planner pacing reads the planner account, not the default account (${restriction})`, () => {
+  const ctx = fakeCtx();
+  writeTwoAccounts(ctx);
+  const restrict = (id: string) => restriction === "blocked" ? blockExecutor(ctx, id) : markExhausted(ctx, id, ctx.now + 600);
+  restrict("claude-code");
+  expect(defaultPlannerPacing(ctx, "claude-code")).toEqual({ eligible: true });
+  restrict(restriction === "blocked" ? "claude-code#work" : "work");
+  expect(defaultPlannerPacing(ctx, "claude-code")).toMatchObject({ eligible: false, hold: restriction === "blocked" ? "blocked" : "limit" });
+});
+
+test("a limited turn wakes at the planner account's reset, not the default account's", async () => {
+  const f = setup();
+  writeTwoAccounts(f.ctx);
+  markExhausted(f.ctx, "claude-code", f.ctx.now + 100);
+  markExhausted(f.ctx, "work", f.ctx.now + 5000);
+  updateTask(f.ctx, f.id, t => { t.state = "limit"; });
+  await orchestrateRuns(f.ctx, { spawn: () => 1 });
+  expect(getRun(f.ctx, f.run.id)?.nextWakeAt).toBe(f.ctx.now + 5000);
+});
+
+for (const state of TERMINAL_STATES) test(`holding a turn for its planner never revives a ${state} task`, async () => {
+  const f = setup(), base = f.deps.computeStatus!;
+  let reads = 0;
+  f.deps.computeStatus = async (...args) => {
+    const st = await base(...args);
+    if (++reads === 2) {
+      updateTask(f.ctx, f.id, t => { t.state = state; });
+      st.providers = st.providers.map(p => p.id === "claude-code" ? { ...p, installed: false } : p);
+    }
+    return st;
+  };
+  const result = await runTask(f.ctx, f.id, f.deps);
+  expect(result.state).toBe(state);
+  expect(result.queue).toBeUndefined();
+  expect(f.launched).toEqual([]);
+});
+
 test("the configured planner account takes the turn when the agent has several accounts", async () => {
-  const s = validateStrategy({
-    planner: { agent: "claude-code", account: "work" },
-    accounts: { "claude-code": { kind: "claude" }, work: { kind: "claude", home: "/tmp/claude-work" }, codex: { kind: "codex" } },
-    runners: { "claude-code": {}, "claude-code#work": {}, codex: {} },
-  }, "test");
+  const s = validateStrategy(twoAccounts, "test");
   const f = setup({ strategy: s });
   const deps = f.deps, base = deps.computeStatus!;
   deps.computeStatus = async (...args) => {

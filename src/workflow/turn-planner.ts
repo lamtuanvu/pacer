@@ -17,17 +17,19 @@ export function orchestratorRootRun(task: Pick<TaskRecord, "requestId">): string
   return typeof task.requestId === "string" ? /^orch:(.+)$/.exec(task.requestId)?.[1] : undefined;
 }
 
-/**
- * The runner that is the planner of this task's run: the live turn's planner, else the run's (a queued
- * switch first), else the strategy's. The strategy planner's agent name means its configured account.
- */
+/** The runner a stored planner name means. The strategy planner's agent name means its configured account. */
+export function plannerRunnerId(s: Strategy, name: string): string {
+  const configured = name === s.planner.agent ? Object.values(s.runners).find(r => isPlannerRunner(s, r)) : undefined;
+  return configured?.id ?? resolveRunner(s, name)?.id ?? name;
+}
+
+/** The runner that is the planner of this task's run: the live turn's planner, else the run's (a queued switch first), else the strategy's. */
 export function turnPlanner(ctx: Ctx, s: Strategy, task: Pick<TaskRecord, "id" | "requestId">): string {
   const root = orchestratorRootRun(task);
   const turn = liveTurnForTask(ctx, task.id, root);
   const run = !turn && root ? getRun(ctx, root) : null;
   const name = turn?.planner ?? run?.pendingPlanner ?? run?.planner ?? s.planner.agent;
-  const configured = name === s.planner.agent ? Object.values(s.runners).find(r => isPlannerRunner(s, r)) : undefined;
-  return configured?.id ?? resolveRunner(s, name)?.id ?? name;
+  return plannerRunnerId(s, name);
 }
 
 /** Store the planner as the turn's executor, replacing anything a message turn or an older version wrote. */
