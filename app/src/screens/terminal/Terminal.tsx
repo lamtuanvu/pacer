@@ -70,6 +70,8 @@ export function TerminalScreen({ id: routeId, query, embedded = false, folder, c
   const secondary = tabs.find(tab => tab.id === splitId && tab.id !== selected?.id);
 
 
+  const terminalRevision = state.invalidations.terminal ?? 0;
+  const pushed = state.features.terminalEvents;
   useEffect(() => {
     if (!available) { setLoading(false); return; }
     let active = true;
@@ -84,11 +86,16 @@ export function TerminalScreen({ id: routeId, query, embedded = false, folder, c
       } catch (failure) { opened.current = true; if (active) { setLoadError(failure); setLoading(false); } }
     };
     void refresh(true);
-    const timer = setInterval(() => { if (typeof document !== "undefined" && document.visibilityState !== "visible") return; void refresh(); }, 2000);
+    // A service that announces the terminal event pushes list changes; older services keep
+    // the two-second fallback poll. Reconnects, visibility and the event revision refetch once.
     const onVisibility = () => { if (document.visibilityState === "visible") void refresh(); };
     if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVisibility);
-    return () => { active = false; clearInterval(timer); if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisibility); };
-  }, [api, available, state.connected]);
+    if (!pushed) {
+      const timer = setInterval(() => { if (typeof document !== "undefined" && document.visibilityState !== "visible") return; void refresh(); }, 2000);
+      return () => { active = false; clearInterval(timer); if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisibility); };
+    }
+    return () => { active = false; if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisibility); };
+  }, [api, available, state.connected, state.connectionRevision, pushed, terminalRevision]);
 
   useEffect(() => { if (splitId && !tabs.some(tab => tab.id === splitId)) setSplitId(null); }, [tabs, splitId]);
 

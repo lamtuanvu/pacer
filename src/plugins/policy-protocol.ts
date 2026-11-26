@@ -46,6 +46,7 @@ export const POLICY_EVENT_TYPES = [
   "assistant",
   "discovery.found",
   "control",
+  "terminal",
 ] as const;
 export const POLICY_TASK_STATES = [
   "queued",

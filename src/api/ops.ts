@@ -1,5 +1,5 @@
 import { isUpgradeOperation, UPGRADE_REFUSAL } from "./caller-policy";
-import { triggerHandover } from "../tasks/handover-service";
+import { sharedHandover, triggerHandover } from "../tasks/handover-service";
 import { runningWork, workCounts } from "../service/running-work";
 import { restartAfterUpdate } from "../service";
 import { existsSync } from "node:fs";
@@ -429,9 +429,16 @@ export const OPS: Record<string, OpDef> = {
   "onboarding.skip": op({ description: "Skip the first delegation and record the onboarding choice.", params: z.object({}), handler: ctx => mutation(ctx, "setup", () => setup.onboardingSkip(ctx)) }),
   "service.status": op({ description: "Whether the login service is installed and running, with its process id when known.", params: z.object({}), handler: ctx => setup.serviceStatus(ctx) }),
   "service.handover": op({ description: "After an upgrade, ask older runners to hand their live attempts to this service's version. Waits up to wait_s seconds (default and maximum 60) and returns counts. Owner-only; refused for delegated callers.", params: z.object({wait_s: z.number().int().min(0).max(60).optional()}), handler: async (ctx, p) => {
+    // While a desktop update can still roll back, or any reservation still refuses new work, signal
+    // nothing: the update's commit (after release) or the caller's next try hands over (ADR 2026-11-25).
+    if ((await import("../update/desktop/store")).desktopTransactionOpen(ctx) || (await import("../update/desktop/admission")).admissionReserved(ctx)) {
+      const w = await runningWork(ctx), c = workCounts(w);
+      return {pacer: w.pacer, tasks: c.tasks, sessions: c.sessions, handed_over: 0, kept_on_previous_runner: 0, deferred: true,
+        summary: "A desktop update is still finishing; running work hands over when it commits."};
+    }
     const fixture = (await import("../update/desktop/native-fixture")).compiledNativeFixture();
     const r = await (await import("../service/upgrade")).recoverFixtureHandover(ctx.pacerHome, fixture,
-      () => triggerHandover(ctx, {waitMs: (p.wait_s ?? 60) * 1000}));
+      () => sharedHandover(() => triggerHandover(ctx, {waitMs: (p.wait_s ?? 60) * 1000})));
     return {pacer: r.pacer, tasks: r.tasks, sessions: r.sessions, handed_over: r.handedOver, kept_on_previous_runner: r.keptOnPreviousRunner, summary: r.summary};
   } }),
   "service.work": op({ description: "Running tasks and live sessions with their runner and host versions, and the sessions that need Reopen to update. Versions and counts only, never paths.", params: z.object({}), handler: async ctx => {
@@ -490,8 +497,9 @@ export const OPS: Record<string, OpDef> = {
       const repoRef=await resolvePolicyRepoInput(ctx,p.repo);
       const input=parseDelegateBrief({...p,repo:repoRef.path},repoRef.path);
       await requireRepoDirectory(input.brief.repo);
-      const source=input.source ?? (/^(app|desktop|orca|tui|tray)/i.test(deps.client??"") ? "ui" : "planner");
       const participant=callerParticipant(ctx, deps).id;
+      // A person in the app or TUI is "human" even when the request names no client.
+      const source=input.source ?? (participant === "human" || /^(app|desktop|orca|tui|tray)/i.test(deps.client??"") ? "ui" : "planner");
       // This handler runs in the service over HTTP, so ctx.env is not the caller's: record no reach.
       const task = await (deps.delegate ?? core.tasks.delegate)(ctx, {...input, repoRef, repoValidated:true, client: deps.client, source, origin: participant}, deps.spawnRunner ?? spawnRunner);
       // The v1 notifier still uses this marker for short tasks started in a UI.

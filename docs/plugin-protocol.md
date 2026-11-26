@@ -2263,7 +2263,8 @@ Reset means discard incremental assumptions and re-read the snapshot. Host deliv
         "question",
         "assistant",
         "discovery.found",
-        "control"
+        "control",
+        "terminal"
       ]
     },
     "data": {
@@ -11383,7 +11384,8 @@ Params:
           "question",
           "assistant",
           "discovery.found",
-          "control"
+          "control",
+          "terminal"
         ]
       }
     }

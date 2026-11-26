@@ -10,7 +10,7 @@ import type { NativeFixture } from "../update/desktop/native-fixture";
 export const UPGRADE_CLI_REFUSAL = "upgrades are not allowed from a delegated task";
 export interface UpgradeDeps { fetch?: (url: string, init?: RequestInit) => Promise<Response>; sleep?: (ms: number) => Promise<void>; healthTimeoutMs?: number; handoverTimeoutMs?: number; expectedPid?: number | null }
 export interface RestartOutcome { restarted: boolean; summary: string | null; warning?: string }
-interface HandoverResult { pacer: string; tasks: number; sessions: number; handed_over: number; kept_on_previous_runner: number; summary: string }
+interface HandoverResult { pacer: string; tasks: number; sessions: number; handed_over: number; kept_on_previous_runner: number; summary: string; deferred?: boolean }
 
 /** A one-shot failure marker used only when the caller has a compiled native upgrade fixture lease. */
 export function consumeFixtureHandoverFailure(root: string): boolean {
@@ -74,6 +74,7 @@ export async function restartAroundWork(ctx: Ctx, restart: () => Promise<boolean
   if (!version) return { restarted: true, summary: null, warning: "the restarted service did not pass its health check; running work stays on its current runners" };
   try {
     const r = await call<HandoverResult>(ctx, deps, "service.handover", { wait_s: 60 }, deps.handoverTimeoutMs ?? 75_000);
+    if (r.deferred) return { restarted: true, summary: `${o.prefix(r.pacer)} ${r.summary}`, warning: "running work was not handed over yet: a desktop update is still finishing and hands it over when it commits" };
     return { restarted: true, summary: upgradeSummary(o.prefix(r.pacer), { tasks: r.tasks, sessions: r.sessions, keptOnPreviousRunner: r.kept_on_previous_runner }) };
   } catch (error) {
     return { restarted: true, summary: null, warning: `running work was not handed over: ${(error as Error).message}` };

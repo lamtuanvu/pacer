@@ -55,7 +55,7 @@ export async function withLock<T>(
       } catch {
         continue; // released between our open and stat
       }
-      if (Date.now() > deadline) throw new Error(`timed out waiting for ${file}`);
+      if (Date.now() >= deadline) throw new Error(`timed out waiting for ${file}`);
       await Bun.sleep(50);
     }
   }

@@ -1,4 +1,4 @@
-import { beginWorkSync, claimWorkSync, finishWorkSync } from "../update/desktop/admission";
+import { beginWorkSync, claimWorkSync, finishWorkSync, maintenanceReserved, markRunSurvivorsSync, markSurvivorSync } from "../update/desktop/admission";
 import { ownProcessIdentity, sameProcess } from "../update/desktop/process-identity";
 import { currentVersion } from "../update/version";
 import { readTask, updateTask, withTaskLock } from "./store";
@@ -18,12 +18,28 @@ let installed = false;
 export function registerRunnerLease(lease: string): void { runnerLease = lease; }
 
 /** The per-attempt operation lease, kept reachable so the commit point can finish it before exiting. */
-export async function withAttemptWork<T>(ctx: Ctx, taskId: string, action: () => Promise<T>): Promise<T> {
-  const lease = beginWorkSync(ctx, { kind: "operation", id: taskId, label: "Executor attempt" });
+export async function withAttemptWork<T>(ctx: Ctx, taskId: string, action: () => Promise<T>, wait: AdmissionWait = {}): Promise<T> {
+  const lease = await beginAttemptLease(ctx, taskId, wait);
   claimWorkSync(ctx, lease);
   attemptLease = lease;
   try { return await action(); }
   finally { if (attemptLease === lease) attemptLease = undefined; finishWorkSync(ctx, lease); }
+}
+
+export interface AdmissionWait { maxMs?: number; pollMs?: number; sleep?: (ms: number) => Promise<void> }
+/**
+ * A runner that survived a desktop update can reach its next attempt while the update still holds
+ * the reservation. It waits for the swap to finish instead of failing the task.
+ */
+async function beginAttemptLease(ctx: Ctx, taskId: string, wait: AdmissionWait): Promise<string> {
+  const deadline = Date.now() + (wait.maxMs ?? 15 * 60_000), sleep = wait.sleep ?? ((ms: number) => Bun.sleep(ms));
+  for (;;) {
+    try { return beginWorkSync(ctx, { kind: "operation", id: taskId, label: "Executor attempt" }); }
+    catch (error) {
+      if (!maintenanceReserved(error) || Date.now() >= deadline) throw error;
+      await sleep(wait.pollMs ?? 1000);
+    }
+  }
 }
 
 /** Install before any work: Bun's default SIGUSR2 action terminates the process. */
@@ -46,7 +62,17 @@ export function advertiseHandover(ctx: Ctx, taskId: string, run: RunRef): boolea
   });
   const ok = !!t.handover && t.handover.state === undefined && sameProcess(t.handover.identity, identity);
   advertised = ok ? { taskId, dir: run.dir } : undefined;
+  if (ok) markHandoverSurvivors(ctx, run.dir);
   return ok;
+}
+
+/** This runner's leases and its run's session lease survive a desktop update (ADR 2026-11-25). */
+function markHandoverSurvivors(ctx: Ctx, dir: string): void {
+  try {
+    if (runnerLease) markSurvivorSync(ctx, runnerLease);
+    if (attemptLease) markSurvivorSync(ctx, attemptLease);
+    markRunSurvivorsSync(ctx, dir);
+  } catch { /* best effort: unmarked leases keep blocking desktop updates */ }
 }
 
 /** Leave the eligible state: drop this runner's own advertisement and any pending request. */

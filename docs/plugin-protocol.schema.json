@@ -97,7 +97,8 @@
             "question",
             "assistant",
             "discovery.found",
-            "control"
+            "control",
+            "terminal"
           ]
         },
         "data": {
@@ -9351,7 +9352,8 @@
               "question",
               "assistant",
               "discovery.found",
-              "control"
+              "control",
+              "terminal"
             ]
           }
         }
