@@ -99,7 +99,7 @@ async function stdio(home: string, extra: Record<string, string>, requests: stri
     const lines = stdout.trim().split("\n");
     expect(JSON.parse(lines[0]!).result.protocol).toBe("3.0.0");
     const markers = stderr.split("\n").filter(line => /^native msg\.\S+ \d+$/.test(line));
-    return { lines: lines.slice(1), markers };
+    return { lines: lines.slice(1), markers, stderr };
   } finally { if (child.exitCode === null) { child.kill("SIGTERM"); await child.exited; } }
 }
 
@@ -153,6 +153,7 @@ test.skipIf(!front)("stdio msg.send, msg.confirm, msg.close and msg.wait match t
       expect(byId(native.lines).map(norm[0]!), scenario.name).toEqual(byId(forwarded.lines).map(norm[1]!));
       expect(state(nativeHome), scenario.name).toEqual(state(forwardHome));
       expect(forwarded.markers, scenario.name).toEqual([]);
+      expect(native.stderr, scenario.name).not.toContain("_internal.msg.effects");
       const ops = requests.map(request => JSON.parse(request)).filter(r => OPS.includes(r.method));
       expect(native.markers, scenario.name).toEqual(ops.filter(r => !(r.method === "msg.send" && r.params?.kind === "answer" && typeof r.params?.reply_to === "string")).map(r => `native ${r.method} ${r.id}`));
       // A blocking wait does not hold back the requests after it.
@@ -204,9 +205,103 @@ async function serve(home: string, forward: boolean) {
     },
     bearer: { Authorization: `Bearer ${token}` },
     app: { Cookie: "", Origin: base, "X-Pacer-Client": "app" },
+    raw: stderr,
     stop: async () => { child.kill("SIGTERM"); await child.exited; return (await stderr).split("\n").filter(line => /^native msg\./.test(line)); },
   };
 }
+
+/** A settled task with a fake headless executor and a worktree, plus one whose project policy excludes that executor. */
+function seedTurns() {
+  const ctx = fakeCtx({ now: Math.floor(Date.now() / 1000) });
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders: {claude-code: {}, codex: {}}\n");
+  writeFileSync(join(ctx.pacerHome, "project-strategies.json"), JSON.stringify({ version: 1, projects: {
+    "github.com/acme/blocked": { rev: 1, executors: ["claude-code#personal@local"] },
+  } }));
+  const worktree = join(ctx.home, "worktrees", "idle");
+  mkdirSync(worktree, { recursive: true });
+  const settled = (goal: string, repo: string, patch: (t: TaskRecord) => void) => {
+    const t = createTask({ ...ctx }, { brief: { goal, repo }, kind: null, requestedExecutor: null, timeoutS: 60 });
+    updateTask(ctx, t.id, x => {
+      x.state = "done"; x.settledAt = ctx.now - 10; x.worktree = worktree;
+      x.run = { executor: "codex", dir: join(ctx.home, "runs", goal), attempt: 1, startedAt: ctx.now - 10, mode: "new", workdir: worktree, logFile: join(ctx.pacerHome, "logs", `${goal}.log`) };
+      x.result = { status: "done", executor: "codex", backend: "direct", worktree, report: "Done." } as TaskRecord["result"];
+      patch(x);
+    });
+    return t.id;
+  };
+  const verified = { key: "github.com/acme/allowed", label: "acme/allowed", path: ctx.home };
+  const idle = settled("idle", ctx.home, t => { t.repo = verified; });
+  const confirm = settled("confirm", ctx.home, t => { t.repo = verified; });
+  const blocked = settled("blocked", "github.com/acme/blocked", t => {
+    t.repo = { key: "github.com/acme/blocked", label: "acme/blocked", path: ctx.home };
+  });
+  const held = insertMessage({ ...ctx, now: ctx.now - 5 }, {
+    taskId: confirm, rootId: `task:${confirm}`, from: "external:local", to: `task:${confirm}`,
+    kind: "message", body: "held for confirmation", replyTo: null, requestId: null, status: "held",
+  }).message.id;
+  return { ctx, idle, confirm, blocked, held };
+}
+
+/** Only the turn fields a message turn writes; ids and times are normalized away. */
+function turnState(home: string, ids: string[]) {
+  const db = new Database(join(home, ".pacer/state/tasks.db"));
+  try {
+    return ids.map(id => {
+      const row = db.query<{ record: string }, [string]>("SELECT record FROM tasks WHERE id=?").get(id)!;
+      const t = JSON.parse(row.record) as TaskRecord & { pendingTurn?: { id: string; executor: string; at: number } };
+      const turn = t.pendingTurn;
+      return { id, state: t.state, requestedExecutor: t.requestedExecutor ?? null,
+        pendingTurn: turn ? { executor: turn.executor, id: turn.id.replace(/^.*#\d+\.\d+/, "<turn>") } : null };
+    });
+  } finally { db.close(); }
+}
+
+function killRunnerChildren(ids: string[]) {
+  const ps = Bun.spawnSync(["ps", "-axo", "pid=,command="]).stdout.toString();
+  for (const line of ps.split("\n")) {
+    const [pid, ...command] = line.trim().split(/\s+/);
+    if (pid && ids.some(id => command.join(" ").includes(`_run ${id}`))) try { process.kill(Number(pid), "SIGKILL"); } catch {}
+  }
+}
+
+test.skipIf(!front)("message turns are native: idle send, held confirm and policy-held send never use msg-effects", async () => {
+  const s = seedTurns();
+  const live = { ...s.ctx, now: Date.now() / 1000 };
+  const cookie = createSession(live), session = createSession(live);
+  const homes = [clone(s.ctx.home), clone(s.ctx.home)];
+  try {
+    const results: { bodies: string[]; stderr: string; turns: ReturnType<typeof turnState> }[] = [];
+    for (const [index, home] of homes.entries()) {
+      const server = await serve(home, index === 1);
+      const app = { ...server.app, Cookie: `pacer_session=${cookie}` };
+      const tui = { ...server.bearer, "X-Pacer-Session": session };
+      const bodies: string[] = [];
+      bodies.push(await server.post("msg.send", { to: `task:${s.idle}`, body: "follow up" }, app));
+      bodies.push(await server.post("msg.confirm", { id: s.held }, tui));
+      bodies.push(await server.post("msg.send", { to: `task:${s.blocked}`, body: "blocked follow up" }, app));
+      await server.stop();
+      results.push({ bodies, stderr: await server.raw, turns: turnState(home, [s.idle, s.confirm, s.blocked]) });
+      killRunnerChildren([s.idle, s.confirm, s.blocked]);
+    }
+    const norm = [normalizer(), normalizer()];
+    expect(results[0]!.bodies.map(norm[0]!), "replies").toEqual(results[1]!.bodies.map(norm[1]!));
+    expect(results[0]!.turns, "task turn state").toEqual(results[1]!.turns);
+    expect(results[0]!.stderr).not.toContain("_internal.msg.effects");
+    expect(results[0]!.stderr).toContain("native msg-effects deliver");
+    expect(results[1]!.stderr).not.toContain("native msg-effects deliver");
+    const parse = (body: string) => JSON.parse(body.slice(4));
+    expect(parse(results[0]!.bodies[0]!).result.delivery).toBe("turn_started");
+    expect(parse(results[0]!.bodies[1]!).result.delivery).toBe("turn_started");
+    expect(parse(results[0]!.bodies[2]!).result.delivery).toBe("held");
+    expect(parse(results[0]!.bodies[2]!).result.hold.reason).toContain("project policy allows");
+    expect(results[0]!.turns[0]!.state).toBe("queued");
+    expect(results[0]!.turns[1]!.state).toBe("queued");
+    expect(results[0]!.turns[0]!.pendingTurn?.executor).toBe("codex");
+  } finally {
+    for (const home of homes) rmSync(home, { recursive: true, force: true });
+  }
+}, 120000);
 
 test.skipIf(!front)("HTTP message writes resolve bearer, cookie and TUI session callers like the TypeScript core", async () => {
   const s = seed();
@@ -214,7 +309,7 @@ test.skipIf(!front)("HTTP message writes resolve bearer, cookie and TUI session 
   const cookie = createSession(live), session = createSession(live);
   const runs = [false, true].map(() => clone(s.ctx.home));
   try {
-    const results: { bodies: string[]; markers: string[] }[] = [];
+    const results: { bodies: string[]; markers: string[]; stderr: string }[] = [];
     for (const [index, home] of runs.entries()) {
       const server = await serve(home, index === 1);
       const app = { ...server.app, Cookie: `pacer_session=${cookie}` };
@@ -232,7 +327,7 @@ test.skipIf(!front)("HTTP message writes resolve bearer, cookie and TUI session 
       bodies.push(await server.post("msg.close", { task: s.child }, server.bearer));
       bodies.push(await server.post("msg.close", { task: s.root }, app));
       bodies.push(await server.post("msg.send", { to: `task:${s.root}`, body: "after close" }, app));
-      results.push({ bodies, markers: await server.stop() });
+      results.push({ bodies, markers: await server.stop(), stderr: await server.raw });
     }
     const norm = [normalizer(), normalizer()];
     expect(results[0]!.bodies.map(norm[0]!)).toEqual(results[1]!.bodies.map(norm[1]!));
@@ -241,6 +336,7 @@ test.skipIf(!front)("HTTP message writes resolve bearer, cookie and TUI session 
     expect(native!.tasks).toEqual(forwarded!.tasks);
     expect(native!.schema).toEqual(forwarded!.schema);
     expect(results[1]!.markers).toEqual([]);
+    expect(results[0]!.stderr).not.toContain("_internal.msg.effects");
     expect(results[0]!.markers).toEqual(["msg.confirm", "msg.confirm", "msg.confirm", "msg.send", "msg.send", "msg.send",
       "msg.wait", "msg.wait", "msg.close", "msg.close", "msg.send"].map(op => `native ${op}`));
     const parse = (body: string) => JSON.parse(body.slice(4));

@@ -42,7 +42,7 @@ pub(crate) fn open(ctx: &Ctx) -> Result<AdmissionState, CoreError> {
 
 pub fn dispatch_models(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
-        authorize(ctx)?;
+        authorize(ctx, "dispatch.models", &params)?;
         params_object(&params)?;
         let strategy = load_strategy(&ctx.pacer_home).map_err(internal)?;
         let now = now(ctx);
@@ -82,7 +82,7 @@ enum Refresh {
 }
 
 fn refresh_plan(ctx: &Ctx, params: &Value) -> Refresh {
-    let checked = authorize(ctx).and_then(|()| {
+    let checked = authorize(ctx, "dispatch.refresh", params).and_then(|()| {
         let p = params_object(params)?;
         let mut issues = Vec::new();
         if p.contains_key("runner") {
@@ -223,7 +223,7 @@ fn stringify(value: &Value, out: &mut String) {
 
 pub fn dispatch_enforcement_consent(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
-        authorize(ctx)?;
+        authorize(ctx, "dispatch.enforcement.consent", &params)?;
         let p = params_object(&params)?;
         let mut issues = Vec::new();
         string_issues("account", p.get("account"), Some(128), &mut issues);

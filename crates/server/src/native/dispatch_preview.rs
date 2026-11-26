@@ -1,9 +1,14 @@
-//! Core bridges for native `dispatch.preview` and `dispatch.explain`: the cache-only
-//! usage-broker parts (`status_sync`) and the dispatch parts (`dispatch_parts_sync`).
-use crate::native::{dispatch_parts_sync, preview_ops::Bridge, status_sync};
+//! Bridges for native `dispatch.preview` and `dispatch.explain`: the cache-only
+//! usage-broker parts still cross to Core (`status_sync`); the dispatch parts are
+//! answered in-process by `pacer_dispatch::guards` with a process-wide
+//! [`VersionCache`] (`NativeParts`).
+use crate::native::status_sync;
 use pacer_config_ops::strategy_load::native_load;
+use pacer_dispatch::VersionCache;
+use pacer_dispatch_ops::preview_ops::Bridge;
 use pacer_foundation::{Ctx, api::OpFuture};
 use serde_json::{Value, json};
+use tokio::sync::mpsc::UnboundedReceiver;
 
 /// Inputs only TypeScript answers: a strategy `strategy_load` leaves to TypeScript, a
 /// `strategyDraft` whose YAML Bun may read differently, then [`preview_ops::stays_forwarded`].
@@ -21,27 +26,36 @@ pub fn dispatch_preview_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> 
         || crate::native::preview_ops::stays_forwarded(ctx, op, params)
 }
 
-pub(crate) struct HttpBridge {
-    pub(crate) target: Option<(u16, String)>,
+fn native_parts<'a>(ctx: &'a Ctx, params: Value, cache: &'a VersionCache) -> OpFuture<'a> {
+    let ctx = ctx.clone();
+    Box::pin(async move { pacer_dispatch::guards::dispatch_parts(&ctx, &params, cache).await })
 }
 
-impl Bridge for HttpBridge {
+pub(crate) struct NativeParts<'a> {
+    pub(crate) target: Option<(u16, String)>,
+    pub(crate) ctx: &'a Ctx,
+    pub(crate) cache: &'a VersionCache,
+}
+
+impl Bridge for NativeParts<'_> {
     fn status(&mut self, params: Value) -> OpFuture<'_> {
         Box::pin(status_sync::http(self.target.clone(), params))
     }
     fn parts(&mut self, params: Value) -> OpFuture<'_> {
-        Box::pin(dispatch_parts_sync::http(self.target.clone(), params))
+        native_parts(self.ctx, params, self.cache)
     }
 }
 
-pub(crate) struct StdioBridge<'a, W> {
+pub(crate) struct NativeStdioParts<'a, W> {
     pub(crate) core: &'a mut W,
     pub(crate) prefix: &'a str,
     pub(crate) key: &'a str,
-    pub(crate) replies: &'a mut tokio::sync::mpsc::UnboundedReceiver<Value>,
+    pub(crate) replies: &'a mut UnboundedReceiver<Value>,
+    pub(crate) ctx: &'a Ctx,
+    pub(crate) cache: &'a VersionCache,
 }
 
-impl<W: tokio::io::AsyncWrite + Unpin + Send> Bridge for StdioBridge<'_, W> {
+impl<W: tokio::io::AsyncWrite + Unpin + Send> Bridge for NativeStdioParts<'_, W> {
     fn status(&mut self, params: Value) -> OpFuture<'_> {
         Box::pin(status_sync::stdio(
             self.core,
@@ -52,12 +66,6 @@ impl<W: tokio::io::AsyncWrite + Unpin + Send> Bridge for StdioBridge<'_, W> {
         ))
     }
     fn parts(&mut self, params: Value) -> OpFuture<'_> {
-        Box::pin(dispatch_parts_sync::stdio(
-            self.core,
-            self.prefix,
-            self.key,
-            params,
-            self.replies,
-        ))
+        native_parts(self.ctx, params, self.cache)
     }
 }

@@ -1,0 +1,72 @@
+{
+  "params": {
+    "kind": "dispatch.executor-guards",
+    "runners": [
+      "claude-code",
+      "codex",
+      "cursor",
+      "opencode#ep"
+    ]
+  },
+  "prime": false,
+  "ctx": {
+    "now": 1800000000,
+    "env": {
+      "PATH": "<HOME>/bin:/usr/bin:/bin",
+      "PACER_BIN": "<HOME>/bin/pacer"
+    },
+    "which": {
+      "claude": "<HOME>/bin/claude",
+      "codex": "<HOME>/bin/codex",
+      "cursor-agent": "<HOME>/bin/cursor-agent",
+      "opencode": "<HOME>/bin/opencode"
+    },
+    "run": {
+      "<HOME>/bin/claude": {
+        "code": 0,
+        "stdout": "2.1.281 (Claude Code)\n",
+        "stderr": ""
+      },
+      "<HOME>/bin/codex": {
+        "code": 0,
+        "stdout": "codex-cli 0.164.0\n",
+        "stderr": ""
+      },
+      "<HOME>/bin/cursor-agent": {
+        "code": 0,
+        "stdout": "2026.11.01-abc\n",
+        "stderr": ""
+      },
+      "<HOME>/bin/opencode": {
+        "code": 0,
+        "stdout": "1.2.3\n",
+        "stderr": ""
+      }
+    }
+  },
+  "files": {
+    "strategy.yaml": "planner: claude-code\naccounts:\n  claude: {kind: claude}\n  codex: {kind: codex}\n  cursor: {kind: cursor}\n  ep: {kind: endpoint, usage: unmetered}\nexecution:\n  launch_mode: headless\nrunners:\n  claude-code: {}\n  codex: {}\n  cursor: {}\n  opencode#ep: {model: vendor/m}\n",
+    "blocked.json": "{\"codex\":{\"until\":null,\"reason\":\"Paused by you\"}}"
+  },
+  "expected": {
+    "guards": [
+      {
+        "runner": "claude-code",
+        "reason": null
+      },
+      {
+        "runner": "codex",
+        "reason": "Blocked by you"
+      },
+      {
+        "runner": "cursor",
+        "reason": null
+      },
+      {
+        "runner": "opencode#ep",
+        "reason": null
+      }
+    ],
+    "admissionHooks": false
+  }
+}

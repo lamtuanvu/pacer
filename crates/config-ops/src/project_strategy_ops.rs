@@ -9,7 +9,7 @@ use crate::{
     repo_registry_ops::{params_object, received},
     strategy_load,
 };
-use pacer_config::{project_messaging::project_key, strategy::load_strategy};
+use pacer_config::project_messaging::project_key;
 use pacer_foundation::{
     Ctx,
     api::{Code, CoreError, OpFuture},
@@ -25,24 +25,6 @@ use std::path::Path;
 
 const MAX_SAFE: f64 = 9_007_199_254_740_991.0;
 const FILE: &str = "project-strategies.json";
-
-pub fn project_strategy_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
-    if !op.starts_with("project.strategy.") {
-        return false;
-    }
-    // An absolute checkout path registers the repository.
-    let registers = params["repo"]
-        .as_str()
-        .is_some_and(|repo| Path::new(repo).is_absolute());
-    repo_registry::registry_needs_core(&ctx.pacer_home, registers)
-        || strategy_load::native_load(&ctx.pacer_home).is_none()
-        || policy_file_needs_core(&ctx.pacer_home)
-}
-
-/// A FIFO or device would block or read differently; regular files and directories read alike.
-fn policy_file_needs_core(home: &Path) -> bool {
-    std::fs::metadata(home.join(FILE)).is_ok_and(|meta| !meta.is_file() && !meta.is_dir())
-}
 
 struct Params {
     repo: String,
@@ -172,7 +154,8 @@ fn policies(ctx: &Ctx) -> Result<Value, CoreError> {
 
 /// `loadStrategy` throws a plain `Error`, which `toApiError` reports as `internal`.
 fn strategy(ctx: &Ctx) -> Result<Value, CoreError> {
-    load_strategy(&ctx.pacer_home)
+    strategy_load::load_native(&ctx.pacer_home)
+        .map(|loaded| loaded.value)
         .map_err(|error| CoreError::new(Code::Internal, error.to_string()))
 }
 
@@ -336,8 +319,14 @@ fn write(
     .map_err(|error| CoreError::new(Code::Unavailable, error.to_string()))?
 }
 
+fn authorize(ctx: &Ctx, op: &str, params: &Value) -> Result<(), CoreError> {
+    let is_executor = ctx.env.get("PACER_ROLE").map(String::as_str) == Some("executor");
+    pacer_work::authorize_work_operation(ctx, op, params, is_executor)
+}
+
 pub fn project_strategy_list(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
+        authorize(ctx, "project.strategy.list", &params)?;
         parse("project.strategy.list", &params)?;
         let data = policies(ctx)?;
         let strategy = strategy(ctx)?;
@@ -361,6 +350,7 @@ pub fn project_strategy_list(ctx: &Ctx, params: Value) -> OpFuture<'_> {
 
 pub fn project_strategy_get(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
+        authorize(ctx, "project.strategy.get", &params)?;
         let p = parse("project.strategy.get", &params)?;
         let repo = resolve(ctx, &p.repo)?;
         let data = policies(ctx)?;
@@ -375,6 +365,7 @@ pub fn project_strategy_get(ctx: &Ctx, params: Value) -> OpFuture<'_> {
 
 pub fn project_strategy_set(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
+        authorize(ctx, "project.strategy.set", &params)?;
         let p = parse("project.strategy.set", &params)?;
         let repo = if Path::new(&p.repo).is_absolute() {
             register(ctx, &p.repo, true)?
@@ -395,6 +386,7 @@ pub fn project_strategy_set(ctx: &Ctx, params: Value) -> OpFuture<'_> {
 
 pub fn project_strategy_remove(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
+        authorize(ctx, "project.strategy.remove", &params)?;
         let p = parse("project.strategy.remove", &params)?;
         let repo = resolve(ctx, &p.repo)?;
         let strategy = strategy(ctx)?;
