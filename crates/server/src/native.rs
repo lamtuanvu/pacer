@@ -79,7 +79,6 @@ pub(crate) use pacer_core_bridge::snapshot_sync;
 pub(crate) use pacer_core_bridge::status_sync;
 pub(crate) mod runtime;
 pub(crate) use pacer_core_bridge::task_read_sync;
-pub(crate) use pacer_core_bridge::task_review_sync;
 use pacer_task_ops::snapshot_get_ops;
 pub(crate) use pacer_task_ops::status_ops;
 pub(crate) use pacer_task_ops::task_delegation_ops;
@@ -87,7 +86,7 @@ use pacer_task_ops::task_diff_ops;
 pub(crate) use pacer_task_ops::task_dismiss_ops;
 use pacer_task_ops::task_get_ops;
 use pacer_task_ops::task_reads;
-use pacer_task_ops::task_review_ops;
+pub(crate) use pacer_task_ops::task_review_ops;
 pub(crate) use pacer_task_ops::task_send_ops;
 pub(crate) mod assistant_turn_sync;
 pub(crate) mod task_send_sync;
@@ -195,7 +194,6 @@ pub fn status_residue_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bo
 }
 pub(crate) use task_dismiss_ops::uses_native_clean;
 pub(crate) use task_get_ops::needs_task_read_bridge;
-pub(crate) use task_review_ops::needs_task_review_bridge;
 pub(crate) use task_stop_ops::needs_task_stop_bridge;
 
 #[cfg(feature = "test-ops")]
@@ -1176,8 +1174,10 @@ pub async fn call_native(
     core_bridge_sync: Option<pacer_foundation::api::OpFuture<'_>>,
     task_stop_probe: Option<Value>,
     task_stop_effects: Option<pacer_foundation::api::OpFuture<'_>>,
-    task_review_probe: Option<Value>,
-    task_review_effects: Option<pacer_foundation::api::OpFuture<'_>>,
+    // Retained in the call signature for `call_native` callers; task.review is
+    // now answered by the delegation runtime in both doors, not by a bridge.
+    _task_review_probe: Option<Value>,
+    _task_review_effects: Option<pacer_foundation::api::OpFuture<'_>>,
     _handover_bridge: Option<&mut dyn pacer_update::handover::HandoverBridge>,
 ) -> Result<Value, CoreError> {
     let mut host_read_bridge = host_read_sync;
@@ -1208,14 +1208,6 @@ pub async fn call_native(
         return Err(CoreError::new(
             pacer_foundation::api::Code::Unavailable,
             "task stop bridge unavailable",
-        ));
-    }
-    if needs_task_review_bridge(op.name)
-        && (task_review_probe.is_none() || task_review_effects.is_none())
-    {
-        return Err(CoreError::new(
-            pacer_foundation::api::Code::Unavailable,
-            "task review bridge unavailable",
         ));
     }
     let mut host_set_alias: Option<String> = None;
@@ -1331,23 +1323,6 @@ pub async fn call_native(
         match op.name {
             "task.stop" => task_stop_ops::task_stop(ctx, params, probe, effects).await?,
             _ => unreachable!("needs_task_stop_bridge"),
-        }
-    } else if needs_task_review_bridge(op.name) {
-        let probe = task_review_probe.ok_or_else(|| {
-            CoreError::new(
-                pacer_foundation::api::Code::Unavailable,
-                "task review bridge unavailable",
-            )
-        })?;
-        let effects = task_review_effects.ok_or_else(|| {
-            CoreError::new(
-                pacer_foundation::api::Code::Unavailable,
-                "task review effects bridge unavailable",
-            )
-        })?;
-        match op.name {
-            "task.review" => task_review_ops::task_review(ctx, params, probe, effects).await?,
-            _ => unreachable!("needs_task_review_bridge"),
         }
     } else if needs_account_list_bridge(op.name) {
         let parts = core_bridge_sync.ok_or_else(|| {

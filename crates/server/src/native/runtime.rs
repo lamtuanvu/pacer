@@ -248,6 +248,71 @@ impl pacer_task_ops::task_delegation_ops::DelegationEffects for DelegateEffects 
     }
 }
 
+/// Native `task.review` effects. Managed work takes the `review_work` path;
+/// every other task goes through `review_task` with its full verdict set.
+pub struct NativeReviewEffects {
+    pub runtime: Arc<Runtime>,
+}
+
+impl pacer_task_ops::task_review_ops::ReviewEffects for NativeReviewEffects {
+    fn review<'a>(&'a self, ctx: &'a Ctx, params: &'a Value) -> OpFuture<'a> {
+        let runtime = Arc::clone(&self.runtime);
+        Box::pin(async move {
+            let id = params.get("id").and_then(Value::as_str).unwrap_or_default();
+            let verdict = pacer_delegation::review::Verdict::from_params(params)?;
+            let kind = params.get("kind").and_then(Value::as_str);
+            let note = params.get("note").and_then(Value::as_str);
+            let expect_state = params.get("expect_state").and_then(Value::as_str);
+            let expect_rev = params.get("expect_rev").and_then(Value::as_i64);
+
+            let mut store = pacer_store::TaskStore::open(&ctx.pacer_home)
+                .map_err(|error| CoreError::new(Code::Internal, error.to_string()))?;
+            let work = pacer_lifecycle::work_node_exists(&mut store, id).unwrap_or(false);
+            let task = store.read(id).ok().flatten().unwrap_or(Value::Null);
+            let can_continue = {
+                let executor = task
+                    .pointer("/run/executor")
+                    .and_then(Value::as_str)
+                    .or_else(|| task.pointer("/result/executor").and_then(Value::as_str));
+                executor.is_some()
+                    && task.pointer("/run/host").and_then(Value::as_str).is_none()
+                    && task
+                        .pointer("/result/backend")
+                        .and_then(Value::as_str)
+                        .map_or(true, |backend| backend == "direct")
+            };
+            drop(store);
+
+            if work && !(matches!(verdict, pacer_delegation::review::Verdict::SendBack(_)) && can_continue) {
+                if !matches!(
+                    verdict,
+                    pacer_delegation::review::Verdict::Accept
+                        | pacer_delegation::review::Verdict::Reject
+                ) {
+                    return Err(CoreError::new(
+                        Code::NotAllowed,
+                        "Use dispatch.review for work results",
+                    ));
+                }
+                let accepted = matches!(verdict, pacer_delegation::review::Verdict::Accept);
+                return pacer_delegation::review::review_work(
+                    ctx,
+                    &runtime,
+                    id,
+                    accepted,
+                    note,
+                    expect_rev,
+                )
+                .await;
+            }
+            pacer_delegation::review::review_task(
+                ctx, &runtime, id, verdict, kind, note, expect_state,
+            )
+            .await
+        })
+    }
+}
+
 /// `callerParticipant` for a public operation client header.
 pub fn delegate_origin(client: Option<&str>) -> &'static str {
     let client = client.unwrap_or_default();

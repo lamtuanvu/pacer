@@ -384,6 +384,18 @@ async fn forward_input<
                 && !crate::native::terminal_stays_forwarded(&ctx.at_now(), op.name, &params)
             {
                 let request_ctx = ctx.at_now();
+                if op.name == "task.review" {
+                    use crate::native::task_review_ops;
+                    let effects = crate::native::runtime::NativeReviewEffects {
+                        runtime: std::sync::Arc::clone(&plugins.delegation),
+                    };
+                    let result = task_review_ops::task_review(&request_ctx, params, &effects).await;
+                    crate::native::msg_write_sync::trace(op.name, request.get("id"));
+                    if let Some(id) = request.get("id") {
+                        write_line(out, &rpc_line(id, result)?).await?;
+                    }
+                    continue;
+                }
                 if crate::native::task_delegation_ops::is_delegation_op(op.name) {
                     use crate::native::task_delegation_ops::{Admission, admit};
                     let effects = crate::native::runtime::DelegateEffects {
@@ -740,112 +752,6 @@ async fn forward_input<
                             continue;
                         }
                         Ok(_) => {}
-                        Err(error) => {
-                            if let Some(id) = request.get("id") {
-                                let response =
-                                    json!({"jsonrpc":"2.0", "id":id, "error":error.rpc()});
-                                let mut bytes = pacer_plugin_ops::settings::js_json(&response).into_bytes();
-                                bytes.push(b'\n');
-                                write_line(out, &bytes).await?;
-                            }
-                            continue;
-                        }
-                    }
-                }
-                if op.name == "task.review" {
-                    let task_id = params
-                        .get("id")
-                        .and_then(Value::as_str)
-                        .unwrap_or("")
-                        .to_owned();
-                    if task_id.is_empty() {
-                        if let Some(id) = request.get("id") {
-                            let error = CoreError::new(
-                                Code::InvalidInput,
-                                "id: Invalid input: expected string, received undefined",
-                            );
-                            let response = json!({"jsonrpc":"2.0", "id":id, "error":error.rpc()});
-                            let mut bytes = pacer_plugin_ops::settings::js_json(&response).into_bytes();
-                            bytes.push(b'\n');
-                            write_line(out, &bytes).await?;
-                        }
-                        continue;
-                    }
-                    match crate::native::task_review_sync::stdio_probe(
-                        &mut core, sync.0, sync.1, &params, sync.2,
-                    )
-                    .await
-                    {
-                        Ok(probe)
-                            if crate::native::task_review_sync::task_review_stays_forwarded(
-                                &probe,
-                            ) =>
-                        {
-                            core.write_all(&line).await?;
-                            core.flush().await?;
-                            continue;
-                        }
-                        Ok(probe) => {
-                            let verdict = params
-                                .get("verdict")
-                                .and_then(Value::as_str)
-                                .unwrap_or("")
-                                .to_owned();
-                            let kind = params
-                                .get("kind")
-                                .and_then(Value::as_str)
-                                .map(str::to_owned);
-                            let note = params
-                                .get("note")
-                                .and_then(Value::as_str)
-                                .map(str::to_owned);
-                            let task_id = task_id.clone();
-                            let result = call_native(
-                                &request_ctx,
-                                op,
-                                params,
-                                request.get("id"),
-                                None,
-                                None,
-                                None,
-                                None,
-                                None,
-                                None,
-                                None,
-                                None,
-                                None,
-                                None,
-                                None,
-                                Some(probe),
-                                Some(Box::pin(crate::native::task_review_sync::stdio_effects(
-                                    &mut core,
-                                    sync.0,
-                                    sync.1,
-                                    &task_id,
-                                    &verdict,
-                                    kind.as_deref(),
-                                    note.as_deref(),
-                                    sync.2,
-                                ))
-                                    as pacer_foundation::api::OpFuture<'_>),
-                                None,
-                            )
-                            .await;
-                            if let Some(id) = request.get("id") {
-                                let response = match result {
-                                    Ok(value) => {
-                                        json!({"jsonrpc":"2.0", "id":id, "result":value})
-                                    }
-                                    Err(error) => {
-                                        json!({"jsonrpc":"2.0", "id":id, "error":error.rpc()})
-                                    }
-                                };
-                                let mut bytes = pacer_plugin_ops::settings::js_json(&response).into_bytes();
-                                bytes.push(b'\n');
-                                write_line(out, &bytes).await?;
-                            }
-                            continue;
-                        }
                         Err(error) => {
                             if let Some(id) = request.get("id") {
                                 let response =

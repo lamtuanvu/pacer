@@ -1,32 +1,35 @@
 import { childEnv, fakeServiceManager } from "./child-env";
 import { expect, test } from "bun:test";
-import { cpSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { callOp } from "../src/api/ops";
-import { taskReviewProbe } from "../src/api/task-review-bridge";
-import { fakeCtx } from "./helpers";
+import { Database } from "bun:sqlite";
+import { fakeCtx, tmpDir } from "./helpers";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
+import { registerWork } from "../src/dispatch/work";
+import { policyGateFixture } from "./fixtures/policy-host";
 
 const front = process.env.PACER_TEST_NATIVE_FRONT_DOOR;
 const core = JSON.stringify([process.execPath, join(import.meta.dir, "../src/cli.ts")]);
+const STRATEGY = "planner: claude-code\nproviders: {claude-code: {}, codex: {}}\nexecution: {launch_mode: headless}\n";
 
+type Params = Record<string, unknown>;
+
+/** Drive `task.review` through the native front door and assert the native marker. */
 async function reviewExchange(
   home: string,
-  taskId: string,
-  rev: number,
-  forward: boolean,
-  verdict: "accept" | "reject" = "accept",
-  native = !forward,
+  params: Params,
+  native = true,
   extraEnv: Record<string, string> = {},
 ) {
   const request = JSON.stringify({
     jsonrpc: "2.0",
     id: 2,
     method: "task.review",
-    params: { id: taskId, expect_rev: rev, verdict },
+    params: { expect_rev: readRev(home, String(params.id)), ...params },
   });
   const child = Bun.spawn([front!, "api", "--stdio"], {
+    cwd: home,
     env: {
       ...childEnv(home),
       PATH: `${fakeServiceManager(home)}:${process.env.PATH ?? "/usr/bin:/bin"}`,
@@ -35,7 +38,6 @@ async function reviewExchange(
       PACER_NO_SELF_REPAIR: "1",
       PACER_DISCOVERY: "off",
       PACER_DEBUG_NATIVE: "1",
-      ...(forward ? { PACER_FORWARD_OPS: "task.review" } : {}),
       ...extraEnv,
     },
     stdin: "pipe",
@@ -55,7 +57,7 @@ async function reviewExchange(
     expect(code, stderr).toBe(0);
     const replies = stdout.trim().split("\n").map(line => JSON.parse(line));
     const markers = stderr.split("\n").filter(line => /^native task\.review \d+$/.test(line));
-    expect(markers).toEqual(native ? ["native task.review 2"] : []);
+    expect(markers, stderr).toEqual(native ? ["native task.review 2"] : []);
     return replies[1];
   } finally {
     if (child.exitCode === null) {
@@ -65,103 +67,119 @@ async function reviewExchange(
   }
 }
 
-test("taskReviewProbe allows native accept for a simple done task", () => {
-  const ctx = fakeCtx();
-  const task = createTask(ctx, { brief: { goal: "g", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
-  updateTask(ctx, task.id, t => { t.state = "done"; });
-  expect(taskReviewProbe(ctx, task.id, { verdict: "accept" })).toEqual({ forward: false });
-});
+function readRev(home: string, id: string): number {
+  const ctx = { home, pacerHome: join(home, ".pacer") };
+  return readTask(ctx as Parameters<typeof readTask>[0], id)!.rev;
+}
 
-test("taskReviewProbe forwards accepting a diagnostics fix so TypeScript reruns its check", () => {
-  const ctx = fakeCtx();
-  const task = createTask(ctx, { brief: { goal: "g", repo: ctx.home }, kind: "debug", requestedExecutor: null, timeoutS: 60 });
-  updateTask(ctx, task.id, t => { t.state = "done"; t.diagnosticCheck = "CLI codex"; });
-  expect(taskReviewProbe(ctx, task.id, { verdict: "accept" })).toEqual({ forward: true, reason: "diagnostic recheck" });
-  expect(taskReviewProbe(ctx, task.id, { verdict: "reject" })).toEqual({ forward: false });
-});
-
-test.skipIf(!front)("native task.review forwards accepting a diagnostics fix", async () => {
+function seedHome(mutate?: (ctx: ReturnType<typeof fakeCtx>, id: string) => void) {
   const ctx = fakeCtx();
   mkdirSync(join(ctx.pacerHome, "state"), { recursive: true, mode: 0o700 });
-  const task = createTask(ctx, { brief: { goal: "Fix check", repo: ctx.home }, kind: "debug", requestedExecutor: null, timeoutS: 60 });
-  updateTask(ctx, task.id, t => { t.state = "done"; t.diagnosticCheck = "CLI codex"; });
-  const rev = readTask(ctx, task.id)!.rev;
-  const home = mkdtempSync(join(tmpdir(), "pacer-task-review-diagnostic-"));
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), STRATEGY);
+  const task = createTask(ctx, {
+    brief: { goal: "Native review parity", repo: ctx.home },
+    kind: "feature",
+    requestedExecutor: "codex",
+    timeoutS: 600,
+  });
+  updateTask(ctx, task.id, t => {
+    t.state = "done";
+    t.result = { executor: "codex", model: null, backend: "direct" } as typeof t.result;
+  });
+  mutate?.(ctx, task.id);
+  const home = mkdtempSync(join(tmpdir(), "pacer-native-review-"));
   cpSync(ctx.home, home, { recursive: true });
+  return { home, id: task.id, ctx };
+}
+
+test.skipIf(!front)("accept on a plain done task is native", async () => {
+  const { home, id } = seedHome();
   try {
-    const reply = await reviewExchange(home, task.id, rev, false, "accept", false);
+    const reply = await reviewExchange(home, { id, verdict: "accept", note: "ship it" });
     expect(reply?.result?.task?.review?.accepted).toBe(true);
-    const stored = readTask({ ...ctx, home, pacerHome: join(home, ".pacer") }, task.id)!;
-    expect(stored.diagnosticCheck).toBe("CLI codex");
-    expect(stored.review?.accepted).toBe(true);
-    // The stdio core records the recheck before it exits.
+    expect(reply?.result?.task?.review?.note).toBe("ship it");
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test.skipIf(!front)("send_back with a note is native and retries when no turn starts", async () => {
+  const { home, id } = seedHome();
+  try {
+    const reply = await reviewExchange(home, { id, verdict: "send_back", note: "handle errors" });
+    expect(reply?.result?.task?.review?.accepted).toBe(false);
+    expect(reply?.result?.retry?.id ?? reply?.result?.retry?.task_id).toBeTruthy();
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test.skipIf(!front)("retry verdict is native and launches a replacement", async () => {
+  const { home, id } = seedHome();
+  try {
+    const reply = await reviewExchange(home, { id, verdict: "retry", executor: "codex" });
+    expect(reply?.result?.task?.review?.accepted).toBe(false);
+    expect(reply?.result?.retry?.id ?? reply?.result?.retry?.task_id).toBeTruthy();
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test.skipIf(!front)("accept of managed work is native", async () => {
+  const { home, id } = seedHome((ctx, taskId) => {
+    registerWork(ctx, taskId, { allowDelegation: true });
+  });
+  try {
+    const reply = await reviewExchange(home, { id, verdict: "accept", note: "work looks good" });
+    expect(reply?.result?.task?.review?.accepted).toBe(true);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test.skipIf(!front)("accept on a diagnosticCheck task is native", async () => {
+  const { home, id } = seedHome((ctx, taskId) => {
+    updateTask(ctx, taskId, t => { t.diagnosticCheck = "CLI codex"; });
+  });
+  try {
+    const reply = await reviewExchange(home, { id, verdict: "accept" });
+    expect(reply?.result?.task?.review?.accepted).toBe(true);
+    const stored = readTask({ home, pacerHome: join(home, ".pacer") } as Parameters<typeof readTask>[0], id)!;
     expect(stored.diagnosticRecheck).toMatchObject({ passed: expect.any(Boolean) });
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
 });
 
-test("taskReviewProbe forwards send_back and retry", () => {
-  const ctx = fakeCtx();
-  const task = createTask(ctx, { brief: { goal: "g", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
-  expect(taskReviewProbe(ctx, task.id, { verdict: "send_back" })).toEqual({ forward: true, reason: "verdict" });
-  expect(taskReviewProbe(ctx, task.id, { verdict: "retry" })).toEqual({ forward: true, reason: "verdict" });
-});
-
-test.skipIf(!front)("native task.review matches TypeScript for accept on a non-managed task", async () => {
-  const ctx = fakeCtx();
-  mkdirSync(join(ctx.pacerHome, "state"), { recursive: true, mode: 0o700 });
-  const task = createTask(ctx, { brief: { goal: "Review me", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
-  updateTask(ctx, task.id, t => { t.state = "done"; });
-  const rev = readTask(ctx, task.id)!.rev;
-  const nativeHome = mkdtempSync(join(tmpdir(), "pacer-task-review-native-"));
-  const forwardHome = mkdtempSync(join(tmpdir(), "pacer-task-review-forward-"));
-  cpSync(ctx.home, nativeHome, { recursive: true });
-  cpSync(ctx.home, forwardHome, { recursive: true });
-  const reference = await callOp(ctx, "task.review", { id: task.id, expect_rev: rev, verdict: "accept" }) as { task: { rev: number } };
+test.skipIf(!front)("a closed-policy plugin veto is enforced natively", async () => {
+  const fixture = policyGateFixture({ verdict: "veto", reason: "review blocked" }, 0, tmpDir());
+  const task = createTask(fixture.ctx, {
+    brief: { goal: "policy review", repo: fixture.repo },
+    kind: "feature",
+    requestedExecutor: "codex",
+    timeoutS: 60,
+  });
+  updateTask(fixture.ctx, task.id, t => { t.state = "done"; });
   try {
-    const native = await reviewExchange(nativeHome, task.id, rev, false, "accept");
-    const forwarded = await reviewExchange(forwardHome, task.id, rev, true, "accept");
-    expect(native?.result?.task?.id).toBe(task.id);
-    expect(native?.result?.task?.review?.accepted).toBe(true);
-    expect(forwarded?.result?.task?.review?.accepted).toBe(true);
-    expect(native?.result?.task?.rev).toBe(reference.task.rev);
-  } finally {
-    rmSync(nativeHome, { recursive: true, force: true });
-    rmSync(forwardHome, { recursive: true, force: true });
-  }
-});
-
-test.skipIf(!front)("native task.review refuses an executor session for a plain task", async () => {
-  const ctx = fakeCtx();
-  mkdirSync(join(ctx.pacerHome, "state"), { recursive: true, mode: 0o700 });
-  const task = createTask(ctx, { brief: { goal: "Review me", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
-  updateTask(ctx, task.id, t => { t.state = "done"; });
-  const rev = readTask(ctx, task.id)!.rev;
-  const home = mkdtempSync(join(tmpdir(), "pacer-task-review-executor-"));
-  cpSync(ctx.home, home, { recursive: true });
-  try {
-    const reply = await reviewExchange(home, task.id, rev, false, "accept", true, { PACER_ROLE: "executor" });
+    const reply = await reviewExchange(fixture.ctx.home, { id: task.id, verdict: "accept" });
     expect(reply?.result).toBeUndefined();
-    expect(JSON.stringify(reply?.error?.message ?? reply?.error)).toContain("cannot review their own task");
-    const stored = readTask({ ...ctx, home, pacerHome: join(home, ".pacer") }, task.id)!;
-    expect(stored.review?.accepted).toBeUndefined();
+    // B0b has no native policy provider table yet, so closed mode fails closed
+    // with the unavailable-plugin reason rather than the plugin's own veto text.
+    expect(JSON.stringify(reply?.error)).toContain("cannot be verified");
+    expect(readTask(fixture.ctx, task.id)?.review).toBeUndefined();
   } finally {
-    rmSync(home, { recursive: true, force: true });
+    rmSync(fixture.ctx.home, { recursive: true, force: true });
   }
 });
 
-test.skipIf(!front)("native task.review still allows the same review without an executor role", async () => {
-  const ctx = fakeCtx();
-  mkdirSync(join(ctx.pacerHome, "state"), { recursive: true, mode: 0o700 });
-  const task = createTask(ctx, { brief: { goal: "Review me", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
-  updateTask(ctx, task.id, t => { t.state = "done"; });
-  const rev = readTask(ctx, task.id)!.rev;
-  const home = mkdtempSync(join(tmpdir(), "pacer-task-review-human-"));
-  cpSync(ctx.home, home, { recursive: true });
+test.skipIf(!front)("a task with a pending agent check reviews natively", async () => {
+  const { home, id } = seedHome();
+  const db = new Database(join(home, ".pacer", "state", "tasks.db"));
+  db.exec("CREATE TABLE IF NOT EXISTS agent_session_checks (task TEXT, generation INTEGER, verified INTEGER)");
+  db.prepare("INSERT INTO agent_session_checks (task, generation, verified) VALUES (?, 1, 0)").run(id);
+  db.close();
   try {
-    const reply = await reviewExchange(home, task.id, rev, false, "accept", true);
-    expect(reply?.error).toBeUndefined();
+    const reply = await reviewExchange(home, { id, verdict: "accept" });
     expect(reply?.result?.task?.review?.accepted).toBe(true);
   } finally {
     rmSync(home, { recursive: true, force: true });
