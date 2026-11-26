@@ -1,7 +1,6 @@
 //! Private Core HTTP and stdio bridge clients for native operation effects.
 pub mod client_control_sync;
 pub mod config_host_sync;
-pub mod config_sync;
 pub mod core_bridge_sync;
 pub mod dispatch_parts_sync;
 pub mod host_mut_sync;

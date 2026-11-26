@@ -32,4 +32,5 @@ pub use pacer_config::strategy_load;
 pub use strategy_load::active_strategy_needs_core;
 pub mod strategy_preview_ops;
 
+pub mod endpoint_sync;
 pub mod engine_ops;

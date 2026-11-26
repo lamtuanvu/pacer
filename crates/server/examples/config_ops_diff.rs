@@ -432,12 +432,16 @@ async fn main() -> io::Result<()> {
         let snapshot_parts = input.get("snapshotParts").cloned();
         let snapshot_sync = snapshot_parts
             .map(|parts| Box::pin(async move { Ok(parts) }) as pacer_foundation::api::OpFuture<'_>);
+        let fixture_plugin = pacer_server::native::endpoint_sync::FixtureEndpoint;
         let result = pacer_server::native::call_native(
             &ctx,
             op,
             input["params"].clone(),
             None,
-            Some(Box::pin(async { Ok(Value::Null) })),
+            Some(pacer_server::native::endpoint_sync::future(
+                &ctx,
+                &fixture_plugin,
+            )),
             broker_sync,
             None,
             None,

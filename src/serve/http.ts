@@ -225,19 +225,6 @@ export function startServer(
           const status = Number(params.get("status") ?? 200);
           return appPage(params.get("message") ?? "", Number.isInteger(status) && status >= 200 && status <= 599 ? status : 500);
         }
-        if (pathname === "/_internal/native-config-finish" && req.method === "POST") {
-          if (authKind !== "bearer") return new Response("forbidden\n", {status: 403});
-          try {
-            const {finishNativeConfigEdit} = await import("../core/accounts");
-            const body = await req.json();
-            await finishNativeConfigEdit(getCtx(), body?.op);
-            return Response.json({result: null});
-          } catch (error) {
-            const {toApiError, httpStatus} = await import("../api/errors");
-            const body = toApiError(error);
-            return Response.json({error: body}, {status: httpStatus(body.code)});
-          }
-        }
         if (pathname === "/_internal/status-broker-parts" && req.method === "POST") {
           if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
           try {

@@ -219,10 +219,12 @@ async function http(session: Session, home: string, forwarded: boolean, log: str
       }
     } finally {await reader.cancel();}
     if (!frames.includes("strategy-switch")) throw Error("Strategy alert missing from public SSE replay");
-    for (const path of ["/_internal/config-sync", "/_internal/native-config-finish"]) {
-      const privateRoute=await fetch(`http://127.0.0.1:${port}${path}`,{method:"POST",headers:{authorization:`Bearer ${token}`}});
-      if (privateRoute.status!==404) throw Error("Private native hook exposed publicly");
-    }
+    const privateRoute=await fetch(`http://127.0.0.1:${port}/_internal/config-sync`,{method:"POST",headers:{authorization:`Bearer ${token}`}});
+    if (privateRoute.status!==404) throw Error("Private native hook exposed publicly");
+    // Endpoint synchronization is native: the config-finish route is retired and
+    // no longer answered (the listener refuses the method with 405).
+    const retiredRoute=await fetch(`http://127.0.0.1:${port}/_internal/native-config-finish`,{method:"POST",headers:{authorization:`Bearer ${token}`}});
+    if (retiredRoute.status!==405) throw Error("Retired native-config-finish route still served");
     return normalized(states,home);
   } finally {
     if (child.exitCode===null) child.kill();

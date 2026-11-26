@@ -1,10 +1,12 @@
 import {expect, test} from "bun:test";
 import {execFileSync} from "node:child_process";
-import {existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync} from "node:fs";
+import {existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {callOp} from "../src/api/ops";
 import {toApiError} from "../src/api/errors";
+import {pluginRegistry, shutdownPlugins} from "../src/plugins";
+import {launchEnv} from "../plugins/pacer-endpoints/launch-env";
 import {fakeCtx} from "./helpers";
 import golden from "./fixtures/config-writes-goldens.json";
 
@@ -392,3 +394,64 @@ test("native config.get matches TypeScript with injected host fields", async () 
   const actual = JSON.parse(execFileSync(driver(), [], { input }).toString());
   expect(normalize(actual, rs), JSON.stringify(actual)).toEqual(normalize(expected, ts));
 }, 120_000);
+
+const endpointStrategy = [
+  "planner: claude-code",
+  "accounts:",
+  "  claude: {kind: claude}",
+  '  work: {kind: endpoint, usage: unmetered, connection: {api: openai-compatible, base_url: "https://example.test/v1", key: env:TEST_KEY, models: [{id: model, context: 128000, output: 16000, tools: true}]}}',
+  "runners:",
+  "  claude-code: {}",
+  "routing:",
+  "  - default: [claude-code]",
+].join("\n");
+
+test("native endpoint sync writes the same private config as the TypeScript plugin bridge", async () => {
+  const rs = mkdtempSync(join(tmpdir(), "native-endpoint-rs-"));
+  const ts = mkdtempSync(join(tmpdir(), "native-endpoint-ts-"));
+  for (const path of [rs, ts]) writeFileSync(join(path, "strategy.yaml"), endpointStrategy, {mode: 0o600});
+  const params = {rules: [{executors: ["claude-code"]}]};
+
+  // Native edit: the driver performs `routing.set` and runs endpoint sync locally.
+  const input = `{"op":"routing.set","params":${JSON.stringify(params)},"home":${JSON.stringify(rs)},"now":1700000000,"agent":"fixture","env":{}}\n`;
+  const native = JSON.parse(execFileSync(driver(), [], {input}).toString());
+  expect(native).toHaveProperty("result");
+  expect(JSON.stringify(native)).not.toContain("_internal.native-config.finish");
+  const nativePath = join(rs, "opencode/opencode.json");
+  expect(existsSync(nativePath)).toBe(true);
+  const bytes = readFileSync(nativePath, "utf8");
+  expect(statSync(nativePath).mode & 0o777).toBe(0o600);
+  expect(statSync(join(rs, "opencode")).mode & 0o777).toBe(0o700);
+  expect(bytes).toContain("{env:PACER_KEY_WORK}");
+  expect(bytes).not.toContain("TEST_KEY");
+
+  // The TypeScript bridge path: stub the endpoint plugin registry with the real
+  // launch-env writer, then let `applyEdit` call `syncEndpointConfig` itself.
+  const ctx = fakeCtx({pacerHome: ts, home: ts, now: 1_700_000_000, env: {}});
+  const registry = pluginRegistry(ctx);
+  registry.find = (() => "endpoint-plugin") as typeof registry.find;
+  registry.call = (async (_ctx, _id, method, pluginParams) => {
+    if (method !== "endpoint.launchEnv") throw Error(`unexpected bridge method ${method}`);
+    return launchEnv({fs: {
+      mkdir: async path => { mkdirSync(path, {recursive: true, mode: 0o700}); },
+      write: async (path, data, mode) => writeFileSync(path, data, {mode}),
+      remove: async () => {throw Error("unexpected remove");},
+    }}, pluginParams as Parameters<typeof launchEnv>[1]);
+  }) as typeof registry.call;
+  try {
+    expect(await callOp(ctx, "routing.set", params)).toBeDefined();
+    const tsPath = join(ts, "opencode/opencode.json");
+    expect(readFileSync(tsPath, "utf8")).toBe(bytes);
+    expect(statSync(tsPath).mode & 0o777).toBe(0o600);
+    expect(statSync(join(ts, "opencode")).mode & 0o777).toBe(0o700);
+  } finally {
+    await shutdownPlugins(ctx);
+  }
+}, 120_000);
+
+test("the native-config-finish bridge routes are gone", () => {
+  for (const file of ["src/serve/http.ts", "src/api/stdio.ts", "src/core/accounts.ts"]) {
+    expect(readFileSync(join(import.meta.dir, "..", file), "utf8")).not.toContain("native-config-finish");
+    expect(readFileSync(join(import.meta.dir, "..", file), "utf8")).not.toContain("finishNativeConfigEdit");
+  }
+});

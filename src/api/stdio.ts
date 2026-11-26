@@ -43,16 +43,6 @@ export async function runStdio(
     try {
       let result: unknown;
       switch (r.method) {
-        case "_internal.native-config.finish": {
-          const key = o.nativeConfigKey;
-          if (!key || !r.params || typeof r.params !== "object" || (r.params as {key?: unknown}).key !== key) {
-            throw new CoreError("unknown_op", "unknown operation");
-          }
-          const {finishNativeConfigEdit} = await import("../core/accounts");
-          await finishNativeConfigEdit(getCtx(), (r.params as {op?: unknown}).op);
-          result = null;
-          break;
-        }
         case "_internal.status-broker.parts": {
           const key = o.nativeConfigKey;
           if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key) {

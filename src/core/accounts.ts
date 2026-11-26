@@ -72,31 +72,6 @@ export async function applyEdit(ctx: Ctx, change: Parameters<typeof editStrategy
   await syncEndpointConfig(ctx);
   return result.diff;
 }
-/** Private post-edit hook for native strategy document operations. */
-export async function finishNativeConfigEdit(ctx: Ctx, op: unknown): Promise<void> {
-  if (
-    ![
-      "account.add",
-      "account.edit",
-      "account.adopt",
-      "account.remove",
-      "host.add",
-      "host.set",
-      "host.remove",
-      "host.repo.map",
-      "runner.add",
-      "runner.set",
-      "runner.reorder",
-      "runner.remove",
-      "routing.set",
-      "runner.models.set",
-      "runner.models.set_many",
-      "dispatch.tierTargets.set",
-    ].includes(op as string)
-  )
-    throw new CoreError("unknown_op", "unknown operation");
-  await syncEndpointConfig(ctx);
-}
 async function syncEndpointConfig(ctx: Ctx): Promise<void> {
   const accounts = loadStrategy(ctx).accounts;
   try { await writeEndpointConfig(ctx, accounts); }

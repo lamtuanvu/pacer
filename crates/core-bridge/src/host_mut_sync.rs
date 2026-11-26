@@ -1,6 +1,7 @@
 #![allow(clippy::result_large_err)]
-//! Stdio-only sequential orchestration for `host.set` (write, endpoint finish, read parts).
-use pacer_foundation::{Ctx, api::CoreError};
+//! Stdio-only sequential orchestration for `host.set` (write, endpoint sync, read parts).
+//! Endpoint synchronization is native; the caller injects its own effect future.
+use pacer_foundation::{Ctx, api::{CoreError, OpFuture}};
 use serde_json::Value;
 
 use pacer_config_ops::{config_writes, host_mut_ops};
@@ -12,9 +13,10 @@ pub async fn call_stdio_set<W: tokio::io::AsyncWrite + Unpin>(
     prefix: &str,
     key: &str,
     replies: &mut tokio::sync::mpsc::UnboundedReceiver<Value>,
+    endpoint_sync: OpFuture<'_>,
 ) -> Result<Value, CoreError> {
     let alias = host_mut_ops::host_set_write(ctx, params).await?;
-    super::config_sync::stdio(core, prefix, key, "host.set", replies).await?;
+    endpoint_sync.await?;
     let parts =
         super::host_read_sync::stdio(core, prefix, key, Some(alias.as_str()), replies).await?;
     let summary = host_mut_ops::host_set_summary(parts, &alias)?;
