@@ -4,7 +4,9 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync,
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
-import { fakeCtx } from "./helpers";
+import { fakeCtx, gitRepo, realRun } from "./helpers";
+import { gitInfo } from "../src/core/git";
+import { createTaskWorktree } from "../src/supervisor/worktree";
 import { createTask, updateTask } from "../src/tasks/store";
 import { insertMessage } from "../src/messaging/store";
 import { getWork } from "../src/dispatch/work";
@@ -253,3 +255,35 @@ test.skipIf(!front)("HTTP message writes resolve bearer, cookie and TUI session 
     for (const home of runs) rmSync(home, { recursive: true, force: true });
   }
 }, 120000);
+
+test.skipIf(!front)("msg.close removes an accepted task worktree without the old bridge", async () => {
+  const home = realpathSync(mkdtempSync("/tmp/mwc-"));
+  const pacerHome = join(home, ".pacer");
+  mkdirSync(pacerHome, { recursive: true, mode: 0o700 });
+  const ctx = fakeCtx({ home, pacerHome, run: realRun, which: () => null });
+  const repo = gitRepo();
+  const t = createTask(ctx, { brief: { goal: "g", repo }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  const info = await gitInfo(realRun, repo); if ("error" in info) throw new Error(info.error);
+  const w = await createTaskWorktree(ctx, info, t.id, "main"); if ("error" in w) throw new Error(w.error);
+  const runDir = join(pacerHome, "runs", t.id, "1");
+  mkdirSync(runDir, { recursive: true });
+  writeFileSync(join(runDir, "stdout"), "disposable");
+  updateTask(ctx, t.id, x => {
+    x.state = "done";
+    x.worktree = w.workdir;
+    x.run = { dir: runDir, attempt: 1, executor: "codex", startedAt: 1, mode: "new", workdir: w.workdir, logFile: "" };
+    x.review = { accepted: true, kind: null, note: null, at: 1 };
+    x.origin = "external:local";
+  });
+  try {
+    const request = JSON.stringify({ jsonrpc: "2.0", id: 7, method: "msg.close", params: { task: t.id } });
+    const { lines, markers } = await stdio(home, {}, [request], false);
+    const reply = JSON.parse(lines[0]!);
+    expect(reply.error).toBeUndefined();
+    expect(reply.result).toEqual({ task: t.id, closed: true });
+    expect(existsSync(w.path)).toBe(false);
+    expect(existsSync(join(pacerHome, "runs", t.id))).toBe(false);
+    expect(markers).toContain("native msg.close 7");
+    expect(lines.join("\n")).not.toContain("task-auto-clean");
+  } finally { rmSync(home, { recursive: true, force: true }); }
+}, 30_000);

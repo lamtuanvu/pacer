@@ -160,6 +160,7 @@ async fn wait_done<O: AsyncWrite + Unpin>(
 /// The plugin operations of one connection: their service, Core channel and running tasks.
 struct Plugins {
     service: std::sync::Arc<crate::native::plugins::Service>,
+    delegation: std::sync::Arc<pacer_delegation::Runtime>,
     link: std::sync::Arc<PluginLink>,
     frames: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>,
     tasks: tokio::task::JoinSet<Done>,
@@ -449,11 +450,16 @@ async fn forward_input<
                         }
                         continue;
                     }
-                    let mut bridge = msg_write_sync::StdioBridge {
+                    let mut core_bridge = msg_write_sync::StdioBridge {
                         core: &mut core,
                         prefix: sync.0,
                         key: sync.1,
                         replies: &mut *sync.2,
+                    };
+                    let mut bridge = crate::native::runtime::MsgBridge {
+                        inner: &mut core_bridge,
+                        ctx: &request_ctx,
+                        delegation: &plugins.delegation,
                     };
                     let result = msg_writes::call(&request_ctx, op.name, params, &mut bridge).await;
                     if matches!(&result, Err(error) if error.message == msg_writes::FORWARD_DUPLICATE_ANSWER)
@@ -1000,9 +1006,11 @@ async fn forward_input<
                         None,
                     )
                     .await
-                } else if crate::native::needs_task_clean_bridge(op.name) {
+                } else if crate::native::uses_native_clean(op.name) {
                     match crate::native::task_dismiss_ops::ids_from_params(&params) {
                         Ok(ids) => {
+                            let runtime = std::sync::Arc::clone(&plugins.delegation);
+                            let clean_ctx = request_ctx.clone();
                             call_native(
                                 &request_ctx,
                                 op,
@@ -1014,10 +1022,14 @@ async fn forward_input<
                                 None,
                                 None,
                                 None,
-                                Some(Box::pin(crate::native::task_clean_sync::stdio(
-                                    &mut core, sync.0, sync.1, &ids, sync.2,
-                                ))
-                                    as pacer_foundation::api::OpFuture<'_>),
+                                Some(Box::pin(async move {
+                                    crate::native::task_dismiss_ops::auto_clean(
+                                        &clean_ctx,
+                                        &runtime,
+                                        &ids,
+                                    )
+                                    .await
+                                }) as pacer_foundation::api::OpFuture<'_>),
                                 None,
                                 None,
                                 None,
@@ -1364,8 +1376,13 @@ async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i3
             requests, core,
         ));
     }
+    let delegation = crate::native::runtime::session_runtime(
+        std::sync::Arc::clone(&ownership.service),
+        link.clone(),
+    );
     let mut plugins = Plugins {
         service: std::sync::Arc::clone(&ownership.service),
+        delegation,
         link,
         frames,
         tasks: tokio::task::JoinSet::new(),

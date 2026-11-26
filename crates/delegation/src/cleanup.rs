@@ -959,7 +959,7 @@ fn id_of(ids: &[String], index: usize) -> &str {
     ids.get(index).map_or("", String::as_str)
 }
 
-/// `/_internal/task-auto-clean` replacement: auto-clean each id in order.
+/// Auto-clean each id in order, replacing the former Core bridge effect.
 pub fn auto_clean_tasks<'a>(ctx: &'a Ctx, rt: &'a Runtime, ids: &'a [String]) -> OpFuture<'a> {
     Box::pin(async move {
         for id in ids {

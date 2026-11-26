@@ -13,6 +13,10 @@ use crate::runtime::{NoPlugins, NoSpawn, NoSupervisor, Runtime};
 
 const NOW: f64 = 1_800_000_000.0;
 
+/// The lock recorder is process-global, so tests that observe it must not run in
+/// parallel with the other fixtures.
+static TEST_SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 pub struct Fixture {
     _dir: tempfile::TempDir,
     pub ctx: Ctx,
@@ -202,6 +206,7 @@ impl Fixture {
 
 #[tokio::test]
 async fn accepted_task_worktree_is_removed_and_runs_pruned() {
+    let _serial = TEST_SERIAL.lock().unwrap();
     let f = Fixture::accepted_task_with_worktree();
     auto_clean_task(&f.ctx, &f.rt, &f.id).await;
     assert!(!f.worktree.exists());
@@ -210,6 +215,7 @@ async fn accepted_task_worktree_is_removed_and_runs_pruned() {
 
 #[tokio::test]
 async fn dirty_worktree_is_kept_with_activity() {
+    let _serial = TEST_SERIAL.lock().unwrap();
     let f = Fixture::accepted_task_with_worktree();
     std::fs::write(f.worktree.join("x"), "dirty").unwrap();
     auto_clean_task(&f.ctx, &f.rt, &f.id).await;
@@ -219,6 +225,7 @@ async fn dirty_worktree_is_kept_with_activity() {
 
 #[tokio::test]
 async fn auto_clean_disabled_by_strategy_does_nothing() {
+    let _serial = TEST_SERIAL.lock().unwrap();
     let f = Fixture::accepted_task_with_worktree()
         .with_strategy("execution:\n  autoClean: false\n");
     auto_clean_task(&f.ctx, &f.rt, &f.id).await;
@@ -227,6 +234,7 @@ async fn auto_clean_disabled_by_strategy_does_nothing() {
 
 #[tokio::test]
 async fn retry_chain_locks_in_sorted_order() {
+    let _serial = TEST_SERIAL.lock().unwrap();
     let f = Fixture::retry_chain(&["t-b", "t-a"]);
     let order = f
         .capture_lock_order(auto_clean_task(&f.ctx, &f.rt, &f.id))

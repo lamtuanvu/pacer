@@ -24,7 +24,8 @@ async fn listener(home: &std::path::Path, forwarded: bool) -> (u16, tokio::task:
         token: "test-token".into(),
         registry: service_registry("*"),
         scoped_work: false,
-        plugins: crate::native::plugins::Service::default(),
+        plugins: Arc::new(crate::native::plugins::Service::default()),
+        delegation: Arc::new(pacer_delegation::Runtime::default()),
         forward_log_follow: false,
         forward_events: forwarded,
     });

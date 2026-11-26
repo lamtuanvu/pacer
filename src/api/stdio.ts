@@ -215,17 +215,6 @@ export async function runStdio(
           );
           break;
         }
-        case "_internal.task-auto-clean": {
-          const key = o.nativeConfigKey;
-          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
-            throw new CoreError("unknown_op", "unknown operation");
-          }
-          const ids = (r.params as { ids?: unknown }).ids;
-          if (!Array.isArray(ids) || ids.some(id => typeof id !== "string")) throw new CoreError("invalid_input", "ids required");
-          const { taskAutoCleanBridge } = await import("./task-clean-bridge");
-          result = await taskAutoCleanBridge(getCtx(), ids);
-          break;
-        }
         case "_internal.msg.effects": {
           const key = o.nativeConfigKey;
           if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
