@@ -27,13 +27,17 @@ test("arrow keys move the active option and wrap; other keys leave it alone", ()
 
 test("the combobox is a labelled editable field that controls a grouped listbox (WAI-ARIA combobox)", () => {
   const html = renderToString(<Combobox label="Add a model" options={options} onPick={() => {}} placeholder="Search or type any id" source="From Claude Code" mono />);
-  expect(html).toMatch(/<label class="pc-combobox__label" for="(combobox-[^"]+)">Add a model<\/label>/);
-  const id = /for="(combobox-[^"]+)"/.exec(html)![1]!;
-  expect(html).toMatch(new RegExp(`<input[^>]*id="${id}"[^>]*role="combobox"`));
+  // Attribute order differs between renderers; match each attribute on the label separately.
+  const label = /<label[^>]*>Add a model<\/label>/.exec(html)![0];
+  expect(label).toContain('class="pc-combobox__label"');
+  const id = /for="(combobox-[^"]+)"/.exec(label)![1]!;
+  const input = new RegExp(`<input[^>]*id="${id}"[^>]*>`).exec(html)![0];
+  expect(input).toContain('role="combobox"');
   expect(html).toContain(`aria-controls="${id}-list"`);
   expect(html).toContain('aria-expanded="false"');
   expect(html).toContain('aria-autocomplete="list"');
-  expect(html).toMatch(new RegExp(`id="${id}-list" role="listbox" aria-label="Add a model"[^>]*hidden`));
+  const list = new RegExp(`<div[^>]*id="${id}-list"[^>]*>`).exec(html)![0];
+  for (const attribute of ['role="listbox"', 'aria-label="Add a model"', 'hidden']) expect(list).toContain(attribute);
   // Groups name their options; every option is a listbox option, never a nested button.
   expect(html.match(/role="group"/g)).toHaveLength(2);
   expect(html.match(/role="option"/g)).toHaveLength(3);

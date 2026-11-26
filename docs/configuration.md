@@ -76,13 +76,12 @@ omitted. Targets may be `small`, `medium` or `frontier`, never `unknown`.
 They must be nondecreasing from simple to complex: `simple ≤ standard ≤ complex`
 in the order `small < medium < frontier`. Equal targets are allowed.
 
-In **Settings → Dispatcher → Model choice**, preview the model each difficulty and
+In **Settings → Dispatcher → Overview** (Model choice), preview the model each difficulty and
 executor would use, then save the tier choices in place (updating the active
-setup) or save as a new named setup. In **Settings → Dispatcher → Model matrix**,
-see every model each executor can run (from the provider listing and the declared
-models), turn models on and rate their size (or return them to unrated), and
-suggest on/off and sizes from the listing; **Save matrix** writes only the
-executors that changed in one revision-checked edit. Availability can change
+setup) or save as a new named setup. In **Settings → Dispatcher → Agents**,
+pick an agent to see the models it declares, set each one's size, default and
+on/off, and add models from its live listing (with a suggested size) or by id;
+**Save changes** writes only the agents that changed in one revision-checked edit. Availability can change
 before dispatch. See [executor models](executors.md#default-and-allowed-models)
 for validation and [dispatch](dispatch.md#model-choice-by-difficulty) for fallback.
 
@@ -138,7 +137,7 @@ Policies are `priority` (default), `even`, `burn-before-reset` and `cheapest-fir
 
 Two further settings govern scheduled native control certification, which spends the quota of the account it certifies. `planner_probe` is `ask` (default), `auto` or `off`: on `ask` nothing is probed until you answer the consent question in Dispatcher or through `dispatch.enforcement.consent`, and `off` disables scheduling without affecting manual verification. `planner_reserve_headroom` defaults to 25 percentage points (valid 0–99) and is a separate setting from `planner_reserve`: it is the measured headroom an account must still have before Pacer will spend any of it on a probe. It is checked when a probe is admitted; it is not a guarantee that a quota window cannot fall below it afterwards. Headroom that cannot be measured never satisfies it. An over-ceiling probe cost or repeated repository switching pauses scheduled probes for at least 24 hours, then scheduling retries when eligible; the daily probe ceiling still applies.
 
-`planner_tier_fallback` is `on` (default) or `off`. When a task is `complex` (or a dispatch brief sets `min_tier`) and no ranked executor other than the planner declares a model at or above the target tier (`dispatch.tierTargets.complex`, `frontier` by default), Pacer ranks the planner's own runner first and runs the task there as a managed executor task. If every planner slot is busy, the task waits for one rather than running on an executor below its tier. It does this even when the planner is ahead of its weekly pace, and `planner_reserve_headroom` does not apply. Hard exclusions still do: a disabled, blocked, broken or uninstalled runner, or an exhausted budget with paid overflow off. Only declared tiers count, and an executor whose models have no declared tier never counts as qualified. A planner runner without a `models:` entry carrying `tier: frontier` never qualifies. Set it in Settings › Model matrix (the planner row is editable, and suggestions never change it) or with `runner.models.set`. Saving the planner row also makes that model the planner runner's default, which Pacer passes (`--model`) to every managed task it runs on that runner; your own planner session is unaffected. `pacer status` adds a `Tier fallback:` line while it is in effect, and `pacer route <kind> --difficulty complex` shows the reason `planner tier fallback: no frontier executor available`.
+`planner_tier_fallback` is `on` (default) or `off`. When a task is `complex` (or a dispatch brief sets `min_tier`) and no ranked executor other than the planner declares a model at or above the target tier (`dispatch.tierTargets.complex`, `frontier` by default), Pacer ranks the planner's own runner first and runs the task there as a managed executor task. If every planner slot is busy, the task waits for one rather than running on an executor below its tier. It does this even when the planner is ahead of its weekly pace, and `planner_reserve_headroom` does not apply. Hard exclusions still do: a disabled, blocked, broken or uninstalled runner, or an exhausted budget with paid overflow off. Only declared tiers count, and an executor whose models have no declared tier never counts as qualified. A planner runner without a `models:` entry carrying `tier: frontier` never qualifies. Set it in Settings › Dispatcher › Agents on the planner's page (its models are editable) or with `runner.models.set`. Saving the planner's models also makes that model the planner runner's default, which Pacer passes (`--model`) to every managed task it runs on that runner; your own planner session is unaffected. `pacer status` adds a `Tier fallback:` line while it is in effect, and `pacer route <kind> --difficulty complex` shows the reason `planner tier fallback: no frontier executor available`.
 
 The first matching `kinds` rule wins, otherwise `default` is used:
 

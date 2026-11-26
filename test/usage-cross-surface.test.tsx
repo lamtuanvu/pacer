@@ -175,7 +175,7 @@ for (const state of states) {
       const card = usageCard(renderToString(<TaskContext.Provider value={{ state: { ...initialState(), snapshot: bareSnapshot, connected: true }, api: api as never }}><AgentsPage agent={bare.id} initialAccounts={listRows as never}/></TaskContext.Provider>));
       const accountWords = agentWords(record, listRow.usageState?.freshness === "historical");
       expect(card).toContain(accountWords === record.figure ? record.figure : accountWords);
-      if (plannerRow?.usageState && bare.id !== plannerRow.id && usageView(plannerRow.usageState, ctx.now).figure !== record.figure) {
+      if (plannerRow?.usageState && bare.id !== plannerRow.runner && usageView(plannerRow.usageState, ctx.now).figure !== record.figure) {
         expect(card).not.toContain(usageView(plannerRow.usageState, ctx.now).summary);
       }
     }

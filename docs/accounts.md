@@ -283,10 +283,11 @@ agent, account, host and model.
 
 ### Check account usage
 
-Open **Settings › Agents › Accounts** and choose **Check usage** beside an
-account. The planner card links to these controls. Checks belong to accounts,
-so a planner account and an account without an executor can both be checked.
-Sign-in and usage freshness are separate facts: the quota column shows when
+Open **Settings › Dispatcher › Agents**, pick the agent, and choose **Check usage**
+in its Usage card. Checks belong to accounts, so the planner's account can be
+checked too. An account that no agent uses yet is named among an agent's other
+accounts of the same kind; add an agent for it to check its usage in the app.
+Sign-in and usage freshness are separate facts: the Usage card shows when
 the provider observation was captured and whether it is historical. Quota, reset
 and observation time come from the same reading, even while data updates.
 A measured reading is shown as current only with an explicit `stale: false`
