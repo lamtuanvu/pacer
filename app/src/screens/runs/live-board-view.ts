@@ -34,6 +34,19 @@ export function fitView(content: { width: number; height: number }, viewport: { 
   };
 }
 
+/** The least pan that brings a rectangle (board coordinates) inside the viewport; the same view when it is already inside. */
+export function revealRect(view: BoardView, rect: { x: number; y: number; w: number; h: number }, viewport: { width: number; height: number }, pad = 16): BoardView {
+  const shift = (start: number, size: number, room: number): number => {
+    if (start < pad) return pad - start;
+    const over = start + size - (room - pad);
+    // A rectangle larger than the room shows its start.
+    return over > 0 ? -Math.min(over, start - pad) : 0;
+  };
+  const dx = shift(view.x + rect.x * view.k, rect.w * view.k, viewport.width);
+  const dy = shift(view.y + rect.y * view.k, rect.h * view.k, viewport.height);
+  return dx || dy ? panBy(view, dx, dy) : view;
+}
+
 export type BoardKeyAction =
   | { type: "pan"; dx: number; dy: number }
   | { type: "zoom"; factor: number }

@@ -99,3 +99,13 @@ test("summarizeSend says what became of the message, one recipient or several, i
   expect(summarizeSend([{ to: "a", delivery: "queued" }, { to: "b", delivery: "live" }])).toEqual({ text: "Delivered to 2 of 2 recipients.", problem: false, stored: true });
   expect(summarizeSend([{ to: "a", refusal: "x" }, { to: "b", refusal: "x" }]).stored).toBe(false);
 });
+
+test("revealRect pans only as far as needed to bring a rectangle into view", async () => {
+  const { revealRect } = await import("../app/src/screens/runs/live-board-view");
+  const room = { width: 400, height: 300 };
+  const view = { x: 0, y: 0, k: 1 };
+  expect(revealRect(view, { x: 50, y: 50, w: 36, h: 36 }, room)).toBe(view);
+  expect(revealRect(view, { x: 500, y: 50, w: 36, h: 36 }, room)).toEqual({ x: -152, y: 0, k: 1 });
+  expect(revealRect({ x: -300, y: -200, k: 1 }, { x: 50, y: 50, w: 36, h: 36 }, room)).toEqual({ x: -34, y: -34, k: 1 });
+  expect(revealRect({ x: 0, y: 0, k: 2 }, { x: 300, y: 10, w: 36, h: 36 }, room).x).toBe(-288);
+});

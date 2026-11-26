@@ -2,16 +2,18 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { ComponentChildren } from "preact";
 import { Button } from "../../ds/Button";
-import { fitView, keyAction, panBy, zoomAt, ZOOM_STEP, type BoardKeyAction, type BoardView } from "./live-board-view";
+import { fitView, keyAction, panBy, revealRect, zoomAt, ZOOM_STEP, type BoardKeyAction, type BoardView } from "./live-board-view";
 
 const FALLBACK_VIEWPORT = { width: 960, height: 540 };
 
-export function BoardViewport({ content, resetKey, markerId, ariaLabel, children }: {
+export function BoardViewport({ content, resetKey, markerId, ariaLabel, reveal, children }: {
   content: { width: number; height: number };
   /** The view fits once per key (a run); later refreshes keep the view the person set. */
   resetKey: string;
   markerId: string;
   ariaLabel: string;
+  /** Pan so this rectangle (board coordinates) is in view; a new object asks again. */
+  reveal?: { x: number; y: number; w: number; h: number } | null;
   children: ComponentChildren;
 }) {
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -30,6 +32,11 @@ export function BoardViewport({ content, resetKey, markerId, ariaLabel, children
     if (fittedFor.current !== resetKey) { fittedFor.current = resetKey; setView(fitView(content, size())); }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fit once per key
   }, [resetKey, content.width, content.height]);
+
+  useEffect(() => {
+    if (reveal) setView(v => revealRect(v, reveal, size()));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per request
+  }, [reveal]);
 
   const act = (a: BoardKeyAction | null) => {
     if (!a) return;

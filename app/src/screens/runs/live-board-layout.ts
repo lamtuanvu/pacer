@@ -36,6 +36,8 @@ const BAND_PAD = 12;
 const ZONE_HEAD = 52;
 const ZONE_PAD = 12;
 const ZONE_EMPTY_H = 36;
+/** A zone is at least this wide, so its one-line summary fits inside it. */
+export const ZONE_MIN_W = 320;
 export const STATION_W = 160;
 export const STATION_H = 96;
 export const FIGURE = 36;
@@ -241,7 +243,7 @@ function dedupeVersions(graphs: LayoutInput["graphs"], stepId: string): ZoneVers
 }
 
 /** The child run that fills a zone: one with live steps first, then the newest, then by id. */
-function childFor(children: LayoutChild[], stepId: string): LayoutChild | undefined {
+export function childFor(children: LayoutChild[], stepId: string): LayoutChild | undefined {
   const live = (c: LayoutChild) => c.steps.some(s => s.status === "running" || s.status === "waiting") ? 1 : 0;
   return children.filter(c => c.parentStep === stepId)
     .sort((a, b) => live(b) - live(a) || (b.createdAt ?? 0) - (a.createdAt ?? 0) || a.runId.localeCompare(b.runId))[0];
@@ -265,7 +267,7 @@ export function layoutLiveBoard(input: LayoutInput): LiveBoardLayout {
     },
     minWidth: e => {
       const inner = zoneInner.get(e.stepId);
-      return inner ? Math.max(DESK_W, inner.w + 2 * ZONE_PAD) : 0;
+      return inner ? Math.max(ZONE_MIN_W, inner.w + 2 * ZONE_PAD) : 0;
     },
   });
   const nodes = [...root.nodes];
@@ -279,7 +281,7 @@ export function layoutLiveBoard(input: LayoutInput): LiveBoardLayout {
     const zy = o.y + o.h + GAP_Y / 2;
     const versions = dedupeVersions(input.graphs, stepId);
     zones.push({
-      id: `zone:${stepId}`, stepId, x: o.x, y: zy, w: Math.max(o.w, inner.w + 2 * ZONE_PAD), h: extra - GAP_Y / 2, versions,
+      id: `zone:${stepId}`, stepId, x: o.x, y: zy, w: Math.max(ZONE_MIN_W, o.w, inner.w + 2 * ZONE_PAD), h: extra - GAP_Y / 2, versions,
       approved: versions.filter(v => v.status === "approved").length, drawn: inner.nodes.length,
     });
     const dx = o.x + ZONE_PAD, dy = zy + ZONE_HEAD;

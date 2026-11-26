@@ -20,7 +20,7 @@ import { useMounted, useRetryFocus } from "./run-data";
 import { RunQuestionCard } from "./run-shared";
 import { useLiveStyles } from "./LiveBoard";
 import { Creature } from "./MascotArt";
-import { buildMultiRun, countWords, type RunLineRow } from "./multi-run";
+import { buildMultiRun, countWords, type StepCounts } from "./multi-run";
 import { liveHref, runViewHref } from "./live-links";
 
 /** Details are read for this many runs, one after another, for their summaries and step counts. */
@@ -37,8 +37,8 @@ export function summaryRunIds(rows: Array<{ id: string; status: string; createdA
     .slice(0, SUMMARY_RUNS).map(r => r.id);
 }
 
-function StepBar({ line }: { line: RunLineRow }) {
-  const { done, running, waiting, failed } = line.counts;
+function StepBar({ letter, counts }: { letter: string; counts: StepCounts }) {
+  const { done, running, waiting, failed } = counts;
   const total = done + running + waiting + failed;
   if (!total) return null;
   let x = 0;
@@ -48,7 +48,7 @@ function StepBar({ line }: { line: RunLineRow }) {
     x += w;
     return seg;
   });
-  return <svg className="mr-bar" viewBox="0 0 100 6" preserveAspectRatio="none" role="img" aria-label={`Run ${line.letter}: ${countWords(line.counts)}`}>{segs}</svg>;
+  return <svg className="mr-bar" viewBox="0 0 100 6" preserveAspectRatio="none" role="img" aria-label={`Run ${letter}: ${countWords(counts)}`}>{segs}</svg>;
 }
 
 export function MultiRun({ query }: { query: RouteQuery }) {
@@ -74,7 +74,7 @@ export function MultiRun({ query }: { query: RouteQuery }) {
   /**
    * The list first, then each live run's detail for its summary. As on the run view, a response is dropped after
    * unmount or once a newer one has been applied; a merely superseded one still applies.
-   * Resolves true when everything was read without any error.
+   * Resolves true when the list was read: that is what removes the list alert and its retry button.
    */
   const load = async () => {
     const mine = ++loadSeq.current;
@@ -85,7 +85,6 @@ export function MultiRun({ query }: { query: RouteQuery }) {
       appliedList.current = mine;
       setStore(current => mergeListRefresh(current, listed));
     }
-    let ok = !listed.listError;
     const kids = childRunIds(next.list);
     const ids = summaryRunIds(mergeSnapshotRuns(next.list, state.snapshot?.runs).filter(r => !kids.has(r.id)));
     for (const id of ids) {
@@ -93,14 +92,13 @@ export function MultiRun({ query }: { query: RouteQuery }) {
       if ((appliedDetail.current.get(id) ?? 0) > mine) continue;
       next = await refreshRunDetail(api, next, id, ops);
       if (!mounted.current) return false;
-      if (next.details[id]?.error) ok = false;
       if (mine > (appliedDetail.current.get(id) ?? 0)) {
         appliedDetail.current.set(id, mine);
         const read = next;
         setStore(current => mergeDetailRefresh(current, read, id));
       }
     }
-    return ok;
+    return !listed.listError;
   };
   useEffect(() => {
     void load();
@@ -169,7 +167,7 @@ export function MultiRun({ query }: { query: RouteQuery }) {
                     <span className="lb-cap">{q.runTitle}</span>
                   </div>
                   <div className="lb-row">
-                    <Button size="sm" variant={answerId === q.id ? "secondary" : "quiet"} aria-expanded={answerId === q.id} aria-label={`Answer the question from run ${q.letter}`} onClick={() => setAnswerId(answerId === q.id ? null : q.id)}>
+                    <Button size="sm" variant={answerId === q.id ? "secondary" : "quiet"} aria-expanded={answerId === q.id} aria-label={`Answer the question from run ${q.letter}: ${q.text}`} onClick={() => setAnswerId(answerId === q.id ? null : q.id)}>
                       Answer
                     </Button>
                     <ButtonLink size="sm" variant="quiet" href={liveHref(q.runId, undefined, query)} aria-label={`Live board of run ${q.letter}`}>Live board</ButtonLink>
@@ -200,11 +198,11 @@ export function MultiRun({ query }: { query: RouteQuery }) {
                       <Pill tone={st.tone}><span aria-hidden="true">{st.glyph} </span>{st.label}</Pill>
                       <span className="lb-cap">{line.priorityLabel} priority · Waits on {line.waitsOn} · {line.age}</span>
                     </div>
-                    <StepBar line={line} />
-                    <p className="lb-cap">{countWords(line.counts)}{line.questions ? ` · ${line.questions} ${line.questions === 1 ? "question" : "questions"} for you` : ""}</p>
+                    {line.counts ? <StepBar letter={line.letter} counts={line.counts} /> : null}
+                    <p className="lb-cap">{[line.counts ? countWords(line.counts) : "", line.questions ? `${line.questions} ${line.questions === 1 ? "question" : "questions"} for you` : ""].filter(Boolean).join(" · ")}</p>
                     <p className="mr-since"><strong>Since you last looked: </strong>{line.summary
                       ? <>{line.summary.text}{line.summary.at ? <span className="lb-cap"> · written {runAge(line.summary.at, now)}</span> : null}</>
-                      : store.details[line.id]?.error && !store.details[line.id]?.run ? "The summary couldn't be loaded." : "No summary yet."}</p>
+                      : line.read ? "No summary yet." : store.details[line.id]?.error ? "The summary couldn't be loaded." : "Not loaded."}</p>
                     <div className="lb-row">
                       <Button size="sm" variant={focus === line.id ? "secondary" : "quiet"} aria-pressed={focus === line.id}
                         onClick={() => { setFocusId(focus === line.id ? null : line.id); setAnnounce(focus === line.id ? "Showing all runs" : `Focused on run ${line.letter}`); }}>

@@ -41,14 +41,16 @@ export function shortLabel(text: string, max = 24): string {
   return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
 }
 
-/** The executor identity behind a task (the snapshot's `executor` id, e.g. `codex#personal`), or "" when the task is not in the snapshot. */
+const UNKNOWN = "task:";
+
+/** The executor identity behind a task (the snapshot's `executor` id, e.g. `codex#personal`). A task the snapshot does not list keeps its own identity, so unknown agents never merge into one. */
 export function executorOf(taskId: string, tasks: ReadonlyArray<{ id: string; executor?: string | null }> | undefined): string {
-  return tasks?.find(x => x.id === taskId)?.executor ?? "";
+  return tasks?.find(x => x.id === taskId)?.executor || `${UNKNOWN}${taskId}`;
 }
 
 /** What the screen says for an executor identity: the shared label every other screen uses. The identity itself seeds the mascot. */
 export function executorName(identity: string): string {
-  return identity ? executorLabel(identity) : "An executor";
+  return identity && !identity.startsWith(UNKNOWN) ? executorLabel(identity) : "An executor";
 }
 
 const GRAPH_STATUS: Record<string, string> = { proposed: "proposed", approved: "approved", rejected: "rejected", superseded: "replaced" };

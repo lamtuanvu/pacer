@@ -30,15 +30,36 @@ export function zoneSummary(z: { versions: Array<{ version: number; status: stri
  * SVG text that is cut by its box, not by a character count (UI-11): the whole text is drawn and a clipPath the size of the
  * box hides what does not fit; the full text is also the element's <title>, so a pointer hover and an SVG reader get all of it.
  */
-function ClippedText({ id, x, y, width, className, text }: { id: string; x: number; y: number; width: number; className: string; text: string }) {
+function ClippedText({ id, x, y, width, className, text, title }: { id: string; x: number; y: number; width: number; className: string; text: string; title?: string }) {
   // ids come from step names: keep only characters that are safe inside url(#...)
   const cid = id.replace(/[^A-Za-z0-9_-]/g, c => `_${c.charCodeAt(0).toString(16)}`);
   id = cid;
   return <>
     <clipPath id={id}><rect x={x} y={y - 18} width={Math.max(0, width)} height={26} /></clipPath>
-    <text className={className} x={x} y={y} clip-path={`url(#${id})`}><title>{text}</title>{text}</text>
+    <text className={className} x={x} y={y} clip-path={`url(#${id})`}><title>{title ?? text}</title>{text}</text>
   </>;
 }
+
+/** Short lines of at most `max` characters, split between words; a longer word keeps its own line and is clipped. */
+export function wrapWords(text: string, max: number): string[] {
+  const lines: string[] = [];
+  for (const word of text.split(" ")) {
+    const last = lines.length - 1;
+    if (last >= 0 && lines[last]!.length + 1 + word.length <= max) lines[last] += ` ${word}`;
+    else lines.push(word);
+  }
+  return lines;
+}
+
+/** A station's note: up to two lines inside the box, with the full text as its title (UI-11, UI-16). */
+function StationNote({ id, text }: { id: string; text: string }) {
+  const lines = wrapWords(text, NOTE_CHARS);
+  const shown = lines.length > 2 ? [lines[0]!, lines.slice(1).join(" ")] : lines;
+  return <>
+    {shown.map((line, i) => <ClippedText key={i} id={`${id}-${i}`} x={72} y={52 + i * 16} width={STATION_W - 72 - 8} className="lb-station-note" text={line} title={text} />)}
+  </>;
+}
+const NOTE_CHARS = 13;
 
 export interface CanvasProps {
   layout: LiveBoardLayout;
@@ -50,6 +71,7 @@ export interface CanvasProps {
   selectedTaskId?: string | null;
   onOpenAgent?: (taskId: string) => void;
   agentRef?: (taskId: string, el: SVGGElement | null) => void;
+  onFocusAgent?: (taskId: string) => void;
   /** Playback hooks: which desks exist yet, what status each shows, what each zone says. */
   visible?: (n: BoardNode) => boolean;
   statusOf?: (n: BoardNode) => { status: string; waitsOnYou: boolean };
@@ -79,14 +101,14 @@ export function BoardCanvas(p: CanvasProps) {
         <rect className="lb-station-box" width={STATION_W} height={STATION_H} />
         <Creature identity={p.plannerIdentity} x={12} y={STATION_H - creatureHeight(40) - 10} size={40} planner />
         <text className="lb-station-label" x={72} y={34}>Planner</text>
-        <ClippedText id={`${p.markerId}-clip-planner`} className="lb-station-note" x={72} y={52} width={STATION_W - 72 - 8} text={p.plannerNote} />
+        <StationNote id={`${p.markerId}-clip-planner`} text={p.plannerNote} />
       </g>
       {person && personAt === null ? (
         <g transform={`translate(${person.x} ${person.y})`} data-station="person">
           <rect className="lb-station-box" width={STATION_W} height={STATION_H} />
           <PersonFigure x={12} y={STATION_H - creatureHeight(40) - 10} size={40} />
           <text className="lb-station-label" x={72} y={34}>You</text>
-          <text className="lb-station-note" x={72} y={52}>{p.personNote ?? "Nothing waits on you"}</text>
+          <StationNote id={`${p.markerId}-clip-person`} text={p.personNote ?? "Nothing waits on you"} />
         </g>
       ) : null}
       {layout.zones.map(z => {
@@ -96,7 +118,7 @@ export function BoardCanvas(p: CanvasProps) {
           <g key={z.id} data-zone={z.id}>
             <rect className={`lb-zone${(p.zoneApproved ? p.zoneApproved(z) : z.approved > 0) ? " lb-zone--filled" : ""}`} x={z.x} y={z.y} width={z.w} height={z.h} rx="8" />
             <ClippedText id={`${p.markerId}-clip-zone-${z.id}`} className="lb-zone-label" x={z.x + 12} y={z.y + 20} width={z.w - 24} text={`Generated plan · ${z.stepId}`} />
-            <text className="lb-zone-note" x={z.x + 12} y={z.y + 38}>{line}</text>
+            <ClippedText id={`${p.markerId}-clip-note-${z.id}`} className="lb-zone-note" x={z.x + 12} y={z.y + 38} width={z.w - 24} text={line} />
           </g>
         );
       })}
@@ -137,6 +159,7 @@ export function BoardCanvas(p: CanvasProps) {
           aria-pressed={p.selectedTaskId === a.taskId}
           aria-label={`${a.name} working on ${a.label}. Open live output`}
           onClick={() => p.onOpenAgent!(a.taskId)}
+          onFocus={() => p.onFocusAgent?.(a.taskId)}
           onKeyDown={(e: KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); p.onOpenAgent!(a.taskId); } }}
         >
           <rect className="lb-agent-ring" x={a.x - 3} y={a.y - 3} width={FIGURE + 6} height={creatureHeight(FIGURE) + 6} />

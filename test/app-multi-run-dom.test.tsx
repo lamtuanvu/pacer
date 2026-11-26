@@ -199,7 +199,8 @@ test("links go to each run's Live board, journey replay and run view", async () 
     const names = all(row(dom.container, "data-run", "run_b")).filter(n => n.tagName === "a").map(n => attr(n, "aria-label"));
     expect(names).toEqual(["Live board of run B", "Replay journey of run B", "Run view of run B"]);
     const answers = all(dom.container as Node).filter(n => n.tagName === "button" && /^Answer the question/.test(attr(n, "aria-label") ?? "")).map(n => attr(n, "aria-label"));
-    expect(answers).toEqual(["Answer the question from run A", "Answer the question from run B", "Answer the question from run C"]);
+    expect(answers.map(a => a!.split(": ")[0])).toEqual(["Answer the question from run A", "Answer the question from run B", "Answer the question from run C"]);
+    expect(answers[0]).toBe("Answer the question from run A: Approve the brainstormed spec?");
   } finally { await done(dom); }
 });
 
@@ -284,5 +285,118 @@ test("while the first list read is in flight the page says loading, not that the
     await mount(dom, <TaskContext.Provider value={{ state: stateFor(fixture, ALL_OPS), api }}><MultiRun query={query} /></TaskContext.Provider>);
     expect(domText(dom.container)).toContain("Loading runs…");
     expect(domText(dom.container)).not.toContain("No runs yet");
+  } finally { await unmount(dom); dom.restore(); }
+});
+
+test("a run whose detail was never read claims neither steps nor a summary", async () => {
+  const many = Array.from({ length: 10 }, (_, i) => ({ id: `run_m${i}`, workflow: "pacer-dev/feature", title: `Run number ${i}`, status: "done", priority: "normal", createdAt: 990_000 - i }));
+  const { dom, calls } = await open({ "run.list": () => many, "run.get": p => ({ run: run((p as { id: string }).id, "read"), steps: [] }) }, ALL_OPS, { runs: [], attention: [] });
+  try {
+    expect(calls.ops.filter(c => c.op === "run.get")).toHaveLength(8);
+    const unread = text(row(dom.container, "data-run", "run_m9"));
+    expect(unread).toContain("Not loaded.");
+    expect(unread).not.toContain("No steps yet");
+    expect(unread).not.toContain("No summary yet.");
+    const read = text(row(dom.container, "data-run", "run_m0"));
+    expect(read).toContain("No steps yet");
+    expect(read).toContain("No summary yet.");
+  } finally { await done(dom); }
+});
+
+test("two questions from one run have different Answer button names", async () => {
+  const second = { ...attention[0]!, id: "attn_extra", question: { ...attention[0]!.question!, id: "q_a2", text: "And the colour?" } };
+  const { dom } = await open({}, ALL_OPS, { attention: [attention[0]!, second] });
+  try {
+    const names = all(dom.container as Node).filter(n => n.tagName === "button" && (attr(n, "aria-label") ?? "").startsWith("Answer the question")).map(n => attr(n, "aria-label"));
+    expect(names).toHaveLength(2);
+    expect(new Set(names).size).toBe(2);
+  } finally { await done(dom); }
+});
+
+test("Try again moves focus to the page title once the list reads, even when a run's detail still fails", async () => {
+  let fail = true;
+  const { dom } = await open({ "run.list": () => { if (fail) throw new ApiError("internal", "raw"); return fixture.list; }, "run.get": () => { throw new ApiError("internal", "raw detail"); } }, ALL_OPS, { runs: [], attention: [] });
+  try {
+    fail = false;
+    const again = button(dom.container as Node, "Try again");
+    await act(async () => { (again as unknown as { focus(): void }).focus(); (again as unknown as { click(): void }).click(); });
+    await new Promise(resolve => setTimeout(resolve, 150));
+    expect(text((dom.doc as unknown as { activeElement: Node }).activeElement)).toBe("Several runs");
+  } finally { await done(dom); }
+});
+
+/** Mounts the board with controllable refreshes. */
+async function controlled(handlers: Parameters<typeof apiFor>[2]) {
+  const dom = installDom();
+  const calls: Calls = { ops: [] };
+  const api = apiFor(fixture, calls, handlers);
+  const base = stateFor(fixture, ALL_OPS);
+  const tree = (revision: number) => <TaskContext.Provider value={{ state: { ...base, snapshot: { ...base.snapshot!, runs: [], attention: [] } as never, invalidations: { ...base.invalidations, runs: revision } }, api }}><MultiRun query={query} /></TaskContext.Provider>;
+  await mount(dom, tree(0));
+  return { dom, calls, tree };
+}
+const wait = () => act(async () => { await new Promise(resolve => setTimeout(resolve, 60)); });
+const gets = (calls: Calls) => calls.ops.filter(c => c.op === "run.get").map(c => (c.params as { id: string }).id);
+const one = [{ id: "run_a", workflow: "w", title: "Alpha", status: "running", priority: "normal", createdAt: 2 }, { id: "run_b", workflow: "w", title: "Beta", status: "running", priority: "normal", createdAt: 1 }];
+
+test("details are read one after another, in order, and each is shown as it arrives", async () => {
+  let release: () => void = () => {};
+  const { dom, calls } = await controlled({ "run.list": () => one, "run.get": async p => {
+    const id = (p as { id: string }).id;
+    if (id === "run_b") await new Promise<void>(r => { release = r; });
+    return { run: run(id, id, { summary: `summary of ${id}` }), steps: [] };
+  } });
+  try {
+    await wait();
+    expect(gets(calls)).toEqual(["run_a", "run_b"]);
+    expect(domText(dom.container)).toContain("summary of run_a");
+    expect(domText(dom.container)).not.toContain("summary of run_b");
+    await act(async () => { release(); });
+    await wait();
+    expect(domText(dom.container)).toContain("summary of run_b");
+  } finally { await unmount(dom); dom.restore(); }
+});
+
+test("an older load skips a run a newer load already brought, and never overwrites it", async () => {
+  let n = 0;
+  let release: () => void = () => {};
+  const { dom, calls, tree } = await controlled({ "run.list": () => one, "run.get": async p => {
+    const id = (p as { id: string }).id;
+    const mine = ++n;
+    if (mine === 1) { await new Promise<void>(r => { release = r; }); return { run: run(id, id, { summary: "OLD answer" }), steps: [] }; }
+    return { run: run(id, id, { summary: `NEW ${id}` }), steps: [] };
+  } });
+  try {
+    await wait();
+    await mount(dom, tree(1));
+    await wait();
+    expect(domText(dom.container)).toContain("NEW run_a");
+    await act(async () => { release(); });
+    await wait();
+    expect(domText(dom.container)).toContain("NEW run_a");
+    expect(domText(dom.container)).not.toContain("OLD answer");
+    // the first load's turn for run_b is skipped: one held read, then two from the newer load
+    expect(gets(calls)).toEqual(["run_a", "run_a", "run_b"]);
+  } finally { await unmount(dom); dom.restore(); }
+});
+
+test("leaving the page stops the detail reads", async () => {
+  let release: () => void = () => {};
+  const { dom, calls } = await controlled({ "run.list": () => one, "run.get": async p => { await new Promise<void>(r => { release = r; }); return { run: run((p as { id: string }).id, "x"), steps: [] }; } });
+  try {
+    await wait();
+    await unmount(dom);
+    release();
+    await new Promise(resolve => setTimeout(resolve, 80));
+    expect(gets(calls)).toEqual(["run_a"]);
+  } finally { dom.restore(); }
+});
+
+test("a detail that fails says so on that run only", async () => {
+  const { dom } = await controlled({ "run.list": () => one, "run.get": p => { if ((p as { id: string }).id === "run_a") throw new ApiError("internal", "raw"); return { run: run("run_b", "Beta", { summary: "fine" }), steps: [] }; } });
+  try {
+    await wait();
+    expect(text(row(dom.container, "data-run", "run_a"))).toContain("The summary couldn't be loaded.");
+    expect(text(row(dom.container, "data-run", "run_b"))).toContain("fine");
   } finally { await unmount(dom); dom.restore(); }
 });

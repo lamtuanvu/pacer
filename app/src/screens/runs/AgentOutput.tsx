@@ -6,21 +6,29 @@ import { Button, ButtonLink } from "../../ds/Button";
 import { SectionHeading } from "../../ds/SectionHeading";
 import { RUN_OUTPUT_ERROR } from "../../../../src/view-model/runs";
 
-interface Chunk { stdout: string; stderr: string; next: { stdout: number; stderr: number }; done: boolean; source: string }
+interface Chunk { stdout: string; stderr: string; next?: { stdout: number; stderr: number }; done: boolean; source?: string }
 export const OUTPUT_POLL_MS = 2500;
-const KEEP_CHARS = 24_000;
+export const KEEP_CHARS = 24_000;
+/** `task.log` returns at most this much per stream in one read. */
+const PAGE_BYTES = 256 * 1024;
 
-type OutputState = { text: string; phase: "loading" | "live" | "done" | "error" };
+type Phase = "loading" | "live" | "draining" | "done" | "error";
+/** What has been read of one task's output. It outlives a retry, so a failed read never loses the text on screen. */
+interface Read { taskId: string; offsets: { stdout: number; stderr: number }; source?: string; text: string; truncated: boolean }
+const fresh = (taskId: string, source?: string): Read => ({ taskId, offsets: { stdout: 0, stderr: 0 }, source, text: "", truncated: false });
 
-const tail = (text: string): string => text.length > KEEP_CHARS ? text.slice(text.length - KEEP_CHARS) : text;
-
-export function AgentOutput({ api, taskId, executor, stepLabel, sessionHref, onClose, pollMs = OUTPUT_POLL_MS }: {
-  api: BrowserApi; taskId: string; executor: string; stepLabel: string; sessionHref: string; onClose: () => void; pollMs?: number;
+export function AgentOutput({ api, taskId, executor, stepLabel, sessionHref, onClose, pollMs = OUTPUT_POLL_MS, left, closeRef: outerClose }: {
+  api: BrowserApi; taskId: string; executor: string; stepLabel: string; sessionHref: string; onClose: () => void; pollMs?: number; left?: boolean; closeRef?: { current: HTMLButtonElement | null };
 }) {
-  const [out, setOut] = useState<OutputState>({ text: "", phase: "loading" });
+  const [out, setOut] = useState<{ text: string; truncated: boolean; phase: Phase }>({ text: "", truncated: false, phase: "loading" });
   const [attempt, retry] = useState(0);
   const panel = useRef<HTMLElement>(null);
-  const closeRef = useRef<HTMLButtonElement>(null);
+  const log = useRef<HTMLPreElement>(null);
+  /** The log stays at its end until the person scrolls up. */
+  const follow = useRef(true);
+  const read = useRef<Read>(fresh(taskId));
+  const ownClose = useRef<HTMLButtonElement | null>(null);
+  const closeRef = outerClose ?? ownClose;
   /** The pressed retry button, until the read it started succeeds. */
   const retried = useRef<EventTarget | null>(null);
   // The panel opens below the board; bring it into view without moving focus off the agent that opened it.
@@ -28,42 +36,53 @@ export function AgentOutput({ api, taskId, executor, stepLabel, sessionHref, onC
   useEffect(() => {
     let active = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    let offsets = { stdout: 0, stderr: 0 };
-    let source: string | undefined;
-    let text = "";
-    // A retry keeps the failure and its button on screen until a read works, so focus is not dropped.
-    if (!retried.current) setOut({ text: "", phase: "loading" });
+    if (read.current.taskId !== taskId) { read.current = fresh(taskId); retried.current = null; follow.current = true; }
+    // A retry keeps the failure, its button and the text on screen until a read works, so focus is not dropped.
+    if (!retried.current) setOut({ text: read.current.text, truncated: read.current.truncated, phase: "loading" });
     const step = async () => {
+      const held = read.current;
       try {
-        const chunk = await api.call<Chunk>("task.log", { id: taskId, ...offsets });
+        const chunk = await api.call<Chunk>("task.log", { id: taskId, ...held.offsets });
         if (!active) return;
-        if (source !== undefined && chunk.source !== source) {
+        if (held.source !== undefined && chunk.source !== held.source) {
           // The output was rerouted: start again from the top rather than splice two sources.
-          offsets = { stdout: 0, stderr: 0 }; text = ""; source = chunk.source;
+          read.current = fresh(taskId, chunk.source);
           timer = setTimeout(step, 0);
           return;
         }
-        source = chunk.source;
+        const next = chunk.next ?? held.offsets;
+        const advanced = next.stdout > held.offsets.stdout || next.stderr > held.offsets.stderr;
+        const fullPage = next.stdout - held.offsets.stdout >= PAGE_BYTES || next.stderr - held.offsets.stderr >= PAGE_BYTES;
         const err = chunk.stderr ? chunk.stderr.split("\n").filter(Boolean).map(l => `stderr: ${l}`).join("\n") : "";
-        text = tail(text + chunk.stdout + (err ? `${chunk.stdout && !chunk.stdout.endsWith("\n") ? "\n" : ""}${err}\n` : ""));
-        offsets = chunk.next;
+        const all = held.text + chunk.stdout + (err ? `${chunk.stdout && !chunk.stdout.endsWith("\n") ? "\n" : ""}${err}\n` : "");
+        const now: Read = { taskId, offsets: next, source: chunk.source, text: all.slice(-KEEP_CHARS), truncated: held.truncated || all.length > KEEP_CHARS };
+        read.current = now;
         // The retry button leaves with the failure: move focus on, unless the person moved elsewhere.
         const button = retried.current;
         retried.current = null;
         if (button && (document.activeElement === button || document.activeElement === document.body || !document.activeElement)) closeRef.current?.focus();
-        setOut({ text, phase: chunk.done ? "done" : "live" });
-        if (!chunk.done) timer = setTimeout(step, pollMs);
+        // A finished task is only done once a read brings nothing new: pages may remain.
+        const phase: Phase = !chunk.done ? "live" : advanced ? "draining" : "done";
+        setOut({ text: now.text, truncated: now.truncated, phase });
+        if (phase !== "done") timer = setTimeout(step, advanced && (chunk.done || fullPage) ? 0 : pollMs);
       } catch (e) {
         // The raw error stays in the console; the page shows plain words (UI-12).
         console.warn("runs: task output read failed", e);
-        if (active) setOut({ text, phase: "error" });
+        if (active) setOut({ text: held.text, truncated: held.truncated, phase: "error" });
       }
     };
     void step();
     return () => { active = false; if (timer) clearTimeout(timer); };
   }, [api, taskId, pollMs, attempt]);
-  useEffect(() => () => { retried.current = null; }, [taskId]);
-  const status = out.phase === "loading" ? "Reading output…" : out.phase === "live" ? "Following live output" : out.phase === "done" ? "Task finished; this is its full output" : "";
+  useEffect(() => {
+    const el = log.current;
+    if (el && follow.current) el.scrollTop = el.scrollHeight;
+  }, [out.text]);
+  const status = out.phase === "loading" ? "Reading output…"
+    : out.phase === "live" ? "Following live output"
+      : out.phase === "draining" ? "Task finished; reading the rest of its output"
+        : out.phase === "done" ? out.truncated ? "Task finished; showing the end of its output" : "Task finished; this is its full output"
+          : "";
   return (
     <section ref={panel} className="lb-section" aria-label={`Live output: ${executor} on ${stepLabel}`}>
       <div className="lb-row">
@@ -71,6 +90,8 @@ export function AgentOutput({ api, taskId, executor, stepLabel, sessionHref, onC
         <span className="lb-cap">{executor} · {stepLabel}</span>
       </div>
       <p className="lb-cap" role="status" aria-live="polite">{status}</p>
+      {left ? <p className="lb-cap" role="status">This agent is no longer working on this step. Its output stays here until you close it.</p> : null}
+      {out.truncated ? <p className="lb-cap">Earlier output is not shown here. Open the session to read it all.</p> : null}
       {out.phase === "error" ? (
         <Alert tone="error" title="Couldn't read the output">
           <p>{RUN_OUTPUT_ERROR}</p>
@@ -78,7 +99,9 @@ export function AgentOutput({ api, taskId, executor, stepLabel, sessionHref, onC
         </Alert>
       ) : null}
       {out.text
-        ? <pre className="lb-output" tabIndex={0} role="log" aria-label={`Output of ${executor}`}>{out.text}</pre>
+        // The status line above announces changes; the log itself stays quiet, or every read would be spoken.
+        ? <pre ref={log} className="lb-output" tabIndex={0} role="log" aria-live="off" aria-label={`Output of ${executor}`}
+          onScroll={e => { const el = e.currentTarget; follow.current = el.scrollHeight - el.clientHeight - el.scrollTop < 32; }}>{out.text}</pre>
         : out.phase === "live" || out.phase === "done" ? <p className="lb-cap">No output yet.</p> : null}
       <div className="lb-row">
         <ButtonLink size="sm" href={sessionHref}>Open session</ButtonLink>

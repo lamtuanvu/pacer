@@ -42,7 +42,10 @@ export interface RunLineRow {
   waitsOn: string;
   age: string;
   pausedReason?: string;
-  counts: StepCounts;
+  /** Null when neither the snapshot nor a read of the run has told us its steps. */
+  counts: StepCounts | null;
+  /** The run's detail was read, so a missing summary really means there is none. */
+  read: boolean;
   /** Open questions waiting on the person. */
   questions: number;
   summary: { text: string; at?: number } | null;
@@ -113,7 +116,8 @@ export function buildMultiRun(input: {
       id: run.id, letter: run.letter, tone: runTone(run.letter), title: named(run.id, run.title, run.letter), status: run.status, priority: runPriorityOf(run.priority),
       priorityLabel: runPriorityLabel(run.priority), waitsOn: run.waitsOn, age: run.age,
       ...(run.pausedReason ? { pausedReason: run.pausedReason } : {}),
-      counts: s?.steps ?? countsFromSteps(input.details[run.id]?.steps),
+      counts: s?.steps ?? (input.details[run.id]?.run ? countsFromSteps(input.details[run.id]!.steps) : null),
+      read: !!input.details[run.id]?.run,
       questions: waiting.get(run.id) ?? 0,
       summary: summaryOf(input.details[run.id]?.run),
     };

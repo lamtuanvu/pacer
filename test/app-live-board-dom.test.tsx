@@ -10,6 +10,7 @@ import { domText, installDom, mount, tick, until, unmount } from "./app-setup-he
 import { ALL_OPS, apiFor, stateFor, type Calls, type Fixture } from "./app-run-view-fixtures";
 import { featureDefinition, step } from "./app-live-board-fixtures";
 
+const LIVE_OPS = [...ALL_OPS, "task.log"];
 const query = { repo: null, scope: null };
 
 type Node = { childNodes?: Node[]; nodeType: number; tagName?: string; data?: string; value?: string; attrs?: Record<string, string>; l?: Record<string, (e: unknown) => void>; _listeners?: Record<string, (e: unknown) => void>; getAttribute?: (n: string) => string | null; parentNode?: Node | null; closest?: (s: string) => unknown };
@@ -75,7 +76,7 @@ const liveFixture: Fixture = {
 
 const logChunk = (stdout: string, over: Record<string, unknown> = {}) => ({ stdout, stderr: "", next: { stdout: stdout.length, stderr: 0 }, done: false, source: "s1", ...over });
 
-async function open(fixture: Fixture = liveFixture, ops = ALL_OPS, handlers: Parameters<typeof apiFor>[2] = {}, pollMs = 20, prepare?: (dom: ReturnType<typeof installDom>) => void) {
+async function open(fixture: Fixture = liveFixture, ops = LIVE_OPS, handlers: Parameters<typeof apiFor>[2] = {}, pollMs = 20, prepare?: (dom: ReturnType<typeof installDom>) => void) {
   const dom = installDom();
   prepare?.(dom);
   const calls: Calls = { ops: [] };
@@ -122,7 +123,7 @@ test("opening the board marks the run seen once", async () => {
 });
 
 test("the run's letter is the one the runs list gives it, also for a run the snapshot no longer lists", async () => {
-  const { dom } = await open(liveFixture, ALL_OPS, { "run.list": () => [
+  const { dom } = await open(liveFixture, LIVE_OPS, { "run.list": () => [
     { id: "run_0", workflow: "pacer-dev/feature", title: "Older run", status: "done", priority: "normal", createdAt: 100 },
     { id: "run_1", workflow: "pacer-dev/feature", title: "Ship the board", status: "running", priority: "normal", createdAt: 800 },
   ] });
@@ -249,7 +250,7 @@ test("wheel: Ctrl or Cmd zooms at the pointer, a plain wheel is left to scroll t
 
 test("clicking an agent opens its live output from task.log; the output follows and Close returns focus to the agent", async () => {
   let reads = 0;
-  const { dom, calls } = await open(liveFixture, ALL_OPS, {
+  const { dom, calls } = await open(liveFixture, LIVE_OPS, {
     "task.log": () => { reads++; return reads === 1 ? logChunk("compiling\n") : logChunk(reads === 2 ? "compiling\ntesting\n" : "compiling\ntesting\n", { next: { stdout: 99, stderr: 0 }, done: reads > 2 }); },
   });
   try {
@@ -278,7 +279,7 @@ test("clicking an agent opens its live output from task.log; the output follows 
 
 test("opening an agent scrolls its output into view without moving focus off the agent", async () => {
   const scrolled: Array<{ label: string; options: unknown }> = [];
-  const { dom } = await open(liveFixture, ALL_OPS, { "task.log": () => logChunk("x\n", { done: true }) }, 20, d => {
+  const { dom } = await open(liveFixture, LIVE_OPS, { "task.log": () => logChunk("x\n", { done: true }) }, 20, d => {
     const spy = (n: Record<string, unknown>) => { n.scrollIntoView = (options: unknown) => scrolled.push({ label: String((n as { attrs: Record<string, string> }).attrs["aria-label"]), options }); return n as never; };
     const make = d.doc.createElement.bind(d.doc), makeNS = d.doc.createElementNS.bind(d.doc);
     d.doc.createElement = (tag: string) => spy(make(tag) as unknown as Record<string, unknown>);
@@ -300,7 +301,7 @@ test("opening an agent scrolls its output into view without moving focus off the
 });
 
 test("the agent opens from the keyboard too: Enter and Space on the agent, and from the list for touch", async () => {
-  const { dom, calls } = await open(liveFixture, ALL_OPS, { "task.log": () => logChunk("hello\n", { done: true }) });
+  const { dom, calls } = await open(liveFixture, LIVE_OPS, { "task.log": () => logChunk("hello\n", { done: true }) });
   try {
     const agent = must(byAttr(dom.container, "data-agent", "t_c"), "agent");
     expect(attr(agent, "role")).toBe("button");
@@ -325,7 +326,7 @@ test("the agent opens from the keyboard too: Enter and Space on the agent, and f
 
 test("an output read that fails says so and Try again reads again", async () => {
   let fail = true;
-  const { dom, calls } = await open(liveFixture, ALL_OPS, { "task.log": () => { if (fail) throw new ApiError("internal", "disk gone"); return logChunk("back\n", { done: true }); } });
+  const { dom, calls } = await open(liveFixture, LIVE_OPS, { "task.log": () => { if (fail) throw new ApiError("internal", "disk gone"); return logChunk("back\n", { done: true }); } });
   try {
     await act(async () => { clickEl(must(byAttr(dom.container, "data-agent", "t_a"), "agent")); });
     await until(() => domText(dom.container).includes("Couldn't read the output"), 2000);
@@ -339,7 +340,7 @@ test("an output read that fails says so and Try again reads again", async () => 
 });
 
 test("message bar: planner goes to the orchestrator, one agent to that agent, everyone to the planner and each working agent", async () => {
-  const { dom, calls } = await open(liveFixture, ALL_OPS, { "msg.send": () => ({ delivery: "turn_started" }) });
+  const { dom, calls } = await open(liveFixture, LIVE_OPS, { "msg.send": () => ({ delivery: "turn_started" }) });
   try {
     const sendBtn = () => all(dom.container as Node).find(n => n.tagName === "button" && /^Send to/.test(text(n).trim()))!;
     const area = must(all(dom.container as Node).find(n => n.tagName === "textarea"), "textarea");
@@ -353,7 +354,7 @@ test("message bar: planner goes to the orchestrator, one agent to that agent, ev
     expect(attr(sendBtn(), "disabled")).not.toBeNull();
     expect(text(sendBtn())).toBe("Send to planner");
     await submit("Keep it small.");
-    expect(calls.ops.filter(c => c.op === "msg.send").map(c => c.params)).toEqual([{ to: "task:t_orch", body: "Keep it small." }]);
+    expect(calls.ops.filter(c => c.op === "msg.send").map(c => c.params)).toEqual([{ to: "task:t_orch", body: "Keep it small.", request_id: expect.stringMatching(/^[0-9a-f-]{36}$/) }]);
     expect(domText(dom.container)).toContain("Sent. The task is picking it up.");
     expect(area.value ?? "").toBe("");
     // whisper: only the chosen agent
@@ -362,7 +363,7 @@ test("message bar: planner goes to the orchestrator, one agent to that agent, ev
     expect(domText(dom.container)).toContain("Only the agent you pick.");
     await act(async () => { fire(radio(dom.container, "t_c"), "change"); });
     await submit("Check the auth path.");
-    expect(calls.ops.filter(c => c.op === "msg.send").map(c => c.params)).toEqual([{ to: "task:t_c", body: "Check the auth path." }]);
+    expect(calls.ops.filter(c => c.op === "msg.send").map(c => c.params)).toEqual([{ to: "task:t_c", body: "Check the auth path.", request_id: expect.any(String) }]);
     expect(domText(dom.container)).toContain("Sent. The task is picking it up.");
     // party: planner plus both agents at work (not the finished one)
     calls.ops.length = 0;
@@ -375,7 +376,7 @@ test("message bar: planner goes to the orchestrator, one agent to that agent, ev
 });
 
 test("a message that cannot reach one recipient says which, in the shared words, and keeps the text", async () => {
-  const { dom, calls } = await open(liveFixture, ALL_OPS, { "msg.send": p => {
+  const { dom, calls } = await open(liveFixture, LIVE_OPS, { "msg.send": p => {
     if ((p as { to: string }).to === "task:t_a") throw new ApiError("not_allowed", "That task is outside your tree", undefined, 403, { reason: "msg_node_closed" });
     return { delivery: "queued" };
   } });
@@ -395,7 +396,7 @@ test("a message that cannot reach one recipient says which, in the shared words,
 });
 
 async function sendOne(delivery: Record<string, unknown> | (() => never), channel: "planner" | "party" = "planner") {
-  const { dom, calls } = await open(liveFixture, ALL_OPS, { "msg.send": (p: unknown) => typeof delivery === "function" ? delivery() : (delivery.byTo as Record<string, unknown> | undefined)?.[(p as { to: string }).to] ?? delivery });
+  const { dom, calls } = await open(liveFixture, LIVE_OPS, { "msg.send": (p: unknown) => typeof delivery === "function" ? delivery() : (delivery.byTo as Record<string, unknown> | undefined)?.[(p as { to: string }).to] ?? delivery });
   const area = must(all(dom.container as Node).find(n => n.tagName === "textarea"), "textarea");
   await act(async () => { fire(radio(dom.container, channel), "change"); });
   area.value = "Please pause.";
@@ -447,9 +448,12 @@ test("everyone: a mixed result says how many were delivered, held and refused", 
   } finally { await done(dom); }
 });
 
-test("without msg.send there is no message bar; without task.log opening an agent still shows an honest error", async () => {
-  const { dom } = await open(liveFixture, ALL_OPS.filter(o => o !== "msg.send"));
+test("without msg.send there is no message bar, and an agent's output still opens", async () => {
+  const { dom, calls } = await open(liveFixture, LIVE_OPS.filter(o => o !== "msg.send"), { "task.log": () => logChunk("still here\n", { done: true }) });
   try {
+    await act(async () => { clickEl(must(byAttr(dom.container, "data-agent", "t_a"), "agent")); });
+    await until(() => domText(dom.container).includes("still here"), 2000);
+    expect(calls.ops.some(c => c.op === "task.log")).toBe(true);
     expect(domText(dom.container)).not.toContain("Send to planner");
     expect(all(dom.container as Node).some(n => n.tagName === "textarea")).toBe(false);
   } finally { await done(dom); }
@@ -476,7 +480,7 @@ test("a question is answered from the Live board with the shared form: expect_re
 
 test("a failed refresh keeps the board on screen and says it may be out of date", async () => {
   let fail = false;
-  const { dom, calls } = await open(liveFixture, ALL_OPS, { "run.get": () => { if (fail) throw new ApiError("internal", "service restarting"); return liveFixture.get; } });
+  const { dom, calls } = await open(liveFixture, LIVE_OPS, { "run.get": () => { if (fail) throw new ApiError("internal", "service restarting"); return liveFixture.get; } });
   try {
     expect(domText(dom.container)).not.toContain("may be out of date");
     fail = true;
@@ -504,7 +508,7 @@ test("a slow older response never overwrites a newer one (latest load wins)", as
   const dom = installDom();
   const calls: Calls = { ops: [] };
   const api = apiFor(liveFixture, calls, { "run.get": async () => { n++; if (n === 1) { await slow; return first; } return later; } });
-  const state = stateFor(liveFixture, ALL_OPS);
+  const state = stateFor(liveFixture, LIVE_OPS);
   const tree = (revision: number) => (
     <TaskContext.Provider value={{ state: { ...state, invalidations: { runs: revision } }, api }}>
       <LiveBoard runId="run_1" query={query} />
@@ -539,7 +543,7 @@ test("the Live board stylesheet moves only under no-preference, and board focus 
 });
 
 test("after a message is sent focus goes back to the message box, not to nowhere", async () => {
-  const { dom } = await open(liveFixture, ALL_OPS, { "msg.send": () => ({ delivery: "queued" }) });
+  const { dom } = await open(liveFixture, LIVE_OPS, { "msg.send": () => ({ delivery: "queued" }) });
   try {
     const area = must(all(dom.container as Node).find(n => n.tagName === "textarea"), "textarea");
     area.value = "Thanks.";
@@ -591,7 +595,7 @@ test("SVG labels are not cut by character count: the full text is drawn, clipped
 
 test("a run that cannot be read at all shows an error alert with Try again and no board", async () => {
   let fail = true;
-  const { dom, calls } = await open(liveFixture, ALL_OPS, { "run.get": () => { if (fail) throw new ApiError("internal", "service restarting"); return liveFixture.get; } });
+  const { dom, calls } = await open(liveFixture, LIVE_OPS, { "run.get": () => { if (fail) throw new ApiError("internal", "service restarting"); return liveFixture.get; } });
   try {
     const alertEl = all(dom.container as Node).find(n => attr(n, "role") === "alert" && text(n).includes("Couldn't load this run"));
     expect(alertEl).toBeDefined();
@@ -609,7 +613,7 @@ test("a run that cannot be read at all shows an error alert with Try again and n
 
 test("closing the board stops following an agent's output: no further task.log reads after unmount", async () => {
   let reads = 0;
-  const { dom } = await open(liveFixture, ALL_OPS, { "task.log": () => { reads++; return logChunk("x\n", { next: { stdout: reads, stderr: 0 }, done: false }); } }, 15);
+  const { dom } = await open(liveFixture, LIVE_OPS, { "task.log": () => { reads++; return logChunk("x\n", { next: { stdout: reads, stderr: 0 }, done: false }); } }, 15);
   await act(async () => { clickEl(must(byAttr(dom.container, "data-agent", "t_a"), "agent")); });
   await until(() => reads >= 3, 2000);
   await unmount(dom);
@@ -623,7 +627,7 @@ const h1Text = (root: unknown) => all(root as Node).filter(n => n.tagName === "h
 
 test("the heading never shows the raw run id, and no letter is guessed for a run nothing names", async () => {
   const absent: Fixture = { ...liveFixture, id: "run_gone_7f3a", list: [] };
-  const { dom } = await open(absent, ALL_OPS, { "run.get": () => { throw new ApiError("internal", "boom"); } });
+  const { dom } = await open(absent, LIVE_OPS, { "run.get": () => { throw new ApiError("internal", "boom"); } });
   try {
     expect(h1Text(dom.container)).toEqual(["Run"]);
     expect(domText(dom.container)).not.toContain("run_gone_7f3a");
@@ -632,7 +636,7 @@ test("the heading never shows the raw run id, and no letter is guessed for a run
 
 test("a failed run.seen is shown with a retry that clears it", async () => {
   let fail = true;
-  const { dom, calls } = await open(liveFixture, ALL_OPS, { "run.seen": () => { if (fail) throw new ApiError("internal", "raw seen"); return {}; } });
+  const { dom, calls } = await open(liveFixture, LIVE_OPS, { "run.seen": () => { if (fail) throw new ApiError("internal", "raw seen"); return {}; } });
   try {
     await until(() => domText(dom.container).includes("Couldn't mark this run as seen."), 2000);
     expect(domText(dom.container)).not.toContain("raw seen");
@@ -645,7 +649,7 @@ test("a failed run.seen is shown with a retry that clears it", async () => {
 
 test("a successful retry moves focus to the run title, and to Close output on the agent panel", async () => {
   let failRun = true, failLog = true;
-  const { dom } = await open(liveFixture, ALL_OPS, {
+  const { dom } = await open(liveFixture, LIVE_OPS, {
     "run.get": () => { if (failRun) throw new ApiError("internal", "x"); return liveFixture.get; },
     "task.log": () => { if (failLog) throw new ApiError("internal", "y"); return logChunk("back\n", { done: true }); },
   });
@@ -660,5 +664,335 @@ test("a successful retry moves focus to the run title, and to Close output on th
     const again = button(dom.container, "Try again");
     await act(async () => { (again as unknown as { focus(): void }).focus(); clickEl(again); });
     await until(() => focused() === "Close output", 2000);
+  } finally { await done(dom); }
+});
+
+// ---- review fixes
+
+/** A board whose run, snapshot tasks and handlers can change between refreshes. */
+async function live(handlers: Parameters<typeof apiFor>[2] = {}, get: () => Fixture["get"] = () => liveFixture.get, ops = LIVE_OPS, pollMs = 10, tasks = liveFixture.tasks) {
+  const dom = installDom();
+  const calls: Calls = { ops: [] };
+  const fx: Fixture = { ...liveFixture, tasks };
+  const api = apiFor(fx, calls, { "run.get": () => get(), ...handlers });
+  const state = stateFor(fx, ops);
+  let revision = 0;
+  const tree = () => <TaskContext.Provider value={{ state: { ...state, invalidations: { runs: revision } }, api }}><LiveBoard runId="run_1" query={query} outputPollMs={pollMs} /></TaskContext.Provider>;
+  await mount(dom, tree());
+  await until(() => domText(dom.container).includes("Steps on the board"), 3000);
+  await act(async () => { await tick(); });
+  await new Promise(resolve => setTimeout(resolve, 80));
+  const refresh = async () => { revision++; await mount(dom, tree()); await new Promise(resolve => setTimeout(resolve, 80)); await act(async () => { await tick(); }); };
+  return { dom, calls, refresh };
+}
+const settle = () => act(async () => { await new Promise(resolve => setTimeout(resolve, 60)); });
+const without = (taskId: string): Fixture["get"] => ({ ...liveFixture.get, steps: (liveFixture.get.steps as Array<Record<string, unknown>>).map(s => s.taskId === taskId ? { ...s, status: "done", endedAt: 950 } : s) });
+const typeMessage = async (root: unknown, value: string) => {
+  const area = must(all(root as Node).find(n => n.tagName === "textarea"), "textarea");
+  area.value = value;
+  await act(async () => { fire(area, "input"); });
+  return area;
+};
+const submitMessage = (root: unknown) => act(async () => { fire(messageForm(root), "submit"); await tick(); });
+const sendButton = (root: unknown) => must(all(root as Node).find(n => n.tagName === "button" && /^(Send to|Sending)/.test(text(n).trim())), "send button");
+const sends = (calls: Calls) => calls.ops.filter(c => c.op === "msg.send").map(c => c.params as { to: string; body: string; request_id: string });
+const focusedNode = (dom: { doc: unknown }) => (dom.doc as { activeElement: Node | null }).activeElement;
+const person = (root: unknown) => text(must(all(root as Node).find(n => attr(n, "data-station") === "person"), "person station"));
+
+test("a whisper is never retargeted: when the chosen agent stops, the send is refused in words", async () => {
+  let get = liveFixture.get;
+  const { dom, calls, refresh } = await live({ "msg.send": () => ({ delivery: "queued" }) }, () => get);
+  try {
+    await act(async () => { fire(radio(dom.container, "whisper"), "change"); });
+    await act(async () => { fire(radio(dom.container, "t_c"), "change"); });
+    await typeMessage(dom.container, "only for security");
+    get = without("t_c");
+    await refresh();
+    await submitMessage(dom.container);
+    expect(sends(calls)).toEqual([]);
+    expect(domText(dom.container)).toContain("That agent is no longer working.");
+  } finally { await done(dom); }
+});
+
+test("a whisper picked by default is pinned too, and with no agent left the lane cannot send", async () => {
+  let get = liveFixture.get;
+  const { dom, calls, refresh } = await live({ "msg.send": () => ({ delivery: "queued" }) }, () => get);
+  try {
+    await act(async () => { fire(radio(dom.container, "whisper"), "change"); });
+    await typeMessage(dom.container, "for the first agent");
+    get = without("t_a");
+    await refresh();
+    await submitMessage(dom.container);
+    expect(sends(calls)).toEqual([]);
+    expect(domText(dom.container)).toContain("That agent is no longer working.");
+    get = { ...liveFixture.get, steps: (without("t_a").steps as Array<Record<string, unknown>>).map(s => ({ ...s, status: s.status === "running" ? "done" : s.status })) };
+    await refresh();
+    expect(attr(sendButton(dom.container), "disabled")).not.toBeNull();
+    expect(domText(dom.container)).toContain("That agent is no longer working.");
+  } finally { await done(dom); }
+});
+
+test("the message form starts on an enabled lane: everyone when the run has no planner task", async () => {
+  const { dom, calls } = await live({ "msg.send": () => ({ delivery: "queued" }) }, () => ({ ...liveFixture.get, run: run({ orchestratorTaskId: undefined }) }));
+  try {
+    expect(radio(dom.container, "planner")).toBeDefined();
+    expect(attr(radio(dom.container, "planner"), "disabled")).not.toBeNull();
+    expect(text(sendButton(dom.container))).toBe("Send to everyone");
+    await typeMessage(dom.container, "hello");
+    expect(attr(sendButton(dom.container), "disabled")).toBeNull();
+    await submitMessage(dom.container);
+    expect(sends(calls).map(s => s.to)).toEqual(["task:t_a", "task:t_c"]);
+  } finally { await done(dom); }
+});
+
+test("a chosen lane that stops working is kept, disabled, and says why", async () => {
+  let get = liveFixture.get;
+  const { dom, calls, refresh } = await live({}, () => get);
+  try {
+    await act(async () => { fire(radio(dom.container, "planner"), "change"); });
+    await typeMessage(dom.container, "to the planner");
+    get = { ...liveFixture.get, run: run({ orchestratorTaskId: undefined }) };
+    await refresh();
+    expect(text(sendButton(dom.container))).toBe("Send to planner");
+    expect(attr(sendButton(dom.container), "disabled")).not.toBeNull();
+    expect(domText(dom.container)).toContain("This run has no planner to message.");
+    expect(sends(calls)).toEqual([]);
+  } finally { await done(dom); }
+});
+
+test("an in-flight send: no second send, button disabled, later typing kept, board reloaded", async () => {
+  let release: (v: unknown) => void = () => {};
+  const { dom, calls } = await live({ "msg.send": () => new Promise(r => { release = r; }) });
+  try {
+    await typeMessage(dom.container, "first part");
+    const gets = calls.ops.filter(c => c.op === "run.get").length;
+    const form = messageForm(dom.container);
+    await act(async () => { fire(form, "submit"); fire(form, "submit"); await tick(); });
+    expect(sends(calls)).toHaveLength(1);
+    expect(text(sendButton(dom.container))).toBe("Sending…");
+    expect(attr(sendButton(dom.container), "disabled")).not.toBeNull();
+    const area = await typeMessage(dom.container, "first part and more");
+    await act(async () => { release({ delivery: "queued" }); await tick(); });
+    await settle();
+    expect(area.value).toBe("and more");
+    expect(calls.ops.filter(c => c.op === "run.get").length).toBeGreaterThan(gets);
+  } finally { await done(dom); }
+});
+
+test("a partial refusal keeps the text, and sending it again reuses each recipient's request id", async () => {
+  let refuse = true;
+  const { dom, calls } = await live({ "msg.send": p => { if (refuse && (p as { to: string }).to === "task:t_c") throw new ApiError("not_allowed", "no", undefined, 403, { reason: "msg_node_closed" }); return { delivery: "queued" }; } });
+  try {
+    await act(async () => { fire(radio(dom.container, "party"), "change"); });
+    const area = await typeMessage(dom.container, "all of you");
+    await submitMessage(dom.container);
+    await settle();
+    expect(area.value).toBe("all of you");
+    refuse = false;
+    await submitMessage(dom.container);
+    await settle();
+    const all6 = sends(calls);
+    expect(all6).toHaveLength(6);
+    expect(all6.slice(3).map(s => s.request_id)).toEqual(all6.slice(0, 3).map(s => s.request_id));
+    expect(new Set(all6.slice(0, 3).map(s => s.request_id)).size).toBe(3);
+    expect(area.value).toBe("");
+    // the same words sent as a new message get new ids
+    await typeMessage(dom.container, "all of you");
+    await submitMessage(dom.container);
+    await settle();
+    expect(sends(calls)[6]!.request_id).not.toBe(all6[0]!.request_id);
+  } finally { await done(dom); }
+});
+
+test("the You station never says nothing waits while a question is open, even on a running step", async () => {
+  const get = () => ({ ...liveFixture.get, questions: undefined });
+  const onRunning = [{ ...(liveFixture.questions![0] as Record<string, unknown>), id: "q_run", stepId: "review", branch: "architecture" }];
+  const { dom } = await live({ "question.list": () => onRunning }, get);
+  try {
+    expect(person(dom.container)).toContain("A question");
+    expect(person(dom.container)).not.toContain("Nothing");
+  } finally { await done(dom); }
+  const failed = await live({ "question.list": () => { throw new ApiError("internal", "raw"); } }, get);
+  try {
+    expect(person(failed.dom.container)).toContain("Questions not");
+    expect(person(failed.dom.container)).not.toContain("Nothing");
+  } finally { await done(failed.dom); }
+  const none = await live({ "question.list": () => [] }, get);
+  try { expect(person(none.dom.container)).toContain("Nothing waits"); } finally { await done(none.dom); }
+});
+
+test("a finished task's pages are all read before it is called done, and clipped output is not called full", async () => {
+  const pages = ["a".repeat(30_000) + "\n", "middle\n", "THE LAST LINE\n"];
+  const { dom, calls } = await live({ "task.log": p => {
+    const at = (p as { stdout: number }).stdout;
+    return { stdout: pages[at] ?? "", stderr: "", next: { stdout: Math.min(at + 1, pages.length), stderr: 0 }, done: true, source: "s1" };
+  } }, undefined, LIVE_OPS, 10_000);
+  try {
+    await act(async () => { clickEl(must(byAttr(dom.container, "data-agent", "t_a"), "agent")); });
+    await until(() => domText(dom.container).includes("Task finished; showing the end of its output"), 3000);
+    expect(domText(dom.container)).toContain("THE LAST LINE");
+    expect(domText(dom.container)).not.toContain("full output");
+    expect(domText(dom.container)).toContain("Earlier output is not shown here.");
+    const reads = calls.ops.filter(c => c.op === "task.log").length;
+    expect(reads).toBe(4);
+    await settle();
+    expect(calls.ops.filter(c => c.op === "task.log").length).toBe(reads);   // stops once done and drained
+  } finally { await done(dom); }
+});
+
+test("while pages remain a finished task is not called finished-with-full-output", async () => {
+  let hold = true;
+  const { dom } = await live({ "task.log": p => {
+    const at = (p as { stdout: number }).stdout;
+    if (at === 0) return logChunk("one\n", { done: true, next: { stdout: 1, stderr: 0 } });
+    return hold ? new Promise(() => {}) : logChunk("", { done: true, next: { stdout: 1, stderr: 0 } });
+  } });
+  try {
+    await act(async () => { clickEl(must(byAttr(dom.container, "data-agent", "t_a"), "agent")); });
+    await until(() => domText(dom.container).includes("reading the rest of its output"), 3000);
+    expect(domText(dom.container)).not.toContain("full output");
+  } finally { hold = false; await done(dom); }
+});
+
+test("a rerouted output starts again from the top instead of splicing two sources", async () => {
+  let n = 0;
+  const { dom, calls } = await live({ "task.log": () => {
+    n++;
+    if (n === 1) return logChunk("OLD SOURCE\n");
+    if (n === 2) return logChunk("tail of new\n", { source: "s2" });
+    return logChunk(n === 3 ? "NEW FROM TOP\n" : "", { source: "s2", done: true, next: { stdout: 13, stderr: 0 } });
+  } });
+  try {
+    await act(async () => { clickEl(must(byAttr(dom.container, "data-agent", "t_a"), "agent")); });
+    await until(() => domText(dom.container).includes("full output"), 3000);
+    expect(domText(dom.container)).toContain("NEW FROM TOP");
+    expect(domText(dom.container)).not.toContain("OLD SOURCE");
+    expect(domText(dom.container)).not.toContain("tail of new");
+    expect((calls.ops.filter(c => c.op === "task.log")[2]!.params as { stdout: number }).stdout).toBe(0);
+  } finally { await done(dom); }
+});
+
+test("a failed read keeps the text and the failure on screen while retrying, and resumes from its offset", async () => {
+  let mode: "ok" | "fail" | "hold" = "ok";
+  let release: () => void = () => {};
+  const { dom, calls } = await live({ "task.log": async () => {
+    if (mode === "fail") throw new ApiError("internal", "raw");
+    if (mode === "hold") { await new Promise<void>(r => { release = r; }); throw new ApiError("internal", "raw"); }
+    mode = "fail";
+    return logChunk("kept text\n", { next: { stdout: 10, stderr: 0 } });
+  } });
+  try {
+    await act(async () => { clickEl(must(byAttr(dom.container, "data-agent", "t_a"), "agent")); });
+    await until(() => domText(dom.container).includes("Couldn't read the output"), 3000);
+    expect(domText(dom.container)).toContain("kept text");
+    mode = "hold";
+    await act(async () => { clickEl(button(dom.container, "Try again")); await tick(); });
+    expect(domText(dom.container)).toContain("Couldn't read the output");
+    expect(domText(dom.container)).toContain("kept text");
+    await act(async () => { release(); await tick(); });
+    await settle();
+    expect(domText(dom.container)).toContain("kept text");
+    expect((calls.ops.filter(c => c.op === "task.log").at(-1)!.params as { stdout: number }).stdout).toBe(10);
+  } finally { await done(dom); }
+});
+
+test("the log is quiet for screen readers and stays at its end until the person scrolls up", async () => {
+  let n = 0;
+  const { dom } = await live({ "task.log": () => { n++; return logChunk(`line ${n}\n`, { next: { stdout: n, stderr: 0 } }); } }, undefined, LIVE_OPS, 15);
+  try {
+    await act(async () => { clickEl(must(byAttr(dom.container, "data-agent", "t_a"), "agent")); });
+    await until(() => domText(dom.container).includes("line 1"), 3000);
+    const pre = must(all(dom.container as Node).find(n => n.tagName === "pre"), "log") as unknown as Node & { scrollTop: number; scrollHeight: number; clientHeight: number };
+    expect(attr(pre, "aria-live")).toBe("off");
+    pre.scrollHeight = 900; pre.clientHeight = 100;
+    await until(() => pre.scrollTop === 900, 2000);
+    pre.scrollTop = 100;
+    await act(async () => { fire(pre, "scroll", { currentTarget: pre }); });
+    const seen = n;
+    await until(() => n > seen + 2, 2000);
+    await settle();
+    expect(pre.scrollTop).toBe(100);
+  } finally { await done(dom); }
+});
+
+test("when the open agent's step ends its panel stays with the last output, and focus is not dropped", async () => {
+  let get = liveFixture.get;
+  let finished = false;
+  const { dom, refresh } = await live({ "task.log": p => (p as { stdout: number }).stdout === 0 ? logChunk("working\n", { next: { stdout: 1, stderr: 0 } })
+    : finished && (p as { stdout: number }).stdout === 1 ? logChunk("final words\n", { done: true, next: { stdout: 2, stderr: 0 } }) : logChunk("", { done: finished, next: { stdout: (p as { stdout: number }).stdout, stderr: 0 } }) }, () => get);
+  try {
+    const agent = must(byAttr(dom.container, "data-agent", "t_a"), "agent");
+    await act(async () => { clickEl(agent); });
+    await until(() => domText(dom.container).includes("working"), 2000);
+    (agent as unknown as { focus(): void }).focus();
+    finished = true; get = without("t_a");
+    await refresh();
+    await until(() => domText(dom.container).includes("final words"), 3000);
+    expect(domText(dom.container)).toContain("This agent is no longer working on this step.");
+    expect(text(focusedNode(dom)!)).toBe("Close output");
+    await act(async () => { clickEl(button(dom.container, "Close output")); await tick(); });
+    expect(domText(dom.container)).not.toContain("final words");
+    expect(text(focusedNode(dom)!)).toContain("Ship the board");
+  } finally { await done(dom); }
+});
+
+test("focus on a leaving agent that is not open goes to the title", async () => {
+  let get = liveFixture.get;
+  const { dom, refresh } = await live({}, () => get);
+  try {
+    (must(byAttr(dom.container, "data-agent", "t_c"), "agent") as unknown as { focus(): void }).focus();
+    get = without("t_c");
+    await refresh();
+    expect(text(focusedNode(dom)!)).toContain("Ship the board");
+  } finally { await done(dom); }
+});
+
+test("keyboard focus on an agent that was panned out of view brings it back", async () => {
+  const { dom } = await live();
+  try {
+    const board = viewport(dom.container);
+    const start = viewOf(dom.container);
+    for (let i = 0; i < 8; i++) await act(async () => { fire(board, "keydown", { key: "ArrowRight", shiftKey: true }); });
+    expect(viewOf(dom.container).x).toBeLessThan(start.x - 1000);
+    const target = must(byAttr(dom.container, "data-agent", "t_a"), "agent");
+await act(async () => { fire(target, "focusin"); await tick(); });
+    await settle();
+    const after = viewOf(dom.container);
+    const transform = attr(must(byAttr(dom.container, "data-agent", "t_a"), "agent").childNodes![0] as Node, "x");
+    const screenX = after.x + (Number(transform) + 3) * after.k;
+    expect(screenX).toBeGreaterThanOrEqual(15);
+    expect(screenX).toBeLessThanOrEqual(960);
+  } finally { await done(dom); }
+});
+
+test("without task.log nothing offers to open output", async () => {
+  const { dom } = await live({}, undefined, LIVE_OPS.filter(o => o !== "task.log"));
+  try {
+    expect(domText(dom.container)).toContain("Agents at work");
+    expect(domText(dom.container)).not.toContain("Open live output");
+    expect(all(dom.container as Node).some(n => attr(n, "data-agent") !== null)).toBe(false);
+    expect(all(dom.container as Node).filter(n => attr(n, "data-agent-static") !== null)).toHaveLength(2);
+  } finally { await done(dom); }
+});
+
+test("agents of tasks the snapshot does not list keep separate creatures", async () => {
+  const { dom } = await live({}, undefined, LIVE_OPS, 10, []);
+  try {
+    const art = ["t_a", "t_c"].map(id => all(must(byAttr(dom.container, "data-agent", id), "agent")).filter(n => n.tagName === "rect").slice(1).map(n => `${attr(n, "class")}@${Math.round(Number(attr(n, "x")) * 10)},${Math.round(Number(attr(n, "y")) * 10)}`).join(" "));
+    expect(art[0]).not.toBe(art[1]);
+    expect(domText(dom.container)).toContain("An executor");
+    expect(domText(dom.container)).not.toContain("task:t_a");
+  } finally { await done(dom); }
+});
+
+test("station and zone notes are wrapped or clipped inside their boxes, with the full text as title", async () => {
+  const { dom } = await live({ "question.list": () => [] }, () => ({ ...liveFixture.get, questions: undefined }));
+  try {
+    const station = must(all(dom.container as Node).find(n => attr(n, "data-station") === "person"), "station");
+    const notes = all(station).filter(n => n.tagName === "text" && attr(n, "class") === "lb-station-note");
+    expect(notes.map(n => text(all(n).find(x => x.tagName === "title")!))).toEqual(["Nothing waits on you", "Nothing waits on you"]);
+    expect(notes.map(n => n.childNodes!.filter(c => (c as Node).nodeType === 3).map(c => (c as Node).data).join(""))).toEqual(["Nothing waits", "on you"]);
+    for (const n of notes) expect(attr(n, "clip-path")).toMatch(/^url\(#/);
+    expect(notes).toHaveLength(2);
   } finally { await done(dom); }
 });

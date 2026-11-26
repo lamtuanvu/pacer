@@ -29,7 +29,7 @@ test("runs are lines with fixed letters and colours: waiting-on-you first, then 
   expect(runTone("")).toBe(1);
   expect(m.lines[0]!.counts).toEqual({ running: 0, waiting: 1, done: 2, failed: 0 });
   expect(m.lines[0]!.questions).toBe(1);
-  expect(countWords(m.lines[1]!.counts)).toBe("4 done · 3 running · 1 waiting");
+  expect(countWords(m.lines[1]!.counts!)).toBe("4 done · 3 running · 1 waiting");
   expect(countWords({ running: 0, waiting: 0, done: 0, failed: 0 })).toBe("No steps yet");
 });
 

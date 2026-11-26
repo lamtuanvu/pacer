@@ -258,3 +258,60 @@ test("a replay that cannot be read keeps the run id out of the heading", async (
     expect(domText(dom.container)).not.toContain("boom");
   } finally { await unmount(dom); dom.restore(); }
 });
+
+const retried = (over: Record<string, unknown> = {}): Fixture => ({
+  ...journeyFixture(over),
+  get: {
+    run: run(over),
+    steps: [
+      row("build", "failed", { attempt: 1, startedAt: 910, endedAt: 920, taskId: "t_brain" }),
+      row("build", "done", { attempt: 2, startedAt: 920, endedAt: 940, taskId: "t_api" }),
+    ],
+    definition: { entry: "build", edges: [], steps: { build: { type: "agent" } } },
+    graphs: [], decisions: [],
+  },
+  list: [{ id: "run_1", workflow: "pacer-dev/feature", title: "Ship the board", status: "done", priority: "normal", createdAt: 900 }],
+});
+
+test("the replay walks every attempt of a retried step, in attempt order", async () => {
+  const { dom } = await open(retried());
+  try {
+    const events = all(dom.container as Node).filter(n => attr(n, "data-event") !== null).map(n => text(all(n).find(x => attr(x, "class") === "lb-item-name")!));
+    expect(events).toHaveLength(6);
+    expect(events).toContain("oc-glm leaves build · Failed");
+    expect(events).toContain("Codex joins and takes build (attempt 2); its mascot is generated");
+    const desk = () => text(must(all(dom.container as Node).find(n => attr(n, "data-node") === "build"), "desk"));
+    await click(dom.container, "Step forward");
+    await click(dom.container, "Step forward");
+    expect(desk()).toContain("Running");
+    expect(all(dom.container as Node).some(n => attr(n, "data-agent-static") === "t_brain")).toBe(true);
+    // both rows touch at t=920: whatever the order of the two events, attempt 2 is what the desk shows afterwards
+    await click(dom.container, "Step forward");
+    await click(dom.container, "Step forward");
+    expect(desk()).toContain("Running");
+    expect(all(dom.container as Node).some(n => attr(n, "data-agent-static") === "t_api")).toBe(true);
+    expect(all(dom.container as Node).some(n => attr(n, "data-agent-static") === "t_brain")).toBe(false);
+    await click(dom.container, "Step forward");
+    expect(desk()).toContain("Done");
+  } finally { await done(dom); }
+});
+
+test("a refresh that shortens the journey never leaves the position past its end", async () => {
+  const dom = installDom();
+  let get = journeyFixture().get;
+  const api = apiFor(journeyFixture(), { ops: [] }, { "run.get": p => (p as { id: string }).id === "run_1" ? get : journeyFixture().children!.run_child });
+  const state = stateFor(journeyFixture(), ALL_OPS);
+  const tree = (revision: number) => <TaskContext.Provider value={{ state: { ...state, invalidations: { runs: revision } }, api }}><JourneyPlayback runId="run_1" query={query} /></TaskContext.Provider>;
+  try {
+    await mount(dom, tree(0));
+    await until(() => domText(dom.container).includes("Events"), 3000);
+    await click(dom.container, "Jump to end");
+    expect(domText(dom.container)).toContain("Position: event 19 of 19");
+    get = retried().get;
+    await mount(dom, tree(1));
+    await until(() => /of (?!19)\d+/.test(domText(dom.container)), 3000);
+    await act(async () => { await tick(); });
+    const [, at, of] = /Position: event (\d+) of (\d+)/.exec(domText(dom.container))!;
+    expect(at).toBe(of);
+  } finally { await unmount(dom); dom.restore(); }
+});

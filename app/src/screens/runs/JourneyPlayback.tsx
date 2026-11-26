@@ -13,7 +13,7 @@ import { BoardCanvas } from "./BoardCanvas";
 import { BoardViewport } from "./BoardViewport";
 import { agentPlace, layoutLiveBoard } from "./live-board-layout";
 import { executorName, executorOf, layoutInputFromDetail, nodeLabel } from "./live-board-model";
-import { buildJourney, frameAt } from "./journey";
+import { buildJourney, frameAt, journeyRows } from "./journey";
 import { liveHref, runViewHref } from "./live-links";
 import { runIdentity, useRetryFocus, useRunDetail } from "./run-data";
 import { RunLoadAlerts } from "./run-shared";
@@ -41,7 +41,7 @@ export function JourneyPlayback({ runId, query, stepMs = STEP_MS }: { runId: str
     const def = isObj(detail?.definition) && isObj((detail!.definition as Record<string, unknown>).steps) ? (detail!.definition as { steps: Record<string, { type: string }> }).steps : undefined;
     return buildJourney({
       run: { createdAt: typeof run.createdAt === "number" ? run.createdAt : undefined, updatedAt: typeof run.updatedAt === "number" ? run.updatedAt : undefined, status: String(run.status ?? ""), title: typeof run.title === "string" ? run.title : undefined },
-      layout, decisions: detail?.decisions, stepTypes: def, executorOf: id => executorOf(id, tasks), executorName,
+      layout, rows: journeyRows(layoutInputFromDetail(detail!, []), layout), decisions: detail?.decisions, stepTypes: def, executorOf: id => executorOf(id, tasks), executorName,
     });
   }, [layout, run, detail?.decisions, detail?.definition, tasks]);
   const last = (journey?.events.length ?? 0) - 1;

@@ -186,3 +186,13 @@ test("rows equal in step, branch, attempt and start time resolve the same way wh
   const d = step("lint", "done", { startedAt: 5 });
   expect(layoutLiveBoard({ ...plainInput, steps: [c, d] })).toEqual(layoutLiveBoard({ ...plainInput, steps: [d, c] }));
 });
+
+test("a zone is wide enough for its summary line, and station notes wrap between words", async () => {
+  const { ZONE_MIN_W } = await import("../app/src/screens/runs/live-board-layout");
+  const { wrapWords } = await import("../app/src/screens/runs/BoardCanvas");
+  const empty = layoutLiveBoard({ steps: [step("plan", "running")], graphs: [{ stepId: "plan", attempt: 1, version: 1, status: "proposed", stepCount: 3 }] });
+  expect(empty.zones[0]!.w).toBeGreaterThanOrEqual(ZONE_MIN_W);
+  expect(empty.width).toBeGreaterThanOrEqual(empty.zones[0]!.x + empty.zones[0]!.w);
+  expect(wrapWords("Watching the replay", 13)).toEqual(["Watching the", "replay"]);
+  expect(wrapWords("Nothing waits on you", 13)).toEqual(["Nothing waits", "on you"]);
+});
