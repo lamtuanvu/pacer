@@ -32,6 +32,7 @@ import { appendWorkEvent, dispatchDatabase, boundedJson } from "../dispatch/stor
 import { recordWorkReview } from "../dispatch/learning";
 import { pidAlive } from "../link/store";
 import { authorizeRunGrantOperation } from "../workflow/run-grant";
+import { STEP_SELF_OPS, questionStaysOnStep, verifiedStepWorker } from "../workflow/step-identity";
 
 // The assistant grant (`pag_`): the internal issue/revoke API the assistant service calls (spec §3).
 export { issueAssistantGrant, authorizeAssistantGrant, revokeAssistantGrants, ASSISTANT_GRANT_KIND, type AssistantGrant } from "../dispatch/work";
@@ -337,6 +338,15 @@ export function authorizeWorkOperation(ctx:Ctx,name:string,params:unknown):void{
  // Orchestrator role without a live prg_ must not fall through to the operator path (M1).
  if(ctx.env.PACER_ROLE==="orchestrator"){
   throw new CoreError("not_allowed","PACER_ROLE=orchestrator requires a live PACER_RUN_GRANT");
+ }
+ // A step worker reports on its own step with its attempt credential (ADR 0029 decision 10). Anything
+ // that does not verify falls through to the refusals below.
+ if(STEP_SELF_OPS.includes(name)){
+  const step=verifiedStepWorker(ctx);
+  if(step){
+   if(name==="question.ask"&&!questionStaysOnStep(step,params))throw new CoreError("not_allowed","A step worker may ask only about its own step");
+   return;
+  }
  }
  if(ctx.env.PACER_ENFORCEMENT_TOKEN){
   if(name!=="dispatch.enforcement.denied")throw new CoreError("not_allowed","Enforcement identity only reports a native child denial");

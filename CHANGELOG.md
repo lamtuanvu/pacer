@@ -4,6 +4,11 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Fixed
+
+- **Workflow step workers can report.** An executor holding an attempt credential can now run `step.result`, `step.artifact` and `question.ask` (`pacer step result`, `pacer step artifact`, `pacer ask --type …`, and MCP tools) for its own step only. The identity comes from the verified credential and `PACER_TASK_ID`, which must agree; a step whose attempt was issued a credential cannot be reported on without it. No HTTP bearer gains an operation, and tasks that are not workflow steps are unchanged.
+- `pacer ask --blocks` without a value means `step`, as the workflow prompts show it.
+
 ## [0.18.6] - 2026-11-26
 
 ### Fixed
