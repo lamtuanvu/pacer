@@ -109,15 +109,28 @@ async fn answer_live_task(
                 && m.get("createdAt").and_then(Value::as_f64)
                     == question.get("at").and_then(Value::as_f64)
         });
+    // The liveness and open-question checks must be repeated under the task lock:
+    // two callers may both read an open question before either reserves it.
     let reserved = store
         .update_current(id, ctx.now, |t| {
+            let still_waiting = direct_input_available(t)
+                && t.get("question").and_then(|q| q.get("answer")).is_none();
+            if !still_waiting {
+                return Err(pacer_store::StoreError::Conflict);
+            }
             if let Some(q) = t.get_mut("question").and_then(Value::as_object_mut) {
                 q.insert("answer".into(), Value::String(body.to_owned()));
                 q.insert("answeredAt".into(), Value::from(ctx.now));
             }
             Ok(())
         })
-        .map_err(store_error)?;
+        .map_err(|error| match error {
+            pacer_store::StoreError::Conflict => CoreError::new(
+                Code::Conflict,
+                "task is not waiting for a live answer",
+            ),
+            error => store_error(error),
+        })?;
     let same = |t: &Value| {
         t.get("run").and_then(|r| r.get("dir")) == reserved.get("run").and_then(|r| r.get("dir"))
             && t.get("question").and_then(|q| q.get("at"))

@@ -74,6 +74,11 @@ pub fn direct_input_available(task: &Value) -> bool {
     run_alive(dir)
 }
 
+/// Session-supplied labels and reasons are untrusted: strip terminal controls.
+fn clean(label: &str) -> String {
+    label.chars().filter(|c| !c.is_control()).collect()
+}
+
 /// Roll back a definite refusal: nothing reached the PTY, so the question is open again.
 fn rollback(ctx: &Ctx, task: &Value, text: &str, guard: &impl Fn(&Value) -> bool) {
     let id = task["id"].as_str().unwrap_or_default();
@@ -125,9 +130,11 @@ pub async fn send_direct_input(
         Ok(TypeResult::Typed) => Ok(()),
         Ok(TypeResult::Refused { controller }) => {
             rollback(ctx, task, text, &guard);
-            let label = controller
-                .map(|c| c.split(':').last().unwrap_or(&c).to_owned())
-                .unwrap_or_else(|| "another viewer".into());
+            let label = clean(
+                &controller
+                    .map(|c| c.split(':').last().unwrap_or(&c).to_owned())
+                    .unwrap_or_else(|| "another viewer".into()),
+            );
             Err(CoreError::new(
                 Code::Conflict,
                 format!("The terminal is controlled from {label}; nothing was typed"),
@@ -137,7 +144,7 @@ pub async fn send_direct_input(
             rollback(ctx, task, text, &guard);
             Err(CoreError::new(
                 Code::Conflict,
-                format!("Not delivered: {reason}. Nothing was typed; try again"),
+                format!("Not delivered: {}. Nothing was typed; try again", clean(&reason)),
             ))
         }
         Ok(TypeResult::Busy) => {

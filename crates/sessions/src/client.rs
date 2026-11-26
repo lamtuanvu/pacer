@@ -114,6 +114,12 @@ async fn next_reply(
     }
 }
 
+/// Message content must never end bracketed paste mode: an ESC byte could close
+/// the paste early and inject the bytes that follow as keystrokes into the PTY.
+fn paste_body(body: &str) -> String {
+    body.chars().filter(|c| *c != '\u{1b}').collect()
+}
+
 fn text(body: &Value, key: &str) -> Option<String> {
     body.get(key).and_then(Value::as_str).map(str::to_owned)
 }
@@ -193,7 +199,7 @@ async fn send_input(
     send_frame(
         stream,
         frame::INPUT,
-        format!("{PASTE_START}{body}{PASTE_END}").as_bytes(),
+        format!("{PASTE_START}{}{PASTE_END}", paste_body(body)).as_bytes(),
     )
     .await?;
     tokio::time::sleep(SUBMIT_DELAY).await;
@@ -290,4 +296,15 @@ async fn take_control(
         == Some(&Value::Bool(true))
     {}
     Ok(TypeResult::Typed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn paste_body_cannot_close_bracketed_paste() {
+        assert_eq!(paste_body("plain answer"), "plain answer");
+        assert_eq!(paste_body("a\x1b[201~\rmalicious"), "a[201~\rmalicious");
+    }
 }
