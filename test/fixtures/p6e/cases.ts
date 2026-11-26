@@ -888,6 +888,17 @@ export function p6eCases(): any[] {
             transferred: Object.fromEntries(tasks.map((t) => [t.id, received])),
             cleanCodes: { done1: 1 },
           });
+    // A task a workflow review holds is kept and says why.
+    for (const dryRun of [true, false])
+      cases.push({
+        op: "host.clean",
+        alias: "h",
+        host,
+        tasks,
+        dryRun,
+        transferred: Object.fromEntries(tasks.map((t) => [t.id, true])),
+        held: tasks.map((t) => t.id),
+      });
     for (const paused of [true, false])
       for (const failures of [0, 2])
         for (const checking of [true, false])

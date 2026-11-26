@@ -5,7 +5,7 @@ use pacer_foundation::{
 };
 use pacer_lifecycle::{DismissError, dismiss_tasks};
 use pacer_read_model::tasks::{full_title, task_data};
-use pacer_store::{TaskStore, append_activity, publish};
+use pacer_store::{TaskStore, append_activity, publish, read_only::workflow_involved};
 use serde_json::{Map, Value, json};
 
 use super::lifecycle_ops::{invalid, object, optional_expect_rev, project_api_task, type_name};
@@ -25,12 +25,7 @@ pub fn workflow_hold_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> boo
         "task.prune" | "host.clean" => None,
         _ => return false,
     };
-    TaskStore::open(&ctx.pacer_home)
-        .and_then(|mut store| match &ids {
-            Some(ids) => store.in_workflow(ids),
-            None => store.has_live_workflow(),
-        })
-        .unwrap_or(true)
+    workflow_involved(&ctx.pacer_home, ids.as_deref()).unwrap_or(true)
 }
 
 pub fn ids_from_params(params: &Value) -> Result<Vec<String>, CoreError> {

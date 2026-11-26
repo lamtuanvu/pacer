@@ -338,6 +338,7 @@ export async function reference(c: any): Promise<any> {
           }),
           listRepos: () => c.repos ?? [],
           listJobs: () => c.jobs ?? [],
+          reviewHolds: (_ctx: unknown, id: string) => !!c.held?.includes(id),
           listTasks: () =>
             c.candidates
               ? c.candidates
