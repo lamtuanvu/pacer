@@ -15,6 +15,7 @@ fn fixture() -> (TempDir, Ctx, Runtime, String) {
     std::fs::write(pacer_home.join("strategy.yaml"), STRATEGY).unwrap();
     let repo = home.join("repo");
     std::fs::create_dir_all(&repo).unwrap();
+    let repo = std::fs::canonicalize(repo).unwrap();
     let ctx = Ctx::with(home, pacer_home, Default::default(), 1_800_000_000.0);
     let runtime = Runtime {
         plugins: Arc::new(NoPlugins),
@@ -113,14 +114,17 @@ fn strict_candidate_skip_reports_the_first_unready_candidate() {
 }
 
 #[tokio::test]
-async fn a_task_stays_queued_when_spawn_is_unavailable() {
+async fn a_spawn_refusal_is_reported_instead_of_a_successful_reply() {
     let (_dir, ctx, runtime, repo) = fixture();
-    let reply = delegate(&ctx, &runtime, &json!({"goal": "g", "repo": repo}), None)
+    let error = delegate(&ctx, &runtime, &json!({"goal": "g", "repo": repo}), None)
         .await
-        .unwrap();
-    assert_eq!(reply["state"], json!("queued"));
-    let id = reply["task_id"].as_str().unwrap().to_owned();
+        .unwrap_err();
+    assert_eq!(error.code, Code::InvalidInput);
+    assert_eq!(error.message, "runner spawn is unavailable");
+    // The committed task stays queued with no runner, as in TypeScript.
     let mut store = TaskStore::open(&ctx.pacer_home).unwrap();
-    let task = store.read(&id).unwrap().unwrap();
-    assert_eq!(task["state"], json!("queued"));
+    let tasks = store.list_active_and_recent(0.0).unwrap();
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0]["state"], json!("queued"));
+    assert!(tasks[0].get("runnerPid").is_none());
 }

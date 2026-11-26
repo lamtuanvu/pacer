@@ -1,13 +1,21 @@
-//! Native task delegation, managed-work lifecycle and message turns. The front
-//! doors inject the external runtime (plugins, runner spawn and supervision) so
-//! the op crates keep their strict layer ordering (G2).
+//! Native task delegation, managed-work lifecycle, message turns and cleanup effects.
+//!
+//! The runtime traits in [`runtime`] are the only way this crate reaches plugin calls,
+//! runner spawn and supervision. `pacer-server` owns their implementations; op crates
+//! receive native effects through their existing trait slots.
 #![allow(clippy::result_large_err)]
 
 pub mod answer;
+pub mod ask;
+pub mod cleanup;
 pub mod delegate;
+pub mod retry;
+pub mod review;
 pub mod runtime;
 pub mod send;
+pub mod stop;
 pub mod turns;
+pub mod wait;
 pub mod work;
 
 pub use delegate::DelegateInput;
