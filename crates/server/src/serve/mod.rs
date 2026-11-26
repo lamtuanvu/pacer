@@ -219,7 +219,10 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
         }
         if crate::native::task_delegation_ops::is_delegation_op(op.name) {
             use crate::native::task_delegation_ops::{Admission, admit};
-            let reply = match admit(&ctx, op.name, &params) {
+            let effects = crate::native::runtime::DelegateEffects {
+                runtime: std::sync::Arc::clone(&state.delegation),
+            };
+            let reply = match admit(&ctx, op.name, &params, &effects) {
                 Ok(Admission::Core) => {
                     let Some(target) = state.core.target().await else {
                         return proxy::unavailable(false);
@@ -234,6 +237,12 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                 Ok(Admission::Native(result)) => {
                     native_json(StatusCode::OK, serde_json::json!({"result":result}))
                 }
+                Ok(Admission::Effect(future)) => match future.await {
+                    Ok(result) => {
+                        native_json(StatusCode::OK, serde_json::json!({"result":result}))
+                    }
+                    Err(error) => native_error(error),
+                },
                 Err(error) => native_error(error),
             };
             crate::native::msg_write_sync::trace(op.name, None);

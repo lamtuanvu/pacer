@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { callOp } from "../src/api/ops";
 import { CoreError } from "../src/core/errors";
@@ -240,3 +240,89 @@ test.skipIf(!front)("HTTP replies match forced forwarding, including bodies serd
   expect(markers(native.stderr)).toEqual(cases.filter(c => c.native).map(c => `native ${c.op}`));
   expect(markers(forwarded.stderr)).toEqual([]);
 }, 120000);
+
+// Native task.delegate parity. Task ids come from the service clock and the task JSON
+// names a cloned home, so replies and stored records are normalized before comparison.
+const DELEGATE_STRATEGY = "planner: claude-code\nproviders:\n  claude-code: {}\n  codex: {}\nexecution:\n  launch_mode: headless\n";
+
+function delegateHome() {
+  const home = realpathSync(mkdtempSync("/tmp/ptd-"));
+  mkdirSync(join(home, ".pacer"), { mode: 0o700 });
+  mkdirSync(join(home, ".pacer", "state"), { recursive: true, mode: 0o700 });
+  writeFileSync(join(home, ".pacer", "strategy.yaml"), DELEGATE_STRATEGY);
+  const bin = join(home, "bin");
+  mkdirSync(bin);
+  writeFileSync(join(bin, "codex"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  return { home, bin };
+}
+
+function delegateNormalizer(home: string) {
+  const ids = new Map<string, string>();
+  return (text: string) => text
+    .replaceAll(home, "<home>")
+    .replace(/t-\d{8}-\d{6}-[0-9a-f]{4}/g, id =>
+      ids.get(id) ?? (ids.set(id, `t#${ids.size}`), `t#${ids.size - 1}`))
+    .replace(/"(createdAt|updatedAt|startedAt|endedAt|at|since)":\d+(?:\.\d+)?(?=[,}])/g, '"$1":"<time>"');
+}
+
+function taskJson(home: string, normalize: (text: string) => string) {
+  const dir = join(home, ".pacer", "tasks");
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir).filter(name => name.endsWith(".json")).sort().map(name => normalize(readFileSync(join(dir, name), "utf8")));
+}
+
+async function delegateSame(cases: Case[], extra: Record<string, string> = {}) {
+  const { home, bin } = delegateHome();
+  const [nativeHome, forwardedHome] = [clone(home), clone(home)];
+  const env = { ...extra, PATH: `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}` };
+  try {
+    const native = await stdio(nativeHome, cases, false, env);
+    const forwarded = await stdio(forwardedHome, cases, true, env);
+    expect(forwarded.native).toEqual([]);
+    const [normNative, normForwarded] = [delegateNormalizer(nativeHome), delegateNormalizer(forwardedHome)];
+    native.replies.forEach((reply, index) => expect(normNative(reply), `${cases[index]![0]} ${JSON.stringify(cases[index]![1])}`).toBe(normForwarded(forwarded.replies[index]!)));
+    expect(taskJson(nativeHome, normNative)).toEqual(taskJson(forwardedHome, normForwarded));
+    return native;
+  } finally {
+    for (const dir of [home, nativeHome, forwardedHome]) rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test.skipIf(!front)("task.delegate answers natively and matches forced forwarding", async () => {
+  const cases: Case[] = [
+    ["task.delegate", { goal: "plain", repo: "/tmp" }],
+    ["task.delegate", { goal: "base", repo: "/tmp", base: "main" }],
+    ["task.delegate", { goal: "messaging", repo: "/tmp", messaging: { max_turns: 12 } }],
+    ["task.delegate", { goal: "number", repo: "/tmp", max_tasks: 1.5, timeout_min: 1.5 }],
+    ["task.delegate", { goal: "model", repo: "/tmp", model: "codex-mini" }],
+  ];
+  const result = await delegateSame(cases);
+  expect(result.native).toEqual(all(cases));
+  expect(errorOf(result.replies[3]!).data.code).toBe("invalid_input");
+}, 180000);
+
+// The deny fixture is installed exactly as plugins-policy.test.ts installs fx-policy.
+// Native plugin discovery is owned by B0c, so this records the TypeScript denial text
+// the native path must reproduce; the native trace is UNVERIFIED until B0c lands.
+test("a policy plugin denies delegation as TypeScript denies it", async () => {
+  const ctx = fakeCtx();
+  const pacerHome = ctx.pacerHome;
+  mkdirSync(join(pacerHome, "plugins", "fx-policy"), { recursive: true });
+  writeFileSync(join(pacerHome, "strategy.yaml"), JSON.stringify({
+    planner: "claude-code", providers: { "claude-code": {}, codex: {} },
+    plugins: { policy: { mode: "closed" }, installed: { "fx-policy": { version: "1.0.0", capabilities: [] } } },
+  }));
+  writeFileSync(join(pacerHome, "plugins", "fx-policy", "pacer-plugin.json"), JSON.stringify({
+    id: "fx-policy", version: "1.0.0", publisher: "test", host: "^1.6", entry: "main.ts", contributes: { policy: {} }, capabilities: [],
+  }));
+  writeFileSync(join(pacerHome, "plugins", "fx-policy", "settings.json"), JSON.stringify({
+    verdict: { verdict: "veto", reason: "budget denied" },
+  }));
+  writeFileSync(join(pacerHome, "plugins", "fx-policy", "main.ts"),
+    `#!${process.execPath}\nimport {readFileSync} from "node:fs";for await(const line of console){const r=JSON.parse(line);if(!r.id)continue;const v=r.method==="plugin.hello"?{protocol:r.params.protocol,id:"fx-policy",version:"1.0.0",contributes:["policy"]}:JSON.parse(readFileSync("settings.json","utf8")).verdict;console.log(JSON.stringify({jsonrpc:"2.0",id:r.id,result:v}));}\n`);
+  chmodSync(join(pacerHome, "plugins", "fx-policy", "main.ts"), 0o755);
+  const { applyPolicy } = await import("../src/plugins/policy");
+  await expect(applyPolicy(ctx, "delegate", {
+    goal: "g", repo: join(ctx.home, "repo"), kind: null, requestedExecutor: null, placement: "auto",
+  }, { contextFingerprint: () => "context" })).rejects.toMatchObject({ code: "not_allowed", hint: "plugin fx-policy" });
+}, 60000);

@@ -19,7 +19,7 @@ fn ctx_with(env: &[(&str, &str)]) -> (TempDir, Ctx) {
 }
 
 fn message(ctx: &Ctx, op: &str, params: Value) -> String {
-    admit(ctx, op, &params).unwrap_err().message
+    admit(ctx, op, &params, &NoDelegationEffects).unwrap_err().message
 }
 
 fn insert(ctx: &Ctx, id: &str, patch: Value) {
@@ -50,7 +50,10 @@ fn grant_holders_stay_with_core() {
     for name in ["PACER_ASSISTANT_GRANT", "PACER_WORK_GRANT"] {
         let (_dir, ctx) = ctx_with(&[(name, "g")]);
         for op in DELEGATION_OPS {
-            assert_eq!(admit(&ctx, op, &json!({})).unwrap(), Admission::Core);
+            assert_eq!(
+                admit(&ctx, op, &json!({}), &NoDelegationEffects).unwrap(),
+                Admission::Core
+            );
         }
     }
 }
@@ -91,12 +94,24 @@ fn issues_follow_schema_key_order() {
 }
 
 #[test]
-fn inputs_only_core_can_validate_stay_with_core() {
+fn every_delegate_input_takes_the_native_effect() {
     let (_dir, ctx) = ctx_with(&[]);
+    for params in [
+        json!({"goal": "g", "repo": "/r", "base": "main"}),
+        json!({"goal": "g", "repo": "/r", "messaging": 1}),
+        json!({"goal": "g", "repo": "/r", "timeout_min": 1.5}),
+        json!({"goal": "g", "repo": "/r", "max_tasks": 1.5}),
+        json!({"goal": "g", "repo": "/r"}),
+    ] {
+        assert!(
+            matches!(
+                admit(&ctx, "task.delegate", &params, &NoDelegationEffects).unwrap(),
+                Admission::Effect(_)
+            ),
+            "{params}"
+        );
+    }
     for (op, params) in [
-        ("task.delegate", json!({"base": "main"})),
-        ("task.delegate", json!({"messaging": 1})),
-        ("task.delegate", json!({"goal": "", "timeout_min": 1.5})),
         ("task.answer", json!({"id": "", "expect_rev": 1e300})),
         (
             "task.retry",
@@ -104,7 +119,7 @@ fn inputs_only_core_can_validate_stay_with_core() {
         ),
     ] {
         assert_eq!(
-            admit(&ctx, op, &params).unwrap(),
+            admit(&ctx, op, &params, &NoDelegationEffects).unwrap(),
             Admission::Core,
             "{params}"
         );
@@ -145,10 +160,19 @@ fn only_ids_that_cannot_name_a_task_are_answered_natively() {
         ("task.answer", json!({"id": MISSING, "text": "a"})),
         ("task.retry_all", json!({"ids": ["nope", MISSING]})),
     ] {
-        assert_eq!(admit(&ctx, op, &params).unwrap(), Admission::Core);
+        assert_eq!(
+            admit(&ctx, op, &params, &NoDelegationEffects).unwrap(),
+            Admission::Core
+        );
     }
     assert_eq!(
-        admit(&ctx, "task.retry_all", &json!({"ids": ["b", "a", "b"]})).unwrap(),
+        admit(
+            &ctx,
+            "task.retry_all",
+            &json!({"ids": ["b", "a", "b"]}),
+            &NoDelegationEffects
+        )
+        .unwrap(),
         Admission::Native(json!({"retried": [], "skipped": [
             {"id": "b", "reason": "unknown task b"},
             {"id": "a", "reason": "unknown task a"},
@@ -170,7 +194,13 @@ fn managed_work_stays_with_core() {
         )
         .unwrap();
     assert_eq!(
-        admit(&ctx, "task.answer", &json!({"id": MISSING, "text": "a"})).unwrap(),
+        admit(
+            &ctx,
+            "task.answer",
+            &json!({"id": MISSING, "text": "a"}),
+            &NoDelegationEffects
+        )
+        .unwrap(),
         Admission::Core
     );
 }
@@ -213,7 +243,13 @@ fn ask_admits_a_running_task_and_refuses_a_settled_one() {
     let (_dir, ctx) = ctx_with(&[("PACER_ROLE", "executor"), ("PACER_TASK_ID", running)]);
     insert(&ctx, running, json!({}));
     assert_eq!(
-        admit(&ctx, "task.ask", &json!({"id": running, "text": "q"})).unwrap(),
+        admit(
+            &ctx,
+            "task.ask",
+            &json!({"id": running, "text": "q"}),
+            &NoDelegationEffects
+        )
+        .unwrap(),
         Admission::Core
     );
     let settled = "t-20261119-000000-bbbb";

@@ -8,9 +8,13 @@
 
 use std::{sync::Arc, time::Duration};
 
+use std::{fs::OpenOptions, process::{Command, Stdio}};
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
+
 use pacer_delegation::{
     Runtime,
-    runtime::{NoSpawn, NoSupervisor, PluginCalls},
+    runtime::{NoSupervisor, PluginCalls, RunnerSpawn},
 };
 use pacer_foundation::{
     Ctx,
@@ -59,6 +63,62 @@ impl PluginCalls for ServerPlugins {
     }
 }
 
+/// Interim `RunnerSpawn` until B1 owns `_run`: launch the TypeScript core's detached
+/// `_run <id>` exactly as `launchTaskRunner` does (`src/tasks/api.ts:180-200`).
+pub struct CoreSpawn;
+
+impl RunnerSpawn for CoreSpawn {
+    fn launch(
+        &self,
+        ctx: &Ctx,
+        task_id: &str,
+        _admitted: Option<&str>,
+    ) -> Result<Option<u32>, CoreError> {
+        let argv: Vec<String> = serde_json::from_str(
+            &ctx.env
+                .get("PACER_CORE_ARGV")
+                .ok_or_else(|| CoreError::new(Code::Unavailable, "PACER_CORE_ARGV is unset"))?,
+        )
+        .map_err(|error| CoreError::new(Code::Internal, format!("invalid core argv: {error}")))?;
+        let (program, prefix) = argv
+            .split_first()
+            .ok_or_else(|| CoreError::new(Code::Unavailable, "runner self command is empty"))?;
+        let logs = ctx.pacer_home.join("logs");
+        std::fs::create_dir_all(&logs)
+            .map_err(|error| CoreError::new(Code::Internal, error.to_string()))?;
+        let log = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(pacer_lifecycle::runner_log_path(&ctx.pacer_home))
+            .map_err(|error| CoreError::new(Code::Internal, error.to_string()))?;
+        let mut command = Command::new(program);
+        command.args(prefix).args(["_run", task_id]);
+        for (name, value) in &ctx.env {
+            command.env(name, value);
+        }
+        command
+            .env("HOME", &ctx.home)
+            .env("PACER_HOME", &ctx.pacer_home)
+            .env_remove("PACER_HOST_SOCKET")
+            .env_remove("PACER_RUN_GRANT")
+            .stdin(Stdio::null())
+            .stdout(Stdio::from(
+                log.try_clone()
+                    .map_err(|error| CoreError::new(Code::Internal, error.to_string()))?,
+            ))
+            .stderr(Stdio::from(log));
+        if ctx.env.get("PACER_ROLE").map(String::as_str) == Some("orchestrator") {
+            command.env_remove("PACER_ROLE");
+        }
+        #[cfg(unix)]
+        command.process_group(0);
+        let child = command
+            .spawn()
+            .map_err(|error| CoreError::new(Code::Internal, error.to_string()))?;
+        Ok(Some(child.id()))
+    }
+}
+
 /// Build one runtime with the front door's plugin owner.
 pub fn runtime(
     service: Arc<crate::native::plugins::Service>,
@@ -66,7 +126,7 @@ pub fn runtime(
 ) -> Arc<Runtime> {
     Arc::new(Runtime {
         plugins: Arc::new(ServerPlugins::new(service, core)),
-        spawn: Arc::new(NoSpawn),
+        spawn: Arc::new(CoreSpawn),
         supervisor: Arc::new(NoSupervisor),
     })
 }
@@ -108,9 +168,25 @@ pub fn session_runtime(
 ) -> Arc<Runtime> {
     Arc::new(Runtime {
         plugins: Arc::new(SessionPlugins { service, link }),
-        spawn: Arc::new(NoSpawn),
+        spawn: Arc::new(CoreSpawn),
         supervisor: Arc::new(NoSupervisor),
     })
+}
+
+/// Native `task.delegate` effects, backed by this front door's delegation runtime.
+pub struct DelegateEffects {
+    pub runtime: Arc<Runtime>,
+}
+
+impl pacer_task_ops::task_delegation_ops::DelegationEffects for DelegateEffects {
+    fn delegate<'a>(&'a self, ctx: &'a Ctx, params: &'a Value) -> OpFuture<'a> {
+        Box::pin(pacer_delegation::delegate::delegate(
+            ctx,
+            &self.runtime,
+            params,
+            None,
+        ))
+    }
 }
 
 /// Wraps the existing Core message bridge so the `clean` effect is answered by

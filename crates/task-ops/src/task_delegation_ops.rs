@@ -1,12 +1,10 @@
 //! Selective native `task.delegate`, `task.retry`, `task.retry_all`, `task.answer`, `task.ask`
 //! and `doctor.fix.delegate` (`src/api/ops.ts`).
 //!
-//! Each front door asks [`admit`] once per request. Rust answers only what TypeScript decides
-//! before any effect: the enforcement identity, the Zod issues in schema key order, the executor
-//! refusals, and the task-record refusals that cannot depend on the filesystem or on a lease.
-//! Every other request reaches Core unchanged, so Core keeps repository resolution, plugin policy,
-//! admission, work grants, messaging, `_run` spawn and supervision, and sees the caller's own body
-//! and authentication.
+//! Each front door asks [`admit`] once per request. Rust answers what TypeScript decides before
+//! any effect (the enforcement identity, Zod issues in schema key order, executor refusals and
+//! task-record refusals) and now admits `task.delegate` to a native effect over
+//! [`DelegationEffects`]. The other operations still reach Core unchanged.
 //!
 //! A task id that is well formed but missing stays with Core for `task.retry` and `task.answer`:
 //! `retryTask` takes a desktop-update work lease first, and that lease can refuse with a conflict.
@@ -39,13 +37,41 @@ pub const DELEGATION_OPS: &[&str] = &[
 const EXECUTOR_DELEGATE_ERROR: &str = "PACER_ROLE=executor: pacer executors cannot delegate onward; complete the assigned task directly.";
 const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
 
+/// Native effects for `task.delegate`, supplied by the front door.
+pub trait DelegationEffects: Send + Sync {
+    /// Runs the whole native delegation and returns `summarizeTask`.
+    fn delegate<'a>(&'a self, ctx: &'a Ctx, params: &'a Value) -> OpFuture<'a>;
+}
+
 /// What a front door does with a request [`admit`] did not refuse.
-#[derive(Debug, PartialEq)]
-pub enum Admission {
+pub enum Admission<'a> {
     /// The reply, computed without Core.
     Native(Value),
+    /// An asynchronous native effect, awaited by the front door.
+    Effect(OpFuture<'a>),
     /// Core runs the original request.
     Core,
+}
+
+impl std::fmt::Debug for Admission<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Native(value) => f.debug_tuple("Native").field(value).finish(),
+            Self::Effect(_) => f.write_str("Effect"),
+            Self::Core => f.write_str("Core"),
+        }
+    }
+}
+
+impl PartialEq for Admission<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Native(a), Self::Native(b)) => a == b,
+            (Self::Effect(_), Self::Effect(_)) => true,
+            (Self::Core, Self::Core) => true,
+            _ => false,
+        }
+    }
 }
 
 /// One published params field, checked as its Zod schema.
@@ -280,12 +306,13 @@ fn field_issues(name: &str, field: Field, value: &Value, issues: &mut Vec<String
     }
 }
 
-/// Requests whose validation only Core can answer exactly: `base` runs `git check-ref-format`,
-/// `messaging` has its own schema, and a fractional, exponent or unsafe number may read
-/// differently in serde_json and `JSON.parse`.
+/// Requests whose number validation only Core can answer exactly: a fractional,
+/// exponent or unsafe number may read differently in serde_json and `JSON.parse`.
+/// `task.delegate` now validates `base`, `messaging` and numbers natively in
+/// `pacer_delegation`, so it is excluded here.
 fn core_validates(op: &str, shape: Shape, p: &Map<String, Value>) -> bool {
-    (op == "task.delegate" && (p.contains_key("base") || p.contains_key("messaging")))
-        || shape.iter().any(|(name, field, _)| {
+    op != "task.delegate"
+        && shape.iter().any(|(name, field, _)| {
             matches!(field, Field::Int(..) | Field::Num(..) | Field::PositiveInt)
                 && matches!(p.get(*name), Some(Value::Number(n))
                     if n.is_f64() || n.as_f64().is_none_or(|n| n.abs() > MAX_SAFE_INTEGER))
@@ -347,7 +374,7 @@ fn unmanaged(ctx: &Ctx, id: &str) -> Option<bool> {
     work_node_exists(&mut store, id).map(|managed| !managed)
 }
 
-fn retry(ctx: &Ctx, p: &Map<String, Value>) -> Result<Admission, CoreError> {
+fn retry(ctx: &Ctx, p: &Map<String, Value>) -> Result<Admission<'static>, CoreError> {
     if is_executor(ctx) {
         return Err(not_allowed(EXECUTOR_DELEGATE_ERROR));
     }
@@ -359,7 +386,7 @@ fn retry(ctx: &Ctx, p: &Map<String, Value>) -> Result<Admission, CoreError> {
 }
 
 /// The reply when no id can name a task; each id is skipped as `task.retry_all` skips it.
-fn retry_all(ctx: &Ctx, p: &Map<String, Value>) -> Result<Admission, CoreError> {
+fn retry_all(ctx: &Ctx, p: &Map<String, Value>) -> Result<Admission<'static>, CoreError> {
     if is_executor(ctx) {
         return Err(not_allowed(EXECUTOR_DELEGATE_ERROR));
     }
@@ -380,7 +407,7 @@ fn retry_all(ctx: &Ctx, p: &Map<String, Value>) -> Result<Admission, CoreError> 
     ))
 }
 
-fn answer(ctx: &Ctx, p: &Map<String, Value>) -> Result<Admission, CoreError> {
+fn answer(ctx: &Ctx, p: &Map<String, Value>) -> Result<Admission<'static>, CoreError> {
     let id = p["id"].as_str().unwrap_or_default();
     // The handler's managed-work refusal comes before every refusal below.
     if unmanaged(ctx, id) != Some(true) {
@@ -400,7 +427,7 @@ fn answer(ctx: &Ctx, p: &Map<String, Value>) -> Result<Admission, CoreError> {
 }
 
 /// `requireAskingExecutor`, then `ask` up to its first write.
-fn ask(ctx: &Ctx, p: &Map<String, Value>) -> Result<Admission, CoreError> {
+fn ask(ctx: &Ctx, p: &Map<String, Value>) -> Result<Admission<'static>, CoreError> {
     let id = p["id"].as_str().unwrap_or_default();
     let own = ctx.env.get("PACER_TASK_ID").map(String::as_str);
     if !is_executor(ctx) || own.is_none_or(str::is_empty) || own != Some(id) {
@@ -437,7 +464,12 @@ fn ask(ctx: &Ctx, p: &Map<String, Value>) -> Result<Admission, CoreError> {
 }
 
 /// Decides one request, once. `Err` is the reply TypeScript would give.
-pub fn admit(ctx: &Ctx, op: &str, params: &Value) -> Result<Admission, CoreError> {
+pub fn admit<'a>(
+    ctx: &'a Ctx,
+    op: &str,
+    params: &'a Value,
+    effects: &'a dyn DelegationEffects,
+) -> Result<Admission<'a>, CoreError> {
     let Some(shape) = shape(op) else {
         return Ok(Admission::Core);
     };
@@ -468,12 +500,22 @@ pub fn admit(ctx: &Ctx, op: &str, params: &Value) -> Result<Admission, CoreError
         return Err(invalid(issues.join("; ")));
     }
     match op {
+        "task.delegate" if is_executor(ctx) => Err(not_allowed(EXECUTOR_DELEGATE_ERROR)),
+        "task.delegate" => Ok(Admission::Effect(effects.delegate(ctx, params))),
         "task.retry" => retry(ctx, p),
         "task.retry_all" => retry_all(ctx, p),
         "task.answer" => answer(ctx, p),
         "task.ask" => ask(ctx, p),
         _ if is_executor(ctx) => Err(not_allowed(EXECUTOR_DELEGATE_ERROR)),
         _ => Ok(Admission::Core),
+    }
+}
+
+/// A test double that reports an empty reply when a native delegate is admitted.
+pub struct NoDelegationEffects;
+impl DelegationEffects for NoDelegationEffects {
+    fn delegate<'a>(&'a self, _: &'a Ctx, _: &'a Value) -> OpFuture<'a> {
+        Box::pin(async { Ok(json!({})) })
     }
 }
 

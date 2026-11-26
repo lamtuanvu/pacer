@@ -6,6 +6,8 @@
 #![allow(clippy::result_large_err)]
 
 pub mod cleanup;
+pub mod delegate;
 pub mod runtime;
 
+pub use delegate::DelegateInput;
 pub use runtime::Runtime;

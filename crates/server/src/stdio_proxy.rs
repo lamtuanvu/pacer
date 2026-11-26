@@ -386,13 +386,17 @@ async fn forward_input<
                 let request_ctx = ctx.at_now();
                 if crate::native::task_delegation_ops::is_delegation_op(op.name) {
                     use crate::native::task_delegation_ops::{Admission, admit};
-                    let result = match admit(&request_ctx, op.name, &params) {
+                    let effects = crate::native::runtime::DelegateEffects {
+                        runtime: std::sync::Arc::clone(&plugins.delegation),
+                    };
+                    let result = match admit(&request_ctx, op.name, &params, &effects) {
                         Ok(Admission::Core) => {
                             core.write_all(&line).await?;
                             core.flush().await?;
                             continue;
                         }
                         Ok(Admission::Native(reply)) => Ok(reply),
+                        Ok(Admission::Effect(future)) => future.await,
                         Err(error) => Err(error),
                     };
                     crate::native::msg_write_sync::trace(op.name, request.get("id"));
