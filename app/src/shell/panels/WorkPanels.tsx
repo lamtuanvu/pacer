@@ -68,7 +68,7 @@ function Agents({
             key={executor.id}
             className="pc-work-panel-row"
             href={withQuery(
-              `#/settings/executors?agent=${encodeURIComponent(executor.id)}`,
+              `#/settings/agents?agent=${encodeURIComponent(executor.id)}`,
               query,
             )}
             title={`${executorLabel(executor.id)} · ${status.label}`}

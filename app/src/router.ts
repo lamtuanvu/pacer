@@ -10,7 +10,7 @@ type RouteBase =
   | { name: "review" | "sessions" | "terminal"; id?: string; view?: "trace"; panel?: string }
   | { name: "runs"; id?: string }
   | { name: "live"; id?: string; view?: "journey" }
-  | { name: "settings"; section?: string }
+  | { name: "settings"; section?: string; agent?: string }
   | { name: "hosts"; alias?: string }
   ;
 export type Route = RouteBase & { query: RouteQuery };
@@ -25,10 +25,12 @@ export type RouteTarget =
   | { name: "live"; id?: string; view?: "journey"; query?: TargetQuery }
   | { name: "sessions"; id?: string; view?: "trace"; query?: TargetQuery }
   | { name: "terminal"; id: string; panel?: string; query?: TargetQuery }
-  | { name: "settings"; section?: string; query?: TargetQuery }
+  | { name: "settings"; section?: string; agent?: string; query?: TargetQuery }
   | { name: "hosts"; alias?: string; query?: TargetQuery }
   | { name: "add-executor"; host?: string; query?: TargetQuery };
-export const SETTINGS_SECTIONS = ["plugins", "apps", "planner", "accounts", "executors", "machine", "dispatcher", "models", "app", "updates", "notifications", "appearance", "assistant", "diagnostics", "pairing"] as const;
+export const SETTINGS_SECTIONS = ["plugins", "apps", "planner", "machine", "dispatcher", "agents", "rules", "profiles", "app", "updates", "notifications", "appearance", "assistant", "diagnostics", "pairing"] as const;
+/** Retired Settings pages whose behavior moved to Dispatcher › Agents; their links redirect there. */
+export const AGENTS_ALIASES = ["executors", "accounts", "models"] as const;
 const EMPTY_QUERY: RouteQuery = { repo: null, scope: null };
 const withTargetQuery = <T extends RouteTarget>(target: T, query?: TargetQuery): T => query ? { ...target, query } : target;
 export const routes = {
@@ -51,6 +53,8 @@ export const routes = {
   terminal: (id: string, query?: TargetQuery) => withTargetQuery({ name: "terminal", id } as const, query),
   pluginSettings: (plugin: string, query?: TargetQuery) => withTargetQuery({ name: "settings", section: `plugins/${plugin}` } as const, query),
   settings: (section?: string, query?: TargetQuery) => withTargetQuery({ name: "settings", ...(section ? { section } : {}) } as const, query),
+  /** Dispatcher › Agents, optionally with one agent (runner id) selected. */
+  agents: (agent?: string, query?: TargetQuery) => withTargetQuery({ name: "settings", section: "agents", ...(agent ? { agent } : {}) } as const, query),
   hosts: (query?: TargetQuery) => withTargetQuery({ name: "hosts" } as const, query),
   host: (alias: string, query?: TargetQuery) => withTargetQuery({ name: "hosts", alias } as const, query),
   addExecutor: (host?: string, query?: TargetQuery) => withTargetQuery({ name: "add-executor", ...(host ? { host } : {}) } as const, query),
@@ -80,8 +84,9 @@ export function hrefFor(target: RouteTarget, current: RouteQuery = EMPTY_QUERY):
     case "setup": href = "#/setup"; break;
   }
   const query = mergedQuery(target, current);
-  if (target.name !== "add-executor" || !target.host) return withQuery(href, query);
-  const params = new URLSearchParams({ host: target.host });
+  const extra: Record<string, string> | null = target.name === "add-executor" && target.host ? { host: target.host } : target.name === "settings" && target.agent ? { agent: target.agent } : null;
+  if (!extra) return withQuery(href, query);
+  const params = new URLSearchParams(extra);
   if (query.repo !== null) params.set("repo", query.repo);
   if (query.scope) params.set("scope", query.scope);
   return `${href}?${params}`;
@@ -94,7 +99,7 @@ export function parentFor(route: Route): RouteTarget | null {
   if (route.name === "terminal" && route.id) return routes.tasks(route.query);
   if (route.name === "settings" && route.section) return routes.settings(route.section.startsWith("plugins/") ? "plugins" : undefined, route.query);
   if (route.name === "hosts") return route.alias ? routes.hosts(route.query) : routes.settings(undefined, route.query);
-  if (route.name === "add-executor") return routes.settings(undefined, route.query);
+  if (route.name === "add-executor") return routes.agents(undefined, route.query);
   return null;
 }
 /** Insights, Runs and the Live boards carry their own in-page h1, so the top bar omits its title there (UI-9). */
@@ -124,6 +129,7 @@ export function primaryFor(route: Route): PrimaryRoute {
 export function settingsPath(section: unknown): string {
   if (typeof section !== "string") return "/settings";
   if (section === "routing" || section === "strategies") return "/settings/dispatcher";
+  if ((AGENTS_ALIASES as readonly string[]).includes(section)) return "/settings/agents";
   return (SETTINGS_SECTIONS as readonly string[]).includes(section) ? `/settings/${section}` : "/";
 }
 
@@ -147,6 +153,11 @@ export function resolveRoute(hash: string, setupComplete: boolean | null = true,
   const params = new URLSearchParams(search);
   const query: RouteQuery = { repo: params.get("repo"), scope: params.get("scope") };
   if (path === "/settings/routing" || path === "/settings/strategies") return {redirect:withQuery("#/settings/dispatcher",query)};
+  // Agents, Accounts and the Model matrix are now Dispatcher › Agents; old links keep their selected agent.
+  if ((AGENTS_ALIASES as readonly string[]).some(name => path === `/settings/${name}`)) {
+    const agent = params.get("agent");
+    return { redirect: withQuery(agent ? `#/settings/agents?${new URLSearchParams({ agent })}` : "#/settings/agents", query) };
+  }
   // Start and Overview merged into the Dispatch home; old Overview links keep their repo and scope.
   if (path === "/overview") return { redirect: withQuery("#/", query) };
   // The native tray cannot send a query string: `/sessions/<id>/answer` opens the task with its answer box focused.
@@ -175,7 +186,7 @@ export function resolveRoute(hash: string, setupComplete: boolean | null = true,
     const destination = legacy[2] !== undefined ? `/tasks/${legacy[2]}` : legacy[1] === "review" ? "/needs-you" : "/tasks";
     if (legacy[2] === undefined || (!legacy[2].includes("/") && decode(legacy[2]) !== null)) return {redirect:withQuery(`#${destination}`,query)};
   }
-  return { ...route, ...(route.name === "add-executor" && params.has("host") ? { host: params.get("host")! } : {}), query } as Route;
+  return { ...route, ...(route.name === "add-executor" && params.has("host") ? { host: params.get("host")! } : {}), ...(route.name === "settings" && route.section === "agents" && params.get("agent") ? { agent: params.get("agent")! } : {}), query } as Route;
 }
 function match(path: string): RouteBase {
   const result = /^\/tasks\/([^/]+)\/(failure|review)$/.exec(path);

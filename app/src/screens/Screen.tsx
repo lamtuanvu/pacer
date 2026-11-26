@@ -33,7 +33,7 @@ function RouteScreen({route}:{route:Route}) {
  case 'live': return <LazyLive key={`${route.id ?? "all"}:${route.view ?? ""}`} query={route.query} runId={route.id} view={route.view}/>;
  case 'sessions': return route.id ? <LazyTrace key={route.id} id={route.id} query={route.query}/> : <Sessions query={route.query}/>;
  case 'terminal': return <LazyWorkspace id={route.id} panel={route.panel} query={route.query}/>;
- case 'settings': return <LazySettings key={route.section ?? "general"} section={route.section} query={route.query}/>;
+ case 'settings': return <LazySettings key={route.section ?? "general"} section={route.section} agent={route.agent} query={route.query}/>;
  case 'hosts': return <LazySettings key={`hosts:${route.alias ?? ""}`} section="hosts" alias={route.alias} query={route.query}/>;
  case 'add-executor': return <LazySettings key="add-executor" section="add-executor" host={route.host} query={route.query}/>;
  case 'loading': return null;

@@ -16,9 +16,9 @@ test('a settings route mounts its own controls without unrelated settings', () =
   expect(planner).not.toContain('Add account');
   expect(planner).not.toContain('Run checks');
   expect(planner).not.toContain('Settings sections');
-  const accounts = render('accounts');
-  expect(accounts).toContain('Add account');
-  expect(accounts).not.toContain('Pacing policy');
+  const agents = render('agents');
+  expect(agents).toContain('aria-label="Dispatcher sections"');
+  expect(agents).not.toContain('Pacing policy');
   const updates = render('updates');
   expect(updates).toContain('Check automatically');
   expect(updates).not.toContain('Add account');
@@ -27,7 +27,7 @@ test('a settings route mounts its own controls without unrelated settings', () =
 test('General links to settings pages rather than mounting every editor', () => {
   const html = render();
   expect(html).toContain('href="#/settings/planner"');
-  expect(html).toContain('href="#/settings/executors"');
+  expect(html).toContain('href="#/settings/agents"');
   expect(html).not.toContain('Pacing policy');
   expect(html).not.toContain('Check for updates');
 });
@@ -42,8 +42,8 @@ test('This machine is a reachable settings page with one current icon navigation
   expect(html).toContain('href="#/settings/machine"');
   expect(html.match(/aria-current="page"/g)).toHaveLength(1);
   const items = [...html.matchAll(/<a\b[^>]*class="[^"]*pc-settings-nav__item[^>]*>[\s\S]*?<\/a>/g)];
-  // Overview, Agents, Dispatcher, Model matrix, Budget & pacing, Machines, Plugins, Apps, App preferences, Diagnostics.
-  expect(items.length).toBe(10);
+  // Overview, Dispatcher, Budget & pacing, Machines, Plugins, Apps, App preferences, Diagnostics.
+  expect(items.length).toBe(8);
   for (const [item] of items) expect(item).toContain('<svg');
 });
 test('terminal picker shows Linux automatic and an existing custom template', () => {

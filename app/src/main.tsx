@@ -79,11 +79,11 @@ function App() {
       history.replaceState(null, '', accepted);
       if (navigating) return;
       navigating = true;
-      try { if (await canLeaveScreen()) { const from=accepted; accepted=target; history.replaceState(null,'',target); changeScreen(from, target, () => setHash(target)); } }
+      try { if (await canLeaveScreen(target)) { const from=accepted; accepted=target; history.replaceState(null,'',target); changeScreen(from, target, () => setHash(target)); } }
       finally { navigating=false; }
     };
     const stopControl = startClientControl(api, 'main', async route => {
-      if (!await canLeaveScreen()) return false;
+      if (!await canLeaveScreen(`#${route}`)) return false;
       const from = accepted, to = `#${route}`;
       accepted = to;
       history.replaceState(null, '', to);

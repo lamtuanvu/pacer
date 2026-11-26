@@ -70,7 +70,7 @@ function OrderWithPool({ label, title, items, onChange, pool, empty, disabled }:
             return <div key={item.key} className={`pc-executor-pool__row${unavailable ? " pc-executor-pool__row--unavailable" : ""}`}>
               <AgentMark agent={agentKey(markAgent(runner?.id ?? item.id ?? item.key, runner?.account)) ?? "opencode"} size={20} labelled={false} />
               <span className="pc-executor-pool__identity"><strong>{item.label}</strong><span onKeyDown={containTooltipEscape}>{status ? <Tooltip text={status.tooltip}><span className="pc-executor-caption" tabIndex={0}>{status.reason}</span></Tooltip> : <span className="pc-executor-caption">Refresh to confirm availability</span>}</span></span>
-              {unavailable ? <TextAction href={hrefFor(routes.settings("executors"))}>Fix</TextAction> : <IconButton geometry="board" size="sm" disabled={disabled} aria-label={`Add ${item.label}`} onClick={() => add(item.key, index)}><span aria-hidden="true">+</span></IconButton>}
+              {unavailable ? <TextAction href={hrefFor(routes.agents())}>Fix</TextAction> : <IconButton geometry="board" size="sm" disabled={disabled} aria-label={`Add ${item.label}`} onClick={() => add(item.key, index)}><span aria-hidden="true">+</span></IconButton>}
             </div>;
           }) : <p className="pc-executor-caption pc-executor-pool__empty">Every executor is in the list.</p>}
           <ButtonLink size="sm" variant="quiet" className="pc-executor-pool__setup" href={hrefFor(routes.addExecutor())}>+ Set up a new executor</ButtonLink>

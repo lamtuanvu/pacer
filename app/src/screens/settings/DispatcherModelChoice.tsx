@@ -18,7 +18,7 @@ import {
   adjustTier, applyPreset, matchingPreset, PRESETS, PRESET_LABELS, groupPreview,
   unsteeredCopy, RATED_TIERS, DIFFICULTIES, type PresetName, type RatedTier, type Difficulty,
 } from "../../model/tier-targets";
-import { hrefFor, routes, SETTINGS_SECTIONS } from "../../router";
+import { hrefFor, routes } from "../../router";
 import type { DispatcherInventory } from "./Dispatcher";
 import { withoutPlanner } from "../../model/planner";
 
@@ -159,7 +159,6 @@ export function DispatcherModelChoice({ initialConfig, initialInventory, initial
   const records = withoutPlanner(inventory.data?.models ?? [], config.data?.planner, config.data?.plannerAccount);
   const grouping = targets ? groupPreview(records, targets, defaults) : null;
   const preset = targets ? matchingPreset(targets) : "custom";
-  const hasMatrix = (SETTINGS_SECTIONS as readonly string[]).includes("models");
   const scoped = useScoped();
 
   const count = grouping?.total ?? 0;
@@ -168,10 +167,10 @@ export function DispatcherModelChoice({ initialConfig, initialInventory, initial
   let detail = "Choose the model tier for each task difficulty; harder tasks never get a smaller model.";
   if (count === 0) {
     headline = "No executors in the model inventory yet";
-    detail = "When executors are added, rate their models in the model matrix so task difficulty steers which model runs.";
+    detail = "When executors are added, size their models on the Agents tab so task difficulty steers which model runs.";
   } else if (steered === 0) {
     headline = "Task difficulty does not change any model yet";
-    detail = `${unsteeredCopy(grouping!.unrated.length, grouping!.fixed.length)} Rate models in the model matrix to make these choices count.`;
+    detail = `${unsteeredCopy(grouping!.unrated.length, grouping!.fixed.length)} Size their models on the Agents tab to make these choices count.`;
   } else {
     headline = `Task difficulty now steers ${steered} of ${count} executors`;
     detail = `Simple work goes to ${tierLabels[targets!.simple].toLowerCase()} models and complex work to ${tierLabels[targets!.complex].toLowerCase()} models.`
@@ -185,7 +184,7 @@ export function DispatcherModelChoice({ initialConfig, initialInventory, initial
         <Card className="pc-model-choice__answer">
           <div className="pc-model-choice__count"><strong>{steered}<span> of {count}</span></strong><span className="u3-muted">executors follow it</span></div>
           <div className="pc-model-choice__copy"><strong>{headline}</strong><span className="u3-muted">{detail}</span></div>
-          {hasMatrix && <div className="u3-actions"><ButtonLink href={scoped(hrefFor(routes.settings("models")))} variant="secondary" size="sm">Open model matrix</ButtonLink></div>}
+          <div className="u3-actions"><ButtonLink href={scoped(hrefFor(routes.agents()))} variant="secondary" size="sm">Size models in Agents</ButtonLink></div>
         </Card>
 
         <div className="pc-model-choice__presets" role="group" aria-label="Presets">
@@ -243,7 +242,7 @@ export function DispatcherModelChoice({ initialConfig, initialInventory, initial
               </>}
 
               {grouping.unrated.length > 0 && <>
-                <div className="pc-model-preview__group"><strong>Unrated · tier ignored · {grouping.unrated.length}</strong><span className="u3-muted">Each runs its one model for every difficulty until you rate it in the model matrix.</span></div>
+                <div className="pc-model-preview__group"><strong>Unrated · tier ignored · {grouping.unrated.length}</strong><span className="u3-muted">Each runs its one model for every difficulty until you size it on the Agents tab.</span></div>
                 {grouping.unrated.map(row => (
                   <div className="pc-model-preview__row" key={row.runner}>
                     <div className="pc-model-preview__label">{executorLabel(row.runner)}<span className="u3-muted">{row.runner}</span></div>

@@ -118,7 +118,7 @@ test("native control rows distinguish verified, actionable and unavailable execu
   expect(html).toContain('pc-pill--good">Verified</span>');
   expect(html).not.toContain('class="u3-setting"');
   expect(html).toContain("Verified");expect(html).toContain("Needs verification");expect(html).toContain("Unavailable");
-  expect(html).toContain("View executor setup");expect(html.match(/Verify control/g)).toHaveLength(1);
+  expect(html).toContain("View agents");expect(html.match(/Verify control/g)).toHaveLength(1);
   expect(html).toContain("Verification is not available for this executor yet");
   expect(html).not.toContain("Tool-result observation");
   expect(html).not.toContain("No blocking control");
