@@ -364,7 +364,7 @@
 .pc-agent-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,var(--size-220)),1fr));gap:var(--space-3)}
 .pc-agent-card{display:flex;flex-direction:column;gap:var(--space-2);min-width:0;padding:var(--space-3);border:1px solid var(--line);border-radius:var(--radius-lg)}
 .pc-agent-card__figure{font-size:var(--type-number-lg-size);line-height:var(--type-number-lg-line);font-weight:var(--type-number-lg-weight)}
-.pc-agent-fallback{display:flex;flex-wrap:wrap;align-items:flex-start;gap:var(--space-4)}
+.pc-card.pc-agent-fallback{display:flex;flex-direction:row;flex-wrap:wrap;align-items:flex-start;gap:var(--space-4)}
 .pc-agent-fallback__text{display:flex;flex:1 1 var(--size-360);min-width:0;flex-direction:column;gap:var(--space-1)}
 .pc-agent-models{overflow-x:auto;border:1px solid var(--line);border-radius:var(--radius-lg)}
 .pc-agent-models table{width:100%;min-width:var(--size-560);border-collapse:collapse;text-align:left}

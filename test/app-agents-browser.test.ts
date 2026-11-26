@@ -218,3 +218,14 @@ browserTest('with nothing pending the save bar is visually hidden, and shows aga
     expect(await bar.getAttribute('class')).not.toContain('pc-save-bar--clean');
   });
 }, 20000);
+
+browserTest('the planner fallback card keeps its switch beside the text, not under a tall empty block', async () => {
+  await open(async page => {
+    const card = page.locator('.pc-agent-fallback');
+    await card.waitFor();
+    const box = (await card.boundingBox())!, text = (await card.locator('.pc-agent-fallback__text').boundingBox())!;
+    expect(box.height).toBeLessThan(text.height + 80);
+    const toggle = (await card.getByRole('switch').boundingBox())!;
+    expect(toggle.y).toBeLessThan(text.y + text.height);
+  });
+}, 20000);
