@@ -336,6 +336,8 @@ pub async fn task_retry_options(
     params: Value,
     parts: OpFuture<'_>,
 ) -> Result<Value, CoreError> {
+    let is_executor = ctx.env.get("PACER_ROLE").map(String::as_str) == Some("executor");
+    pacer_work::authorize_work_operation(ctx, "task.retry_options", &params, is_executor)?;
     let id = parse_retry_id(&params)?;
     let mut store = pacer_store::TaskStore::open(&ctx.pacer_home)
         .map_err(|error| CoreError::new(Code::Internal, error.to_string()))?;

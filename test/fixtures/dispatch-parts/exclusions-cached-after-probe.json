@@ -1,0 +1,74 @@
+{
+  "params": {
+    "kind": "dispatch.enforcement-exclusions",
+    "repo": "<HOME>/repo",
+    "runners": [
+      "claude-code",
+      "codex",
+      "cursor",
+      "opencode#ep"
+    ],
+    "cached": true
+  },
+  "prime": true,
+  "ctx": {
+    "now": 1800000000,
+    "env": {
+      "PATH": "<HOME>/bin:/usr/bin:/bin",
+      "PACER_BIN": "<HOME>/bin/pacer"
+    },
+    "which": {
+      "claude": "<HOME>/bin/claude",
+      "codex": "<HOME>/bin/codex",
+      "cursor-agent": "<HOME>/bin/cursor-agent",
+      "opencode": "<HOME>/bin/opencode"
+    },
+    "run": {
+      "<HOME>/bin/claude": {
+        "code": 0,
+        "stdout": "2.1.281 (Claude Code)\n",
+        "stderr": ""
+      },
+      "<HOME>/bin/codex": {
+        "code": 1,
+        "stdout": "",
+        "stderr": "boom"
+      },
+      "<HOME>/bin/cursor-agent": {
+        "code": 0,
+        "stdout": "2026.11.01-abc\n",
+        "stderr": ""
+      },
+      "<HOME>/bin/opencode": {
+        "code": 0,
+        "stdout": "1.2.3\n",
+        "stderr": ""
+      }
+    }
+  },
+  "files": {
+    "strategy.yaml": "planner: claude-code\naccounts:\n  claude: {kind: claude}\n  codex: {kind: codex}\n  cursor: {kind: cursor}\n  ep: {kind: endpoint, usage: unmetered}\nexecution:\n  launch_mode: headless\nrunners:\n  claude-code: {}\n  codex: {}\n  cursor: {}\n  opencode#ep: {model: vendor/m}\n"
+  },
+  "expected": [
+    {
+      "runner": "claude-code",
+      "reason": "Native subagent control has not been verified",
+      "unverified": null
+    },
+    {
+      "runner": "codex",
+      "reason": null,
+      "unverified": "codex"
+    },
+    {
+      "runner": "cursor",
+      "reason": "Cursor has not proven that subagentStart denial prevents child startup",
+      "unverified": null
+    },
+    {
+      "runner": "opencode#ep",
+      "reason": "OpenCode permission denial needs a host-observed native canary",
+      "unverified": null
+    }
+  ]
+}

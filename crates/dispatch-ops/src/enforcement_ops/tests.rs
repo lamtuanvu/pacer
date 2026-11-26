@@ -291,18 +291,17 @@ fn authorize_token_accepts_a_live_strict_token_and_refuses_stale_ones() {
 }
 
 #[test]
-fn enforcement_stays_forwarded_follows_repo_need() {
+fn enforcement_stays_forwarded_only_for_probe() {
     let dir = tempfile::tempdir().unwrap();
     let ctx = ctx(dir.path(), &[]);
     let repo = repo_path(dir.path());
-    // An absolute, resolvable repo stays native.
+    // B2-5: dispatch parts are native, so the enforcement read never needs Core.
     assert!(!dispatch_enforcement_stays_forwarded(
         &ctx,
         "dispatch.enforcement",
         &json!({"repo": repo})
     ));
-    // A relative, unregistered repo needs Core.
-    assert!(dispatch_enforcement_stays_forwarded(
+    assert!(!dispatch_enforcement_stays_forwarded(
         &ctx,
         "dispatch.enforcement",
         &json!({"repo": "not/registered"})

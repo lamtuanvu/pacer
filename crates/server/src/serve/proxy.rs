@@ -32,10 +32,10 @@ pub fn headers(
     token: &str,
     auth: AuthKind,
 ) -> Result<(), axum::http::header::InvalidHeaderValue> {
-    let task_grant = if auth == AuthKind::Task {
-        headers.get("authorization").cloned()
-    } else {
-        None
+    let task_grant = match &auth {
+        AuthKind::Task => headers.get("authorization").cloned(),
+        AuthKind::Grant(grant) => Some(format!("Bearer {grant}").parse()?),
+        _ => None,
     };
     headers.remove("authorization");
     headers.remove("cookie");
@@ -47,10 +47,10 @@ pub fn headers(
     }
     headers.insert(
         "x-pacer-auth",
-        match auth {
+        match &auth {
             AuthKind::Bearer => "bearer",
             AuthKind::Cookie => "cookie",
-            AuthKind::Task => "task",
+            AuthKind::Task | AuthKind::Grant(_) => "task",
         }
         .parse()?,
     );

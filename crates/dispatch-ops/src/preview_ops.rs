@@ -41,7 +41,7 @@ type Object = Map<String, Value>;
 pub trait Bridge: Send {
     /// Usage-broker parts (`src/api/status-broker-bridge.ts`).
     fn status(&mut self, params: Value) -> OpFuture<'_>;
-    /// Dispatch parts (`src/api/dispatch-parts-bridge.ts`).
+    /// Dispatch parts (`pacer_dispatch::guards`), now answered natively by the caller.
     fn parts(&mut self, params: Value) -> OpFuture<'_>;
 }
 
@@ -645,7 +645,7 @@ pub async fn dispatch_preview(
     params: Value,
     bridge: &mut dyn Bridge,
 ) -> Result<Value, CoreError> {
-    authorize(ctx)?;
+    authorize(ctx, op, &params)?;
     let ctx = &Ctx {
         now: now(ctx),
         ..ctx.clone()

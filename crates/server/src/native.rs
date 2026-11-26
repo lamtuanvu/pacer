@@ -16,7 +16,6 @@ pub(crate) use pacer_core_bridge::client_control_sync;
 pub(crate) use pacer_core_bridge::config_host_sync;
 pub(crate) use pacer_core_bridge::config_sync;
 pub(crate) use pacer_core_bridge::core_bridge_sync;
-pub(crate) use pacer_core_bridge::dispatch_parts_sync;
 use pacer_discovery_ops::{discovery_ops, network_ops};
 use pacer_dispatch_ops::dependency_writes;
 use pacer_dispatch_ops::dispatch_ops;
@@ -111,7 +110,7 @@ pub(crate) use host_read_ops::{needs_host_read_bridge, needs_host_read_injection
 pub use insights_ops::insights_stays_forwarded;
 #[doc(hidden)]
 pub use machine_identity::set_identity_platform_for_tests;
-pub(crate) use msg_ops::{msg_answer_stays_forwarded, msg_stays_forwarded};
+pub(crate) use msg_ops::msg_answer_stays_forwarded;
 #[doc(hidden)]
 pub use p8_bridge_ops::bridge_params as core_bridge_params;
 pub(crate) use p8_bridge_ops::needs_core_bridge;
@@ -120,7 +119,6 @@ use pacer_config_ops::{project_strategy_ops, repo_registry_ops, strategy_preview
 #[doc(hidden)]
 pub use pacer_discovery_ops::network::set_probe_outputs_for_tests;
 pub use planning_ops::planning_stays_forwarded;
-pub(crate) use project_messaging_ops::project_messaging_stays_forwarded;
 pub(crate) use repo_ops::repo_remove_stays_forwarded;
 
 /// `terminal.*` inputs whose registry files only TypeScript reads faithfully.
@@ -129,10 +127,9 @@ pub fn terminal_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
 }
 
 /// `repo.list`, `repo.add`, `issue.*` and `project.strategy.*` inputs that only the TypeScript repository reader handles.
-pub fn repo_registry_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
+pub fn repo_registry_stays_forwarded(ctx: &Ctx, op: &str, _params: &Value) -> bool {
     repo_registry_ops::repo_list_stays_forwarded(ctx, op)
         || pacer_issues::issue_stays_forwarded(ctx, op)
-        || project_strategy_ops::project_strategy_stays_forwarded(ctx, op, params)
 }
 
 /// `job.*`, `strategy.preview` and `executor.setup.models` inputs that only TypeScript reproduces.

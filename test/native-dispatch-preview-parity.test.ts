@@ -16,9 +16,9 @@ import { git } from "./native-repo-front-door";
 import { closedPort, spawnPinned } from "./port-isolation";
 
 // Parity for the native `dispatch.preview` and `dispatch.explain` with the ladder engine. The driver
-// receives the usage-broker parts and the dispatch parts (`_internal.dispatch.parts`) TypeScript computes
-// for the same home and must answer with the same bytes; the front door is compared with forced
-// forwarding on twin homes over stdio, HTTP and MCP.
+// receives the usage-broker parts and the dispatch parts TypeScript computes directly from the sealed
+// helpers (`executorExclusion`, `enforcementExclusion`) for the same home, and must answer with the same
+// bytes; the front door is compared with forced forwarding on twin homes over stdio, HTTP and MCP.
 
 const root = resolve(import.meta.dir, "..");
 const NOW = 1_800_000_000.25;
@@ -219,8 +219,10 @@ const {toApiError} = await import(${JSON.stringify(join(root, "src/api/errors.ts
 const {defaultRun} = await import(${JSON.stringify(join(root, "src/ctx.ts"))});
 const {loadStrategy} = await import(${JSON.stringify(join(root, "src/config/strategy.ts"))});
 const {draftStrategy} = await import(${JSON.stringify(join(root, "src/strategy/service.ts"))});
-const {dispatchPartsFor} = await import(${JSON.stringify(join(root, "src/api/dispatch-parts-bridge.ts"))});
-const {certifyExecutor, resolveEnforcementTarget} = await import(${JSON.stringify(join(root, "src/dispatch/enforcement.ts"))});
+const {executorExclusion} = await import(${JSON.stringify(join(root, "src/executors/availability.ts"))});
+const {classifierConfig} = await import(${JSON.stringify(join(root, "src/config/classifier.ts"))});
+const {openReadOnlyStore} = await import(${JSON.stringify(join(root, "src/dispatch/readonly.ts"))});
+const {certifyExecutor, resolveEnforcementTarget, enforcementExclusion, enforcementExclusionCached} = await import(${JSON.stringify(join(root, "src/dispatch/enforcement.ts"))});
 const out = [];
 for (const c of await new Response(Bun.stdin.stream()).json()) {
   const which = name => existsSync(join(c.bin, name)) ? join(c.bin, name) : null;
@@ -237,11 +239,18 @@ for (const c of await new Response(Bun.stdin.stream()).json()) {
       for (const account of parts.accounts) Object.assign(account, c.patch["account:" + account.name] ?? {});
       injected = {accounts: parts.accounts, providers: parts.providers};
       statusParts = parts;
-      const runners = Object.keys(strategy.runners), extra = draft ? {draft} : {};
-      dispatchParts = {
-        guards: await dispatchPartsFor(ctx, {kind: "dispatch.executor-guards", runners, ...extra}),
-        enforcement: await dispatchPartsFor(ctx, {kind: "dispatch.enforcement-exclusions", repo: c.repo, runners, cached: c.op === "dispatch.explain", ...extra}),
-      };
+      const runners = Object.keys(strategy.runners), active = draft ? draftStrategy(ro, draft) : strategy;
+      let admissionHooks = false;
+      try { admissionHooks = classifierConfig(active).configured; } catch {}
+      const store = c.op === "dispatch.explain" ? openReadOnlyStore(ro) : null;
+      try {
+        dispatchParts = {
+          guards: {guards: runners.map(runner => ({runner, reason: executorExclusion(ro, active, runner) ?? null})), admissionHooks},
+          enforcement: await Promise.all(runners.map(async runner => c.op === "dispatch.explain"
+            ? {runner, ...await enforcementExclusionCached(ro, active, runner, c.repo, store)}
+            : {runner, reason: await enforcementExclusion(ctx, active, runner, c.repo), unverified: null})),
+        };
+      } finally { store?.close(); }
     }
   } catch {}
   let reply;
@@ -481,6 +490,9 @@ const P = "dispatch.preview", E = "dispatch.explain";
 // Core's background certification check may cache the planner binary's version at any time, so
 // explanations follow a preview, which checks every version first.
 const FRONT: Step[] = [
+  // A forwarded explain goes to Core, whose own checkedVersions is independent of the
+  // native cache. Run it first so both twins' cores see the same (empty) version cache.
+  { op: E, params: goal({ via: "dispatch" }), native: false },
   { op: P, params: goal({ kind: "debug" }), native: true },
   { op: P, params: goal({ delegationEnforcement: "cooperative" }), native: true },
   { op: P, params: { repo: KEY, goal: "g", kind: "docs" }, native: true },
@@ -490,7 +502,6 @@ const FRONT: Step[] = [
   { op: E, params: explain({ executor: "codex", delegationEnforcement: "cooperative" }), native: true },
   { op: E, params: explain({ strategyDraft: { from: "default", set: { dispatch: { onNoMatch: "fail" } } } }), native: true },
   { op: E, params: explain({ kind: "nope" }), native: true },
-  { op: E, params: goal({ via: "dispatch" }), native: false },
   { op: P, params: { repo: "app", goal: "g" }, native: false },
   { op: P, params: { repo: APP, goal: "" }, native: false },
 ];
@@ -498,8 +509,8 @@ const FRONT: Step[] = [
 for (const transport of ["stdio", "http"] as const) {
   test.skipIf(!front)(`${transport}: previews and explains ladder dispatch natively`, async () => {
     const replies = await compare(transport, { strategy: LADDER, registered: true, setup: running("codex") }, FRONT);
-    expect(replies[0]).toContain("Codex tool-result observation is not implemented");
-    expect(replies[2]).toContain('"task":{"kind":"docs"');
+    expect(replies[1]).toContain("Codex tool-result observation is not implemented");
+    expect(replies[3]).toContain('"task":{"kind":"docs"');
   }, 180_000);
 
   test.skipIf(!front)(`${transport}: a failing --version, a project policy and learned fit`, async () => {

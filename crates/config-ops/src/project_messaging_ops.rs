@@ -1,9 +1,9 @@
 //! Native repository messaging policy ops (`src/api/ops-msg.ts`). Absolute
-//! checkout paths need the Core repository probe; Node read errors, Zod issues
-//! for an unusable policy file, and nested rule or liveness issues are only
-//! reproduced by TypeScript. Those inputs stay forwarded.
+//! checkout paths resolve read-only through `pacer-repos`; Node read errors and
+//! Zod issues for nested rules, liveness and an unusable policy file are
+//! reproduced here, so every input is answered natively.
 #![allow(clippy::result_large_err)]
-use pacer_config::project_messaging::{self, liveness, project_key, rule, rules};
+use pacer_config::project_messaging::{self, liveness, project_key, rules};
 use pacer_foundation::{
     Ctx,
     api::{Code, CoreError, OpFuture},
@@ -12,25 +12,6 @@ use serde_json::{Map, Value, json};
 use std::path::Path;
 
 const MAX_SAFE: f64 = 9_007_199_254_740_991.0;
-
-pub fn project_messaging_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
-    if !op.starts_with("project.messaging.") {
-        return false;
-    }
-    let absolute = params
-        .get("repo")
-        .and_then(Value::as_str)
-        .is_some_and(|repo| Path::new(repo).is_absolute());
-    let nested = op == "project.messaging.set"
-        && (params
-            .get("rules")
-            .and_then(Value::as_array)
-            .is_some_and(|items| items.iter().any(|item| rule(item).is_none()))
-            || params
-                .get("liveness")
-                .is_some_and(|v| liveness(v).is_none()));
-    absolute || nested || project_messaging::read_projects(&ctx.pacer_home).is_err()
-}
 
 fn received(value: Option<&Value>) -> &'static str {
     match value {
@@ -123,18 +104,14 @@ fn parse(op: &str, params: Value) -> Result<Map<String, Value>, CoreError> {
     }
     if fields.contains(&"rules") {
         match map.get("rules") {
-            Some(value @ Value::Array(items)) => match rules(value) {
-                Some(rules) => {
-                    out.insert("rules".into(), rules);
+            Some(value) => {
+                if let Some(normalized) = rules(value, "rules", &mut issues) {
+                    out.insert("rules".into(), normalized);
                 }
-                None if items.iter().all(|item| rule(item).is_some()) => {
-                    issues.push("rules: Too big: expected array to have <=50 items".into());
-                }
-                None => issues.push("rules: Invalid input".into()),
-            },
-            other => issues.push(format!(
+            }
+            None => issues.push(format!(
                 "rules: Invalid input: expected array, received {}",
-                received(other)
+                received(None)
             )),
         }
     }
@@ -152,13 +129,9 @@ fn parse(op: &str, params: Value) -> Result<Map<String, Value>, CoreError> {
     }
     if fields.contains(&"liveness")
         && let Some(value) = map.get("liveness")
+        && let Some(normalized) = liveness(value, "liveness", &mut issues)
     {
-        match liveness(value) {
-            Some(value) => {
-                out.insert("liveness".into(), value);
-            }
-            None => issues.push("liveness: Invalid input".into()),
-        }
+        out.insert("liveness".into(), normalized);
     }
     let unknown: Vec<String> = map
         .keys()
@@ -177,34 +150,45 @@ fn parse(op: &str, params: Value) -> Result<Map<String, Value>, CoreError> {
     }
 }
 
-fn repo_key(params: &Map<String, Value>) -> Result<&str, CoreError> {
+/// `repoKey` in `src/api/ops-msg.ts`: a key is used as-is; an absolute checkout is
+/// resolved read-only through `pacer-repos` and its registry key is used.
+fn repo_key<'a>(ctx: &Ctx, params: &'a Map<String, Value>) -> Result<String, CoreError> {
     let repo = params["repo"].as_str().unwrap_or("");
     if project_key(repo) {
-        Ok(repo)
-    } else if Path::new(repo).is_absolute() {
-        Err(CoreError::new(
-            Code::Unavailable,
-            "absolute repository paths require the forwarded project.messaging operation",
-        ))
-    } else {
-        Err(CoreError::new(
-            Code::InvalidInput,
-            "repo must be an absolute path or a repository key",
-        ))
+        return Ok(repo.to_owned());
     }
+    if Path::new(repo).is_absolute() {
+        let resolved = pacer_repos::resolve_repo_read_only(ctx, repo, false)?;
+        return Ok(resolved["key"]
+            .as_str()
+            .unwrap_or(repo)
+            .to_owned());
+    }
+    Err(CoreError::new(
+        Code::InvalidInput,
+        "repo must be an absolute path or a repository key",
+    ))
+}
+
+fn authorize(ctx: &Ctx, op: &str, params: &Value) -> Result<(), CoreError> {
+    let is_executor = ctx.env.get("PACER_ROLE").map(String::as_str) == Some("executor");
+    pacer_work::authorize_work_operation(ctx, op, params, is_executor)
 }
 
 pub fn project_messaging_get(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
+        authorize(ctx, "project.messaging.get", &params)?;
         let p = parse("project.messaging.get", params)?;
-        project_messaging::get(&ctx.pacer_home, repo_key(&p)?)
+        let repo = repo_key(ctx, &p)?;
+        project_messaging::get(&ctx.pacer_home, &repo)
     })
 }
 
 pub fn project_messaging_set(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
+        authorize(ctx, "project.messaging.set", &params)?;
         let mut p = parse("project.messaging.set", params)?;
-        let repo = repo_key(&p)?.to_owned();
+        let repo = repo_key(ctx, &p)?;
         let expect_rev = p["expect_rev"].as_i64().unwrap_or(-1);
         let mut policy = Map::new();
         for key in ["rules", "max_turns", "liveness"] {
@@ -218,9 +202,11 @@ pub fn project_messaging_set(ctx: &Ctx, params: Value) -> OpFuture<'_> {
 
 pub fn project_messaging_remove(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
+        authorize(ctx, "project.messaging.remove", &params)?;
         let p = parse("project.messaging.remove", params)?;
+        let repo = repo_key(ctx, &p)?;
         let expect_rev = p["expect_rev"].as_i64().unwrap_or(-1);
-        project_messaging::write(ctx, repo_key(&p)?, expect_rev, None)
+        project_messaging::write(ctx, &repo, expect_rev, None)
     })
 }
 
