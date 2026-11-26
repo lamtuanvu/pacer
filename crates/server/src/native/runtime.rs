@@ -72,7 +72,7 @@ impl RunnerSpawn for CoreSpawn {
         &self,
         ctx: &Ctx,
         task_id: &str,
-        _admitted: Option<&str>,
+        admitted: Option<&str>,
     ) -> Result<Option<u32>, CoreError> {
         let argv: Vec<String> = serde_json::from_str(
             &ctx.env
@@ -86,9 +86,14 @@ impl RunnerSpawn for CoreSpawn {
         let logs = ctx.pacer_home.join("logs");
         std::fs::create_dir_all(&logs)
             .map_err(|error| CoreError::new(Code::Internal, error.to_string()))?;
-        let log = OpenOptions::new()
-            .create(true)
-            .append(true)
+        let mut options = OpenOptions::new();
+        options.create(true).append(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let log = options
             .open(pacer_lifecycle::runner_log_path(&ctx.pacer_home))
             .map_err(|error| CoreError::new(Code::Internal, error.to_string()))?;
         let mut command = Command::new(program);
@@ -96,6 +101,9 @@ impl RunnerSpawn for CoreSpawn {
         for (name, value) in &ctx.env {
             command.env(name, value);
         }
+        // The child claims its own lease in desktop-updates/admission.sqlite; our
+        // preparation lease lives in tasks.db and must not be handed to `_run`.
+        let _ = admitted;
         command
             .env("HOME", &ctx.home)
             .env("PACER_HOME", &ctx.pacer_home)
@@ -180,12 +188,19 @@ pub struct DelegateEffects {
 
 impl pacer_task_ops::task_delegation_ops::DelegationEffects for DelegateEffects {
     fn delegate<'a>(&'a self, ctx: &'a Ctx, params: &'a Value) -> OpFuture<'a> {
-        Box::pin(pacer_delegation::delegate::delegate(
-            ctx,
-            &self.runtime,
-            params,
-            None,
-        ))
+        Box::pin(async move {
+            let client = ctx.env.get("PACER_CLIENT").map(String::as_str).unwrap_or_default();
+            let origin = if client.starts_with("app")
+                || client.starts_with("desktop")
+                || client.starts_with("tui")
+                || client.starts_with("tray")
+            {
+                "human"
+            } else {
+                "external:local"
+            };
+            pacer_delegation::delegate::delegate(ctx, &self.runtime, params, Some(origin)).await
+        })
     }
 }
 

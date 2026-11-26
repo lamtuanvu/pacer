@@ -21,7 +21,7 @@ mod schema;
 mod semantics;
 mod task_diff;
 
-pub use brief::{AdmissionError, ExecutorResolution, ValidationContext};
+pub use brief::{AdmissionError, ExecutorResolution, ValidationContext, valid_base};
 pub use capacity::{
     SlotLimits, holds_slot, queue_capacity, queue_capacity_for, slot_limit, slot_use,
 };

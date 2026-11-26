@@ -7,7 +7,7 @@
 //! and supervision reach this module only through [`Runtime`].
 #![allow(clippy::result_large_err)]
 
-use std::collections::HashMap;
+use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use pacer_config::strategy::load_strategy;
@@ -301,6 +301,7 @@ fn summarize(task: &Value) -> Value {
         ("placement", "placement"),
         ("queue", "queue"),
         ("stop_pending", "stopPending"),
+        ("attempts", "attempts"),
         ("current_attempt", "pendingAttempt"),
         ("question", "question"),
         ("reviewRequest", "reviewRequest"),
@@ -308,14 +309,58 @@ fn summarize(task: &Value) -> Value {
         ("review", "review"),
         ("resolved", "resolved"),
     ] {
+        if target == "attempts" {
+            out.insert("attempts".into(), Value::Array(attempts.clone()));
+            continue;
+        }
         if let Some(value) = task.get(source) {
             out.insert(target.into(), value.clone());
         } else if matches!(target, "kind" | "requested_executor" | "placement" | "queue" | "result" | "review" | "resolved") {
             out.insert(target.into(), Value::Null);
         }
     }
-    out.insert("attempts".into(), Value::Array(attempts));
     Value::Object(out)
+}
+
+/// `canonicalAsync` (`src/core/repos.ts`): realpath when the path exists, otherwise
+/// canonicalize the longest existing ancestor and re-append the missing components.
+fn canonical_path(path: &str) -> String {
+    let original = Path::new(path);
+    if let Ok(real) = std::fs::canonicalize(original) {
+        return real.to_string_lossy().into_owned();
+    }
+    let mut cursor = original;
+    let mut missing = Vec::new();
+    while !cursor.exists() {
+        if let Some(name) = cursor.file_name() {
+            missing.push(name.to_os_string());
+        }
+        let Some(parent) = cursor.parent() else {
+            break;
+        };
+        cursor = parent;
+    }
+    let mut resolved = std::fs::canonicalize(cursor).unwrap_or_else(|_| cursor.to_path_buf());
+    for part in missing.into_iter().rev() {
+        resolved.push(part);
+    }
+    resolved.to_string_lossy().into_owned()
+}
+
+/// `summarizeTask` plus the difficulty warning the public op adds (`src/api/ops.ts:501`).
+fn with_warnings(mut reply: Value) -> Value {
+    if reply
+        .get("difficultySource")
+        .and_then(Value::as_str)
+        == Some("unspecified")
+    {
+        reply["warnings"] = json!([{
+            "code": "difficulty_missing",
+            "field": "difficulty",
+            "values": ["simple", "standard", "complex"],
+        }]);
+    }
+    reply
 }
 
 /// A UUID-shaped, process-local lease id. It is never returned to callers.
@@ -458,9 +503,35 @@ pub async fn delegate(
     params: &Value,
     origin: Option<&str>,
 ) -> Result<Value, CoreError> {
+    // Zod's op schema runs before the handler, then the handler resolves the repository
+    // and checks its directory before any strategy or admission work.
+    let requested_repo = params.get("repo").and_then(Value::as_str).unwrap_or_default();
+    let parsed =
+        pacer_lifecycle::parse_delegate_brief(params, requested_repo).map_err(|e| invalid(e.0))?;
+    let mut brief = parsed.get("brief").cloned().unwrap_or(Value::Null);
+    let repo_path = if Path::new(requested_repo).is_absolute() {
+        requested_repo.to_owned()
+    } else {
+        pacer_repos::list_repos_read_only(&ctx.pacer_home)
+            .into_iter()
+            .find(|repo| repo.key == requested_repo)
+            .map(|repo| repo.path)
+            .ok_or_else(|| invalid("repo must be an absolute path or a registered repo key"))?
+    };
+    let repo_path = canonical_path(&repo_path);
+    match std::fs::metadata(&repo_path) {
+        Ok(metadata) if metadata.is_dir() => {}
+        Ok(_) => return Err(invalid(format!("repo is not a directory: {repo_path}"))),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Err(invalid(format!("repo does not exist: {repo_path}")));
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotADirectory => {
+            return Err(invalid(format!("repo does not exist: {repo_path}")));
+        }
+        Err(_) => return Err(invalid(format!("repo folder is not responding: {repo_path}"))),
+    }
+    brief["repo"] = Value::String(repo_path.clone());
     let strategy = load_strategy(&ctx.pacer_home).map_err(|e| invalid(e.to_string()))?;
-    let parsed = pacer_lifecycle::parse_delegate_brief(params, "").map_err(|e| invalid(e.0))?;
-    let brief = parsed.get("brief").cloned().unwrap_or(Value::Null);
 
     let mut input = parsed
         .get("input")
@@ -514,12 +585,11 @@ pub async fn delegate(
             if existing.get("brief") != Some(&brief) {
                 return Err(conflict("request_id was already used for a different brief"));
             }
-            return Ok(summarize(&existing));
+            return Ok(with_warnings(summarize(&existing)));
         }
     }
 
-    let lease = begin_work(ctx, "delegate", "Delegating task")?;
-    let mut lease = Some(lease);
+    let lease = Some(begin_work(ctx, "delegate", "Delegating task")?);
 
     let result = async {
         // Plugin policy finishes before any task or session lock is taken.
@@ -562,7 +632,7 @@ pub async fn delegate(
                 validate_ctx,
                 |effective, revalidate| {
                     revalidate()?;
-                    create_and_launch(ctx, runtime, effective, origin, lease.as_deref())
+                    create_and_launch(ctx, runtime, effective, origin)
                 },
             )
         })
@@ -570,10 +640,7 @@ pub async fn delegate(
         .map_err(|error| conflict(format!("Workspace admission is busy: {error}")))?
         .map_err(admission)?;
 
-        if created.launched {
-            lease = None;
-        }
-        Ok(summarize(&created.task))
+        Ok(with_warnings(summarize(&created.task)))
     }
     .await;
 
@@ -583,7 +650,6 @@ pub async fn delegate(
 
 struct Created {
     task: Value,
-    launched: bool,
 }
 
 fn create_and_launch(
@@ -591,7 +657,6 @@ fn create_and_launch(
     runtime: &Runtime,
     input: &Value,
     origin: Option<&str>,
-    lease: Option<&str>,
 ) -> Result<Created, AdmissionError> {
     let brief = input.get("brief").cloned().unwrap_or(Value::Null);
     let now = ctx.now;
@@ -629,8 +694,8 @@ fn create_and_launch(
         .and_then(Value::as_f64)
         .unwrap_or(30.0);
     let mut task = json!({
-        "id": id,
         "rev": 1,
+        "id": id,
         "createdAt": now,
         "title": title,
         "brief": brief,
@@ -695,37 +760,20 @@ fn create_and_launch(
         })
         .map_err(|e| AdmissionError(e.to_string()))?;
 
-    let launched = match runtime.spawn.launch(ctx, &id, lease) {
-        Ok(pid) => pid.is_some(),
-        Err(_) => false,
-    };
-    let stored = state.read(&id)?.ok_or_else(|| AdmissionError("task vanished after creation".into()))?;
-    Ok(Created { task: stored, launched })
+    // A launch refusal is an error, not a silently queued task. `toCoreError`
+    // classifies a thrown runner error as `invalid_input`, as TypeScript does.
+    runtime
+        .spawn
+        .launch(ctx, &id, None)
+        .map_err(|error| AdmissionError(error.message))?;
+    let stored = state
+        .read(&id)?
+        .ok_or_else(|| AdmissionError("task vanished after creation".into()))?;
+    Ok(Created { task: stored })
 }
 
 fn state_strategy(ctx: &Ctx) -> Result<Value, AdmissionError> {
     load_strategy(&ctx.pacer_home).map_err(|e| AdmissionError(e.to_string()))
 }
 
-/// Convenience wrapper used by the op layer: accept a parsed delegate input value.
-pub async fn delegate_input(
-    ctx: &Ctx,
-    runtime: &Runtime,
-    input: &Value,
-    origin: Option<&str>,
-) -> Result<Value, CoreError> {
-    delegate(ctx, runtime, input, origin).await
-}
 
-/// Keeps the otherwise-unused import honest for callers that only need a map.
-pub fn input_fields() -> Vec<&'static str> {
-    vec![
-        "goal", "repo", "title", "request_id", "base", "source", "scope", "acceptance",
-        "constraints", "context", "acceptance_timeout_min", "kind", "executor", "worktree",
-        "timeout_min", "grant",
-    ]
-}
-
-/// Silences an unused-import warning for `HashMap` without adding a dependency.
-#[allow(dead_code)]
-fn _marker(_: HashMap<String, Value>) {}

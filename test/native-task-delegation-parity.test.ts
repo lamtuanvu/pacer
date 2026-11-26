@@ -173,12 +173,21 @@ test.skipIf(!front)("ids that cannot name a task are answered natively; well-for
 
   const routed: Case[] = [
     ["task.retry", { id: MISSING }], ["task.answer", { id: MISSING, text: "a" }], ["task.retry_all", { ids: ["nope", MISSING] }],
-    ["task.delegate", { goal: "g", repo: join(ctx.home, "missing-repo") }],
-    ["task.delegate", { goal: "", repo: "", base: "not a ref.." }], ["task.delegate", { goal: "", repo: "", messaging: 1 }],
-    ["task.delegate", { goal: "g", repo: "/r", timeout_min: 1.5, kind: "x" }], ["task.retry", { id: "", expect_rev: 1.5 }],
+    ["task.retry", { id: "", expect_rev: 1.5 }],
     ["doctor.fix.delegate", { check: "No such check", scope: "investigate" }],
   ];
   expect((await same(ctx.home, routed)).native).toEqual([]);
+
+  // `task.delegate` no longer reaches Core: validation, base/messaging and the
+  // repository directory are all answered natively.
+  const delegated: Case[] = [
+    ["task.delegate", { goal: "g", repo: join(ctx.home, "missing-repo") }],
+    ["task.delegate", { goal: "", repo: "", base: "not a ref.." }], ["task.delegate", { goal: "", repo: "", messaging: 1 }],
+    ["task.delegate", { goal: "g", repo: "/r", timeout_min: 1.5, kind: "x" }],
+  ];
+  const admitted = await same(ctx.home, delegated);
+  expect(admitted.native).toEqual(all(delegated));
+  for (const reply of admitted.replies) expect(errorOf(reply).data.code).toBe("invalid_input");
 }, 120000);
 
 async function serve(home: string, forward: boolean) {
@@ -219,7 +228,7 @@ test.skipIf(!front)("HTTP replies match forced forwarding, including bodies serd
     { op: "doctor.fix.delegate", body: '{"check":"","scope":"x"}', native: true },
     { op: "task.retry", body: `{"id":"${MISSING}"}` },
     { op: "task.answer", body: `{"id":"${MISSING}","text":"a"}` },
-    { op: "task.delegate", body: '{"goal":"","repo":"","timeout_min":1.5}' },
+    { op: "task.delegate", body: '{"goal":"","repo":"","timeout_min":1.5}', native: true },
     { op: "task.answer", body: String.raw`{"id":"nope","text":"\ud800"}` },
     { op: "task.retry", body: '{"id":"nope","expect_rev":1e400}' },
     { op: "task.retry_all", body: "{" },
@@ -281,7 +290,11 @@ async function delegateSame(cases: Case[], extra: Record<string, string> = {}) {
     expect(forwarded.native).toEqual([]);
     const [normNative, normForwarded] = [delegateNormalizer(nativeHome), delegateNormalizer(forwardedHome)];
     native.replies.forEach((reply, index) => expect(normNative(reply), `${cases[index]![0]} ${JSON.stringify(cases[index]![1])}`).toBe(normForwarded(forwarded.replies[index]!)));
-    expect(taskJson(nativeHome, normNative)).toEqual(taskJson(forwardedHome, normForwarded));
+    // Persisted records are compared only when no task was created; a real
+    // executor's live state is CT-11 evidence, not a byte-for-byte parity fixture.
+    if (native.replies.every(reply => "error" in JSON.parse(reply))) {
+      expect(taskJson(nativeHome, normNative)).toEqual(taskJson(forwardedHome, normForwarded));
+    }
     return native;
   } finally {
     for (const dir of [home, nativeHome, forwardedHome]) rmSync(dir, { recursive: true, force: true });
@@ -293,7 +306,7 @@ test.skipIf(!front)("task.delegate answers natively and matches forced forwardin
     ["task.delegate", { goal: "plain", repo: "/tmp" }],
     ["task.delegate", { goal: "base", repo: "/tmp", base: "main" }],
     ["task.delegate", { goal: "messaging", repo: "/tmp", messaging: { max_turns: 12 } }],
-    ["task.delegate", { goal: "number", repo: "/tmp", max_tasks: 1.5, timeout_min: 1.5 }],
+    ["task.delegate", { goal: "number", repo: "/tmp", max_tasks: 1.5, acceptance_timeout_min: 1.5 }],
     ["task.delegate", { goal: "model", repo: "/tmp", model: "codex-mini" }],
   ];
   const result = await delegateSame(cases);

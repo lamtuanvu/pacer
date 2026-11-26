@@ -91,6 +91,10 @@ enum Field {
     PositiveInt,
     /// `z.number().min(min).max(max)`.
     Num(f64, f64),
+    /// `z.string().refine(validBase)`, which runs `git check-ref-format --branch`.
+    Base,
+    /// `messagingOverrideSchema`: a strict object with bounded rule/turn/liveness fields.
+    Messaging,
     /// `z.boolean()`.
     Bool,
     /// `z.array(id).min(1).max(100)`.
@@ -128,6 +132,7 @@ const DELEGATE: Shape = &[
     ("model", Field::Str(Some(1), Some(256)), false),
     ("title", Field::Title, false),
     ("request_id", ID, false),
+    ("base", Field::Base, false),
     ("source", Field::Enum(&["planner", "ui", "cli"]), false),
     ("goal", NAME, true),
     ("repo", NAME, true),
@@ -145,6 +150,7 @@ const DELEGATE: Shape = &[
     ("timeout_min", Field::Num(1.0, 240.0), false),
     ("interactive", Field::Bool, false),
     ("group", Field::Group, false),
+    ("messaging", Field::Messaging, false),
     ("grant", Field::Bool, false),
 ];
 const RETRY: Shape = &[
@@ -289,7 +295,14 @@ fn field_issues(name: &str, field: Field, value: &Value, issues: &mut Vec<String
             )),
             other => issues.push(expected(name, "string", other)),
         },
-        Field::Int(min, max) | Field::Num(min, max) => match value.as_f64() {
+        Field::Int(min, max) => match value.as_f64() {
+            Some(n) if n.fract() != 0.0 => issues.push(format!(
+                "{name}: Invalid input: expected int, received number"
+            )),
+            Some(n) => number_issues(name, n, min, max, issues),
+            None => issues.push(expected(name, "number", value)),
+        },
+        Field::Num(min, max) => match value.as_f64() {
             Some(n) => number_issues(name, n, min, max, issues),
             None => issues.push(expected(name, "number", value)),
         },
@@ -299,6 +312,47 @@ fn field_issues(name: &str, field: Field, value: &Value, issues: &mut Vec<String
             }
             Some(_) => {}
             None => issues.push(expected(name, "number", value)),
+        },
+        Field::Base => match value {
+            Value::String(base) if pacer_lifecycle::valid_base(base) => {}
+            Value::String(_) => issues.push(format!(
+                "{name}: base must be a branch name or a 7–40 hex SHA"
+            )),
+            other => issues.push(expected(name, "string", other)),
+        },
+        Field::Messaging => match value {
+            Value::Object(fields) => {
+                if let Some(rules) = fields.get("rules") {
+                    match rules.as_array() {
+                        Some(items) if items.len() <= 50 => {}
+                        Some(_) => issues.push(format!(
+                            "{name}.rules: Too big: expected array to have <=50 items"
+                        )),
+                        None => issues.push(expected(&format!("{name}.rules"), "array", rules)),
+                    }
+                }
+                if let Some(turns) = fields.get("max_turns") {
+                    match turns.as_f64() {
+                        Some(n) if n.fract() == 0.0 && (1.0..=10_000.0).contains(&n) => {}
+                        Some(n) if n.fract() != 0.0 => issues.push(format!(
+                            "{name}.max_turns: Invalid input: expected int, received number"
+                        )),
+                        Some(n) if n < 1.0 => issues.push(format!(
+                            "{name}.max_turns: Too small: expected number to be >=1"
+                        )),
+                        Some(_) => issues.push(format!(
+                            "{name}.max_turns: Too big: expected number to be <=10000"
+                        )),
+                        None => issues.push(expected(&format!("{name}.max_turns"), "number", turns)),
+                    }
+                }
+                if let Some(liveness) = fields.get("liveness") {
+                    if !liveness.is_object() {
+                        issues.push(expected(&format!("{name}.liveness"), "object", liveness));
+                    }
+                }
+            }
+            other => issues.push(expected(name, "object", other)),
         },
         Field::Bool if value.is_boolean() => {}
         Field::Bool => issues.push(expected(name, "boolean", value)),
