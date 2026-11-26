@@ -1181,3 +1181,21 @@ test("hello rejection logs a rate-limited named reason to serve.log", async () =
     resetHelloRejectionLogForTests();
   }
 });
+
+test("a foreign or dev pacer under a survivor's tree is foreign, not covered by the lease", async () => {
+  const { assertNativeProcessCoverage, classifyNativeProcessCoverage } = await import("../src/update/desktop/native-provider");
+  const id = (pid: number) => ({ pid, bootId: "boot", birth: `${pid}:1` });
+  const front = "/App/Contents/Resources/pacer";
+  const processes = [
+    { process: id(10), uid: 501, parentPid: 0, name: "pacer", executable: front },              // service
+    { process: id(20), uid: 501, parentPid: 1, name: "pacer", executable: front },              // survivor runner
+    { process: id(30), uid: 501, parentPid: 20, name: "claude", executable: "/opt/homebrew/bin/claude" },
+    { process: id(40), uid: 501, parentPid: 30, name: "pacer", executable: front },             // bundled CLI hook
+    { process: id(41), uid: 501, parentPid: 30, name: "pacer-core", executable: "/App/Contents/Resources/pacer-core" },
+    { process: id(50), uid: 501, parentPid: 30, name: "pacer", executable: "/Users/x/repo/dist/pacer" }, // dev build
+  ];
+  const roles = Object.fromEntries(classifyNativeProcessCoverage(processes, id(10), [id(20)], front).map(d => [d.process.process.pid, d.role]));
+  expect(roles).toEqual({ 10: "service", 20: "lease", 40: "lease", 41: "lease", 50: "foreign" });
+  expect(() => assertNativeProcessCoverage(processes, id(10), [id(20)], front)).toThrow("Another pacer CLI process prevents desktop update");
+  expect(() => assertNativeProcessCoverage(processes.filter(p => p.process.pid !== 50), id(10), [id(20)], front)).not.toThrow();
+});

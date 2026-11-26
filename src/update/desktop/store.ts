@@ -129,8 +129,11 @@ export function writeUpdate(ctx: Ctx, next: UpdateRecord, expectRevision: number
   });
 }
 
-/** Phases where a desktop install transaction may still roll back. */
-const OPEN_TRANSACTION_PHASES = new Set<UpdateRecord["phase"]>(["reserved", "installing", "verifying", "rolling-back", "recovery-failed"]);
+/**
+ * Phases where a desktop install is in flight and may still roll back. A terminal or failed
+ * transaction (complete, restored, recovery-failed) never defers a handover.
+ */
+const OPEN_TRANSACTION_PHASES = new Set<UpdateRecord["phase"]>(["reserved", "installing", "verifying", "rolling-back"]);
 /**
  * True while any desktop update transaction may still roll back. An unreadable record counts as open,
  * so callers that must not act inside the rollback window stay conservative.

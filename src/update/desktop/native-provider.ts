@@ -1870,6 +1870,12 @@ export type NativeCoverageRole = "service" | "lease" | "verified" | "cli" | "for
 const PACER_NAME = /(^|[-_.])pacer($|[-_.])/;
 let lastCoverageLogAt = 0;
 
+function registeredCliPair(process: NativeProcess, registeredExecutable: string): boolean {
+  return process.executable !== null && (
+    process.executable === registeredExecutable ||
+    dirname(process.executable) === dirname(registeredExecutable));
+}
+
 function looksLikePacerProcess(process: NativeProcess, registeredExecutable: string): boolean {
   const name = process.executable ? basename(process.executable) : process.name;
   return (
@@ -1932,11 +1938,14 @@ export function classifyNativeProcessCoverage(
       decisions.push({ process, role: "service" });
       continue;
     }
+    // Enrolled work and its descendants are covered, but a pacer binary inside that tree
+    // must be the registered CLI pair. Survivor leases run through the swap, so a foreign
+    // or dev pacer under an agent must still block (ADR 2026-11-25, B1).
     if (
       enrolled.some((identity) => sameProcess(identity, process.process)) ||
       leaseTree.has(process.process.pid)
     ) {
-      decisions.push({ process, role: "lease" });
+      decisions.push({ process, role: registeredCliPair(process, registeredExecutable) ? "lease" : "foreign" });
       continue;
     }
     if (verifiedNative.some((identity) => sameProcess(identity, process.process))) {

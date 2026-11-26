@@ -44,3 +44,26 @@ test("unknown scenarios, malformed markers and foreign receipt transactions refu
     expect(() => exerciseSchema.parse(value)).toThrow();
   }
 });
+
+test("active-work scenarios: fixed fault points and expected outcomes", async () => {
+  const { managedExpectedPhase, newExercise, ACTIVE_WORK_SCENARIOS, MANAGED_SCENARIOS } = await import("../scripts/live/ota-exercise-record");
+  const driver = { pid: 4242, bootId: "boot", birth: "1:2" }, installation = "a".repeat(64);
+  expect(ACTIVE_WORK_SCENARIOS.every(name => (MANAGED_SCENARIOS as readonly string[]).includes(name))).toBe(true);
+  expect(newExercise("active-work", driver, installation).faults).toEqual([]);
+  expect(newExercise("active-work-rollback", driver, installation).faults).toEqual([{ point: "candidate-startup", consumed: null }]);
+  expect(newExercise("active-work-foreign", driver, installation).faults).toEqual([]);
+  expect(managedExpectedPhase("active-work")).toBe("complete");
+  expect(managedExpectedPhase("active-work-rollback")).toBe("restored");
+  expect(managedExpectedPhase("active-work-foreign")).toBeNull();
+  expect(managedExpectedPhase("upgrade")).toBe("complete");
+  expect(managedExpectedPhase("restore-failure")).toBe("recovery-failed");
+});
+
+test("survivor reservation evidence needs the admitted flag and only survivor leases", async () => {
+  const { assertSurvivorReservation } = await import("../scripts/live/ota-active-work");
+  const sample = (over: object) => ({ at: "t", reservation: "tx", survivors: true, leases: 2, survivorLeases: 2, ...over });
+  expect(() => assertSurvivorReservation([sample({})], "tx")).not.toThrow();
+  for (const bad of [{ survivors: false }, { reservation: "other" }, { survivorLeases: 1 }, { survivorLeases: 0, leases: 0 }]) {
+    expect(() => assertSurvivorReservation([sample(bad)], "tx")).toThrow("No survivor reservation");
+  }
+});

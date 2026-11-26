@@ -98,7 +98,7 @@ test("service.handover signals nothing while a desktop update can still roll bac
   expect(desktopTransactionOpen(ctx)).toBe(false);
   mkdirSync(join(ctx.pacerHome, "desktop-updates"), { recursive: true, mode: 0o700 });
   const { requestRestart } = await import("../src/update/desktop/policy");
-  const candidate = { version: "9.9.9", arch: "aarch64", sha256: "a".repeat(64), signature: "s", url: "https://example.invalid/a", protocolMajors: [3], rollbackCompatible: true, notes: "" };
+  const candidate = { version: "9.9.9", arch: "aarch64" as const, sha256: "a".repeat(64), signature: "s", url: "https://example.invalid/a", protocolMajors: [3], rollbackCompatible: true, notes: "" };
   const value = readUpdate(ctx, "desktop");
   const ready = writeUpdate(ctx, { ...value, phase: "ready", candidate, downloadedBytes: 10, totalBytes: 10, checkedAt: 100 }, value.revision);
   const waiting = requestRestart(ready, { installationId: "desktop", requestId: "r", expectRevision: ready.revision, version: candidate.version, clientId: "native-desktop" }, "boot-1");
@@ -109,6 +109,10 @@ test("service.handover signals nothing while a desktop update can still roll bac
   // Nothing was signalled: the advertisement carries no signal time.
   const { readTask } = await import("../src/tasks/store");
   expect(readTask(ctx, t.id)?.handover?.signalledAt).toBeUndefined();
+  // A failed recovery is not in flight: it never defers a handover.
+  const verifying = readUpdate(ctx, "desktop");
+  writeUpdate(ctx, { ...verifying, phase: "recovery-failed", error: { code: "recovery_failed", message: "Desktop recovery requires repair" } }, verifying.revision);
+  expect(desktopTransactionOpen(ctx)).toBe(false);
 });
 
 test("concurrent handovers in one service share a single run", async () => {

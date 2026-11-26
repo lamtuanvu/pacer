@@ -48,7 +48,7 @@ test("survivor leases and the stored work they cover stop blocking only when sup
   expect(row(ctx).survivors).toBeUndefined();
 
   // With support, survivors and the task/run they own are not blockers; the reservation records it.
-  expect(await reserveIdle(ctx, "tx-a", { survivors: true })).toEqual({ reserved: true, blockers: [] });
+  expect(await reserveIdle(ctx, "tx-a", { survivors: true, target: "0.18.7" })).toEqual({ reserved: true, blockers: [] });
   expect(row(ctx)).toMatchObject({ reservation: "tx-a", survivors: true });
   // No new work starts during the reservation, and the refusal is recognizable for waiting callers.
   let refusal: unknown;
@@ -67,7 +67,7 @@ test("an ordinary lease or uncovered stored work still blocks a survivor reserva
   const runner = claimed(ctx, { kind: "task", id: "other-task", label: "Task other" });
   markSurvivorSync(ctx, runner);
   const queue = claimed(ctx, { kind: "operation", id: "queue-drain", label: "Queue drain" });
-  const result = await reserveIdle(ctx, "tx-b", { survivors: true });
+  const result = await reserveIdle(ctx, "tx-b", { survivors: true, target: "0.18.7" });
   expect(result.reserved).toBe(false);
   expect(result.blockers.map(b => b.label)).toEqual(["Queue drain", task, `Session ${task}`]);
   finishWorkSync(ctx, queue);
@@ -88,12 +88,17 @@ test("only this incarnation's local leases can be marked", () => {
 });
 
 test("support needs the installed bundle (helper and rollback target) and the update target", () => {
-  expect(survivorSupport(SURVIVOR_LEASES_SINCE, SURVIVOR_LEASES_SINCE)).toBe(true);
-  expect(survivorSupport("0.19.0", "0.19.1")).toBe(true);
-  expect(survivorSupport("0.18.6", "0.19.0")).toBe(false);
-  expect(survivorSupport("0.19.0", "0.18.6")).toBe(false);
-  expect(survivorSupport("0.19.0", undefined)).toBe(false);
-  expect(survivorSupport("not-a-version", "0.19.0")).toBe(false);
+  expect(survivorSupport(SURVIVOR_LEASES_SINCE, SURVIVOR_LEASES_SINCE, false)).toBe(true);
+  expect(survivorSupport("0.19.0", "0.19.1", false)).toBe(true);
+  expect(survivorSupport("0.18.6", "0.19.0", false)).toBe(false);
+  expect(survivorSupport("0.19.0", "0.18.6", false)).toBe(false);
+  expect(survivorSupport("0.19.0", undefined, false)).toBe(false);
+  expect(survivorSupport("not-a-version", "0.19.0", false)).toBe(false);
+  // Only a compiled OTA fixture build (its own 0.2.x versions) is exempt from the release floor.
+  expect(survivorSupport("0.2.3", "0.2.4", true)).toBe(true);
+  expect(survivorSupport("0.2.3", undefined, true)).toBe(false);
+  // Tests run uncompiled: no fixture policy, so the default is the release floor.
+  expect(survivorSupport("0.2.3", "0.2.4")).toBe(false);
   expect(maintenanceReserved(new CoreError("conflict", "Desktop reservation conflict"))).toBe(false);
 });
 
@@ -123,4 +128,37 @@ test("a surviving runner's next attempt waits for the swap instead of failing", 
   expect((await reserveIdle(ctx, "tx-e")).reserved).toBe(true);
   await expect(withAttemptWork(ctx, "t-2", async () => "ran", { maxMs: 0, sleep: async () => {} })).rejects.toThrow("maintenance");
   resetHandoverState();
+});
+
+test("a PTY run's lease is a start until its session host claims it", async () => {
+  const ctx = context(), task = "t-20261126-000000-cccc", dir = runningTask(ctx, task);
+  writeFileSync(join(dir, "session.json"), "{}");
+  // The runner began the session lease (pending) and advertised handover before the host claimed it.
+  const pending = beginWorkSync(ctx, { kind: "session", id: "s", label: "Executor session" });
+  attachRunEvidenceSync(ctx, pending, dir);
+  markRunSurvivorsSync(ctx, dir);
+  expect(row(ctx).leases[0].class).toBeUndefined();
+  const result = await reserveIdle(ctx, "tx-f", { survivors: true, target: "0.18.7" });
+  expect(result.reserved).toBe(false);
+  expect(result.blockers.map(b => b.label)).toContain("Executor session");
+  finishWorkSync(ctx, pending);
+});
+
+test("a session host survives only within the target's support window", async () => {
+  const { writeSessionVersion } = await import("../src/session/protocol");
+  const { currentVersion } = await import("../src/update/version");
+  const ctx = context(), task = "t-20261126-000000-dddd", dir = runningTask(ctx, task);
+  writeFileSync(join(dir, "session.json"), "{}");
+  const host = claimed(ctx, { kind: "session", id: "h", label: "Executor session" });
+  attachRunEvidenceSync(ctx, host, dir);
+  markSurvivorSync(ctx, host);
+  // No session.version yet: the host is not proven supported, so it blocks.
+  expect((await reserveIdle(ctx, "tx-g", { survivors: true, target: currentVersion() })).reserved).toBe(false);
+  writeSessionVersion(dir, null);
+  const [major, minor] = currentVersion().split(".").map(Number);
+  expect((await reserveIdle(ctx, "tx-g", { survivors: true, target: `${major}.${minor + 4}.0` })).reserved).toBe(false);
+  expect((await reserveIdle(ctx, "tx-g", { survivors: true, target: currentVersion() })).reserved).toBe(true);
+  // A survivor reservation without a target never admits survivors.
+  await releaseReservation(ctx, "tx-g");
+  expect((await reserveIdle(ctx, "tx-h", { survivors: true })).reserved).toBe(false);
 });

@@ -1,10 +1,12 @@
 import { existsSync, readFileSync } from "node:fs";
+import { hostSupported, readSessionVersion } from "../../session/protocol";
 import { join, relative, resolve, sep } from "node:path";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { Ctx } from "../../types";
 import { CoreError } from "../../core/errors";
 import { compareVersions } from "../version";
+import { compiledNativeFixture } from "./native-fixture";
 import { assertIdentifier, type Blocker } from "./types";
 import { withDesktopCoordinator } from "./coordinator";
 import { optionalFence } from "./reconciliation-fence";
@@ -95,7 +97,7 @@ export async function finishWork(ctx: Ctx, leaseId: string): Promise<void> { fin
  * survivor leases and the stored work they cover do not block; the native helper verifies
  * each survivor process before it installs. Every other lease, start and stored record blocks.
  */
-export async function reserveIdle(ctx: Ctx, transactionId: string, options: { survivors?: boolean } = {}): Promise<{ reserved: boolean; blockers: Blocker[] }> {
+export async function reserveIdle(ctx: Ctx, transactionId: string, options: { survivors?: boolean; target?: string } = {}): Promise<{ reserved: boolean; blockers: Blocker[] }> {
   assertIdentifier(transactionId);
   await reconcileAdmission(ctx);
   const external = await externalBlockers(ctx);
@@ -103,7 +105,7 @@ export async function reserveIdle(ctx: Ctx, transactionId: string, options: { su
     pruneDeadLocalLeases(state);
     if (optionalFence(db)?.transaction) throw new CoreError("conflict", "Reconciliation maintenance is reserved");
     if (state.reservation && state.reservation !== transactionId) throw new CoreError("conflict", "Desktop reservation conflict");
-    const survivors = options.survivors ? state.leases.filter(survivorLease) : [];
+    const survivors = options.survivors && options.target ? state.leases.filter(lease => survivorLease(lease, options.target!)) : [];
     const blockers = [
       ...state.leases.filter(lease => !survivors.includes(lease)).map(lease => lease.blocker),
       ...storedBlockers(ctx).filter(blocker => !coveredBySurvivor(ctx, blocker, survivors)),
@@ -117,9 +119,20 @@ export async function reserveIdle(ctx: Ctx, transactionId: string, options: { su
 }
 
 type Lease = z.infer<typeof leaseSchema>;
-/** A claimed local lease of a handover-capable process; Orca and remote work never survive. */
-function survivorLease(lease: Lease): boolean {
-  return lease.class === "survivor" && !!lease.process && !lease.orca && !lease.remote;
+/**
+ * A local lease of a handover-capable process; Orca and remote work never survive. A session
+ * host survives only when the update target still supports it (the three-minor window), and a
+ * run whose host has not claimed its lease yet is a start, which blocks.
+ */
+function survivorLease(lease: Lease, target: string): boolean {
+  if (lease.class !== "survivor" || !lease.process || lease.orca || lease.remote) return false;
+  if (!lease.runDir) return true;
+  if (lease.state === "pending" && existsSync(join(lease.runDir, "session.json"))) return false;
+  if (existsSync(join(lease.runDir, "session.json"))) {
+    const host = readSessionVersion(lease.runDir);
+    return !!host && hostSupported(host, target);
+  }
+  return true;
 }
 /** A stored running task or unfinished run is covered when a survivor lease owns it. */
 function coveredBySurvivor(ctx: Ctx, blocker: Blocker, survivors: readonly Lease[]): boolean {
@@ -143,9 +156,13 @@ export const SURVIVOR_LEASES_SINCE = "0.18.7";
  * ADR point 3: survivors only when the installed helper and rollback target (the installed
  * bundle), this service and the update target all declare support. Otherwise wait for idle.
  */
-export function survivorSupport(installed: string, target: string | undefined): boolean {
+export function survivorSupport(installed: string, target: string | undefined, fixture = compiledNativeFixture() !== null): boolean {
+  // OTA fixture builds (dev.pacer.desktop.fixture, compiled PACER_BUILD_OTA_FIXTURE) carry their
+  // own small versions (0.2.x) and are built from this source, so they support survivors. A release
+  // build cannot set the compiled fixture policy; there is no runtime override.
+  const since = fixture ? "0.0.0" : SURVIVOR_LEASES_SINCE;
   try {
-    return !!target && compareVersions(installed, SURVIVOR_LEASES_SINCE) >= 0 && compareVersions(target, SURVIVOR_LEASES_SINCE) >= 0;
+    return !!target && compareVersions(installed, since) >= 0 && compareVersions(target, since) >= 0;
   } catch { return false; }
 }
 
@@ -166,7 +183,10 @@ export function markRunSurvivorsSync(ctx: Ctx, runDir: string): void {
   const dir = resolve(runDir);
   mutate(ctx, state => {
     for (const lease of state.leases) {
-      if (lease.owner === incarnation && lease.runDir && resolve(lease.runDir) === dir && lease.process && !lease.orca && !lease.remote) lease.class = "survivor";
+      if (lease.owner !== incarnation || !lease.runDir || resolve(lease.runDir) !== dir || !lease.process || lease.orca || lease.remote) continue;
+      // A PTY run's lease is claimed and marked by its session host; until then it is a start.
+      if (lease.state === "pending" && existsSync(join(lease.runDir, "session.json"))) continue;
+      lease.class = "survivor";
     }
   });
 }

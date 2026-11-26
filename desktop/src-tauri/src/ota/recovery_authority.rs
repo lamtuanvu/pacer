@@ -121,12 +121,24 @@ fn read_admission(
             return Err(OtaError::Identity);
         }
         let trust = super::trust::ReleaseTrust::configured().ok_or(OtaError::Identity)?;
+        let verify = |identity: &super::native::ProcessIdentity| {
+            trust
+                .verify_process(identity, super::trust::CodeRole::Cli)
+                .map(|_| ())
+        };
+        let mut roots = Vec::new();
         for lease in leases {
-            verify_survivor(lease, |identity| {
-                trust
-                    .verify_process(identity, super::trust::CodeRole::Cli)
-                    .map(|_| ())
-            })?;
+            if let Some(root) = verify_survivor(lease, verify)? {
+                roots.push(root);
+            }
+        }
+        // Agents run other programs: every pacer binary under a survivor must be the
+        // release-signed CLI too, or a foreign or dev pacer would run through the swap.
+        if !roots.is_empty() {
+            let inventory = super::control::native_process_inventory()?;
+            for identity in survivor_tree_pacer_processes(&roots, &inventory) {
+                verify(&identity)?;
+            }
         }
     }
     let held = match state.get("reservation") {
@@ -151,13 +163,14 @@ fn read_admission(
 }
 
 /// One survivor lease under a reservation: it must say `class: "survivor"` and
-/// name a process. A process that no longer exists (or whose PID now belongs to
-/// another incarnation) runs no code and is accepted; a live one must verify.
+/// name a process. A process that no longer exists runs no code and is accepted
+/// (`None`); a PID now owned by another incarnation is ambiguous and blocks; a
+/// live one must verify and is returned as a process-tree root.
 #[cfg(target_os = "macos")]
 fn verify_survivor(
     lease: &serde_json::Value,
     verify: impl Fn(&super::native::ProcessIdentity) -> Result<(), OtaError>,
-) -> Result<(), OtaError> {
+) -> Result<Option<super::native::ProcessIdentity>, OtaError> {
     if lease.get("class").and_then(serde_json::Value::as_str) != Some("survivor") {
         return Err(OtaError::Identity);
     }
@@ -182,11 +195,54 @@ fn verify_survivor(
         birth: text("birth")?,
     };
     match super::native::process_details(pid) {
-        Ok(None) => Ok(()),
-        Ok(Some(details)) if details.identity != expected => Ok(()),
-        Ok(Some(_)) => verify(&expected),
+        Ok(None) => Ok(None),
+        Ok(Some(details)) if details.identity != expected => Err(OtaError::Identity),
+        Ok(Some(_)) => verify(&expected).map(|()| Some(expected)),
         Err(_) => Err(OtaError::Identity),
     }
+}
+
+/// The pacer-named processes (the service coverage rule: a `pacer` name
+/// component) in the process trees under the given live survivor roots.
+#[cfg(target_os = "macos")]
+fn survivor_tree_pacer_processes(
+    roots: &[super::native::ProcessIdentity],
+    inventory: &[super::native::ProcessDetails],
+) -> Vec<super::native::ProcessIdentity> {
+    let mut tree: std::collections::HashSet<u32> = inventory
+        .iter()
+        .filter(|details| roots.contains(&details.identity))
+        .map(|details| details.identity.pid)
+        .collect();
+    loop {
+        let before = tree.len();
+        for details in inventory {
+            if tree.contains(&details.parent_pid) {
+                tree.insert(details.identity.pid);
+            }
+        }
+        if tree.len() == before {
+            break;
+        }
+    }
+    inventory
+        .iter()
+        .filter(|details| {
+            tree.contains(&details.identity.pid) && !roots.contains(&details.identity)
+        })
+        .filter(|details| {
+            details
+                .executable
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(pacer_named)
+        })
+        .map(|details| details.identity.clone())
+        .collect()
+}
+#[cfg(target_os = "macos")]
+fn pacer_named(name: &str) -> bool {
+    name.split(['-', '_', '.']).any(|part| part == "pacer")
 }
 
 #[cfg(target_os = "macos")]
@@ -450,22 +506,29 @@ mod tests {
         let gone = serde_json::json!({"pid": 999_999, "bootId": "boot", "birth": "1:2"});
         let ok = |_: &super::super::native::ProcessIdentity| Ok(());
         let refuse = |_: &super::super::native::ProcessIdentity| Err(OtaError::Identity);
-        // Gone processes run no code; a reused PID is a different incarnation.
-        assert!(verify_survivor(
-            &serde_json::json!({"class": "survivor", "process": gone}),
-            refuse
-        )
-        .is_ok());
+        // Gone processes run no code; a PID now owned by another incarnation blocks.
+        assert_eq!(
+            verify_survivor(
+                &serde_json::json!({"class": "survivor", "process": gone}),
+                refuse
+            ),
+            Ok(None)
+        );
         let mut reused = own_identity();
         reused["birth"] = serde_json::json!("0:0");
-        assert!(verify_survivor(
-            &serde_json::json!({"class": "survivor", "process": reused}),
-            refuse
-        )
-        .is_ok());
+        assert_eq!(
+            verify_survivor(
+                &serde_json::json!({"class": "survivor", "process": reused}),
+                ok
+            ),
+            Err(OtaError::Identity)
+        );
         // A live survivor must verify; ordinary or process-less leases never pass.
         let live = serde_json::json!({"class": "survivor", "process": own_identity()});
-        assert!(verify_survivor(&live, ok).is_ok());
+        assert_eq!(
+            verify_survivor(&live, ok).unwrap().unwrap().pid,
+            std::process::id()
+        );
         assert_eq!(verify_survivor(&live, refuse), Err(OtaError::Identity));
         assert!(verify_survivor(&serde_json::json!({"process": own_identity()}), ok).is_err());
         assert!(verify_survivor(
@@ -476,6 +539,42 @@ mod tests {
         assert!(
             verify_survivor(&serde_json::json!({"class": "other", "process": gone}), ok).is_err()
         );
+    }
+    #[test]
+    fn pacer_binaries_under_a_survivor_are_found_for_verification() {
+        use super::super::native::{ProcessDetails, ProcessIdentity};
+        let id = |pid: u32| ProcessIdentity {
+            pid,
+            boot_id: "b".into(),
+            birth: format!("{pid}:0"),
+        };
+        let process = |pid: u32, parent: u32, path: &str| ProcessDetails {
+            identity: id(pid),
+            executable: path.into(),
+            uid: 501,
+            parent_pid: parent,
+        };
+        let inventory = vec![
+            process(10, 1, "/Applications/pacer.app/Contents/Resources/pacer"), // survivor
+            process(20, 10, "/opt/homebrew/bin/claude"),                        // its agent
+            process(30, 20, "/Users/x/repo/dist/pacer"),                        // dev pacer
+            process(31, 30, "/Users/x/repo/dist/pacer-core"),
+            process(40, 20, "/bin/sh"),
+            process(50, 1, "/Users/x/repo/dist/pacer"), // outside every tree
+        ];
+        let found: Vec<u32> = survivor_tree_pacer_processes(&[id(10)], &inventory)
+            .into_iter()
+            .map(|identity| identity.pid)
+            .collect();
+        assert_eq!(found, vec![30, 31]);
+        assert!(pacer_named("pacer-assistant-pacer") && pacer_named("pacer"));
+        assert!(!pacer_named("pacerx") && !pacer_named("claude"));
+        // A root whose incarnation differs anchors no tree.
+        let other = ProcessIdentity {
+            birth: "other".into(),
+            ..id(10)
+        };
+        assert!(survivor_tree_pacer_processes(&[other], &inventory).is_empty());
     }
     #[test]
     fn reservation_with_survivors_needs_the_admitted_flag() {

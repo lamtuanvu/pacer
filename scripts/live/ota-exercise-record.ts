@@ -1,7 +1,14 @@
 import { z } from "zod";
 
 export const fixtureProcessSchema = z.object({ pid: z.number().int().positive(), bootId: z.string().min(1).max(128), birth: z.string().min(1).max(128) }).strict();
-export const MANAGED_SCENARIOS = ["upgrade", "startup-failure", "helper-crash", "interrupted-install", "restore-failure"] as const;
+export const MANAGED_SCENARIOS = ["upgrade", "startup-failure", "helper-crash", "interrupted-install", "restore-failure", "active-work", "active-work-rollback", "active-work-foreign"] as const;
+/** Managed scenarios that update while running work survives (ADR 2026-11-25). */
+export const ACTIVE_WORK_SCENARIOS = ["active-work", "active-work-rollback", "active-work-foreign"] as const;
+/** The public terminal phase a managed scenario must reach; `null` means no install may start. */
+export function managedExpectedPhase(scenario: string): "complete" | "restored" | "recovery-failed" | null {
+  if (scenario === "active-work-foreign") return null;
+  return scenario === "upgrade" || scenario === "active-work" ? "complete" : scenario === "restore-failure" ? "recovery-failed" : "restored";
+}
 /** Scenarios that start Desktop attached to the lease's one external service. */
 export const ATTACHED_SCENARIOS = ["adopt", "adopt-failure", "attached"] as const;
 export const TAKEOVER_SCENARIOS = ["takeover", "takeover-relink", "takeover-dismiss", "takeover-failure", "takeover-crash"] as const;
@@ -15,6 +22,7 @@ export const NATIVE_SCENARIOS = [...MANAGED_SCENARIOS, ...ATTACHED_SCENARIOS, ..
 const points = {
   upgrade: [], "startup-failure": ["candidate-startup"], "helper-crash": ["authorized"],
   "interrupted-install": ["installed"], "restore-failure": ["candidate-startup", "restore"],
+  "active-work": [], "active-work-rollback": ["candidate-startup"], "active-work-foreign": [],
   adopt: [], "adopt-failure": ["adoption-startup"], attached: [],
   takeover: [], "takeover-relink": [], "takeover-dismiss": [], "takeover-failure": ["takeover-startup"], "takeover-crash": ["takeover-switch"],
   "consent-use-app": [], "consent-plain-existing": [], "consent-use-app-busy": [], "consent-use-app-dismiss": [], "consent-use-app-restart": [],

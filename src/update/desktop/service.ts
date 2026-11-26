@@ -397,9 +397,10 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
           const { markSetupHealthRequired } = await import("../../install/setup-health-store");
           markSetupHealthRequired(ctx());
         } catch { /* Health stamp is best-effort after a committed desktop update. */ }
-        signalCommitted(transactionId);
       }
-      await release(id, transactionId);
+      // Hand over only after the reservation is released, so replacement runners can start.
+      try { await release(id, transactionId); }
+      finally { if (completed) signalCommitted(transactionId); }
       recoveryAttempts.delete(id);
     } catch (error) {
       const value = record(id);
@@ -438,7 +439,7 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
     await native.reverify(session);
     if (!isCurrent(session) || stopped) { revokeWaiting(id); return; }
     const survivors = admission.survivorSupport(installation(id).version, value.candidate?.version);
-    const reservation = installation(id).ownership === "attached" ? { reserved: true, blockers: [] } : await gate.reserveIdle(ctx(), tx, { survivors });
+    const reservation = installation(id).ownership === "attached" ? { reserved: true, blockers: [] } : await gate.reserveIdle(ctx(), tx, { survivors, target: value.candidate?.version });
     value = record(id);
     if (value.phase !== "waiting" || value.transactionId !== tx || !isCurrent(session) || stopped) {
       if (reservation.reserved) await release(id, tx);

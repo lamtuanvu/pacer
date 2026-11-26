@@ -11,7 +11,8 @@ import { ownProcessIdentity, processIdentity, sameProcess, type ProcessIdentity 
 import { healthy, loadSession, record, sourceServiceMatchesExecutable } from "./core";
 import { recordOtaEvent } from "./ota-evidence";
 import { assertFixtureLayoutScenario, readOtaRecord, resumeOtaStartup, updateOtaDriverRecord, type OtaOptions } from "./ota";
-import { MANAGED_SCENARIOS, newExercise, resumableStartup } from "./ota-exercise-record";
+import { ACTIVE_WORK_SCENARIOS, MANAGED_SCENARIOS, managedExpectedPhase, newExercise, resumableStartup } from "./ota-exercise-record";
+import { assertSurvivorReservation, assertSurvivorsAlive, closeSurvivorWork, handoverLines, sampleAdmission, startForeignPacer, startSurvivorWork, type AdmissionSample, type SurvivorWork } from "./ota-active-work";
 import { verifyExerciseOutcome, verifyExerciseSurvivors } from "./ota-outcome";
 import { fixtureRequest, retryFixtureRevision } from "./ota-request";
 import { fixtureEnvironment, fixtureInstallation, inspectFixtureJobs, seedFixtureConsent, verifyFixtureBundle } from "./ota-native";
@@ -86,6 +87,10 @@ export async function runManagedExercise(id: string, scenario: string, options: 
   const token = privateFixtureBytes(join(state.pacerHome, "token"), 4096).toString("utf8").trim();
   const client = new HttpClient(`http://127.0.0.1:${session.port}`, token, { protocol: 3, timeoutMs: 30000 });
   let unsubscribe = () => {};
+  const activeWork = (ACTIVE_WORK_SCENARIOS as readonly string[]).includes(scenario);
+  let work: SurvivorWork | null = null, foreign: ReturnType<typeof startForeignPacer> | null = null;
+  const admissionSamples: AdmissionSample[] = [];
+  let admissionTrace: ReturnType<typeof setInterval> | undefined;
   let journalTrace: ReturnType<typeof setInterval> | undefined;
   let journalTraceFd: number | undefined;
   try {
@@ -168,8 +173,38 @@ export async function runManagedExercise(id: string, scenario: string, options: 
         writeSync(journalTraceFd, line); traceBytes += Buffer.byteLength(line); lastJournalRevision = value.revision;
       } catch { /* Observation never authorizes a native effect or changes its result. */ }
     }, 100);
+    if (activeWork) {
+      // Running work the update must keep: terminal session hosts mark their own leases survivors.
+      work = await startSurvivorWork(client, state.pacerHome);
+      if (scenario === "active-work-foreign") foreign = startForeignPacer(join(session.root, "evidence"));
+      admissionTrace = setInterval(() => {
+        try { const sample = sampleAdmission(state.pacerHome); if (sample && admissionSamples.length < 20000) admissionSamples.push(sample); }
+        catch { /* Observation only. */ }
+      }, 100);
+    }
     await mutate("restart", { version: "0.2.4" });
-    const expected = scenario === "upgrade" ? "complete" : scenario === "restore-failure" ? "recovery-failed" : "restored";
+    const expectedPhase = managedExpectedPhase(scenario);
+    if (expectedPhase === null) {
+      // A foreign pacer process must keep the install from starting: no authorized transaction,
+      // the baseline bundle unchanged, and the running work untouched.
+      await Bun.sleep(60000);
+      const latest = await status();
+      if (["installing", "verifying", "complete", "restored"].includes(latest.phase)) throw Error(`Update proceeded past a foreign pacer process (${latest.phase})`);
+      await verifyFixtureBundle(readOtaRecord(id, options), "0.2.3");
+      assertSurvivorsAlive(state.pacerHome, work!);
+      foreign?.stop(); foreign = null;
+      // Withdraw the waiting restart so the fixture can be torn down cleanly.
+      if (latest.phase === "waiting") {
+        const current = await status();
+        await client.call("desktop.update.cancel", { installationId, requestId: `fixture-${randomUUID()}`, expectRevision: current.revision }).catch(() => {});
+      }
+      writeFileSync(join(session.root, "evidence/active-work-admission.json"), JSON.stringify(admissionSamples.slice(-2000), null, 2) + "\n", { flag: "wx", mode: 0o600 });
+      record(session, { kind: "note", behavior: `OTA ${scenario}`, surface: "desktop / public API / native coverage", verdict: "PASS", text: `A foreign pacer process kept the update from installing (last phase ${latest.phase}${latest.error ? `: ${latest.error.message}` : ""}); the fixture stayed on 0.2.3 and ${work!.terminals.length} terminal hosts kept running.` });
+      state = readOtaRecord(id, options);
+      updateOtaDriverRecord(id, state, { runtime: { ...state.runtime!, request: null }, exercise: { ...state.exercise!, state: "complete" } }, options);
+      return;
+    }
+    const expected = expectedPhase;
     let outcome: UpdateStatus | undefined;
     if (scenario === "restore-failure") {
       // This fault deliberately prevents the service from being relaunched.
@@ -224,6 +259,17 @@ export async function runManagedExercise(id: string, scenario: string, options: 
       }
       if (!survived) throw Error("Final desktop/service survival after native retirement was not established");
     }
+    if (activeWork && work) {
+      clearInterval(admissionTrace); admissionTrace = undefined;
+      writeFileSync(join(session.root, "evidence/active-work-admission.json"), JSON.stringify(admissionSamples.slice(-2000), null, 2) + "\n", { flag: "wx", mode: 0o600 });
+      assertSurvivorReservation(admissionSamples, tx);
+      assertSurvivorsAlive(state.pacerHome, work);
+      // Exactly one handover on commit; none when the update rolled back.
+      const lines = handoverLines(state.pacerHome, work.logOffset);
+      const wanted = expected === "complete" ? 1 : 0;
+      if (lines.length !== wanted) throw Error(`Expected ${wanted} commit handover log line(s), found ${lines.length}`);
+      record(session, { kind: "note", behavior: `OTA ${scenario} running work`, surface: "native admission / service log", verdict: "PASS", text: `${work.terminals.length} terminal hosts survived as the same incarnations; the reservation admitted survivor leases; ${wanted ? `one handover on commit: ${lines[0]!.slice(0, 300)}` : "no handover after rollback"}. Headless runner and executor-session survivors are not exercised by this driver.` });
+    }
     const realAppAfter = snapshotRealApp(enumerateNativeProcesses());
     writeFileSync(realAppEvidence.after, JSON.stringify(realAppAfter, null, 2) + "\n", { flag: "wx", mode: 0o600 });
     assertRealAppUnchanged(realApp, realAppAfter);
@@ -236,6 +282,9 @@ export async function runManagedExercise(id: string, scenario: string, options: 
     throw error;
   } finally {
     clearInterval(journalTrace);
+    clearInterval(admissionTrace);
+    try { foreign?.stop(); } catch { /* The foreign process is ours; a failed stop is reported by the next run. */ }
+    if (activeWork) await closeSurvivorWork(client, work).catch(() => {});
     try { if (journalTraceFd !== undefined) closeSync(journalTraceFd); }
     finally { try { unsubscribe(); } finally { client.close(); } }
     if (!existsSync(realAppEvidence.after)) try {
