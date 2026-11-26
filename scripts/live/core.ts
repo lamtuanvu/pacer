@@ -126,6 +126,11 @@ export function validateFrontDoor(frontDoor: string | undefined): void {
 }
 /** Inherited PACER_* settings that only change presentation or diagnostics, never identity or authority. */
 export const SANDBOX_PASSTHROUGH = ["PACER_THEME", "PACER_COLOR", "PACER_ASCII", "PACER_PLAIN", "PACER_NO_ANIM", "PACER_LOGIN_ENV", "PACER_TRACE_STATUS", "PACER_ASSISTANT_PACER_BIN"];
+/**
+ * Marks processes the sandbox launched, so the guard can tell their identity from an outer session's.
+ * env.sh never exports it: a shell that sources env.sh keeps its own identity, which stays outside.
+ */
+export const SANDBOX_MARK = "PACER_LIVE_SANDBOX";
 export function sandboxEnv(session: Session, inherited = process.env): NodeJS.ProcessEnv {
   // The sandbox sets every PACER_* value it needs. Other inherited ones, such as an executor's
   // PACER_ROLE, task id, work grant or tokens, would make the sandbox act as that session, so they
@@ -149,6 +154,10 @@ export function sandboxEnv(session: Session, inherited = process.env): NodeJS.Pr
     // Marks the sandbox service as the live harness so PACER_TEST_ENTRY_LEASE_S /
     // PACER_TEST_START_DELAY_MS (read once at serve boot onto Ctx) are honored.
     PACER_LIVE_HARNESS: "1",
+    [SANDBOX_MARK]: session.root,
+    // A login shell would put the user's own agent CLIs ahead of the sandbox's on an executor's PATH
+    // and could spend real quota, so it is off unless the caller chose a value.
+    PACER_LOGIN_ENV: inherited.PACER_LOGIN_ENV || "off",
     PACER_ORCA_USER_DATA: join(session.root, "orca-profile"),
     ...(session.seed ? {
       HOME: join(session.root, "home"),
@@ -165,7 +174,7 @@ export function shellQuote(value: string): string {
 }
 export function environmentScript(session: Session): string {
   const env = sandboxEnv(session);
-  return ["PATH", "PACER_BIN", "PACER_HOME", "PACER_PORT", "PACER_BACKEND", "PACER_NO_UPDATE_CHECK", "PACER_LIVE_HARNESS", "PACER_ORCA_USER_DATA", ...(session.frontDoor === "rust" ? ["PACER_CORE_ARGV"] : []),
+  return ["PATH", "PACER_BIN", "PACER_HOME", "PACER_PORT", "PACER_BACKEND", "PACER_NO_UPDATE_CHECK", "PACER_LIVE_HARNESS", "PACER_LOGIN_ENV", "PACER_ORCA_USER_DATA", ...(session.frontDoor === "rust" ? ["PACER_CORE_ARGV"] : []),
     ...(session.nativeForwardOps ? ["PACER_FORWARD_OPS"] : []), ...(session.nativePluginHost ? ["PACER_NATIVE_PLUGIN_HOST"] : []), ...(session.localModelPorts ? ["PACER_TEST_LOCAL_SERVER_PORTS"] : []), ...(session.seed ? ["HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME"] : [])]
     .map(key => `export ${key}=${shellQuote(env[key]!)}`).join("\n") + "\n";
 }
