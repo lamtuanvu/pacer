@@ -223,7 +223,9 @@ async function withReviewLock<T>(ctx: Ctx, id: string, fn: () => Promise<T>): Pr
   } catch (error) {
     if (error instanceof Error && !(error instanceof CoreError) && error.message.startsWith("timed out waiting for ")
       && error.message.endsWith(`${name}.lock`)) {
-      throw new CoreError("unavailable", `another review of ${id} is still in progress; try again shortly`);
+      // The lock names its process by pid, which another process can later reuse.
+      const file = error.message.slice("timed out waiting for ".length);
+      throw new CoreError("unavailable", `another review of ${id} is still in progress; try again shortly. If no review of it is running, delete the lock file ${file}`);
     }
     throw error;
   }

@@ -181,13 +181,14 @@ async function assertBranchHasCommits(ctx: Ctx, run: RunRow): Promise<void> {
 }
 
 /** Whether the run branch tip is what the pull request already has: the tip the
- *  last publish recorded, else (published before that was recorded) the remote
- *  branch itself. Never assumed: later work is pushed or refused. */
+ *  last publish recorded, else (later work, which the person may have pushed, or a
+ *  publish from before tips were recorded) the remote branch itself. Never assumed:
+ *  later work is pushed or refused. */
 async function alreadyPushed(ctx: Ctx, run: RunRow): Promise<boolean> {
   if (!run.branch) return true; // cleaned up after publishing: nothing left to push
   const local = (await branchTipSha(ctx, run.repo, run.branch)).toLowerCase();
   const published = listDecisions(ctx, run.id).filter(d => d.kind === "published").at(-1);
-  if (published) return approvedTipFromReason(published.reason) === local;
+  if (published && approvedTipFromReason(published.reason) === local) return true;
   const remote = await ctx.run(
     ["git", "-C", run.repo, "ls-remote", "origin", `refs/heads/${run.branch}`],
     60_000, { env: publishChildEnv(ctx) },

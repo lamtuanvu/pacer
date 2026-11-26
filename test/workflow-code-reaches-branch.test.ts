@@ -1144,6 +1144,9 @@ test("a review lock left by a dead holder is taken over; a live one gives an ord
     utimesSync(lock, stale, stale);
     await expect(tasks.review(w.ctx, impl, { verdict: "accept" }))
       .rejects.toMatchObject({ code: "unavailable", message: expect.stringMatching(/still in progress/) });
+    // A reused pid can hold it for good: the error says which file that is.
+    await expect(tasks.review(w.ctx, impl, { verdict: "accept" }))
+      .rejects.toMatchObject({ message: expect.stringContaining(lock) });
     // A holder that is gone is taken over once it is silent.
     const gone = Bun.spawnSync(["true"]).pid;
     writeFileSync(lock, `${gone}:dead`);
@@ -1489,4 +1492,27 @@ test("a generated graph may not declare publishing approval, and one already sto
   expect(listDecisions(w.ctx, run.id).concat(listDecisions(w.ctx, childId)).filter(d => d.kind === "publish_approved")).toEqual([]);
   await expect(publishRun(w.ctx, run.id, { draft: false, title: "t", body: "b", expectRev: getRun(w.ctx, run.id)!.rev }))
     .rejects.toMatchObject({ code: "not_allowed" });
+});
+
+test("publishing reports success once the later work was pushed by hand, and pushes nothing itself", async () => {
+  const s = await shipped("approval");
+  s.moreWork("later.txt");
+  await expect(s.publish(false)).rejects.toMatchObject({ code: "not_allowed" });
+  s.w.git(s.w.repo, "push", "-q", "origin", s.branch);
+  const calls = readFileSync(s.w.ghLog, "utf8");
+  expect((await s.publish(false)).pr_url).toBe("https://github.com/acme/widget/pull/7");
+  expect(readFileSync(s.w.ghLog, "utf8")).toBe(calls);
+  // Origin must have this tip, not an earlier one.
+  const pushed = s.w.git(s.w.remote, "rev-parse", s.branch);
+  s.moreWork("again.txt");
+  await expect(s.publish(false)).rejects.toMatchObject({ code: "not_allowed", message: expect.stringMatching(/not pushed/) });
+  expect(s.w.git(s.w.remote, "rev-parse", s.branch)).toBe(pushed);
+});
+
+test("publishing refuses when origin cannot be read for work the last publish did not record", async () => {
+  const s = await shipped("approval");
+  s.moreWork("later.txt");
+  s.w.git(s.w.repo, "remote", "set-url", "origin", join(s.w.remote, "gone"));
+  await expect(s.publish(false)).rejects.toMatchObject({ code: "unavailable", message: expect.stringMatching(/cannot confirm/) });
+  s.untouched();
 });

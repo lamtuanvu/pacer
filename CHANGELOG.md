@@ -21,10 +21,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - Ending a run or resolving a join stops a task that was sent back and is running again, and leaves finished tasks reviewable.
 - A merge conflict no longer blocks publishing after its work is given up: rejecting, skipping, stopping or retrying the step, or moving it to a new task, drops the marker and closes its record.
 - Work accepted after a run's pull request was opened is pushed to it under a new approval, or publishing says why it was not; it is no longer skipped.
-- The `publish: draft` opt-in updates a pull request only while GitHub confirms it is still a draft that was published as one. A ready pull request needs an approval of the new commit, nothing is pushed when the state cannot be read, and a closed or merged pull request is refused with the command to push the branch yourself.
+- The `publish: draft` opt-in updates a pull request only while GitHub confirms it is still a draft that was published as one. A ready pull request needs an approval of the new commit, nothing is pushed when the state cannot be read, and a closed or merged pull request is refused with the command to push the branch yourself. After that push, publishing reports success.
 - A conflict marker stays while its work can still be wanted: a retry the failed step did not take over, or an accept of a failed step's task, keeps publishing closed until the work is merged or the task is rejected or retried.
 - A generated sub-workflow can no longer declare `approves: publish`, and an answer in one stored earlier approves nothing.
-- A review whose process died is taken over after 90 seconds; a live process keeps its lock, and waiting behind it ends with an ordinary error.
+- A review whose process died is taken over after 90 seconds; a live process keeps its lock, and waiting behind it ends with an ordinary error that names the lock file.
 - After one fan-out branch is retried, the run view and later steps still see the whole fan-out, and a branch at its retry limit no longer blocks retrying the others.
 - A generated run whose code cannot be added to the run branch is shown in Needs you with the reason.
 
