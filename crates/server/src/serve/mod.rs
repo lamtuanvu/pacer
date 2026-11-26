@@ -1,5 +1,6 @@
 //! Public listener authentication. Listener and core forwarding are wired separately.
 pub mod app_assets;
+pub mod attachment_routes;
 pub mod auth;
 pub mod core_child;
 pub mod discovery;
@@ -124,6 +125,14 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
         auth::Decision::AppAuth => auth::AuthKind::Bearer,
         auth::Decision::Forward { auth } => auth,
     };
+    // Attachments are answered by the front door: the rows and files are shared
+    // with the TypeScript store, so no Core generation is needed.
+    if attachment_routes::is_attachment_path(req.uri().path()) {
+        if std::env::var("PACER_DEBUG_NATIVE").as_deref() == Ok("1") {
+            eprintln!("native http.attachments");
+        }
+        return attachment_routes::handle(req, &ctx).await;
+    }
     // The core remains authoritative for task grants and scoped work sessions.
     if !state.scoped_work
         && auth != auth::AuthKind::Task
