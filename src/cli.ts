@@ -465,6 +465,17 @@ function isStructuredAsk(args: string[]): boolean {
     .some(flag => a === flag || a.startsWith(`${flag}=`)));
 }
 
+/**
+ * Pacer's own re-entries from an agent launch environment, which carries the agent's scoped grant. The session host is
+ * the one `startRun` just spawned: it alone holds the admission pair for that directory, and removes it before the agent
+ * starts. The session hook and `report` are bound to their attempt by the report token (`reportDestination`).
+ */
+function isAttemptPlumbing(cmd: string, args: string[], ctx: Ctx): boolean {
+  if (cmd === "_session") return args.length === 1 && isAbsolute(args[0]!) &&
+    ctx.env.PACER_ADMISSION_DIR === args[0] && !!ctx.env.PACER_ADMISSION_SESSION;
+  return (cmd === "_session-hook" || cmd === "report") && !!ctx.env.PACER_RUN_DIR && !!ctx.env.PACER_REPORT_TOKEN;
+}
+
 /** The commands a workflow step worker may run under its work grant: its own step's reports. */
 function isStepReport(cmd: string, args: string[]): boolean {
   return cmd === "step" && (args[0] === "result" || args[0] === "artifact") || cmd === "ask" && isStructuredAsk(args);
@@ -487,7 +498,8 @@ function isStepReport(cmd: string, args: string[]): boolean {
   } catch (error) { return {code:2,out:"",err:explain(error)}; }
   if (secrets.ownerKey) holdOwnerKey(secrets.ownerKey);
   const [cmd = "status", ...rest] = argv;
-  if (ctx.env.PACER_WORK_GRANT && !["dispatch", "mcp", "api", "review"].includes(cmd)
+  const plumbing = isAttemptPlumbing(cmd, rest, ctx);
+  if (ctx.env.PACER_WORK_GRANT && !plumbing && !["dispatch", "mcp", "api", "review"].includes(cmd)
     && !(cmd === "guard" && ctx.env.PACER_ENFORCEMENT_MODE === "strict" && !!ctx.env.PACER_ENFORCEMENT_TOKEN)
     && !(isStepReport(cmd, rest) && verifiedStepWorker(ctx)))
     return {code:2,out:"",err:"pacer: work grants only allow scoped dispatch commands"};
@@ -496,7 +508,7 @@ function isStepReport(cmd: string, args: string[]): boolean {
   // Orchestrator turns: review/stop/step result|skip|retry|artifact / run decide|choose|submit-graph|sync|publish,
   // plus structured question answer/escalate/ask (Phase 4). Never delegate or run.answer.
   // run.cleanup stays person-only (refused here and in the op).
-  if (ctx.env.PACER_ROLE === "orchestrator" || ctx.env.PACER_RUN_GRANT) {
+  if (!plumbing && (ctx.env.PACER_ROLE === "orchestrator" || ctx.env.PACER_RUN_GRANT)) {
     const sub = rest[0];
     const allowed =
       cmd === "review" || cmd === "stop"
