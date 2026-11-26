@@ -101,6 +101,20 @@ function delegates(args: string[]): string | undefined {
   }
   return undefined;
 }
+/** Exactly `review <task> --send-back` (with an optional --note), from an orchestrator turn holding a run grant. */
+function isOrchestratorSendBack(args: string[], outer: NodeJS.ProcessEnv): boolean {
+  if (outer.PACER_ROLE !== "orchestrator" || !/^prg_[0-9a-f]{64}$/.test(outer.PACER_RUN_GRANT ?? "")) return false;
+  const [command, task, ...flags] = args;
+  if (command !== "review" || !/^t-[0-9a-z-]+$/.test(task ?? "")) return false;
+  let sendBack = 0;
+  for (let i = 0; i < flags.length; i++) {
+    if (flags[i] === "--send-back") sendBack++;
+    else if (flags[i] === "--note" && flags[i + 1] !== undefined && !flags[i + 1]!.startsWith("--")) i++;
+    else if (flags[i] !== "--json") return false;
+  }
+  return sendBack === 1;
+}
+
 /**
  * Executor sessions must not delegate onward, even inside a sandbox. sandboxEnv drops the inherited
  * PACER_ROLE and PACER_TASK_ID, so the guard checks the environment it was called with. `sandboxLaunched`
@@ -110,6 +124,9 @@ export function executorRefusal(args: string[], outer: NodeJS.ProcessEnv, sandbo
   if (outer.PACER_ROLE !== "executor" && !outer.PACER_TASK_ID) return undefined;
   // The CLI takes the first positional as the target, so a `q_` id right after `answer` is never a task.
   if (sandboxLaunched && outer.PACER_ROLE === "orchestrator" && args[0] === "answer" && args[1]?.startsWith("q_")) return undefined;
+  // API-5b: the run grant may send a step task of its own run back to continue it. The core
+  // checks the grant, the run and the step; --retry-on and every API spelling stay refused.
+  if (sandboxLaunched && isOrchestratorSendBack(args, outer)) return undefined;
   const what = delegates(args);
   return what ? `executor sessions cannot delegate onward (${what}); run real delegation from a planner session` : undefined;
 }
