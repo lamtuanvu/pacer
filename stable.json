@@ -1,13 +1,13 @@
 {
   "schema": 1,
-  "version": "0.18.5",
-  "notes": "### Changed\n\n- **Planner models are editable in the Model matrix.** The planner row in Settings › Model matrix accepts model tiers (the planner tier fallback reads them); `runner.models.set` and `set_many` no longer refuse the planner runner. Suggestions still leave the planner alone. Saving the row sets the planner runner's default model, which managed tasks on that runner use; the planner's own session is unaffected.\n\n### Added\n\n- **Planner tier fallback.** When a task is `complex` (or a dispatch brief sets `min_tier`) and no executor other than the planner declares a model at the target tier, Pacer runs it on the planner's own account as a managed task, even when the planner is ahead of pace. A busy planner makes the task wait rather than run below its tier. New setting `pacing.planner_tier_fallback` (`on` by default); `pacer route --difficulty` and `routing.route { difficulty }` (protocol 3 only); `pacer status` shows a `Tier fallback:` line while it applies. The planner runner needs a declared `tier: frontier` model to qualify.\n- **TUI Runs screen.** Tab/`6` opens a Runs list (open person-answerable questions first) and a run view that draws the engine graph as a tree with a details pane; answer, pause/resume, stop, priority, auto and orchestrator message keys use existing ops. `run.get` adds an optional `definition` projection; `run.answer` accepts an optional `note` (same sanitize/trim rules as `question.answer`).\n\n### Changed\n\n- Planner-started workflow runs no longer raise human banners for blocking items unless the caller has been silent for 30 minutes; run snapshots expose `origin`.\n- **The assistant uses only its native agent.** Removed the deprecated plugin method `assistant.respond`, the bundled TypeScript `pacer-assistant` plugin and the host-side model loop. Every `backend: pacer` turn now goes to `assistant-pacer` through `assistant.reply`; with a missing or outdated binary, all pacer-backend rows are unavailable and admission refuses with a plain reason to update or repair pacer. This lands directly after v0.18.4, the first release whose updater installs the binary ([ADR 0028](docs/decisions/0028-assistant-backends.md)).\n\n### Fixed\n\n- The desktop menu-bar indicator no longer shows an update failure when a check was only interrupted or unavailable, keeps an available update visible after a failed re-check, and reads \"Not checked yet\" like the app.",
-  "pub_date": "2026-11-25T21:37:04.000Z",
+  "version": "0.18.6",
+  "notes": "### Fixed\n\n- crates.io: bump protocol crates changed by the assistant.respond removal",
+  "pub_date": "2026-11-26T01:59:09.000Z",
   "platforms": {
     "darwin-aarch64": {
-      "url": "https://github.com/lamtuanvu/pacer/releases/download/v0.18.5/desktop-pacer-0.18.5-darwin-aarch64.app.tar.gz",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRWkZsUWI2SWt6Z1hGTzY5Z2J0RVRwSGNHQ0IyRUc4dU0zSnBBVFlJbkVwMjdWV3ZjdXVHWlgwUmpjaGk2ZWhad1lOTVg0dDBSNGxvZzNhUWN4RHJWL3ZhWlkzSjNkRXc0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1NjQzMTI3CWZpbGU6ZGVza3RvcC1wYWNlci0wLjE4LjUtZGFyd2luLWFhcmNoNjQuYXBwLnRhci5negl2ZXJzaW9uOjAuMTguNQpRRnY0L3BtWStPZm5BWkRLNGgzUEFZR2MxQUI2NmVWb2JJdkdQSy9IeU80RnJlT2NpaE9Dc1FJa0FJdjNrTGo1R3JQcVpsVCsxRVE3dDQrcTE4bkxDdz09Cg==",
-      "sha256": "0695909781a8a29a10bcc44a910d75ca5c72120fe277eb76b41938880a77537d",
+      "url": "https://github.com/lamtuanvu/pacer/releases/download/v0.18.6/desktop-pacer-0.18.6-darwin-aarch64.app.tar.gz",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRWkZsUWI2SWt6Z1lJK1BUbHg5WTc4UklpMm9LVHlFaGZUNTVSNnZ5WklnUUJSWGsrZXJ4TlMvazBmZVdCcjZJcVMwNjk1aXNiUXVrYllab0J1V1ZmK3BFSFhjVXZwalFVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1NjU4ODM5CWZpbGU6ZGVza3RvcC1wYWNlci0wLjE4LjYtZGFyd2luLWFhcmNoNjQuYXBwLnRhci5negl2ZXJzaW9uOjAuMTguNgp6MVlVeTNEMklJWkl4NU9yaGxWUzZaYUMxak5BUnhrRzJFbnZMS2NGV2g4K2N4ZnBDblZKaWs0U2ZoMGhnSURlWjJ2VFNGZWg0cVBqTTFhRm0rajhEQT09Cg==",
+      "sha256": "04b9788fc91e549333158d06526bb5726ed36127990295a9bdf02d01ec72c39d",
       "bundleId": "dev.pacer.desktop",
       "protocolMajors": [
         3
@@ -16,9 +16,9 @@
       "rollbackCompatible": true
     },
     "darwin-x86_64": {
-      "url": "https://github.com/lamtuanvu/pacer/releases/download/v0.18.5/desktop-pacer-0.18.5-darwin-x86_64.app.tar.gz",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRWkZsUWI2SWt6Z1Q3d1ozTVNCRWFMdEUwbFByYllMTFNncFIrK0lVczN6NTE5M1F2bXU1TVVrVU0weVJtTUF0bUVQdjNtZTBDckdBV043Y2NSRFIwODFYc1FHbEpxUUFnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1NjQzNDI5CWZpbGU6ZGVza3RvcC1wYWNlci0wLjE4LjUtZGFyd2luLXg4Nl82NC5hcHAudGFyLmd6CXZlcnNpb246MC4xOC41CnFla2FDOThlc1Rkc0FVNlU4bmNDOVNLdzdpaUhqUWpkSWVkUU9KUC90VTRZbEtuK05OS3JDeFBHbTd0TW1MMWNZejIyaGdYNk10ajJSNVlFZ1RRd0JRPT0K",
-      "sha256": "81af0a6831014998c61eb2f87352b9c067e60bd32720508746dae9fecb7bb916",
+      "url": "https://github.com/lamtuanvu/pacer/releases/download/v0.18.6/desktop-pacer-0.18.6-darwin-x86_64.app.tar.gz",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRWkZsUWI2SWt6Z1ZTRldhV2poMnR0TGNiL08zUUdIUkJjSXhYWTJ3cGtvUkxlNFMzQm5Zajl2N0VpRFdMRThSQjVMRmFCWmszOUFSYXJvSE83L2VtRTE3WUtUTmUweVEwPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1NjU5MjI3CWZpbGU6ZGVza3RvcC1wYWNlci0wLjE4LjYtZGFyd2luLXg4Nl82NC5hcHAudGFyLmd6CXZlcnNpb246MC4xOC42ClBlNThQbnNLVFM1bndCU1lVb3ppU0NBcHhuSUZtVWdzL2hQaVBSd2lacGNQOU9neXc1M3h0ZHdRV2R2cEswaUJLN253eHltYnJvSlBmZy84c1ppeEJnPT0K",
+      "sha256": "c5d9d7df9baef807dce7866b3d4dd39beec1b75911a54033a907b6e0c1e2e201",
       "bundleId": "dev.pacer.desktop",
       "protocolMajors": [
         3
