@@ -206,3 +206,15 @@ for (const width of [1440, 768, 375]) browserTest(`the Agents tab stays inside t
     expect(unnamed).toEqual([]);
   }, { width, height: 1000 });
 }, 20000);
+
+browserTest('with nothing pending the save bar is visually hidden, and shows again for a change', async () => {
+  await open(async page => {
+    const bar = page.locator('.pc-save-bar');
+    expect(await bar.getAttribute('class')).toContain('pc-save-bar--clean');
+    expect(await page.getByRole('region', { name: 'Save status' }).count()).toBe(0);
+    await pick(page, 'Codex');
+    await page.getByRole('spinbutton', { name: 'Tasks at once', exact: true }).fill('3');
+    await page.getByRole('region', { name: 'Unsaved changes' }).waitFor();
+    expect(await bar.getAttribute('class')).not.toContain('pc-save-bar--clean');
+  });
+}, 20000);

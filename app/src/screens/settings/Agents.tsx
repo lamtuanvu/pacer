@@ -176,10 +176,11 @@ export function AgentsTab({ agent: requested, initialAccounts, initialConfig }: 
       onRemoved={() => queueMicrotask(() => addAgent.current?.focus())} />
       : rows && <p className="u3-muted">Add an agent to give it delegated work.</p>}
     {freesPlanner && <Card tone="warn"><strong>These changes free the planner</strong><span className="u3-muted">Complex tasks would go to an executor with a {tierLabels[targets.complex].toLowerCase()} model instead of {executorLabel(plannerId)}, so the planner stops spending its quota on them.</span></Card>}
-    {models.notice && <p role="status" className="u3-muted">{models.notice}</p>}
-    <SaveBar count={count} busy={saving || settings.busy || models.busy} onSave={() => void saveAll()} onDiscard={discard} blockedReason={blockedReason}>
-      {count > 0 && <p className="pc-agent-card__caption">{[...modelLines, ...limitLines].join(" · ")}</p>}
-      <ErrorMessage error={settings.error} /><ErrorMessage error={models.error} />
+    <SaveBar count={count} busy={saving || settings.busy || models.busy} onSave={() => void saveAll()} onDiscard={discard} blockedReason={blockedReason} notice={models.notice ?? undefined}>
+      {count > 0 || settings.error || models.error ? <>
+        {count > 0 && <p className="pc-agent-card__caption">{[...modelLines, ...limitLines].join(" · ")}</p>}
+        <ErrorMessage error={settings.error} /><ErrorMessage error={models.error} />
+      </> : undefined}
     </SaveBar>
   </section>;
   const side = !!frame?.right && !frame.inline;
