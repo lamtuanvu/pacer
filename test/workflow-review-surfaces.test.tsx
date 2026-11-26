@@ -17,6 +17,8 @@ import { actionError, actionRoute } from "../app/src/tray/model";
 import type { ApiClient } from "../src/api/client";
 import type { AttentionItem } from "../src/attention/types";
 import { workRows } from "../src/dashboard/screens/work";
+import { dismissKeyAction } from "../app/src/screens/dispatch/Dispatch";
+import { canDismiss } from "../src/view-model/run-gate";
 import { Dashboard } from "../src/dashboard/controller";
 import { PLAIN_THEME } from "../src/dashboard/theme";
 import type { ClientSnapshot } from "../src/view-model/snapshot";
@@ -403,4 +405,21 @@ test("the terminal's work tree line says what the list says about a held task", 
   const rows = workRows({ s: snapshotWith([stepReview]), theme: PLAIN_THEME } as never, detail as never, 100);
   const shown = rows.map(row => row.line?.map(span => span.text).join("") ?? "").join("\n");
   expect(shown).toContain("Implement it · Waiting for review");
+});
+
+test("no surface offers to dismiss another item about a held task", async () => {
+  const other = { ...stepReview, id: `message:${TASK}`, kind: "message" as const, gate: undefined, title: "A note", actions: [] };
+  expect(canDismiss([stepReview, other], other)).toBe(false);
+  expect(canDismiss([stepReview, other], stepReview)).toBe(false);
+  expect(canDismiss([other], other)).toBe(true);
+  const t = dashboard([other, stepReview], () => undefined);
+  await t.dash.refresh();
+  await t.keys("1", "x", "down", "x");
+  expect(t.calls.filter(c => c.op === "attention.dismiss")).toEqual([]);
+});
+
+test("the web dismiss key sends nothing for an item about a held task", () => {
+  const other = { ...stepReview, id: `message:${TASK}`, gate: undefined };
+  expect(dismissKeyAction([stepReview, other], other)).toBeNull();
+  expect(dismissKeyAction([other], other)).toEqual({ label: "Dismiss", op: "attention.dismiss", params: { id: other.id } });
 });

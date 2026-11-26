@@ -31,7 +31,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - A base-update conflict keeps one open record, shows the commands that resolve it, and its record can be accepted only once the conflict is resolved. A parked step reads "waiting for review".
 - A step under review reads "Waiting for review" on every surface, a Dispatch conflict card says "Merge conflict", review-gate titles end with the run letter, and an accept, reject or send-back is announced with focus kept on the page. Conflict records are titled by step and described in plain words, and a blocked planner's reason is no longer shown as an internal code.
 - Needs you and Dispatch show review-gate actions as secondary buttons, the terminal's detail pane agrees with its list about a step under review, and a review gate can no longer be dismissed or snoozed (dismissing it dismissed the task under review).
-- A task that a workflow review is waiting on cannot be dismissed and keeps its worktree, and "Send back to resolve" reports success only when the task actually resumed; a task already dismissed or without its worktree says so and keeps the conflict.
+- A task that a workflow review is waiting on cannot be dismissed, archived or cleaned (also on a remote host) and keeps its worktree, and "Send back to resolve" reports success only when the task actually resumed; a task already dismissed or without its worktree says so and keeps the conflict.
 - A generated run whose code cannot be added to the run branch is shown in Needs you with the reason.
 
 ## [0.18.8] - 2026-11-26

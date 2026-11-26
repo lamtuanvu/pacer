@@ -29,8 +29,9 @@ pub fn build(ctx: &Ctx) -> View {
             .filter(|a| a["op"] == "ui.open" || ctx.supports(text(&a["op"])))
             .collect();
         // A review gate stays until its work is decided.
-        let dismiss =
-            ctx.supports("attention.dismiss") && !text(&a["id"]).starts_with("run_review:");
+        let dismiss = ctx.supports("attention.dismiss")
+            && !text(&a["id"]).starts_with("run_review:")
+            && !holds_task(s, text(&a["taskId"]));
         let review = a["kind"] == "review" && truth(&a["taskId"]);
         let mut keys = vec![];
         if dismiss {

@@ -14,16 +14,22 @@ pub fn needs_task_clean_bridge(op: &str) -> bool {
     matches!(op, "task.dismiss")
 }
 
-/// A workflow review may hold one of these tasks: Core decides, and refuses if so.
-pub fn task_dismiss_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
-    if op != "task.dismiss" {
-        return false;
-    }
-    let Ok(ids) = ids_from_params(params) else {
-        return false;
+/// A workflow review may hold a task these operations dismiss, archive or clean:
+/// only Core knows which, so it takes them when a workflow could be involved.
+pub fn workflow_hold_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
+    let ids = match op {
+        "task.dismiss" => match ids_from_params(params) {
+            Ok(ids) => Some(ids),
+            Err(_) => return false,
+        },
+        "task.prune" | "host.clean" => None,
+        _ => return false,
     };
     TaskStore::open(&ctx.pacer_home)
-        .and_then(|mut store| store.in_workflow(&ids))
+        .and_then(|mut store| match &ids {
+            Some(ids) => store.in_workflow(ids),
+            None => store.has_live_workflow(),
+        })
         .unwrap_or(true)
 }
 
@@ -207,7 +213,7 @@ mod forward_tests {
             1.0,
         );
         let forwarded =
-            |id: &str| task_dismiss_stays_forwarded(&ctx, "task.dismiss", &json!({"ids": [id]}));
+            |id: &str| workflow_hold_stays_forwarded(&ctx, "task.dismiss", &json!({"ids": [id]}));
         assert!(!forwarded("t-step"));
         TaskStore::open(&ctx.pacer_home)
             .unwrap()
@@ -215,19 +221,35 @@ mod forward_tests {
             .unwrap()
             .execute_batch(
                 "CREATE TABLE workflow_steps(task_id TEXT);
-                 CREATE TABLE workflow_runs(conflict TEXT);
+                 CREATE TABLE workflow_runs(conflict TEXT, status TEXT);
                  INSERT INTO workflow_steps VALUES ('t-step');
-                 INSERT INTO workflow_runs VALUES ('[{\"taskId\":\"t-conflict\",\"resolutionTaskId\":\"t-record\"}]');",
+                 INSERT INTO workflow_runs VALUES ('[{\"taskId\":\"t-conflict\",\"resolutionTaskId\":\"t-record\"}]', 'waiting');",
             )
             .unwrap();
         for id in ["t-step", "t-conflict", "t-record"] {
             assert!(forwarded(id), "{id}");
         }
         assert!(!forwarded("t-other"));
-        assert!(!task_dismiss_stays_forwarded(
+        assert!(!workflow_hold_stays_forwarded(
             &ctx,
             "task.list",
             &json!({"ids": ["t-step"]})
         ));
+        // Archiving and host cleanup name no task: a live run is enough.
+        for (status, live) in [("done", false), ("waiting", true), ("running", true)] {
+            TaskStore::open(&ctx.pacer_home)
+                .unwrap()
+                .connection()
+                .unwrap()
+                .execute("UPDATE workflow_runs SET status = ?1", [status])
+                .unwrap();
+            for op in ["task.prune", "host.clean"] {
+                assert_eq!(
+                    workflow_hold_stays_forwarded(&ctx, op, &json!({})),
+                    live,
+                    "{op} {status}"
+                );
+            }
+        }
     }
 }

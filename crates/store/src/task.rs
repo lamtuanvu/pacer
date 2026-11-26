@@ -727,6 +727,23 @@ impl TaskStore {
         self.refresh()?;
         Ok(&self.db)
     }
+    /// Whether any workflow run is still going, so it may hold tasks.
+    pub fn has_live_workflow(&mut self) -> Result<bool> {
+        let db = self.connection()?;
+        let present: bool = db.query_row(
+            "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type = 'table' AND name = 'workflow_runs'",
+            [],
+            |r| r.get(0),
+        )?;
+        if !present {
+            return Ok(false);
+        }
+        Ok(db.query_row(
+            "SELECT EXISTS (SELECT 1 FROM workflow_runs WHERE status IN ('running', 'waiting'))",
+            [],
+            |r| r.get(0),
+        )?)
+    }
     /// Whether a workflow step holds one of these tasks, or a run's conflict names it.
     pub fn in_workflow(&mut self, ids: &[String]) -> Result<bool> {
         let db = self.connection()?;

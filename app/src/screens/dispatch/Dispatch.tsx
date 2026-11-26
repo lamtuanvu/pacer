@@ -1,4 +1,4 @@
-import { conflictRecordFor } from "../../../../src/view-model/run-gate";
+import { canDismiss, conflictRecordFor } from "../../../../src/view-model/run-gate";
 import { mergeConflictStatus } from "../../../../src/view-model/words";
 import { useWorkspaceKey, useWorkspaceState } from '../../workspace/state';
 import { LazyWorkPanels } from "../../shell/panels/LazyWorkPanels";
@@ -402,6 +402,10 @@ export function DispatchView({ snapshot, query, now, runner, routing = null, per
   </Page></NarrowContext.Provider>;
 }
 
+/** What the dismiss key sends for the selected item; nothing where the service would refuse. */
+export const dismissKeyAction = (attention: readonly AttentionItem[] | undefined, item: AttentionItem) =>
+  canDismiss(attention, item) ? { label: "Dismiss", op: "attention.dismiss", params: { id: item.id } } : null;
+
 function useAttentionKeys(query: RouteQuery) {
   const { state } = useTaskContext();
   const runner = useActions();
@@ -415,7 +419,10 @@ function useAttentionKeys(query: RouteQuery) {
       j: () => move(1), k: () => move(-1),
       Enter: () => { const active = document.activeElement as HTMLElement; (["BUTTON", "A"].includes(active?.tagName) ? active : active?.closest("[data-attention-id]")?.querySelector<HTMLElement>(".pc-list-row__actions button, .pc-list-row__actions a"))?.click(); },
       v: () => { const item = selected(); location.hash = withQuery(item?.taskId ? `#/workspace?task=${encodeURIComponent(item.taskId)}` : "#/needs-you", current.current.query); },
-      x: () => { const item = selected(); if (current.current.connected && item && state.features.ops.has("attention.dismiss")) void runner.run(`${item.id}:dismiss`, { label: "Dismiss", op: "attention.dismiss", params: { id: item.id } }, gone(item)); },
+      x: () => {
+        const item = selected(), action = item && dismissKeyAction(current.current.snapshot?.attention, item);
+        if (current.current.connected && item && action && state.features.ops.has("attention.dismiss")) void runner.run(`${item.id}:dismiss`, action, gone(item));
+      },
     };
     const offs = overviewHints.flatMap(hint => hint.keys === "d" ? [] : (hint.keys === "1–4" ? ["1", "2", "3", "4"] : hint.keys.split(" ")).map(key => keys.register({ keys: key, label: hint.label, scope: "dispatch", run: actions[key] ?? (() => {
       const { snapshot, query } = current.current;

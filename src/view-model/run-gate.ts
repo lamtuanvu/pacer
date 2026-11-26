@@ -16,6 +16,9 @@ export const conflictRecordFor = (attention: Items, taskId: string): AttentionIt
 /** A task a gate holds, itself or as its conflict record: it cannot be dismissed. */
 export const holdsTask = (attention: Items, taskId: string): boolean =>
   !!gateFor(attention, taskId) || !!conflictRecordFor(attention, taskId);
+/** Whether an attention item may be dismissed: not a gate, and not about a held task. */
+export const canDismiss = (attention: Items, item: { id: string; taskId?: string }): boolean =>
+  !isReviewGate(item.id) && !(item.taskId && holdsTask(attention, item.taskId));
 /** What a gate says about a task, when one holds it: a conflict record asks nothing. */
 export function gateStatus(attention: Items, task: TaskStatusInput & { id: string }): Status | undefined {
   if (conflictRecordFor(attention, task.id) && task.state === "needs_input") return mergeConflictStatus;

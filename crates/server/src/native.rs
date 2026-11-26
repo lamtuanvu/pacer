@@ -209,7 +209,7 @@ pub fn status_residue_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bo
         _ => false,
     }
 }
-pub(crate) use task_dismiss_ops::{needs_task_clean_bridge, task_dismiss_stays_forwarded};
+pub(crate) use task_dismiss_ops::{needs_task_clean_bridge, workflow_hold_stays_forwarded};
 pub(crate) use task_get_ops::needs_task_read_bridge;
 pub(crate) use task_review_ops::needs_task_review_bridge;
 pub(crate) use task_stop_ops::needs_task_stop_bridge;

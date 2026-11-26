@@ -6,7 +6,7 @@ import { closedPort, pinnedEnv as pinnedPort, spawnPinned } from "./pinned-port"
 
 import golden from "./fixtures/config-writes-goldens.json";
 import { pinnedEnv } from "./pinned-port";
-import { createTask, readTask } from "../src/tasks/store";
+import { createTask, readTask, updateTask } from "../src/tasks/store";
 import { addDefinition, insertRun, setRunConflict, workflowDatabase } from "../src/workflow/store";
 import { fakeCtx } from "./helpers";
 
@@ -235,27 +235,77 @@ test.skipIf(!productionFront)("HTTP config environment matches the forwarded cor
   }
 }, 120_000);
 
-test.skipIf(!front)("task.dismiss for a task a workflow review holds is decided by Core and refused", async () => {
+/** A live run whose conflict holds one task, dismissed by an earlier version and settled long ago, on a remote host. */
+function heldFixture() {
   const fixture = setup();
   const ctx = fakeCtx({ home: fixture.home, pacerHome: fixture.env.PACER_HOME!, now: Math.floor(Date.now() / 1000) });
-  const make = () => createTask(ctx, { brief: { goal: "step", repo: fixture.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders: {claude-code: {}}\nhosts:\n  box:\n    ssh: ssh-fixture\n    repos: {example.invalid/acme/repo: /remote/repo}\n", { mode: 0o600 });
+  const long = { ...ctx, now: ctx.now - 400 * 86_400 };
+  const make = () => createTask(long, { brief: { goal: "step", repo: fixture.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
   const held = make(), free = make();
+  updateTask(ctx, held.id, t => {
+    t.state = "done"; t.dismissed = true; t.settledAt = ctx.now - 400 * 86_400;
+    t.run = { mode: "new", host: "box", attempt: 1, executor: "claude-code", workdir: join(fixture.home, "gone"), dir: join(fixture.home, "run"), logFile: join(fixture.home, "log"), startedAt: ctx.now, remoteDir: "/r/.pacer-remote/runs/x/1", remoteWorktree: "/r/.pacer-remote/worktrees/x-1" };
+  });
   workflowDatabase(ctx);
   const def = { id: "t/one", version: 1, entry: "done", steps: { done: { type: "end" as const } }, edges: [] };
   addDefinition(ctx, def, JSON.stringify(def), { prompts: {} });
   const run = insertRun(ctx, { workflow: def.id, version: 1, repo: fixture.home, brief: "b" });
   setRunConflict(ctx, run.id, { taskId: held.id, branch: `pacer/${held.id}`, resolutionTaskId: held.id } as never);
+  return { fixture, ctx, held: held.id, free: free.id };
+}
+
+test.skipIf(!front)("stdio leaves dismiss, archive and remote cleanup of a held task to Core, which keeps it", async () => {
+  const { fixture, ctx, held, free } = heldFixture();
   const child = spawnPinned([front!, "api", "--stdio"], { env: fixture.env, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
   try {
-    await child.stdin.write([rpc(1, "hello", { protocol: 3 }), rpc(2, "task.dismiss", { ids: [held.id] }), rpc(3, "task.dismiss", { ids: [free.id] })].join("\n") + "\n");
+    await child.stdin.write([rpc(1, "hello", { protocol: 3 }), rpc(2, "task.dismiss", { ids: [held] }), rpc(3, "task.dismiss", { ids: [free] }),
+      rpc(4, "task.prune", { dry_run: true }), rpc(5, "task.prune", {}), rpc(6, "host.clean", { alias: "box", dry_run: true })].join("\n") + "\n");
     await child.stdin.end();
     const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
     expect(exit, stderr).toBe(0);
     const replies = new Map(stdout.trim().split("\n").map(line => JSON.parse(line)).map(reply => [reply.id, reply]));
     expect(replies.get(2).error.data.code).toBe("not_allowed");
-    expect(replies.get(3).result.dismissed).toEqual([free.id]);
+    expect(replies.get(3).result.dismissed).toEqual([free]);
+    for (const id of [4, 5]) expect(JSON.stringify(replies.get(id).result)).not.toContain(held);
+    expect(replies.get(6).result.worktrees.map((row: { fate: string }) => row.fate)).toEqual(["kept"]);
     expect(stderr).toContain("native task.dismiss 3");
-    expect(stderr).not.toContain("native task.dismiss 2");
-    expect(readTask(ctx, held.id)!.dismissed).toBeUndefined();
+    for (const native of ["native task.dismiss 2", "native task.prune", "native host.clean"]) expect(stderr).not.toContain(native);
+    expect(readTask(ctx, held)!.archived).toBeUndefined();
   } finally { if (child.exitCode === null) { child.kill("SIGTERM"); await child.exited; } fixture.cleanup(); }
+}, 60000);
+
+test.skipIf(!front)("HTTP leaves dismiss and archive of a held task to Core, which keeps it", async () => {
+  const { fixture, ctx, held } = heldFixture();
+  const port = closedPort();
+  const child = spawnPinned([front!, "serve", "--port", String(port)], { env: pinnedPort(fixture.env, port), stdin: "ignore", stdout: "ignore", stderr: "pipe" });
+  const stderrText = new Response(child.stderr).text();
+  const base = `http://127.0.0.1:${port}`;
+  try {
+    let token = "", ready = false;
+    for (let n = 0; n < 500 && !ready; n++) {
+      try { token = readFileSync(join(fixture.env.PACER_HOME!, "token"), "utf8").trim();
+        ready = (await fetch(base + "/v3/hello", { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(500) })).ok;
+      } catch {}
+      if (!ready) await Bun.sleep(20);
+    }
+    expect(ready).toBe(true);
+    // Core starts beside the server: wait until it takes a forwarded request.
+    const post = async (op: string, params: unknown) => {
+      for (let n = 0; ; n++) {
+        const response = await fetch(`${base}/v3/ops/${op}`, { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify(params), signal: AbortSignal.timeout(10_000) });
+        const body = await response.json() as any;
+        if (body.error?.code !== "unavailable" || n > 300) return { status: response.status, body };
+        await Bun.sleep(50);
+      }
+    };
+    const dismissed = await post("task.dismiss", { ids: [held] });
+    expect(dismissed.body.error?.code).toBe("not_allowed");
+    expect(JSON.stringify((await post("task.prune", {})).body.result)).not.toContain(held);
+    expect(readTask(ctx, held)!.archived).toBeUndefined();
+  } finally {
+    if (child.exitCode === null) { child.kill("SIGTERM"); await Promise.race([child.exited, Bun.sleep(5000)]); if (child.exitCode === null) { child.kill("SIGKILL"); await child.exited; } }
+    fixture.cleanup();
+  }
+  expect(await stderrText).not.toMatch(/^native task\.(dismiss|prune)$/m);
 }, 60000);

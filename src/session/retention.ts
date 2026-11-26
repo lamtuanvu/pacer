@@ -19,7 +19,7 @@ export function pruneSessions(ctx:Ctx,days=14):void {
   try {
     for(const task of listTasks(ctx,Number.MAX_SAFE_INTEGER)) {
       const settled=task.attempts.at(-1)?.endedAt ?? task.createdAt;
-      if(TERMINAL_STATES.includes(task.state) && ctx.now-settled > days*86400) pruneTaskSessions(ctx,task);
+      if(TERMINAL_STATES.includes(task.state) && ctx.now-settled > days*86400 && !reviewHolds(ctx,task.id)) pruneTaskSessions(ctx,task);
     }
   } catch { /* retention must not prevent launches */ }
 }

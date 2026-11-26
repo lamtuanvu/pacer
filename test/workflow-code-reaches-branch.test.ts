@@ -10,6 +10,10 @@ import * as tasks from "../src/core/tasks";
 import * as attention from "../src/core/attention";
 import { autoCleanTask, cleanTask } from "../src/tasks/cleanup";
 import { insertMessage } from "../src/messaging/store";
+import { issueConfiguredHostClean } from "../src/plugins/host-clean-issuer";
+import * as hosts from "../src/remote/hosts";
+import { cleanSettledSessions, pruneSessions } from "../src/session/retention";
+import { eligibleForRetention, pruneTasks } from "../src/tasks/retention";
 import { CoreError } from "../src/core/errors";
 import { gitInfo } from "../src/core/git";
 import { buildPrompt } from "../src/exec/prompt";
@@ -1786,4 +1790,58 @@ test("a send back that could not resume the session is not reported as sent when
   expect(readTask(w.ctx, record)!.dismissed).toBeUndefined();
   // Once the session can resume, the same press works.
   updateTask(w.ctx, y, t => { delete t.msgClosed; });
+});
+
+const DAY = 86_400;
+
+test("archiving skips a held task an earlier version dismissed, and takes it after its verdict", async () => {
+  const { w, y, tree, conflict } = await heldConflict();
+  await conflict();
+  updateTask(w.ctx, y, t => { t.dismissed = true; });
+  rmSync(tree, { recursive: true, force: true });
+  const later = () => ({ ...w.ctx, now: w.ctx.now + 40 * DAY });
+  expect(eligibleForRetention(later(), readTask(w.ctx, y)!, 30)).toBe(false);
+  await pruneTasks(later(), { days: 30 });
+  expect(readTask(w.ctx, y)!.archived).toBeUndefined();
+  await w.reject(y);
+  expect(eligibleForRetention(later(), readTask(w.ctx, y)!, 30)).toBe(true);
+});
+
+test("neither session cleanup removes a held task's session files", async () => {
+  const { w, y, conflict } = await heldConflict();
+  await conflict();
+  const log = join(w.ctx.pacerHome, "runs", y, "1", "session.log");
+  mkdirSync(join(log, ".."), { recursive: true });
+  writeFileSync(log, "session");
+  updateTask(w.ctx, y, t => { t.resolved = "merged"; });
+  cleanSettledSessions(w.ctx);
+  // The age rule runs before a new session starts.
+  pruneSessions({ ...w.ctx, now: w.ctx.now + 40 * DAY });
+  expect(existsSync(log)).toBe(true);
+  await w.reject(y);
+  pruneSessions({ ...w.ctx, now: w.ctx.now + 40 * DAY });
+  expect(existsSync(log)).toBe(false);
+});
+
+test("remote host cleanup keeps a held task's worktree and issues no grant for it", async () => {
+  const { w, y, conflict } = await heldConflict();
+  await conflict();
+  writeFileSync(join(w.ctx.pacerHome, "strategy.yaml"),
+    "planner: claude-code\nproviders:\n  codex: {}\nhosts:\n  box:\n    ssh: ssh-fixture\n    repos: {example.invalid/acme/repo: /remote/repo}\n");
+  const remoteDir = join(w.ctx.home, ".pacer-remote", "runs", y, "1");
+  updateTask(w.ctx, y, t => {
+    t.resolved = "merged";
+    t.run = { ...t.run!, host: "box", attempt: 1, remoteDir, remoteWorktree: join(w.ctx.home, ".pacer-remote", "worktrees", "repo", `${y}-1`), remoteBranch: `pacer/${y}` };
+  });
+  const calls: string[][] = [];
+  const ctx: Ctx = { ...w.ctx, run: async (argv, timeout, options) => {
+    calls.push(argv);
+    return argv.includes("get-url") ? { code: 0, stdout: "https://example.invalid/acme/repo.git\n", stderr: "" } : w.ctx.run(argv, timeout, options);
+  } };
+  await expect(issueConfiguredHostClean(ctx, "box", y, false)).rejects.toMatchObject({ code: "capability_denied" });
+  expect((await hosts.clean(ctx, "box", { dryRun: true })).worktrees.map(row => row.fate)).toEqual(["kept"]);
+  expect(await hosts.clean(ctx, "box")).toEqual({ removed: [], kept: [{ id: y, reason: "a workflow review is waiting on it" }] });
+  expect(calls.filter(argv => argv[0] === "ssh")).toEqual([]);
+  await w.reject(y);
+  await expect(issueConfiguredHostClean(ctx, "box", y, false)).resolves.toBeDefined();
 });
