@@ -109,9 +109,15 @@ test("service.handover signals nothing while a desktop update can still roll bac
   // Nothing was signalled: the advertisement carries no signal time.
   const { readTask } = await import("../src/tasks/store");
   expect(readTask(ctx, t.id)?.handover?.signalledAt).toBeUndefined();
-  // A failed recovery is not in flight: it never defers a handover.
+  // An uncertain handoff can still be restored by an independent recovery helper and keeps the
+  // reservation: it defers too.
   const verifying = readUpdate(ctx, "desktop");
-  writeUpdate(ctx, { ...verifying, phase: "recovery-failed", error: { code: "recovery_failed", message: "Desktop recovery requires repair" } }, verifying.revision);
+  const uncertain = writeUpdate(ctx, { ...verifying, phase: "recovery-failed", error: { code: "handoff_uncertain", message: "Desktop update requires transaction recovery" } }, verifying.revision);
+  expect(desktopTransactionOpen(ctx)).toBe(true);
+  expect(await callOp(ctx, "service.handover", { wait_s: 0 })).toMatchObject({ deferred: true, handed_over: 0 });
+  expect(readTask(ctx, t.id)?.handover?.signalledAt).toBeUndefined();
+  // A finished transaction no longer defers.
+  writeUpdate(ctx, { ...uncertain, phase: "complete", error: null, requestId: null, requestedBy: null, requesterBootId: null }, uncertain.revision);
   expect(desktopTransactionOpen(ctx)).toBe(false);
 });
 
@@ -125,4 +131,13 @@ test("concurrent handovers in one service share a single run", async () => {
   expect(starts).toBe(1);
   await sharedHandover(async () => { starts++; return { summary: "again" } as any; });
   expect(starts).toBe(2);
+  // One log line per run, naming its origin; a joined caller logs nothing.
+  const lines: string[] = [];
+  let finishLogged!: () => void;
+  const logged = sharedHandover(() => new Promise<any>(resolve => { finishLogged = () => resolve({ summary: "Updated.", signalled: 2 }); }), "commit", line => lines.push(line));
+  const joined = sharedHandover(async () => ({ summary: "never" } as any), "request", line => lines.push(line));
+  finishLogged(); await logged; await joined;
+  expect(lines).toEqual(["pacer: handover (commit): signalled=2; Updated."]);
+  await expect(sharedHandover(async () => { throw Error("boom"); }, "request", line => lines.push(line))).rejects.toThrow("boom");
+  expect(lines.at(-1)).toBe("pacer: handover (request) failed: boom");
 });

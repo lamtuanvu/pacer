@@ -6,7 +6,7 @@ import { HANDOVER_PROTOCOL, HANDOVER_SIGNAL } from "./handover";
 import type { TaskRecord } from "./types";
 import type { Ctx } from "../types";
 
-export interface HandoverReport { pacer: string; tasks: number; sessions: number; handedOver: number; keptOnPreviousRunner: number; summary: string }
+export interface HandoverReport { pacer: string; tasks: number; sessions: number; handedOver: number; keptOnPreviousRunner: number; summary: string; signalled?: number }
 export interface HandoverDeps { waitMs?: number; pollMs?: number; signal?: (identity: ProcessIdentity, signal: NodeJS.Signals) => boolean; sleep?: (ms: number) => Promise<void> }
 
 const MAX_WAIT_MS = 60_000;
@@ -54,7 +54,7 @@ export async function triggerHandover(ctx: Ctx, deps: HandoverDeps = {}): Promis
   const work = await runningWork(ctx, current);
   const counts = workCounts(work);
   const kept = work.tasks.filter(t => t.older && !committed.has(t.taskId)).length;
-  const report = { pacer: current, tasks: counts.tasks, sessions: counts.sessions, handedOver: committed.size, keptOnPreviousRunner: kept };
+  const report = { pacer: current, tasks: counts.tasks, sessions: counts.sessions, handedOver: committed.size, keptOnPreviousRunner: kept, signalled: signalled.size };
   return { ...report, summary: upgradeSummary(`Updated to v${current}.`, report) };
 }
 
@@ -62,10 +62,14 @@ let inflight: Promise<HandoverReport> | null = null;
 /**
  * One handover at a time per service: a desktop update's commit signal and the desktop's own
  * post-install `service.handover` call can arrive together; the later caller joins the running one.
+ * Each run logs one line with its origin, so evidence can count handovers per update.
  */
-export function sharedHandover(start: () => Promise<HandoverReport>): Promise<HandoverReport> {
+export function sharedHandover(start: () => Promise<HandoverReport>, origin: "commit" | "request" = "request", log: (line: string) => void = line => console.info(line)): Promise<HandoverReport> {
   if (inflight) return inflight;
-  const run = start().finally(() => { if (inflight === run) inflight = null; });
+  const run = start().then(
+    report => { log(`pacer: handover (${origin}): signalled=${report.signalled ?? 0}; ${report.summary}`); return report; },
+    error => { log(`pacer: handover (${origin}) failed: ${error instanceof Error ? error.message : String(error)}`); throw error; },
+  ).finally(() => { if (inflight === run) inflight = null; });
   inflight = run;
   return run;
 }

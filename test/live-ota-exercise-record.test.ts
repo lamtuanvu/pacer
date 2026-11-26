@@ -67,3 +67,19 @@ test("survivor reservation evidence needs the admitted flag and only survivor le
     expect(() => assertSurvivorReservation([sample(bad)], "tx")).toThrow("No survivor reservation");
   }
 });
+
+test("handover evidence: one commit run that kept the sessions; failures and second signals refuse", async () => {
+  const { handoverRuns, assertOneHandover } = await import("../scripts/live/ota-active-work");
+  const commit = "pacer: handover (commit): signalled=0; Updated to v0.2.4. 0 tasks and 2 sessions kept running; 0 stayed on the previous runner.";
+  const request = "pacer: handover (request): signalled=0; Updated to v0.2.4. 0 tasks and 2 sessions kept running; 0 stayed on the previous runner.";
+  expect(assertOneHandover(handoverRuns(["noise", commit, request]), true, 2)?.origin).toBe("commit");
+  // The old "desktop update handover failed" shape and the new failure lines never count.
+  expect(handoverRuns(["pacer: desktop update handover failed: boom"]).runs).toEqual([]);
+  expect(() => assertOneHandover(handoverRuns([commit, "pacer: handover (commit) failed: boom"]), true, 2)).toThrow("failed");
+  expect(() => assertOneHandover(handoverRuns([]), true, 2)).toThrow("one commit handover");
+  expect(() => assertOneHandover(handoverRuns([commit, commit]), true, 2)).toThrow("one commit handover");
+  expect(() => assertOneHandover(handoverRuns([commit]), true, 3)).toThrow("surviving sessions");
+  expect(() => assertOneHandover(handoverRuns([commit, request.replace("signalled=0", "signalled=1")]), true, 2)).toThrow("second time");
+  expect(assertOneHandover(handoverRuns([]), false, 2)).toBeNull();
+  expect(() => assertOneHandover(handoverRuns([request]), false, 2)).toThrow("rolled-back");
+});

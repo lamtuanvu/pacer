@@ -1934,18 +1934,23 @@ export function classifyNativeProcessCoverage(
   const decisions: { process: NativeProcess; role: NativeCoverageRole }[] = [];
   for (const process of processes) {
     if (!looksLikePacerProcess(process, registeredExecutable)) continue;
-    if (sameProcess(process.process, service) || serviceTree.has(process.process.pid)) {
+    if (sameProcess(process.process, service)) {
       decisions.push({ process, role: "service" });
       continue;
     }
     // Enrolled work and its descendants are covered, but a pacer binary inside that tree
     // must be the registered CLI pair. Survivor leases run through the swap, so a foreign
-    // or dev pacer under an agent must still block (ADR 2026-11-25, B1).
+    // or dev pacer under an agent must still block (ADR 2026-11-25). The service spawns
+    // runners and session hosts, so lease trees sit inside the service tree: check them first.
     if (
       enrolled.some((identity) => sameProcess(identity, process.process)) ||
       leaseTree.has(process.process.pid)
     ) {
       decisions.push({ process, role: registeredCliPair(process, registeredExecutable) ? "lease" : "foreign" });
+      continue;
+    }
+    if (serviceTree.has(process.process.pid)) {
+      decisions.push({ process, role: "service" });
       continue;
     }
     if (verifiedNative.some((identity) => sameProcess(identity, process.process))) {

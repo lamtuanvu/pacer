@@ -837,3 +837,9 @@ test("an unproven commit outcome hands nothing over",async()=>{
   expect(readUpdate(f.ctx,"desktop").phase).not.toBe("complete");
   expect(f.handovers).toEqual([]);
 });
+
+test("a committed update whose reservation release fails signals no handover",async()=>{
+  const f=fixture({release:async()=>{throw Error("release failed");}});f.seedPending("installing");
+  await f.runtime.start();await f.runtime.settled();await Bun.sleep(0);
+  expect(readUpdate(f.ctx,"desktop").phase).toBe("complete");expect(f.handovers).toEqual([]);
+});

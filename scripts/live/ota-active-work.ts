@@ -10,7 +10,10 @@ import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, statSync 
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { HttpClient } from "../../src/api/http-client";
+import { enumerateNativeProcesses, type NativeProcess } from "../../src/update/desktop/native-os";
 import { processIdentity, sameProcess, type ProcessIdentity } from "../../src/update/desktop/process-identity";
+import { FrameType, wire } from "../../src/session/framing";
+import { clientHello } from "../../src/session/protocol";
 
 export interface SurvivorWork { terminals: { id: string; host: ProcessIdentity }[]; logOffset: number }
 export interface AdmissionSample { at: string; reservation: string | null; survivors: boolean; leases: number; survivorLeases: number }
@@ -34,11 +37,46 @@ export function sampleAdmission(pacerHome: string): AdmissionSample | null {
 
 function serviceLog(pacerHome: string): string { return join(pacerHome, "logs/serve.log"); }
 function logSize(pacerHome: string): number { try { return statSync(serviceLog(pacerHome)).size; } catch { return 0; } }
-/** Handover lines the service wrote after `offset` (the commit signal logs one per transaction). */
-export function handoverLines(pacerHome: string, offset: number): string[] {
-  let text = "";
-  try { text = readFileSync(serviceLog(pacerHome)).subarray(offset).toString("utf8"); } catch { return []; }
-  return text.split("\n").filter(line => line.includes("pacer: desktop update handover"));
+function logSince(pacerHome: string, offset: number): string[] {
+  try { return readFileSync(serviceLog(pacerHome)).subarray(offset).toString("utf8").split("\n"); } catch { return []; }
+}
+export interface HandoverRun { origin: "commit" | "request"; signalled: number; summary: string }
+/**
+ * Handover runs the service logged after `offset`, one line per run (`sharedHandover`): the commit
+ * signal is `commit`, the desktop's step-0 `service.handover` call is `request`. Failed runs are
+ * returned separately and never count as a handover.
+ */
+export function handoverRuns(lines: readonly string[]): { runs: HandoverRun[]; failed: string[] } {
+  const runs: HandoverRun[] = [], failed: string[] = [];
+  for (const line of lines) {
+    const ok = /pacer: handover \((commit|request)\): signalled=(\d+); (.*)$/.exec(line);
+    if (ok) { runs.push({ origin: ok[1] as HandoverRun["origin"], signalled: Number(ok[2]), summary: ok[3]! }); continue; }
+    if (/pacer: handover \((commit|request)\) failed: /.test(line)) failed.push(line);
+  }
+  return { runs, failed };
+}
+export function serviceHandoverRuns(pacerHome: string, offset: number) { return handoverRuns(logSince(pacerHome, offset)); }
+/**
+ * Exactly one handover per committed update: one commit run whose summary counts the surviving
+ * sessions as kept running, no failed run, and any step-0 request run after it signalled nothing.
+ * A rolled-back update has no run at all.
+ */
+export function assertOneHandover(result: ReturnType<typeof handoverRuns>, committed: boolean, sessions: number): HandoverRun | null {
+  if (result.failed.length) throw Error(`A handover run failed: ${result.failed[0]!.slice(0, 300)}`);
+  const commits = result.runs.filter(run => run.origin === "commit");
+  if (!committed) {
+    if (result.runs.length) throw Error("A rolled-back update handed over running work");
+    return null;
+  }
+  if (commits.length !== 1) throw Error(`Expected one commit handover, found ${commits.length}`);
+  const kept = /(\d+) tasks? and (\d+) sessions? kept running/.exec(commits[0]!.summary);
+  if (!kept || Number(kept[2]) < sessions) throw Error(`The commit handover did not count the surviving sessions: ${commits[0]!.summary.slice(0, 300)}`);
+  if (result.runs.some(run => run.origin === "request" && run.signalled > 0)) throw Error("The desktop's step-0 call signalled runners a second time");
+  return commits[0]!;
+}
+/** The coverage line the service logs when it refuses a foreign pacer process. */
+export function foreignCoverageLogged(pacerHome: string, offset: number): boolean {
+  return logSince(pacerHome, offset).some(line => /pacer: desktop update coverage .*foreign=\d+/.test(line));
 }
 
 function hostOf(pacerHome: string, id: string): ProcessIdentity | null {
@@ -83,17 +121,65 @@ export function assertSurvivorReservation(samples: readonly AdmissionSample[], t
   }
 }
 
-/** A pacer-named copy of /bin/sleep at an unregistered path: a foreign pacer process. */
-export function startForeignPacer(root: string): { process: ProcessIdentity; stop: () => void } {
+/** Type one line into a terminal through its public session socket (take control, send input, detach). */
+export async function typeIntoTerminal(base: string, token: string, terminalId: string, line: string, timeoutMs = 15000): Promise<void> {
+  const url = new URL(`/v3/terminals/${terminalId}/session`, base); url.protocol = "ws:";
+  const Socket = globalThis.WebSocket as unknown as { new(url: string, options: Bun.WebSocketOptions): WebSocket };
+  const ws = new Socket(url.href, { headers: { Authorization: `Bearer ${token}` } });
+  ws.binaryType = "arraybuffer";
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(Error("Terminal session control timed out")), timeoutMs);
+      ws.onerror = () => { clearTimeout(timer); reject(Error("Terminal session connection failed")); };
+      ws.onmessage = event => {
+        if (typeof event.data !== "string") return;
+        const value = JSON.parse(event.data);
+        if (value.type === "control" && value.you === true) {
+          ws.send(new Uint8Array(wire(FrameType.input, Buffer.from(`${line}\n`))));
+          clearTimeout(timer); resolve();
+        } else if (value.type === "control" && ["refused", "read-only"].includes(value.reason)) { clearTimeout(timer); reject(Error("Terminal session control was refused")); }
+      };
+      ws.onopen = () => {
+        ws.send(JSON.stringify({ type: "hello", v: 1, client: "cli", label: "agent", cols: 120, rows: 40, ...clientHello() }));
+        ws.send(JSON.stringify({ type: "take", force: true }));
+      };
+    });
+    await Bun.sleep(250);
+  } finally { ws.close(); }
+}
+
+function descendsFrom(processes: readonly NativeProcess[], child: NativeProcess, ancestor: number): boolean {
+  const byPid = new Map(processes.map(item => [item.process.pid, item]));
+  let current: NativeProcess | undefined = child;
+  for (let hops = 0; current && hops < 64; hops++) {
+    if (current.parentPid === ancestor) return true;
+    current = byPid.get(current.parentPid);
+  }
+  return false;
+}
+/**
+ * A pacer-named copy of /bin/sleep at an unregistered path, started from inside a survivor
+ * terminal's shell, so it is a descendant of a survivor session host (ADR 2026-11-25 point 2).
+ */
+export async function startForeignPacerInTerminal(root: string, base: string, token: string, work: SurvivorWork, timeoutMs = 20000): Promise<{ process: ProcessIdentity; stop: () => void }> {
   const dir = join(root, "foreign-pacer");
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const binary = join(dir, "pacer");
   copyFileSync("/bin/sleep", binary);
   chmodSync(binary, 0o700);
-  const child = Bun.spawn([binary, "900"], { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
-  const identity = processIdentity(child.pid);
-  if (!identity) { child.kill(); throw Error("Foreign pacer process identity unavailable"); }
-  return { process: identity, stop: () => { if (sameProcess(processIdentity(child.pid), identity)) child.kill("SIGKILL"); } };
+  const terminal = work.terminals[0]!;
+  await typeIntoTerminal(base, token, terminal.id, `'${binary.replaceAll("'", "'\\''")}' 900`);
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const processes = enumerateNativeProcesses();
+    const found = processes.find(item => item.executable === binary && descendsFrom(processes, item, terminal.host.pid));
+    if (found) {
+      const identity = found.process;
+      return { process: identity, stop: () => { if (sameProcess(processIdentity(identity.pid), identity)) process.kill(identity.pid, "SIGKILL"); } };
+    }
+    await Bun.sleep(250);
+  }
+  throw Error("The foreign pacer process did not start under the survivor terminal");
 }
 
 /** Close the terminals the scenario opened (best effort; evidence stays). */

@@ -137,7 +137,7 @@ fn read_admission(
         if !roots.is_empty() {
             let inventory = super::control::native_process_inventory()?;
             for identity in survivor_tree_pacer_processes(&roots, &inventory) {
-                verify(&identity)?;
+                verify_descendant(&identity, verify, super::native::process_details)?;
             }
         }
     }
@@ -199,6 +199,25 @@ fn verify_survivor(
         Ok(Some(details)) if details.identity != expected => Err(OtaError::Identity),
         Ok(Some(_)) => verify(&expected).map(|()| Some(expected)),
         Err(_) => Err(OtaError::Identity),
+    }
+}
+
+/// A pacer-named descendant must verify unless it has exited (or its PID now
+/// names another process) by the time verification fails: short-lived pacer
+/// hooks under an agent must not fail an install or a recovery.
+#[cfg(target_os = "macos")]
+fn verify_descendant(
+    identity: &super::native::ProcessIdentity,
+    verify: impl Fn(&super::native::ProcessIdentity) -> Result<(), OtaError>,
+    details: impl Fn(u32) -> std::io::Result<Option<super::native::ProcessDetails>>,
+) -> Result<(), OtaError> {
+    match verify(identity) {
+        Ok(()) => Ok(()),
+        Err(error) => match details(identity.pid) {
+            Ok(None) => Ok(()),
+            Ok(Some(current)) if current.identity != *identity => Ok(()),
+            _ => Err(error),
+        },
     }
 }
 
@@ -575,6 +594,49 @@ mod tests {
             ..id(10)
         };
         assert!(survivor_tree_pacer_processes(&[other], &inventory).is_empty());
+    }
+    #[test]
+    fn descendant_that_exits_or_is_replaced_before_verification_is_skipped() {
+        use super::super::native::{ProcessDetails, ProcessIdentity};
+        let expected = ProcessIdentity {
+            pid: 30,
+            boot_id: "b".into(),
+            birth: "30:0".into(),
+        };
+        let details = |identity: ProcessIdentity| ProcessDetails {
+            identity,
+            executable: "/Users/x/repo/dist/pacer".into(),
+            uid: 501,
+            parent_pid: 20,
+        };
+        let refuse = |_: &ProcessIdentity| Err(OtaError::Identity);
+        let ok = |_: &ProcessIdentity| Ok(());
+        // Verified: no re-read needed.
+        assert_eq!(
+            verify_descendant(&expected, ok, |_| panic!("not re-read")),
+            Ok(())
+        );
+        // Exited between inventory and verification.
+        assert_eq!(verify_descendant(&expected, refuse, |_| Ok(None)), Ok(()));
+        // The PID now names a different process.
+        let other = ProcessIdentity {
+            birth: "31:0".into(),
+            ..expected.clone()
+        };
+        assert_eq!(
+            verify_descendant(&expected, refuse, |_| Ok(Some(details(other.clone())))),
+            Ok(())
+        );
+        // Still the same live process and unverifiable: blocks.
+        assert_eq!(
+            verify_descendant(&expected, refuse, |_| Ok(Some(details(expected.clone())))),
+            Err(OtaError::Identity)
+        );
+        // An unreadable re-check is not proof of exit.
+        assert_eq!(
+            verify_descendant(&expected, refuse, |_| Err(std::io::Error::other("busy"))),
+            Err(OtaError::Identity)
+        );
     }
     #[test]
     fn reservation_with_survivors_needs_the_admitted_flag() {

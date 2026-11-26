@@ -130,10 +130,12 @@ export function writeUpdate(ctx: Ctx, next: UpdateRecord, expectRevision: number
 }
 
 /**
- * Phases where a desktop install is in flight and may still roll back. A terminal or failed
- * transaction (complete, restored, recovery-failed) never defers a handover.
+ * Phases where a desktop install may still roll back or still holds the admission reservation.
+ * `recovery-failed` stays open: with `handoff_uncertain` an independent recovery helper can still
+ * restore the old bundle, and neither failure code releases the reservation until recovery or
+ * repair, so replacement runners could not start. Callers report the deferral honestly.
  */
-const OPEN_TRANSACTION_PHASES = new Set<UpdateRecord["phase"]>(["reserved", "installing", "verifying", "rolling-back"]);
+const OPEN_TRANSACTION_PHASES = new Set<UpdateRecord["phase"]>(["reserved", "installing", "verifying", "rolling-back", "recovery-failed"]);
 /**
  * True while any desktop update transaction may still roll back. An unreadable record counts as open,
  * so callers that must not act inside the rollback window stay conservative.

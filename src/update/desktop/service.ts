@@ -129,7 +129,7 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
   const handedOver = new Set<string>();
   const handover = deps.handover ?? (async (c: Ctx) => {
     const { sharedHandover, triggerHandover } = await import("../../tasks/handover-service");
-    return sharedHandover(() => triggerHandover(c));
+    return sharedHandover(() => triggerHandover(c), "commit");
   });
   /**
    * Native commit signal (ADR 2026-11-25 point 4): the committed outcome is recorded by the new
@@ -139,10 +139,8 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
   const signalCommitted = (transactionId: string) => {
     if (handedOver.has(transactionId)) return;
     handedOver.add(transactionId);
-    void handover(ctx()).then(
-      report => console.info(`pacer: desktop update handover: ${report.summary}`),
-      error => console.warn(`pacer: desktop update handover failed: ${error instanceof Error ? error.message : String(error)}`),
-    );
+    // The run logs its own line ("pacer: handover (commit): …"); only an unexpected rejection is noted here.
+    void handover(ctx()).catch(() => {});
   };
   let publications = Promise.resolve(), started = false, stopped = false, ticking = false;
   let unsubscribe: (() => void) | undefined, cancelTimer: (() => void) | undefined;
@@ -398,9 +396,11 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
           markSetupHealthRequired(ctx());
         } catch { /* Health stamp is best-effort after a committed desktop update. */ }
       }
-      // Hand over only after the reservation is released, so replacement runners can start.
-      try { await release(id, transactionId); }
-      finally { if (completed) signalCommitted(transactionId); }
+      // Hand over only after the reservation is released, so replacement runners can start. If the
+      // release fails, nothing is signalled: runners keep running on old code (fail-safe) and the
+      // desktop's next-connect `service.handover` call hands over once the reservation is gone.
+      await release(id, transactionId);
+      if (completed) signalCommitted(transactionId);
       recoveryAttempts.delete(id);
     } catch (error) {
       const value = record(id);
