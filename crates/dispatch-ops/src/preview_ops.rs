@@ -26,13 +26,13 @@ use pacer_lifecycle::{
 };
 use pacer_store::TaskFilter;
 use serde_json::{Map, Value, json};
+use std::path::Path;
 use std::time::Instant;
 
 use crate::dispatch_ops::authorize;
 use crate::planning_ops::{now, open};
 use crate::policy::{
-    agent_sessions_may_hold_slots, internal, policy_error, policy_repo, policy_repo_read_only,
-    repo_needs_core,
+    internal, policy_error, policy_repo, policy_repo_read_only, repo_needs_core,
 };
 
 type Object = Map<String, Value>;
@@ -233,7 +233,6 @@ pub fn stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
     plugin && !ranked
         || hosted
         || repo_needs_core(ctx, text(&input, "repo").unwrap_or_default(), !explain)
-        || agent_sessions_may_hold_slots(ctx)
 }
 
 fn truthy(value: &Value) -> bool {
@@ -428,6 +427,66 @@ struct ReadOnly {
     admission_hooks: bool,
 }
 
+/// The slot use including slots held by live agent sessions
+/// (`addAgentSessionSlots` in `src/session/agents-state.ts`). A session holds a slot
+/// when it is `starting` or its run has no exit evidence; reservations that are
+/// unreadable are skipped silently, matching Core's lenient read-only stance.
+fn slot_use_with_sessions(ctx: &Ctx, store: Option<&ReadOnlyStore>, tasks: &[Value]) -> Value {
+    let sessions = match store {
+        Some(store) => agent_session_slots(store, &ctx.pacer_home),
+        None => ReadOnlyStore::open(&ctx.pacer_home, false)
+            .map(|store| agent_session_slots(&store, &ctx.pacer_home))
+            .unwrap_or_default(),
+    };
+    if sessions.is_empty() {
+        return slot_use(tasks);
+    }
+    let mut use_ = slot_use(tasks);
+    let by_executor = use_["byExecutor"].as_object_mut().expect("slot_use byExecutor");
+    for (_, executor) in &sessions {
+        let used = by_executor.get(executor).and_then(|v| v.as_u64()).unwrap_or(0) + 1;
+        by_executor.insert(executor.clone(), json!(used));
+    }
+    use_["local"] = json!(use_["local"].as_u64().unwrap_or(0) + sessions.len() as u64);
+    use_
+}
+
+/// The agent sessions holding an executor slot: `starting` always; a non-ended
+/// session only while its run shows no exit evidence (a `starting` reservation also
+/// survives a late spawn after a crash, matching `probeSessions`).
+fn agent_session_slots(store: &ReadOnlyStore, home: &Path) -> Vec<(String, String)> {
+    if !store.has("agent_sessions") {
+        return Vec::new();
+    }
+    let Ok(sessions) = store.query(
+        "SELECT record FROM agent_sessions ORDER BY id",
+        [],
+        |row| row.get::<_, String>(0),
+    ) else {
+        return Vec::new();
+    };
+    sessions
+        .into_iter()
+        .filter_map(|raw| {
+            let session: Value = serde_json::from_str(&raw).ok()?;
+            let id = session["id"].as_str()?.to_owned();
+            let state = session["state"].as_str().unwrap_or("");
+            if state == "ended" {
+                return None;
+            }
+            if state != "starting" {
+                let attempt = session["attempt"].as_u64().unwrap_or(1);
+                let run = home.join("agent-sessions").join(&id).join(attempt.to_string());
+                if run.join("exit").exists() {
+                    return None;
+                }
+            }
+            let executor = session["executor"].as_str()?.to_owned();
+            Some((id, executor))
+        })
+        .collect()
+}
+
 /// `previewDispatch(ctx, input, deps)` for the ladder engine; with `ro`, its read-only form.
 /// Returns the preview and the status it ranked.
 async fn preview(
@@ -509,7 +568,7 @@ async fn preview(
             (tasks, stored_observations(db, now).map_err(internal)?)
         }
     };
-    let use_ = slot_use(&tasks);
+    let use_ = slot_use_with_sessions(ctx, ro.as_deref().map(|r| &r.store), &tasks);
     let enforced = match strict {
         true => {
             let path = repo["path"].as_str().unwrap_or_default();
@@ -764,7 +823,7 @@ async fn explain_delegate(
     };
     let tier = fallback_tier(difficulty, &config["tierTargets"], None);
     let ranking = r.rank(&status, selection.as_ref(), false, tier);
-    let use_ = slot_use(&ro.store.slot_tasks()?);
+    let use_ = slot_use_with_sessions(ctx, Some(&ro.store), &ro.store.slot_tasks()?);
     let ranked: Vec<Value> = ranking["ranked"].as_array().cloned().unwrap_or_default();
     let (guards, hooks) = r.guards(&ids(&ranking["ranked"]), bridge).await?;
     let mut blocked: Vec<(String, String)> = Vec::new();

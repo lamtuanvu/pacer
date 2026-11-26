@@ -89,24 +89,16 @@ const REVIEW_OPS: &[&str] = &[
 ];
 
 /// `authorizeWorkOperation` — the full gate.
+///
+/// The work store is opened only when a granted identity actually needs it (a running
+/// executor's `task.review`, or a live `PACER_WORK_GRANT`). An operator request with
+/// no grant is admitted without touching `state/tasks.db`, matching `src/core/work.ts`,
+/// so a native `dispatch.preview`/`dispatch.explain` leaves the store untouched.
 pub fn authorize_work_operation(
     ctx: &Ctx,
     name: &str,
     params: &Value,
     is_executor: bool,
-) -> Result<(), CoreError> {
-    let mut store = crate::grants::open(ctx)?;
-    let db = store.connection().map_err(crate::grants::store_err)?;
-    authorize_work_operation_db(ctx, name, params, is_executor, &db)
-}
-
-/// Internal, shared-connection form.
-pub(crate) fn authorize_work_operation_db(
-    ctx: &Ctx,
-    name: &str,
-    params: &Value,
-    is_executor: bool,
-    db: &Connection,
 ) -> Result<(), CoreError> {
     // The assistant-turn identity comes first and answers for nothing else (`spec §2`).
     if let Some(assistant_token) = ctx
@@ -154,7 +146,9 @@ pub(crate) fn authorize_work_operation_db(
         ));
     }
     if name == "task.review" && is_executor {
-        assert_executor_task_review(ctx, params, db)?;
+        let mut store = crate::grants::open(ctx)?;
+        let db = store.connection().map_err(crate::grants::store_err)?;
+        assert_executor_task_review(ctx, params, &db)?;
     }
     let Some(token) = ctx
         .env
@@ -172,6 +166,8 @@ pub(crate) fn authorize_work_operation_db(
         }
         return Ok(());
     };
+    let mut store = crate::grants::open(ctx)?;
+    let db = store.connection().map_err(crate::grants::store_err)?;
     // msg allow-list: the grant's validity is enough; no subtree scope is required.
     if MSG_OPS.contains(&name) {
         authorize_work_grant_db(db, ctx, token)?;

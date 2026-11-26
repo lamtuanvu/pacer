@@ -197,8 +197,8 @@ function scenarios(): Case[] {
     goal({ delegationEnforcement: "cooperative" }), { forwarded: true });
   add("work-grant caller on explain forwards", home, E, explain(), { forwarded: true, env: { PACER_WORK_GRANT: "grant" } });
   const sessions = seed({ strategy: LADDER, registered: true, setup: agentSession(NOW - 10) });
-  add("a live agent session keeps preview forwarded", sessions, P, goal({ kind: "debug", delegationEnforcement: "cooperative" }), { forwarded: true });
-  add("a live agent session keeps explain forwarded", sessions, E, explain({ delegationEnforcement: "cooperative" }), { forwarded: true });
+  add("a live agent session holds a slot on preview", sessions, P, goal({ kind: "debug", delegationEnforcement: "cooperative" }));
+  add("a live agent session holds a slot on explain", sessions, E, explain({ delegationEnforcement: "cooperative" }));
   add("unloadable strategy forwards", seed({ strategy: "planner: [\n" }), P, goal(), { forwarded: true });
   add("conversation explain forwards", home, E, goal({ kind: "debug", interactionMode: "conversation" }), { forwarded: true });
   add("input only TypeScript describes forwards", home, P, goal({ requirements: { tools: ["shell"] } }), { forwarded: true });

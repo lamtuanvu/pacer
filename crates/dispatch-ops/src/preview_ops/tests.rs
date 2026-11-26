@@ -395,3 +395,101 @@ fn the_operation_future_is_send() {
         &mut fake,
     ));
 }
+
+fn tree(dir: &std::path::Path) -> Vec<(String, u64)> {
+    let mut out = Vec::new();
+    if let Ok(rd) = std::fs::read_dir(dir) {
+        for e in rd.flatten() {
+            if let Ok(md) = e.metadata() {
+                if md.is_file() {
+                    out.push((e.file_name().to_string_lossy().into_owned(), md.len()));
+                }
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+/// A home whose WAL was left on disk (as the bun seed leaves it), then a native explain: does
+/// it leave the tree byte-for-byte unchanged?
+#[tokio::test]
+async fn explain_leaves_a_live_wal_store_unchanged() {
+    use rusqlite::Connection;
+
+    // Bake a WAL store with a running codex task, keeping the writer open so -wal/-shm exist.
+    let home = tempfile::tempdir().unwrap();
+    let ph = home.path().join(".pacer");
+    std::fs::create_dir_all(ph.join("state")).unwrap();
+    std::fs::write(ph.join("strategy.yaml"), STRATEGY).unwrap();
+    let db_path = ph.join("state/tasks.db");
+    let writer = Connection::open(&db_path).unwrap();
+    writer
+        .execute_batch(
+            "PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0;
+             CREATE TABLE tasks(id TEXT, state TEXT, record TEXT);
+             CREATE TABLE work_reservations(pools TEXT, estimate REAL);
+             INSERT INTO tasks VALUES('t','running','{\"id\":\"t\"}');
+             CREATE TABLE agent_sessions(id TEXT PRIMARY KEY, task TEXT NOT NULL, request_id TEXT NOT NULL UNIQUE, payload TEXT NOT NULL, record TEXT NOT NULL);",
+        )
+        .unwrap();
+    // Copy the store dir (and whole pacer_home) into a fresh twin while the writer is open.
+    fn copy_dir(src: &std::path::Path, dst: &std::path::Path) {
+        std::fs::create_dir_all(dst).unwrap();
+        for e in std::fs::read_dir(src).unwrap() {
+            let e = e.unwrap();
+            let target = dst.join(e.file_name());
+            if e.file_type().unwrap().is_dir() {
+                copy_dir(&e.path(), &target);
+            } else {
+                std::fs::copy(e.path(), target).unwrap();
+            }
+        }
+    }
+    let twin = tempfile::tempdir().unwrap();
+    copy_dir(&ph, &twin.path().join(".pacer"));
+    let ctx = Ctx::with(twin.path().into(), twin.path().join(".pacer"), std::collections::HashMap::new(), 1_800_000_000.0);
+    let state = twin.path().join(".pacer/state");
+    let before = tree(&state);
+    let mut fake = Fake::default();
+    // Both explanation modes must leave the tree untouched.
+    for via in ["delegate", "dispatch"] {
+        let params = json!({"repo": repo(twin.path()), "goal": "g", "kind": "tests", "via": via});
+        let _ = dispatch_preview(&ctx, "dispatch.explain", params, &mut fake).await;
+        assert_eq!(tree(&state), before, "tree changed for via={via}");
+    }
+}
+
+/// A live agent session holds an executor slot (`addAgentSessionSlots`); an ended one
+/// does not. `slot_use_with_sessions` counts the same sessions Core would.
+#[test]
+fn live_agent_sessions_hold_executor_slots() {
+    use rusqlite::Connection;
+    let home = tempfile::tempdir().unwrap();
+    let ph = home.path().join(".pacer");
+    let db_path = ph.join("state/tasks.db");
+    std::fs::create_dir_all(ph.join("state")).unwrap();
+    let ctx = Ctx::with(home.path().into(), ph.clone(), HashMap::new(), 1.0);
+    std::fs::write(ph.join("strategy.yaml"), STRATEGY).unwrap();
+    {
+        let db = Connection::open(&db_path).unwrap();
+        db.execute_batch(
+            "CREATE TABLE tasks(id TEXT, state TEXT, record TEXT);
+             CREATE TABLE agent_sessions(id TEXT PRIMARY KEY, task TEXT NOT NULL, request_id TEXT NOT NULL UNIQUE, payload TEXT NOT NULL, record TEXT NOT NULL);",
+        )
+        .unwrap();
+        let starting = r#"{"id":"s1","task_id":"t","ordinal":1,"executor":"cursor","request":"r","cwd":"/","createdAt":1,"rev":1,"attempt":1,"state":"starting","attempts":[]}"#;
+        let ended = r#"{"id":"s2","task_id":"t","ordinal":1,"executor":"codex","request":"r","cwd":"/","createdAt":1,"rev":1,"attempt":1,"state":"ended","attempts":[]}"#;
+        db.execute("INSERT INTO agent_sessions VALUES(?,?,?,?,?)", ("s1", "t", "r1", "{}", starting))
+            .unwrap();
+        db.execute("INSERT INTO agent_sessions VALUES(?,?,?,?,?)", ("s2", "t", "r2", "{}", ended))
+            .unwrap();
+    }
+    let store = ReadOnlyStore::open(&ph, false).unwrap();
+    let sessions = agent_session_slots(&store, &ph);
+    assert_eq!(sessions, vec![("s1".to_string(), "cursor".to_string())]);
+    let use_ = slot_use_with_sessions(&ctx, Some(&store), &[]);
+    assert_eq!(use_["byExecutor"]["cursor"], json!(1));
+    assert_eq!(use_["local"], json!(1));
+    assert!(use_["byExecutor"].get("codex").is_none());
+}
