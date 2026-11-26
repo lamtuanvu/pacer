@@ -10,6 +10,7 @@
 //! still answers.
 mod available;
 mod catalog;
+pub mod catalog_fetch;
 mod closest;
 pub mod declarations;
 mod discover;

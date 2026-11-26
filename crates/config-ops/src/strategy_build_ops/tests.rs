@@ -4,6 +4,12 @@ use std::collections::HashMap;
 
 struct Fake(Vec<Value>);
 
+impl crate::executor_setup_ops::EndpointModels for Fake {
+    fn models(&mut self, _: &str, _: u32) -> pacer_foundation::api::OpFuture<'_> {
+        Box::pin(async move { Ok(json!({"listed":false,"models":[]})) })
+    }
+}
+
 impl SetupEffects for Fake {
     fn call(&mut self, request: Value) -> pacer_foundation::api::OpFuture<'_> {
         Box::pin(async move {

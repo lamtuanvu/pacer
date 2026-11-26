@@ -1,5 +1,5 @@
 import { childEnv } from "./child-env";
-import { expect, test } from "bun:test";
+import { afterAll, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Ctx } from "../src/types";
@@ -58,6 +58,10 @@ const request = (id: number, method: string, params: unknown) =>
 const requests = (cases: [string, unknown][]) => cases.map(([op, params], i) => request(i + 2, op, params));
 
 const NOW = Math.floor(Date.now() / 1000);
+// A local OpenAI-compatible server for executor.setup.models' `base_url` probe.
+const localModels = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: req => new URL(req.url).pathname === "/v1/models"
+  ? Response.json({ data: [{ id: "local-a" }, { id: "local-coder" }] }) : new Response("no", { status: 404 }) });
+afterAll(() => localModels.stop(true));
 const job = (id: string, state: string, startedAt: number, cancellable: boolean, extra: Record<string, unknown> = {}) => ({
   id, kind: "host.check", target: id.startsWith("h") ? "host-a" : "host-b", state,
   steps: [{ name: "Connect", state: "passed", detail: "ok" }, { name: "Probe", state: "running", detail: "key secret-value for me@example.com" }, { name: "Clean", state: "pending" }],
@@ -121,14 +125,24 @@ test.skipIf(!front)("job.list, job.get and job.cancel match forced forwarding, f
   expect(JSON.parse(native[16]!).result.state).toBe("cancelled");
 }, 60000);
 
-test.skipIf(!front)("job files only TypeScript parses forward", async () => {
-  const dir = home();
-  writeFileSync(join(dir, ".pacer", "state", "jobs", "broken.json"), "{not json");
-  const cases = requests([["job.get", { id: "broken" }], ["job.cancel", { id: "broken" }]]);
-  expect(await exchange(dir, cases, false, {}, false)).toEqual(await exchange(dir, cases, true));
-  writeFileSync(join(dir, ".pacer", "state", "jobs", "null.json"), "null");
-  const list = requests([["job.list", {}], ["job.cancel", { id: "null" }]]);
-  expect(await exchange(dir, list, false, {}, false)).toEqual(await exchange(dir, list, true));
+test.skipIf(!front)("job files with non-object JSON are handled natively", async () => {
+  const dir = home(), jobs = join(dir, ".pacer", "state", "jobs");
+  writeFileSync(join(jobs, "array.json"), "[]");
+  writeFileSync(join(jobs, "strdate.json"), JSON.stringify({ startedAt: "x" }));
+  const cases = requests([
+    ["job.list", {}], ["job.get", { id: "array" }], ["job.get", { id: "strdate" }],
+    ["job.cancel", { id: "array" }], ["job.cancel", { id: "strdate" }],
+  ]);
+  expect(await exchange(dir, cases, false)).toEqual(await exchange(dir, cases, true));
+}, 60000);
+
+test.skipIf(!front || process.getuid?.() === 0)("an unreadable job directory matches forced forwarding", async () => {
+  const dir = home(), jobs = join(dir, ".pacer", "state", "jobs");
+  chmodSync(jobs, 0);
+  try {
+    const cases = requests([["job.list", {}], ["job.get", { id: "h-run" }]]);
+    expect(await exchange(dir, cases, false)).toEqual(await exchange(dir, cases, true));
+  } finally { chmodSync(jobs, 0o700); }
 }, 60000);
 
 test.skipIf(!front)("strategy.preview over the usage broker matches forced forwarding", async () => {
@@ -252,10 +266,18 @@ test.skipIf(!front)("executor.setup.models from a fresh catalog and executor.set
   expect(native).toEqual(forwarded);
   expect(JSON.parse(native[0]!).result.pick.id).toBe("alpha-coder");
   const withOpencode = tmpDir();
-  writeFileSync(join(withOpencode, "opencode"), "#!/bin/sh\nexit 1\n");
+  writeFileSync(join(withOpencode, "opencode"), "#!/bin/sh\nprintf 'acme/big\\nacme/my-coder\\n'\n");
   chmodSync(join(withOpencode, "opencode"), 0o755);
-  const listed = requests([["executor.setup.models", { provider: "acme", group: "catalog" }]]);
-  expect(await exchange(dir, listed, false, { PATH: `${withOpencode}:/usr/bin:/bin` }, false)).toEqual(native.slice(0, 1));
+  const baseUrl = `http://127.0.0.1:${localModels.port}/v1`;
+  const narrowed = requests([
+    ["executor.setup.models", { provider: "acme", group: "catalog" }],
+    ["executor.setup.models", { provider: "acme", group: "local", base_url: baseUrl }],
+  ]);
+  const opencodeEnv = { PATH: `${withOpencode}:/usr/bin:/bin` };
+  const nativeNarrowed = await exchange(dir, narrowed, false, opencodeEnv);
+  expect(nativeNarrowed).toEqual(await exchange(dir, narrowed, true, opencodeEnv));
+  // The fake CLI lists two ids, but the visible catalog models are what get ranked.
+  expect(JSON.parse(nativeNarrowed[0]!).result.pick.id).toBe("alpha-coder");
   const enforced = requests([["job.list", {}], ["strategy.preview", { draft: { from: "default" } }], ["executor.setup.connect", { provider: "acme" }]]);
   const env = { PACER_ENFORCEMENT_TOKEN: "pet_x" };
   expect(await exchange(dir, enforced, false, env)).toEqual(await exchange(dir, enforced, true, env));

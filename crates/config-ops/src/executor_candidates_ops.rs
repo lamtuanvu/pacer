@@ -61,18 +61,26 @@ fn catalog_provider(provider: &Value) -> bool {
             .is_some_and(|models| models.iter().all(catalog_model))
 }
 
-/// The cached catalog providers while the cache is fresh and well formed.
-fn fresh_catalog(ctx: &Ctx) -> Option<Map<String, Value>> {
-    let cache: Value =
-        pacer_foundation::fsutil::read_json(&ctx.pacer_home.join("cache").join("models.json"))?;
-    let fetched = cache["fetchedAt"].as_f64()?;
-    let providers = cache["providers"].as_object()?;
-    (ctx.now - fetched < CATALOG_MAX_AGE_S && providers.values().all(catalog_provider))
-        .then(|| providers.clone())
+/// The catalog providers, refreshed through `catalog_fetch` when stale. The
+/// bool is the catalog's `stale` flag: a failed refresh keeps the old cache.
+async fn catalog(ctx: &Ctx) -> Option<(Map<String, Value>, bool)> {
+    let mut cache = pacer_models::catalog_fetch::read_cache(&ctx.pacer_home);
+    let stale = cache
+        .as_ref()
+        .is_none_or(|c| !pacer_models::catalog_fetch::fresh(c, ctx.now, CATALOG_MAX_AGE_S));
+    if stale {
+        cache = pacer_models::catalog_fetch::load(&ctx.pacer_home, ctx.now, &ctx.env).await;
+    }
+    let cache = cache?;
+    let providers = cache["providers"].as_object()?.clone();
+    let stale = !pacer_models::catalog_fetch::fresh(&cache, ctx.now, CATALOG_MAX_AGE_S);
+    (providers.values().all(catalog_provider)).then_some((providers, stale))
 }
 
+/// A malformed cache no longer forwards: `catalog` refreshes it natively. Only
+/// a strategy Rust cannot read still needs the TypeScript core.
 pub(crate) fn stays_forwarded(ctx: &Ctx) -> bool {
-    fresh_catalog(ctx).is_none() || load_strategy(&ctx.pacer_home).is_err()
+    load_strategy(&ctx.pacer_home).is_err()
 }
 
 fn models(catalog: &Map<String, Value>, id: &str) -> Vec<Value> {
@@ -237,9 +245,9 @@ pub(crate) async fn candidates(
 ) -> Result<Value, CoreError> {
     enforcement(ctx)?;
     params_map(&params)?;
-    let catalog = fresh_catalog(ctx).ok_or_else(|| {
-        unavailable("executor.setup.candidates: a stale catalog needs the forwarded operation")
-    })?;
+    let (catalog, stale) = catalog(ctx)
+        .await
+        .ok_or_else(|| unavailable("executor.setup.candidates: no readable catalog"))?;
     let strategy = load_strategy(&ctx.pacer_home).map_err(|_| {
         unavailable("executor.setup.candidates: the strategy needs the forwarded operation")
     })?;
@@ -308,7 +316,8 @@ pub(crate) async fn candidates(
             ));
         }
     }
-    Ok(json!({"candidates":candidates,"opencode":opencode,"catalog":"fresh","notes":notes}))
+    Ok(json!({"candidates":candidates,"opencode":opencode,
+        "catalog":if stale {"stale"} else {"fresh"},"notes":notes}))
 }
 
 #[cfg(test)]
@@ -370,6 +379,12 @@ mod branch_tests {
     }
 
     struct Reply(Value);
+
+    impl crate::executor_setup_ops::EndpointModels for Reply {
+        fn models(&mut self, _: &str, _: u32) -> pacer_foundation::api::OpFuture<'_> {
+            Box::pin(async move { Ok(json!({"listed":false,"models":[]})) })
+        }
+    }
 
     impl SetupEffects for Reply {
         fn call(&mut self, _: Value) -> pacer_foundation::api::OpFuture<'_> {
