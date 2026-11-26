@@ -955,7 +955,13 @@ test("keyboard focus on an agent that was panned out of view brings it back", as
     for (let i = 0; i < 8; i++) await act(async () => { fire(board, "keydown", { key: "ArrowRight", shiftKey: true }); });
     expect(viewOf(dom.container).x).toBeLessThan(start.x - 1000);
     const target = must(byAttr(dom.container, "data-agent", "t_a"), "agent");
-await act(async () => { fire(target, "focusin"); await tick(); });
+    // a pointer press focuses the agent too, and must not move the board under the pointer
+    const panned = viewOf(dom.container);
+    await act(async () => { fire(target, "pointerdown", { button: 0 }); fire(target, "focusin"); await tick(); });
+    await settle();
+    expect(viewOf(dom.container)).toEqual(panned);
+    await act(async () => { fire(target, "pointerup"); });
+    await act(async () => { fire(target, "focusin"); await tick(); });
     await settle();
     const after = viewOf(dom.container);
     const transform = attr(must(byAttr(dom.container, "data-agent", "t_a"), "agent").childNodes![0] as Node, "x");

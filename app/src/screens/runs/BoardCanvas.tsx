@@ -1,4 +1,5 @@
 /** The drawing of a board: stations, zones, bands, edges, desks, the person and the agents. Used by the Live board and the playback. */
+import { useRef } from "preact/hooks";
 import { stepMarkerFor, stepMarkerGlyph, runStatus } from "../../../../src/view-model/runs";
 import { sentenceCase } from "../../../../src/view-model/run-board";
 import { Creature, PersonFigure, creatureHeight } from "./MascotArt";
@@ -83,6 +84,8 @@ export interface CanvasProps {
 }
 
 export function BoardCanvas(p: CanvasProps) {
+  /** A press focuses the agent too; only focus that arrives another way pans the board to it. */
+  const pressed = useRef(false);
   const { layout } = p;
   const visible = p.visible ?? (() => true);
   const statusOf = p.statusOf ?? ((n: BoardNode) => ({ status: n.status, waitsOnYou: n.waitsOnYou }));
@@ -159,7 +162,10 @@ export function BoardCanvas(p: CanvasProps) {
           aria-pressed={p.selectedTaskId === a.taskId}
           aria-label={`${a.name} working on ${a.label}. Open live output`}
           onClick={() => p.onOpenAgent!(a.taskId)}
-          onFocus={() => p.onFocusAgent?.(a.taskId)}
+          onPointerDown={() => { pressed.current = true; }}
+          onPointerUp={() => { pressed.current = false; }}
+          onPointerCancel={() => { pressed.current = false; }}
+          onFocus={() => { if (!pressed.current) p.onFocusAgent?.(a.taskId); }}
           onKeyDown={(e: KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); p.onOpenAgent!(a.taskId); } }}
         >
           <rect className="lb-agent-ring" x={a.x - 3} y={a.y - 3} width={FIGURE + 6} height={creatureHeight(FIGURE) + 6} />
