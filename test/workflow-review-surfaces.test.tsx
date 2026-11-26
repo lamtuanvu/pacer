@@ -214,7 +214,7 @@ test("the live board names review and conflict desks and never says nothing wait
   expect(deskWords(desk).label).toBe("Waiting for review");
   expect(deskWords({ ...desk, conflict: true }).label).toBe("Merge conflict");
   expect(conflictedTasks([stepConflict]).has(TASK)).toBe(true);
-  expect(runGateNote("run_abc", [stepConflict])).toBe("A merge conflict needs you");
+  expect(runGateNote("run_abc", [stepConflict])).toBe("A conflict waits for you");
   expect(runGateNote("run_abc", [{ ...stepConflict, gate: { kind: "step_review" } }])).toContain("A review waits");
   expect(runGateNote("run_other", [stepConflict])).toBeNull();
 });

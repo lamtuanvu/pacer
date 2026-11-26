@@ -26,12 +26,13 @@ export function taskStatusIn(attention: Items, task: TaskStatusInput & { id: str
 /** The tasks of a run's steps whose merge conflicted. */
 export const conflictedTasks = (attention: Items): Set<string> =>
   new Set((attention ?? []).flatMap(item => item.gate?.kind === "step_conflict" && item.taskId ? [item.taskId] : []));
-/** What a run's gates ask of the person, in one line; null when none is open. */
+/** What a run's gates ask of the person, short enough for the board's two-line note;
+ *  null when none is open. */
 export function runGateNote(runId: string, attention: Items): string | null {
   const kinds = new Set((attention ?? []).flatMap(item => item.gate && item.run?.id === runId ? [item.gate.kind] : []));
-  if (kinds.has("step_conflict") || kinds.has("branch_conflict")) return "A merge conflict needs you";
+  if (kinds.has("step_conflict") || kinds.has("branch_conflict")) return "A conflict waits for you";
   if (kinds.has("adoption")) return "The run is blocked";
-  return kinds.has("step_review") ? "A review waits for you or the planner" : null;
+  return kinds.has("step_review") ? "A review waits for you" : null;
 }
 export const acceptWords = (item: AttentionItem | undefined): string => item?.gate ? MERGE_ON_ACCEPT_WORDS : RECORD_ONLY_WORDS;
 export const isConflictGate = (item: AttentionItem | undefined): boolean =>
