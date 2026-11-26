@@ -420,8 +420,8 @@ adaptation or dependency. Native validation retains its existing controls.
 as children and a ref. It is always mounted, visually hidden while empty, so a later
 message is announced. It is focusable by script only (`tabIndex={-1}`) and shows the
 standard focus ring when focused, outranking the app's `tabindex="-1"` outline reset.
-A screen focuses it only when its own action removed the control that held focus,
-once per action. Consumer: Dispatcher › Overview › Native subagent control. Original
+A screen focuses it only when the control that held focus is removed while its own
+action owns that focus, once per action. Consumer: Dispatcher › Overview › Native subagent control. Original
 code; no upstream adaptation or dependency.
 
 ### Overview and App preferences boards

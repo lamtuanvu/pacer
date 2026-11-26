@@ -28,8 +28,18 @@ async function open(options: { world?: Partial<World>; repos?: typeof REPOS; que
   // The repository picker measures and scrolls its list; the fake DOM only needs those calls to exist.
   const measurable = <N,>(element: N) => Object.assign(element as object, { children: { item: () => null }, getBoundingClientRect: () => ({ top: 0, bottom: 0 }), querySelector: () => null }) as N;
   const create = dom.doc.createElement.bind(dom.doc), createNS = dom.doc.createElementNS.bind(dom.doc);
-  dom.doc.createElement = (tag: string) => measurable(create(tag));
-  dom.doc.createElementNS = (namespace: string, tag: string) => measurable(createNS(namespace, tag));
+  // As in a browser, removing the focused element drops focus to nothing at once.
+  const blurring = (element: Node) => {
+    const remove = element.removeChild.bind(element);
+    element.removeChild = (child: Node) => {
+      const active = dom.doc.activeElement as Node;
+      if (active && (active === child || all(child).includes(active))) dom.doc.activeElement = null;
+      return remove(child);
+    };
+    return element;
+  };
+  dom.doc.createElement = (tag: string) => blurring(measurable(create(tag)));
+  dom.doc.createElementNS = (namespace: string, tag: string) => blurring(measurable(createNS(namespace, tag)));
   const world: World = { consent: "unasked", certified: {}, handlers: {}, ...options.world };
   const repos = options.repos ?? REPOS;
   const calls: Call[] = [];
@@ -135,6 +145,130 @@ test("focus that moves is brought into view only if its button was in view", asy
     });
   }
 });
+
+const resultBesideRow = (page: Page, message: string) => {
+  const status = page.focused();
+  expect(status?.attrs.role).toBe("status");
+  expect(domText(status)).toContain(message);
+  return status;
+};
+
+test("a reading that removes Verify before the job answers moves focus to that row's status", () => withPage({}, async page => {
+  const job = deferred<unknown>();
+  page.world.handlers["job.get"] = () => job.promise;
+  await page.press("Verify control");
+  page.world.certified["repo-a"] = "certified";
+  await page.refetch();
+  expect(page.buttons().map(domText)).not.toContain("Verify control");
+  const status = resultBesideRow(page, "checking native child blocking");
+  await act(async () => { job.resolve({ state: "passed" }); });
+  await page.settle();
+  expect(page.focused()).toBe(status);
+  expect(domText(status)).toContain("native child blocking verified");
+  page.blur();
+  await page.refetch();
+  expect(page.focused()).toBeNull();
+}));
+
+test("a reading that replaces the consent button before the reply moves focus to its status", () => withPage({}, async page => {
+  const reply = deferred<unknown>();
+  page.world.handlers["dispatch.enforcement.consent"] = () => reply.promise;
+  await page.press("Grant consent");
+  page.world.consent = "granted";
+  await page.refetch();
+  const status = resultBesideRow(page, "Granting consent");
+  await act(async () => { reply.resolve({}); });
+  await page.settle();
+  expect(page.focused()).toBe(status);
+  expect(domText(status)).toContain("Consent granted");
+  page.blur();
+  await page.refetch();
+  expect(page.focused()).toBeNull();
+}));
+
+for (const where of ["another button", "nowhere"] as const) {
+  test(`a reading that removes the button after the user moved to ${where} moves nothing`, () => withPage({}, async page => {
+    const job = deferred<unknown>();
+    page.world.handlers["job.get"] = () => job.promise;
+    await page.press("Verify control");
+    const elsewhere = where === "another button" ? page.button("Refresh status") : null;
+    if (elsewhere) elsewhere.focus(); else page.blur();
+    page.world.certified["repo-a"] = "certified";
+    await page.refetch();
+    await act(async () => { job.resolve({ state: "passed" }); });
+    await page.settle();
+    expect(page.focused()).toBe(elsewhere);
+  }));
+}
+
+test("a claim ends with a failed action: a later removal is not this action's", () => withPage({}, async page => {
+  page.world.handlers["dispatch.enforcement.consent"] = () => { throw new Error("consent store locked"); };
+  await page.press("Grant consent");
+  page.world.consent = "granted";
+  await page.refetch();
+  expect(page.focused()).toBeNull();
+}));
+
+test("a claim ends when the reading after success keeps the button", () => withPage({}, async page => {
+  // The service answered, but its next reading does not show the change yet.
+  page.world.handlers["dispatch.enforcement.consent"] = () => ({});
+  const grant = await page.press("Grant consent");
+  expect(page.focused()).toBe(grant);
+  page.world.consent = "granted";
+  await page.refetch();
+  expect(page.focused()).toBeNull();
+}));
+
+const REASON = "A check of Claude Code in repo-a is running. Verify control is available when it finishes.";
+test("answering consent during a probe keeps the running check's line", () => withPage({}, async page => {
+  const job = deferred<unknown>();
+  page.world.handlers["job.get"] = () => job.promise;
+  await page.press("Verify control");
+  await page.press("Grant consent");
+  expect(page.text()).toContain("Consent granted");
+  expect(page.text()).toContain("Claude Code: checking native child blocking");
+  await page.press("Refresh status");
+  expect(page.text()).toContain("Claude Code: checking native child blocking");
+  expect(page.text()).not.toContain("Consent granted");
+  await act(async () => { job.resolve({ state: "failed" }); });
+  await page.settle();
+  expect(page.text()).not.toContain("checking native child blocking");
+  expect(page.text()).toContain("verification could not complete");
+}));
+
+test("another repository says why Verify is unavailable while a check runs", () => withPage({}, async page => {
+  const job = deferred<unknown>();
+  page.world.handlers["job.get"] = () => job.promise;
+  await page.press("Verify control");
+  expect(page.text()).not.toContain(REASON);
+  await page.chooseRepo("repo-b");
+  const verify = page.button("Verify control");
+  expect(String(verify.attrs["aria-disabled"])).toBe("true");
+  expect(String(verify.attrs["aria-busy"])).toBe("false");
+  expect(page.text()).toContain(REASON);
+  expect(page.text()).not.toContain("checking native child blocking");
+  await act(async () => { job.resolve({ state: "failed" }); });
+  await page.settle();
+  expect(page.text()).not.toContain(REASON);
+  expect(page.button("Verify control").attrs["aria-disabled"]).toBeUndefined();
+}));
+
+test("a check says it is running as soon as it is asked for", () => withPage({}, async page => {
+  page.world.handlers["dispatch.enforcement.probe"] = () => deferred<unknown>().promise;
+  await page.press("Verify control");
+  expect(page.text()).toContain("Claude Code: checking native child blocking");
+}));
+
+test("another repository says why consent is unavailable while an answer is being saved", () => withPage({}, async page => {
+  const reply = deferred<unknown>();
+  page.world.handlers["dispatch.enforcement.consent"] = () => reply.promise;
+  await page.press("Grant consent");
+  await page.chooseRepo("repo-b");
+  expect(page.text()).toContain("A consent answer is being saved.");
+  await act(async () => { reply.resolve({}); });
+  await page.settle();
+  expect(page.text()).not.toContain("A consent answer is being saved.");
+}));
 
 test("an action whose button did not hold focus moves nothing, then or later", () => withPage({}, async page => {
   await page.press("Grant consent", false);
