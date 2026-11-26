@@ -128,10 +128,9 @@ pub fn terminal_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
 }
 
 /// `repo.list`, `repo.add`, `issue.*` and `project.strategy.*` inputs that only the TypeScript repository reader handles.
-pub fn repo_registry_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
+pub fn repo_registry_stays_forwarded(ctx: &Ctx, op: &str, _params: &Value) -> bool {
     repo_registry_ops::repo_list_stays_forwarded(ctx, op)
         || pacer_issues::issue_stays_forwarded(ctx, op)
-        || project_strategy_ops::project_strategy_stays_forwarded(ctx, op, params)
 }
 
 /// `job.*`, `strategy.preview` and `executor.setup.models` inputs that only TypeScript reproduces.

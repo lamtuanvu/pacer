@@ -115,41 +115,47 @@ async fn set_get_list_and_remove_with_revisions() {
     );
 }
 
-#[test]
-fn forwards_only_runtime_text() {
+#[tokio::test]
+async fn runtime_text_is_answered_natively() {
     let (dir, ctx) = home();
     let get = "project.strategy.get";
-    let forwarded = |op: &str, params: Value| project_strategy_stays_forwarded(&ctx, op, &params);
-    assert!(!forwarded(get, json!({"repo": "github.com/a/b"})));
-    assert!(!forwarded("repo.list", json!({"repo": "/x"})));
-    assert!(!forwarded(get, json!({"repo": "/tmp/checkout"})));
-    // Unreadable and invalid policy files fail closed with fixed texts.
+    // Unreadable and invalid policy files still fail closed with fixed texts.
     fs::write(dir.path().join(FILE), "{").unwrap();
-    assert!(!forwarded(get, json!({"repo": "github.com/a/b"})));
+    let error = project_strategy_get(&ctx, json!({"repo": "github.com/a/b"}))
+        .await
+        .unwrap_err();
+    assert_eq!(error.message, "Invalid project strategies");
     fs::remove_file(dir.path().join(FILE)).unwrap();
     fs::create_dir(dir.path().join(FILE)).unwrap();
-    assert!(!forwarded(get, json!({"repo": "github.com/a/b"})));
+    let error = project_strategy_get(&ctx, json!({"repo": "github.com/a/b"}))
+        .await
+        .unwrap_err();
+    assert_eq!(error.message, "Cannot read project strategies");
     fs::remove_dir(dir.path().join(FILE)).unwrap();
-    let fifo = std::process::Command::new("mkfifo")
-        .arg(dir.path().join(FILE))
-        .status()
-        .unwrap();
-    assert!(fifo.success());
-    assert!(forwarded(get, json!({"repo": "github.com/a/b"})));
-    fs::remove_file(dir.path().join(FILE)).unwrap();
-    // A missing or schema-invalid strategy is native; YAML syntax errors keep Bun's text.
+    // A missing, schema-invalid or syntactically broken strategy all get TypeScript's text.
     fs::write(dir.path().join("strategy.yaml"), "planner: nobody\n").unwrap();
-    assert!(!forwarded("project.strategy.list", json!({})));
+    assert!(project_strategy_list(&ctx, json!({})).await.is_err());
     fs::remove_file(dir.path().join("strategy.yaml")).unwrap();
-    assert!(!forwarded("project.strategy.list", json!({})));
+    let error = project_strategy_list(&ctx, json!({})).await.unwrap_err();
+    assert!(error.message.starts_with("no strategy found at "));
     fs::write(dir.path().join("strategy.yaml"), "planner: [\n").unwrap();
-    assert!(forwarded("project.strategy.list", json!({})));
-    // Bun reads tab indentation differently; `path.join` keeps an absolute active name inside home.
+    let error = project_strategy_list(&ctx, json!({})).await.unwrap_err();
+    assert!(error.message.contains("YAML Parse error: Unexpected token"));
+    // Tab indentation and `path.join` active names are native too.
     fs::write(dir.path().join("strategy.yaml"), "\tplanner: nobody\n").unwrap();
-    assert!(forwarded("project.strategy.list", json!({})));
+    let error = project_strategy_list(&ctx, json!({})).await.unwrap_err();
+    assert!(error.message.contains("Tab characters cannot be used as indentation"));
     fs::write(dir.path().join("strategy.yaml"), "planner: nobody\n").unwrap();
     fs::write(dir.path().join("active"), "/nonexistent/work").unwrap();
-    assert!(forwarded("project.strategy.list", json!({})));
+    let error = project_strategy_list(&ctx, json!({})).await.unwrap_err();
+    assert!(
+        error
+            .message
+            .contains(&format!("strategies/nonexistent/work.yaml")),
+        "{}",
+        error.message
+    );
+    let _ = get;
 }
 
 #[test]
