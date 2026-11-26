@@ -126,7 +126,10 @@ function terminalEvent(id: string, value?: TerminalRecord): OutboxEvent {
 async function publishTerminal(ctx: Ctx, id: string, value: TerminalRecord | undefined, marker: PublishedMarker): Promise<void> {
   const report = await publish(ctx, [terminalEvent(id, value)]);
   // Publish is best effort, as for other entity kinds; a failed publish must NOT advance the marker.
-  if (!report.errors.length && report.transports.includes("outbox")) writeMarker(ctx, id, marker);
+  if (!report.errors.length && report.transports.includes("outbox")) {
+    try { writeMarker(ctx, id, marker); }
+    catch (error) { console.error(`pacer: terminal marker write failed: ${error instanceof Error ? error.message : String(error)}`); }
+  }
 }
 function numberFile(path: string): number | null {
   try { const raw = readFileSync(path, "utf8").trim(); if (!raw) return null; const value = Number(raw); return Number.isFinite(value) ? value : null; }
@@ -198,15 +201,34 @@ export function commitTerminalMarkers(ctx: Ctx, markers: { id: string; value: Pu
  * between this read and its marker commit. The pump calls this on its own short cadence so an
  * exit is pushed even when no client is polling; a first observation is not a change.
  */
+/** Cheap check: any registry terminal that is not closed. Avoids locking/scanning when none. */
+export function hasNonClosedTerminals(ctx: Ctx): boolean {
+  const base = root(ctx);
+  if (!existsSync(base)) return false;
+  for (const entry of readdirSync(base, { withFileTypes: true })) {
+    if (!entry.isDirectory() || !TERMINAL_ID.test(entry.name)) continue;
+    try { readStored(ctx, entry.name); return true; } catch { /* closed or unreadable */ }
+  }
+  return false;
+}
+
 export async function terminalLivenessEvents(ctx: Ctx, deps: { publish?: (ctx: Ctx, events: OutboxEvent[]) => Promise<PublishReport> } = {}): Promise<OutboxEvent[]> {
-  return withLock(ctx, "terminal-registry", async () => {
-    const { events, markers } = terminalLivenessChanges(ctx);
-    if (!events.length) return [];
-    const report = await (deps.publish ?? publish)(ctx, events);
-    if (report.errors.length || !report.transports.includes("outbox")) return [];
-    commitTerminalMarkers(ctx, markers);
-    return events;
-  });
+  // Skip the check entirely when there are no non-closed terminals: no lock, no scan.
+  if (!hasNonClosedTerminals(ctx)) return [];
+  // A slow closeTerminal (TERM/KILL grace) or a stuck holder must not stall the pump:
+  // try to acquire the registry lock and skip this tick if it is busy.
+  try {
+    return await withLock(ctx, "terminal-registry", async () => {
+      const { events, markers } = terminalLivenessChanges(ctx);
+      if (!events.length) return [];
+      const report = await (deps.publish ?? publish)(ctx, events);
+      if (report.errors.length || !report.transports.includes("outbox")) return [];
+      commitTerminalMarkers(ctx, markers);
+      return events;
+    }, { timeoutMs: 0 });
+  } catch {
+    return [];
+  }
 }
 function readTerminals(ctx: Ctx): TerminalRecord[] {
   if (!existsSync(root(ctx))) return [];
