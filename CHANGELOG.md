@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Fixed
+
+- **Workflow orchestrator turns run only on the run's planner.** A turn queued for a busy planner is now started when the planner has a free slot instead of waiting out its deadline. When the planner is unavailable the turn stays queued with the reason, and no executor receives it or its run grant. `task.retry` refuses orchestrator tasks.
+
 ## [0.18.6] - 2026-11-26
 
 ### Fixed

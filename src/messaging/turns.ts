@@ -26,6 +26,7 @@ import type { Message } from "./types";
 import { rootRunId } from "../workflow/store";
 import { budgetAllowsMessage, countMessageTurn } from "../workflow/budget";
 import { runIdForParticipant } from "./run-route";
+import { turnPlanner } from "../workflow/turn-planner";
 
 export type Delivery = "turn_started" | "queued" | "pull" | "held" | "closed" | "cap" | "live_unavailable" | "no_session" | "live";
 const REPORT_BYTES = 64 * 1024;
@@ -169,7 +170,9 @@ function turnCandidates(ctx: Ctx, t: TaskRecord, prior: string, selection: Proje
   // The runner refuses an executor the repository's project policy forbids, so a turn never picks one.
   const allowed = (id: string) => !selection || selection.executors.includes(id);
   let s: Strategy;
-  try { s = loadStrategy(ctx); } catch { return [prior].filter(allowed); }
+  try { s = loadStrategy(ctx); } catch { return t.kind === "orchestrate" ? [] : [prior].filter(allowed); }
+  // An orchestrator's turn runs only on the run's planner (P3, API-5b).
+  if (t.kind === "orchestrate") return [turnPlanner(ctx, s, t)].filter(allowed);
   const planner = (id: string) => s.runners[id]?.agent === s.planner.agent && s.runners[id]?.account === s.planner.account;
   const others = executorsFor(t.kind ?? null, s).filter(id => id !== prior && s.runners[id]?.enabled !== false && !planner(id) && !!headlessTurnPath(turnRunner(ctx, id)));
   return [prior, ...new Set(others)].filter(allowed);
