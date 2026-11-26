@@ -356,7 +356,7 @@ export function raiseGenerateApprovalQuestion(
     `Approve the plan for step "${step.stepId}" (version ${version}, ${lines.length} ${lines.length === 1 ? "step" : "steps"})?`,
     ...(typeof summary === "string" ? [summary] : []),
     lines.join(", "),
-    `Full graph: pacer run show ${run.id} --json. Revise with a note to have it rewritten.`,
+    `Full graph: pacer run show ${run.id} --json. Revise with a note to have it rewritten`,
   ].join(" ");
   const root = getRun(ctx, rootRunId(ctx, run.id)) ?? run;
   const q = insertQuestion(ctx, {
