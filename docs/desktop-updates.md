@@ -71,9 +71,16 @@ desktop; confirm the running service version shown there matches the desktop
 version. A CLI version shown by `pacer --version` alone does not prove that the
 already-running service has restarted.
 
-Once service adoption is validated and available, a compatible service can use
-the managed update transaction described below. The desktop never starts a
-legacy service update automatically.
+On macOS, when the running service is this desktop's own older service (the
+launchd job runs this bundle's `Contents/Resources/pacer serve` for this pacer
+home and port, and no update or maintenance journal, adoption or attached service
+is in flight), the desktop restarts it onto the bundled binary with the bundled
+CLI's `pacer service restart`, which hands running work over, then reconnects.
+It tries once per pair of service and app versions per launch. If the restart
+fails, or the desktop cannot prove it owns the service, it shows the
+outdated-service page with the link to these instructions instead. The desktop
+never restarts a foreign, attached or CLI-owned service, and on Linux it never
+restarts the service unit itself.
 
 ### Service replaced by another build
 

@@ -429,7 +429,7 @@ pub fn service_move_ready_code(decision: ServiceMoveDecision) -> Option<&'static
 
 /// Whether a lifecycle connection error means a deferred service move should run next.
 pub fn is_service_move_ready(error: &str) -> bool {
-    matches!(error, "own-link-repair-ready" | "consent-takeover-ready")
+    matches!(error, "own-link-repair-ready" | "consent-takeover-ready" | "owned-service-restart-ready")
 }
 
 pub fn dismiss_relink(url: &Url, current: Option<&Url>) -> bool {
@@ -494,6 +494,44 @@ pub enum HandoverDecision {
     StoreOnly,
     /// Do nothing.
     None,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ServiceRestartDecision {
+    Restart,
+    NoRestart,
+}
+
+/// Inputs for [`service_restart_decision`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceRestartInput<'a> {
+    pub app: &'a str,
+    pub live_service: Option<&'a str>,
+    pub job_state: JobState,
+    pub owned: bool,
+    pub attached: bool,
+    pub maintenance: bool,
+    pub update_transaction: bool,
+    pub adoption: bool,
+    pub already_attempted: bool,
+}
+
+/// Whether an older service owned by this desktop may be restarted onto the
+/// bundled binary. Pure decision used by `connected()` and the outdated-service
+/// page's **Update service** action.
+pub fn service_restart_decision(input: ServiceRestartInput<'_>) -> ServiceRestartDecision {
+    if input.already_attempted
+        || input.attached
+        || input.maintenance
+        || input.update_transaction
+        || input.adoption
+        || !input.owned
+        || input.job_state != JobState::Running
+        || service_release(input.app, input.live_service) != ServiceRelease::Older
+    {
+        return ServiceRestartDecision::NoRestart;
+    }
+    ServiceRestartDecision::Restart
 }
 
 pub fn handover_decision(
@@ -623,6 +661,79 @@ mod handover_tests {
         assert_eq!(
             handover_decision(Some("1.2.0"), "1.1.0", false, false),
             HandoverDecision::StoreOnly
+        );
+    }
+}
+
+#[cfg(test)]
+mod service_restart_tests {
+    use super::*;
+
+    #[test]
+    fn owned_older_restarts() {
+        assert_eq!(
+            service_restart_decision(ServiceRestartInput { app: "0.18.5", live_service: Some("0.18.4"), job_state: JobState::Running, owned: true, attached: false, maintenance: false, update_transaction: false, adoption: false, already_attempted: false }),
+            ServiceRestartDecision::Restart
+        );
+    }
+
+    #[test]
+    fn foreign_does_not_restart() {
+        assert_eq!(
+            service_restart_decision(ServiceRestartInput { app: "0.18.5", live_service: Some("0.18.4"), job_state: JobState::Running, owned: false, attached: false, maintenance: false, update_transaction: false, adoption: false, already_attempted: false }),
+            ServiceRestartDecision::NoRestart
+        );
+    }
+
+    #[test]
+    fn attached_does_not_restart() {
+        assert_eq!(
+            service_restart_decision(ServiceRestartInput { app: "0.18.5", live_service: Some("0.18.4"), job_state: JobState::Running, owned: true, attached: true, maintenance: false, update_transaction: false, adoption: false, already_attempted: false }),
+            ServiceRestartDecision::NoRestart
+        );
+    }
+
+    #[test]
+    fn in_flight_does_not_restart() {
+        assert_eq!(
+            service_restart_decision(ServiceRestartInput { app: "0.18.5", live_service: Some("0.18.4"), job_state: JobState::Running, owned: true, attached: false, maintenance: true, update_transaction: false, adoption: false, already_attempted: false }),
+            ServiceRestartDecision::NoRestart
+        );
+        assert_eq!(
+            service_restart_decision(ServiceRestartInput { app: "0.18.5", live_service: Some("0.18.4"), job_state: JobState::Running, owned: true, attached: false, maintenance: false, update_transaction: true, adoption: false, already_attempted: false }),
+            ServiceRestartDecision::NoRestart
+        );
+        assert_eq!(
+            service_restart_decision(ServiceRestartInput { app: "0.18.5", live_service: Some("0.18.4"), job_state: JobState::Running, owned: true, attached: false, maintenance: false, update_transaction: false, adoption: true, already_attempted: false }),
+            ServiceRestartDecision::NoRestart
+        );
+    }
+
+    #[test]
+    fn already_attempted_does_not_restart() {
+        assert_eq!(
+            service_restart_decision(ServiceRestartInput { app: "0.18.5", live_service: Some("0.18.4"), job_state: JobState::Running, owned: true, attached: false, maintenance: false, update_transaction: false, adoption: false, already_attempted: true }),
+            ServiceRestartDecision::NoRestart
+        );
+    }
+
+    #[test]
+    fn same_or_newer_does_not_restart() {
+        assert_eq!(
+            service_restart_decision(ServiceRestartInput { app: "0.18.5", live_service: Some("0.18.5"), job_state: JobState::Running, owned: true, attached: false, maintenance: false, update_transaction: false, adoption: false, already_attempted: false }),
+            ServiceRestartDecision::NoRestart
+        );
+        assert_eq!(
+            service_restart_decision(ServiceRestartInput { app: "0.18.5", live_service: Some("0.18.6"), job_state: JobState::Running, owned: true, attached: false, maintenance: false, update_transaction: false, adoption: false, already_attempted: false }),
+            ServiceRestartDecision::NoRestart
+        );
+    }
+
+    #[test]
+    fn stopped_does_not_restart() {
+        assert_eq!(
+            service_restart_decision(ServiceRestartInput { app: "0.18.5", live_service: Some("0.18.4"), job_state: JobState::Stopped, owned: true, attached: false, maintenance: false, update_transaction: false, adoption: false, already_attempted: false }),
+            ServiceRestartDecision::NoRestart
         );
     }
 }
@@ -1002,7 +1113,7 @@ impl SessionOpStrikes {
         }
     }
 }
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum JobState {
     NotLoaded,
     Stopped,
@@ -2081,6 +2192,7 @@ mod tests {
     fn service_move_ready_codes_are_recognized() {
         assert!(is_service_move_ready("own-link-repair-ready"));
         assert!(is_service_move_ready("consent-takeover-ready"));
+        assert!(is_service_move_ready("owned-service-restart-ready"));
         assert!(!is_service_move_ready("takeover"));
         assert!(!is_service_move_ready("diagnose"));
     }
