@@ -774,11 +774,7 @@ pub fn dispatch_enforcement<'a>(
         let repo = policy_repo(ctx, repo_input, &projects)?;
         let repo_path = repo["path"].as_str().unwrap_or_default().to_owned();
         let now = now(ctx);
-        let Some((consent, attempts)) = read_schedule(ctx) else {
-            return Err(unavailable(
-                "pacer core must read the certification schedule",
-            ));
-        };
+        let (consent, attempts) = read_schedule(ctx);
         let Some(srefs) = StrategyRefs::of(&strategy) else {
             return Err(CoreError::new(
                 Code::Internal,

@@ -130,16 +130,30 @@ async fn consent_rewrites_the_schedule_with_javascript_bytes() {
         std::fs::read_to_string(&path).unwrap(),
         r#"{"consent":{"7":"granted","b":"declined","a":"granted"},"attempts":{"k":{"lastCostPct":1,"at":1e+21}}}"#
     );
-    std::fs::write(&path, r#"{"consent":"text"}"#).unwrap();
-    assert!(planning_stays_forwarded(
-        &ctx,
-        "dispatch.enforcement.consent",
-        &json!({})
-    ));
-    std::fs::write(&path, "[1]").unwrap();
-    assert!(!planning_stays_forwarded(
-        &ctx,
-        "dispatch.enforcement.consent",
-        &json!({})
-    ));
+    // JS object spread coerces non-object consent: a string becomes index keys,
+    // a number becomes `{}`, and lone surrogates survive the quoted rewrite.
+    std::fs::write(&path, r#"{"consent":"ab"}"#).unwrap();
+    dispatch_enforcement_consent(&ctx, json!({"account": "z", "granted": true}))
+        .await
+        .unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        r#"{"consent":{"0":"a","1":"b","z":"granted"},"attempts":{}}"#
+    );
+    std::fs::write(&path, r#"{"consent":7}"#).unwrap();
+    dispatch_enforcement_consent(&ctx, json!({"account": "z", "granted": true}))
+        .await
+        .unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        r#"{"consent":{"z":"granted"},"attempts":{}}"#
+    );
+    std::fs::write(&path, r#"{"s":"\ud800"}"#).unwrap();
+    dispatch_enforcement_consent(&ctx, json!({"account": "z", "granted": true}))
+        .await
+        .unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        r#"{"consent":{"z":"granted"},"attempts":{}}"#
+    );
 }

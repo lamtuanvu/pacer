@@ -12,6 +12,7 @@ pub mod project_messaging;
 mod sections;
 pub mod ssh_config;
 pub mod strategy;
+pub mod strategy_load;
 pub mod strategy_write;
 mod temp_file;
 pub mod write;

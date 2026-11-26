@@ -412,7 +412,6 @@ async fn forward_input<
                 && !crate::native::discovery_stays_forwarded(&request_ctx, op.name, &params)
                 && !crate::native::desktop_reconcile_stays_forwarded(op.name)
                 && !crate::native::assistant_stays_forwarded(&request_ctx, op.name, &params)
-                && !crate::native::dependencies_waive_stays_forwarded(op.name, &params)
                 && !crate::native::insights_stays_forwarded(op.name, &params)
                 && !crate::native::planning_stays_forwarded(&request_ctx, op.name, &params)
                 && !crate::native::dispatch_lifecycle_stays_forwarded(

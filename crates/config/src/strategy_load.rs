@@ -3,7 +3,7 @@
 //! `project.strategy.*` needs no forward. The older `native_load` stays for the shared callers
 //! that still forward the shapes it cannot reproduce; this slice does not change them.
 #![allow(clippy::result_large_err)]
-use pacer_config::strategy::{StrategyError, load_strategy, strategy_path, validate_strategy};
+use crate::strategy::{StrategyError, load_strategy, strategy_path, validate_strategy};
 use pacer_foundation::js_semantics::JsTrim;
 use serde_json::Value;
 use std::{
@@ -59,7 +59,7 @@ fn node_join(parts: &[&str]) -> String {
 }
 
 /// `strategyPath(ctx)`: an absolute active name is joined inside the home, not substituted.
-pub(crate) fn node_strategy_path(home: &Path) -> (PathBuf, String) {
+pub fn node_strategy_path(home: &Path) -> (PathBuf, String) {
     let root = home.to_string_lossy();
     let name = fs::read_to_string(home.join("active"))
         .unwrap_or_default()
@@ -194,7 +194,7 @@ fn anchors(text: &str) -> Vec<(String, Value)> {
                     }
                     end += 1;
                 }
-                if let Ok(value) = pacer_config::doc::parse_value(&text[k..=end]) {
+                if let Ok(value) = crate::doc::parse_value(&text[k..=end]) {
                     out.push((name.to_owned(), value));
                 }
                 i = end + 1;
@@ -268,7 +268,7 @@ fn bun_yaml(text: &str) -> Result<Value, LoadError> {
         return Ok(Value::Array(Vec::new()));
     }
     let mut raw =
-        pacer_config::doc::parse_value(text).map_err(|_| bun_syntax("Unexpected token"))?;
+        crate::doc::parse_value(text).map_err(|_| bun_syntax("Unexpected token"))?;
     bun_object(&mut raw, &anchors(text));
     Ok(raw)
 }
@@ -316,7 +316,7 @@ pub fn active_strategy_needs_core(home: &Path) -> bool {
 }
 
 /// A strategy file whose text Bun may read differently; a missing file has none.
-pub(crate) fn text_may_differ(path: &Path) -> bool {
+pub fn text_may_differ(path: &Path) -> bool {
     fs::read_to_string(path).is_ok_and(|text| yaml_may_differ(&text))
 }
 

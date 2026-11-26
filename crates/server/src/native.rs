@@ -102,7 +102,6 @@ use pacer_update::apply;
 pub use assistant_ops::assistant_stays_forwarded;
 pub(crate) use config_get_ops::needs_config_host_bridge;
 pub use config_writes::config_set_stays_forwarded;
-pub use dependency_writes::dependencies_waive_stays_forwarded;
 pub use desktop_reconcile_ops::desktop_reconcile_stays_forwarded;
 pub use discovery_ops::discovery_stays_forwarded;
 pub(crate) use dispatch_lifecycle_sync::dispatch_lifecycle_stays_forwarded;
@@ -170,17 +169,14 @@ pub fn runner_attention_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> 
         || attention_ops::attention_stays_forwarded(ctx, op, params)
 }
 
-/// `runner.models.*`, `dispatch.tierTargets.*` and `executor.models.available`
-/// requests whose strategy only TypeScript loads, or whose runners only
-/// TypeScript can list.
+/// `runner.models.*` and `executor.models.available` requests whose strategy only
+/// TypeScript loads, or whose runners only TypeScript can list.
 pub fn strategy_settings_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
     matches!(
         op,
         "runner.models.get"
             | "runner.models.set"
             | "runner.models.set_many"
-            | "dispatch.tierTargets.get"
-            | "dispatch.tierTargets.set"
             | "executor.models.available"
     ) && (pacer_config_ops::active_strategy_needs_core(&ctx.pacer_home)
         || runner_models_ops::runner_models_stays_forwarded(ctx, op, params)
