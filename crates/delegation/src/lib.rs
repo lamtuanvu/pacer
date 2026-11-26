@@ -5,8 +5,11 @@
 //! receive native effects through their existing trait slots.
 #![allow(clippy::result_large_err)]
 
+pub mod answer;
+pub mod ask;
 pub mod cleanup;
 pub mod delegate;
+pub mod retry;
 pub mod runtime;
 
 pub use delegate::DelegateInput;

@@ -196,6 +196,56 @@ impl pacer_task_ops::task_delegation_ops::DelegationEffects for DelegateEffects 
             pacer_delegation::delegate::delegate(ctx, &self.runtime, params, origin).await
         })
     }
+    fn retry<'a>(&'a self, ctx: &'a Ctx, params: &'a Value) -> OpFuture<'a> {
+        Box::pin(async move {
+            let input = pacer_delegation::retry::RetryInput::from_params(params);
+            pacer_delegation::retry::retry_task(
+                ctx,
+                &self.runtime,
+                params.get("id").and_then(Value::as_str).unwrap_or_default(),
+                input,
+            )
+            .await
+        })
+    }
+    fn retry_all<'a>(&'a self, ctx: &'a Ctx, params: &'a Value) -> OpFuture<'a> {
+        Box::pin(async move {
+            let ids: Vec<String> = params
+                .get("ids")
+                .and_then(Value::as_array)
+                .map(|ids| ids.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+                .unwrap_or_default();
+            pacer_delegation::retry::retry_all(
+                ctx,
+                &self.runtime,
+                &ids,
+                params.get("executor").and_then(Value::as_str),
+                params.get("from_panel").and_then(Value::as_bool).unwrap_or(false),
+            )
+            .await
+        })
+    }
+    fn answer<'a>(&'a self, ctx: &'a Ctx, params: &'a Value) -> OpFuture<'a> {
+        Box::pin(async move {
+            pacer_delegation::answer::answer_task(
+                ctx,
+                &self.runtime,
+                params.get("id").and_then(Value::as_str).unwrap_or_default(),
+                params.get("text").and_then(Value::as_str).unwrap_or_default(),
+                params.get("expect_rev").and_then(Value::as_i64),
+            )
+            .await
+        })
+    }
+    fn ask<'a>(&'a self, ctx: &'a Ctx, params: &'a Value) -> OpFuture<'a> {
+        Box::pin(async move {
+            pacer_delegation::ask::ask_task(
+                ctx,
+                params.get("id").and_then(Value::as_str).unwrap_or_default(),
+                params.get("text").and_then(Value::as_str).unwrap_or_default(),
+            )
+        })
+    }
 }
 
 /// `callerParticipant` for a public operation client header.
