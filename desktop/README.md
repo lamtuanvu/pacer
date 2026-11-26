@@ -422,10 +422,9 @@ signed native validation matrix is accepted.
 
 A production bundle compiles fixed trust with `ota-production`; its shell and
 helper must report `fixture:false`. The bundled CLI compiles the same Apple Team
-ID through the desktop-only build option. Complete staging builds `Contents/Frameworks/libpacer-native.dylib` for the target
-architecture with Xcode clang and records native transport ABI1. The library is
-signed with the same Team before the CLI, helper and app; library validation
-remains enabled. Complete staging precedes all signing;
+ID through the desktop-only build option. Complete staging records native
+transport ABI1 in `pacer-release.json`; the CLI, helper and app are signed before
+notarization and library validation remains enabled. Complete staging precedes all signing;
 Apple notarization and stapling precede the final updater archive/signature.
 Unsigned development builds and explicit `ota-fixture` builds cannot qualify for
 the production feed. `ota-fixture` builds use the bundle identifier
