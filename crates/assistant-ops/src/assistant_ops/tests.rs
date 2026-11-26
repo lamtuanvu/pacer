@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used)]
 use super::*;
 
-const STRATEGY: &str = "accounts:\n  claude: {kind: claude}\n  ep: {kind: endpoint, usage: unmetered, connection: {api: openai-compatible, base_url: \"http://127.0.0.1:1/v1\", key: none, models: [{id: m1, name: Model One, context: 1000, output: 100, tools: true}, {id: m2, context: 1000, output: 100, tools: false}]}}\n  bare: {kind: endpoint, usage: unmetered}\nplanner: claude-code#claude\nrunners: {\"opencode#ep\": {model: pacer-ep/m2}}\nrouting: [{default: [opencode#ep]}]\n";
+const STRATEGY: &str = "accounts:\n  claude: {kind: claude, source: default}\n  cl: {kind: claude, home: \"~/cl\"}\n  ep: {kind: endpoint, usage: unmetered, connection: {api: openai-compatible, base_url: \"http://127.0.0.1:1/v1\", key: none, models: [{id: m1, name: Model One, context: 1000, output: 100, tools: true}, {id: m2, context: 1000, output: 100, tools: false}]}}\n  bare: {kind: endpoint, usage: unmetered}\nplanner: claude-code#claude\nrunners: {\"opencode#ep\": {model: pacer-ep/m2}}\nrouting: [{default: [opencode#ep]}]\n";
 
 fn ctx(dir: &tempfile::TempDir, env: &[(&str, &str)]) -> Ctx {
     Ctx::with(
@@ -113,17 +113,31 @@ fn param_issues_match_zod_text_and_order() {
 fn strategy_endpoints_and_candidates_follow_endpoint_for() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("strategy.yaml"), STRATEGY).unwrap();
-    let strategy = strategy(&ctx(&dir, &[])).unwrap();
-    assert!(endpoint_ok(&strategy, "ep", None, false));
-    assert!(endpoint_ok(&strategy, "ep", Some("opencode#ep"), false));
-    assert!(!endpoint_ok(&strategy, "bare", None, false));
-    assert!(!endpoint_ok(&strategy, "claude", None, false));
-    assert!(!endpoint_ok(&strategy, "missing", None, false));
-    // The executor backend's agent CLI holds the connection: any endpoint account qualifies.
-    assert!(endpoint_ok(&strategy, "ep", None, true));
-    assert!(endpoint_ok(&strategy, "bare", None, true));
-    assert!(!endpoint_ok(&strategy, "claude", None, true));
-    assert!(!endpoint_ok(&strategy, "missing", None, true));
+    let c = ctx(&dir, &[]);
+    let strategy = strategy(&c).unwrap();
+    assert!(endpoint_ok(&c, &strategy, "ep", None, false));
+    assert!(endpoint_ok(&c, &strategy, "ep", Some("opencode#ep"), false));
+    assert!(!endpoint_ok(&c, &strategy, "bare", None, false));
+    assert!(!endpoint_ok(&c, &strategy, "claude", None, false));
+    assert!(!endpoint_ok(&c, &strategy, "missing", None, false));
+    // The executor backend needs an ask-mode adapter: opencode, Claude Code or Codex.
+    assert_eq!(
+        ask_adapter(&c, &strategy["accounts"]["ep"]),
+        Some("opencode")
+    );
+    assert_eq!(
+        ask_adapter(&c, &strategy["accounts"]["bare"]),
+        Some("opencode")
+    );
+    assert_eq!(
+        ask_adapter(&c, &strategy["accounts"]["claude"]),
+        Some("claude-code")
+    );
+    assert_eq!(ask_adapter(&c, &strategy["accounts"]["missing"]), None);
+    assert!(endpoint_ok(&c, &strategy, "ep", None, true));
+    assert!(endpoint_ok(&c, &strategy, "bare", None, true));
+    assert!(endpoint_ok(&c, &strategy, "claude", None, true));
+    assert!(!endpoint_ok(&c, &strategy, "missing", None, true));
     assert_eq!(
         Value::Array(candidates(&strategy)).to_string(),
         r#"[{"account":"ep","backend":"pacer","available":false,"liveTools":false,"reason":"Pacer's assistant needs an update or repair: its native binary is missing or outdated.","models":[{"id":"m1","name":"Model One"},{"id":"m2","name":"m2"}],"runners":[{"id":"opencode#ep","model":"pacer-ep/m2"}],"isPlanner":false}]"#
@@ -191,6 +205,7 @@ async fn callers_settings_and_status_route_like_typescript() {
             .await
             .unwrap();
     assert_eq!(saved["rev"], 2);
+    // Status admission still needs the core's cached status until B4-2 lands.
     assert!(assistant_stays_forwarded(
         &plain,
         "assistant.status",
@@ -214,25 +229,28 @@ async fn callers_settings_and_status_route_like_typescript() {
         refused.hint.as_deref(),
         Some("Add one in Settings › Accounts.")
     );
-    // Settings TypeScript would reject while parsing stay forwarded.
+    // Unusable stored settings are an internal error here, with the schema detail.
     with_db(&plain, |db| {
         db.execute("UPDATE assistant_settings SET retention='{\"days\":0}'", [])?;
         Ok(())
     })
     .unwrap();
-    for op in [
-        "assistant.settings.get",
-        "assistant.conversations",
-        "assistant.status",
-    ] {
-        assert!(assistant_stays_forwarded(&plain, op, &json!({})), "{op}");
+    for op in ["assistant.settings.get", "assistant.conversations"] {
+        assert!(!assistant_stays_forwarded(&plain, op, &json!({})), "{op}");
     }
-    let set = json!({"runner":null,"account":null,"expect_rev":2});
     assert!(assistant_stays_forwarded(
         &plain,
-        "assistant.settings.set",
-        &set
+        "assistant.status",
+        &json!({})
     ));
+    let error = assistant_settings_get(&plain, json!({})).await.unwrap_err();
+    assert_eq!(
+        (error.code, error.message),
+        (
+            Code::Internal,
+            "assistant settings are unreadable: retention.days is outside 1..=365".into()
+        )
+    );
     // Param issues are reported natively, as TypeScript reports them before reading settings.
     assert!(!assistant_stays_forwarded(
         &plain,
@@ -244,4 +262,102 @@ async fn callers_settings_and_status_route_like_typescript() {
         "assistant.delete",
         &json!({})
     ));
+}
+
+fn saved_at_rev4(c: &Ctx, account: &str) {
+    std::fs::write(c.pacer_home.join("strategy.yaml"), STRATEGY).unwrap();
+    with_db(c, |db| {
+        db.execute(
+            "INSERT INTO assistant_settings(id,runner,account,backend,limits,retention,rev) VALUES(1,'opencode#ep',?,'pacer','{\"turnsPerDay\":3}','{\"conversations\":200,\"days\":30}',4) ON CONFLICT(id) DO UPDATE SET runner=excluded.runner,account=excluded.account,backend=excluded.backend,limits=excluded.limits,retention=excluded.retention,rev=excluded.rev",
+            [account],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+}
+
+#[tokio::test]
+async fn executor_backend_saves_every_ask_adapter_account() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("cl")).unwrap();
+    let c = ctx(&dir, &[]);
+    for account in ["cl", "claude", "bare", "ep"] {
+        saved_at_rev4(&c, "ep");
+        let saved = assistant_settings_set(
+            &c,
+            json!({"runner":null,"account":account,"expect_rev":4,"backend":"executor"}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            (saved["account"].clone(), saved["rev"].clone()),
+            (json!(account), json!(5)),
+            "{account}"
+        );
+        assert_eq!(saved["backend"], json!("executor"));
+    }
+    saved_at_rev4(&c, "ep");
+    let error = assistant_settings_set(
+        &c,
+        json!({"runner":null,"account":"nope","expect_rev":4,"backend":"executor"}),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(
+        (error.code, error.message, error.hint),
+        (
+            Code::InvalidInput,
+            "Choose an opencode, Claude Code or Codex account.".into(),
+            Some("Add one in Settings › Accounts.".into())
+        )
+    );
+}
+
+#[tokio::test]
+async fn unusable_settings_and_untitled_cards_are_internal() {
+    let dir = tempfile::tempdir().unwrap();
+    let c = ctx(&dir, &[]);
+    with_db(&c, |db| {
+        db.execute(
+            "INSERT INTO assistant_settings(id,runner,account,backend,limits,retention,rev) VALUES(1,NULL,'ep','pacer','{\"turnsPerDay\":0}','{\"conversations\":200,\"days\":30}',4) ON CONFLICT(id) DO UPDATE SET limits=excluded.limits,rev=excluded.rev",
+            [],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    let error = assistant_settings_get(&c, json!({})).await.unwrap_err();
+    assert_eq!(
+        (error.code, error.message),
+        (
+            Code::Internal,
+            "assistant settings are unreadable: limits.turnsPerDay is outside 1..=1000".into()
+        )
+    );
+    assert!(!assistant_stays_forwarded(
+        &c,
+        "assistant.settings.get",
+        &json!({})
+    ));
+
+    let dir2 = tempfile::tempdir().unwrap();
+    let c2 = ctx(&dir2, &[]);
+    with_db(&c2, |db| {
+        db.execute_batch(
+            "INSERT INTO assistant_conversations(id,title,created_at,updated_at) VALUES('c-a','Alpha',1,1);
+             INSERT INTO assistant_turns(id,conversation_id,seq,at,question,answer,state,error,account,scope,cards,citations) VALUES('turn-1','c-a',1,1,'q',NULL,'done',NULL,'ep','{}','[{\"id\":\"card-1\",\"op\":\"x\",\"params\":{\"id\":\"t-20231114-010203-abcd\"},\"state\":\"stale\"}]','[]');
+             INSERT INTO tasks(id,rev,state,created_at,updated_at,record,archived) VALUES('t-20231114-010203-abcd',3,'done',1,1,'{\"id\":\"t-20231114-010203-abcd\",\"rev\":3,\"state\":\"done\"}',0);",
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    let error = assistant_card_refresh(&c2, json!({"turnId":"turn-1","cardId":"card-1"}))
+        .await
+        .unwrap_err();
+    assert_eq!(
+        (error.code, error.message),
+        (
+            Code::Internal,
+            "task t-20231114-010203-abcd has no title or goal".into()
+        )
+    );
 }

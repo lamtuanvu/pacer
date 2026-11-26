@@ -1,4 +1,5 @@
 import { callOp } from "../api/ops";
+import { getTurn } from "../assistant/store";
 import type { ActionCard, AssistantScope, TurnView } from "../assistant/types";
 import type { Ctx } from "../types";
 import type { Result } from "./types";
@@ -29,7 +30,8 @@ export function equivalentCommand(card: ActionCard): string | null {
 }
 
 /** `pacer ask`: ask once and print the answer. Proposals print as commands. */
-export async function askCommand(args: string[], ctx: Ctx, o: { poll?: (ms: number) => Promise<void>; timeoutMs?: number } = {}): Promise<Result> {
+export async function askCommand(args: string[], ctx: Ctx, o: { poll?: (ms: number) => Promise<void>; timeoutMs?: number; callOp?: typeof callOp } = {}): Promise<Result> {
+  const call = o.callOp ?? callOp;
   let scope: AssistantScope, json = false;
   const words: string[] = [];
   try {
@@ -43,12 +45,16 @@ export async function askCommand(args: string[], ctx: Ctx, o: { poll?: (ms: numb
     }
     scope ??= { kind: "dispatch", days: 7 };
     if (words.length !== 1 || !words[0]!.trim()) throw new Error(`usage: ${ASK_USAGE}`);
-    const started = await callOp(ctx, "assistant.ask", { text: words[0], scope, requestId: `cli-${crypto.randomUUID()}` }) as { turnId: string };
+    const started = await call(ctx, "assistant.ask", { text: words[0], scope, requestId: `cli-${crypto.randomUUID()}` }) as { turnId: string };
     const sleep = o.poll ?? ((ms: number) => Bun.sleep(ms));
     const until = Date.now() + (o.timeoutMs ?? 130_000);
     let turn: TurnView;
     for (;;) {
-      turn = await callOp(ctx, "assistant.turn", { turnId: started.turnId }) as TurnView;
+      // `assistant.turn` is native at the front door (M3 B4-1). This in-process CLI reads the
+      // same store row directly instead of calling the front-door-only operation.
+      const found = getTurn(ctx, started.turnId);
+      if (!found) throw new Error("Unknown turn.");
+      turn = found;
       if (turn.state !== "running") break;
       if (Date.now() > until) return { code: 1, out: "", err: "The assistant did not answer in time." };
       await sleep(500);
