@@ -138,7 +138,7 @@ pub fn direct_input_available(task: &Value) -> bool {
     }
 }
 
-fn session_socket(dir: &Path) -> std::path::PathBuf {
+pub fn session_socket(dir: &Path) -> std::path::PathBuf {
     std::fs::read_to_string(dir.join("session.sock.path"))
         .ok()
         .map(|text| std::path::PathBuf::from(text.trim()))

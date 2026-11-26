@@ -313,6 +313,30 @@ impl pacer_task_ops::task_review_ops::ReviewEffects for NativeReviewEffects {
     }
 }
 
+/// Native `task.send` effects. Delivery into a live worker is carried out by
+/// `pacer_delegation::send::send_to_task`.
+pub struct NativeSendEffects {
+    pub runtime: Arc<Runtime>,
+}
+
+impl pacer_task_ops::task_send_ops::SendEffects for NativeSendEffects {
+    fn send<'a>(
+        &'a self,
+        ctx: &'a Ctx,
+        id: &'a str,
+        text: &'a str,
+        by: &'a str,
+        force: bool,
+        expect_rev: Option<f64>,
+    ) -> OpFuture<'a> {
+        let runtime = Arc::clone(&self.runtime);
+        Box::pin(async move {
+            pacer_delegation::send::send_to_task(ctx, &runtime, id, text, by, force, expect_rev)
+                .await
+        })
+    }
+}
+
 /// `callerParticipant` for a public operation client header.
 pub fn delegate_origin(client: Option<&str>) -> &'static str {
     let client = client.unwrap_or_default();

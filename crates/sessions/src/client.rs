@@ -284,4 +284,51 @@ mod tests {
         let typed = String::from_utf8(host.await.unwrap()).unwrap();
         assert_eq!(typed, "\x1b[200~hello\x1b[201~\r");
     }
+
+    /// A protocol 1.1 host: hello -> control(versions [1,1]) -> take -> control(you)
+    /// -> input -> release, with no `deliver`/`granted`/`delivered` frames.
+    #[tokio::test]
+    async fn protocol_11_takes_control_types_and_releases() {
+        let dir = tempfile::tempdir().unwrap();
+        let socket = dir.path().join("s.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        let host = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut decoder = WireDecoder::default();
+            let mut saw_take = false;
+            let mut saw_release = false;
+            let mut input = Vec::new();
+            loop {
+                let mut buffer = [0u8; 2048];
+                let n = stream.read(&mut buffer).await.unwrap();
+                if n == 0 {
+                    break;
+                }
+                for Frame { kind, data, .. } in decoder.push(&buffer[..n]).unwrap() {
+                    match kind {
+                        HELLO => {
+                            stream.write_all(&frame(CONTROL, r#"{"versions":[1,1]}"#)).await.unwrap()
+                        }
+                        TAKE => {
+                            saw_take = true;
+                            stream.write_all(&frame(CONTROL, r#"{"you":true}"#)).await.unwrap();
+                        }
+                        INPUT => input.extend_from_slice(&data),
+                        RELEASE => {
+                            saw_release = true;
+                            stream.write_all(&frame(CONTROL, r#"{"you":false}"#)).await.unwrap();
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            (saw_take, saw_release, input)
+        });
+        let result = type_into_session(&socket, "hello", || true).await.unwrap();
+        assert_eq!(result, TypeResult::Typed);
+        let (saw_take, saw_release, typed) = host.await.unwrap();
+        assert!(saw_take, "a 1.1 host expects take before input");
+        assert!(saw_release, "a 1.1 host expects release after input");
+        assert_eq!(String::from_utf8(typed).unwrap(), "\x1b[200~hello\x1b[201~\r");
+    }
 }

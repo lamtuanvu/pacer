@@ -89,7 +89,6 @@ use pacer_task_ops::task_reads;
 pub(crate) use pacer_task_ops::task_review_ops;
 pub(crate) use pacer_task_ops::task_send_ops;
 pub(crate) mod assistant_turn_sync;
-pub(crate) mod task_send_sync;
 pub(crate) mod terminal_sync;
 pub(crate) use pacer_core_bridge::task_stop_sync;
 pub(crate) use pacer_core_bridge::task_wait_sync;

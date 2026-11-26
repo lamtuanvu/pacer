@@ -355,10 +355,10 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                 header_value(&parts.headers, "x-pacer-client").as_deref(),
                 header_value(&parts.headers, "x-pacer-client-instance").as_deref(),
             );
-            let mut bridge = crate::native::task_send_sync::HttpBridge {
-                target: state.core.target().await,
+            let effects = crate::native::runtime::NativeSendEffects {
+                runtime: std::sync::Arc::clone(&state.delegation),
             };
-            return match crate::native::task_send_ops::task_send(&ctx, params, by, &mut bridge)
+            return match crate::native::task_send_ops::task_send(&ctx, params, by, &effects)
                 .await
             {
                 Ok(result) => native_json(StatusCode::OK, serde_json::json!({"result":result})),

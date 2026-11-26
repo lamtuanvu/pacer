@@ -3,7 +3,6 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync,
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { taskSendBridge } from "../src/api/task-send-bridge";
 import { killTree } from "../src/exec/process";
 import { FrameType, wire } from "../src/session/framing";
 import { ViewerHub } from "../src/session/viewers";
@@ -12,7 +11,6 @@ import { createTask, readTask, updateTask } from "../src/tasks/store";
 import type { TaskRecord } from "../src/tasks/types";
 import type { Ctx } from "../src/types";
 import { fakeCtx, gitRepo, tmpDir } from "./helpers";
-import { fakeRun, raw } from "./fixtures/orca/fake";
 import { closedPort, pinnedEnv, REAL_SERVICE_PORT } from "./pinned-port";
 
 const front = process.env.PACER_TEST_NATIVE_FRONT_DOOR;
@@ -148,43 +146,6 @@ async function underLock(home: string, id: string, change: "run" | "unlease", re
     if (holder.exitCode === null) { holder.kill("SIGKILL"); await holder.exited; }
   }
 }
-
-test("the bridge refuses an enforcement identity before reading the request, and anything but a send", async () => {
-  const f = fakeRun([]);
-  const ctx = fakeCtx({ run: f.run });
-  const id = make(ctx, "live", t => {
-    t.live = { backend: "orca", worker: "ctx_live", terminal: "term_a225e7a8-0e55-4cb9-8e30-be7da4952e5d", executor: "codex", agent: "codex", incarnation: "inc-1", since: 1 };
-  });
-  const record = readTask(ctx, id);
-  const enforced = { ...ctx, env: { PACER_ENFORCEMENT_TOKEN: "pet_x" } };
-  for (const request of [{ kind: "send", id, text: "hi", force: false, by: "client:app" }, { kind: "probe" }, null]) {
-    await expect(taskSendBridge(enforced, request)).rejects.toMatchObject({ code: "not_allowed", message: "Enforcement identity only reports a native child denial" });
-  }
-  expect(f.calls).toEqual([]);
-  expect(readTask(ctx, id)).toEqual(record);
-  await expect(taskSendBridge(ctx, { kind: "probe", id })).rejects.toThrow("kind must be send");
-});
-
-test("the bridge send types through Core with the caller Rust named and returns the task record", async () => {
-  const term = "term_a225e7a8-0e55-4cb9-8e30-be7da4952e5d";
-  const shown = raw(JSON.stringify({ ok: true, result: { terminal: { handle: term, incarnationId: "inc-1", connected: true, writable: true, agentIdentity: "codex" } } }));
-  const f = fakeRun([
-    [["orca", "orchestration", "worker-show"], raw(JSON.stringify({ ok: true, result: { worker: { state: "running" } } }))],
-    [["orca", "terminal", "show"], shown],
-    [["orca", "terminal", "send"], raw(JSON.stringify({ ok: true, result: {} }))],
-  ]);
-  const ctx = fakeCtx({ run: f.run });
-  const id = make(ctx, "live", t => {
-    t.interactionMode = "conversation";
-    t.live = { backend: "orca", worker: "ctx_live", terminal: term, executor: "codex", agent: "codex", incarnation: "inc-1", since: 1 };
-  });
-  const rev = readTask(ctx, id)!.rev;
-  const result = await taskSendBridge(ctx, { kind: "send", id, text: "go with plan B", force: false, by: "client:app#w1", expectRev: rev }) as TaskRecord;
-  expect(f.calls).toContainEqual(["orca", "terminal", "send", "--terminal", term, "--text", "go with plan B", "--enter", "--json"]);
-  expect(result.id).toBe(id);
-  expect(result.driving).toEqual({ by: "client:app#w1", at: ctx.now });
-  expect(readTask(ctx, id)!.driving).toEqual({ by: "client:app#w1", at: ctx.now });
-});
 
 test.skipIf(!front)("native task.send refuses exactly as TypeScript and delivers through the Core bridge", async () => {
   const ctx = fakeCtx();

@@ -2,9 +2,9 @@
 //! identities as `authorizeWorkOperation` does, validates the params as Zod does and answers the
 //! refusals made before the task record is read: an executor caller, a malformed id and the text
 //! check. Under the shared task lock it answers the record refusals: an unknown task, a stale
-//! revision, a lane waiting on its question and a task that is not running. Core keeps what needs
-//! its plugins and decides under the same lock: the live-worker check, the driving lease, delivery
-//! into the worker, the lease rollback and the timeline entry.
+//! revision, a lane waiting on its question and a task that is not running. Delivery into the
+//! live worker stays behind [`SendEffects`], implemented over `pacer_delegation::send` by
+//! `pacer-server`.
 #![allow(clippy::result_large_err)]
 use pacer_foundation::{
     Ctx,
@@ -13,7 +13,7 @@ use pacer_foundation::{
 };
 use pacer_lifecycle::files_search::executor_session;
 use pacer_store::{StoreError, TaskStore, is_task_id};
-use serde_json::{Map, Value, json};
+use serde_json::{Map, Value};
 
 use super::files_search_ops::providers;
 use super::lifecycle_ops::{invalid, object, project_api_task, type_name};
@@ -21,22 +21,31 @@ use super::session_context_ops::authorize;
 
 const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
 
-/// Core's side of `task.send`: `{"kind":"send","id","text","force","expectRev","by"}` runs
-/// TypeScript `send`, which rechecks every refusal under the task lock, and returns its record.
-pub trait Bridge: Send {
-    fn call(&mut self, request: Value) -> OpFuture<'_>;
+/// Native effects for `task.send`, supplied by `pacer-server` from its delegation
+/// runtime. Validation and the pre-delivery refusals stay in this crate; every
+/// accepted send is carried out by the implementation over `pacer_delegation::send`.
+pub trait SendEffects: Send + Sync {
+    fn send<'a>(
+        &'a self,
+        ctx: &'a Ctx,
+        id: &'a str,
+        text: &'a str,
+        by: &'a str,
+        force: bool,
+        expect_rev: Option<f64>,
+    ) -> OpFuture<'a>;
 }
 
 pub fn needs_task_send_bridge(op: &str) -> bool {
     op == "task.send"
 }
 
-/// The registry entry; the front doors call [`task_send`] with their Core bridge instead.
+/// The registry entry; the front doors call [`task_send`] with their native effects instead.
 pub fn task_send_stub(_: &Ctx, _: Value) -> OpFuture<'_> {
     Box::pin(async {
         Err(CoreError::new(
             Code::Unavailable,
-            "task send bridge unavailable",
+            "task send unavailable",
         ))
     })
 }
@@ -251,7 +260,7 @@ pub fn task_send<'a>(
     ctx: &'a Ctx,
     params: Value,
     by: String,
-    bridge: &'a mut dyn Bridge,
+    effects: &'a dyn SendEffects,
 ) -> OpFuture<'a> {
     Box::pin(async move {
         authorize(ctx)?;
@@ -280,17 +289,9 @@ pub fn task_send<'a>(
                 Err(Refusal::Store(error)) => return Err(internal(error)),
             }
         }
-        let mut request = json!({
-            "kind": "send",
-            "id": p.id,
-            "text": p.text,
-            "force": p.force,
-            "by": by,
-        });
-        if let Some(expect_rev) = p.expect_rev {
-            request["expectRev"] = json!(expect_rev as u64);
-        }
-        bridge.call(request).await
+        effects
+            .send(ctx, &p.id, &p.text, &by, p.force, p.expect_rev)
+            .await
     })
 }
 

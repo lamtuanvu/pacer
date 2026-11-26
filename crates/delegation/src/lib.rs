@@ -12,6 +12,7 @@ pub mod delegate;
 pub mod retry;
 pub mod review;
 pub mod runtime;
+pub mod send;
 
 pub use delegate::DelegateInput;
 pub use runtime::Runtime;

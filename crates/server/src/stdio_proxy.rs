@@ -533,17 +533,14 @@ async fn forward_input<
                     crate::native::msg_write_sync::trace(op.name, request.get("id"));
                     let by =
                         crate::native::task_send_ops::caller_identity(&request_ctx, None, None);
-                    let mut bridge = crate::native::task_send_sync::StdioBridge {
-                        core: &mut core,
-                        prefix: sync.0,
-                        key: sync.1,
-                        replies: &mut *sync.2,
+                    let effects = crate::native::runtime::NativeSendEffects {
+                        runtime: std::sync::Arc::clone(&plugins.delegation),
                     };
                     let result = crate::native::task_send_ops::task_send(
                         &request_ctx,
                         params,
                         by,
-                        &mut bridge,
+                        &effects,
                     )
                     .await;
                     if let Some(id) = request.get("id") {
