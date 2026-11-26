@@ -1,6 +1,7 @@
 import { readRun } from "../supervisor/run";
 import { typeIntoSession, SessionInputError } from "../messaging/live";
 import { sessionSocket } from "./service";
+import { clearHeldReport } from "./reports";
 import { viewerName } from "./viewers";
 import { checkRev, taskActivity } from "../core/tasks";
 import { CoreError } from "../core/errors";
@@ -106,7 +107,11 @@ export async function sendDirectInput(ctx: Ctx, task: TaskRecord, text: string, 
   };
   try {
     const result = await typeIntoSession(sessionSocket(dir), text, {}, ready);
-    if (result.kind === "typed") return {ok: true as const};
+    if (result.kind === "typed") {
+      // A delivered message starts a new user turn; the previous turn's completion no longer holds.
+      clearHeldReport(dir);
+      return {ok: true as const};
+    }
     const message = result.kind === "refused" ? `The terminal is controlled from ${clean(viewerName(result.controller ?? "another viewer"))}; nothing was typed`
       : result.kind === "pending" ? `Not delivered: ${clean(result.reason)}. Nothing was typed; try again`
       : "The task's run or question changed before delivery; nothing was typed";

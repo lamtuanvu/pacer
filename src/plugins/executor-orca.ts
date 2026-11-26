@@ -1,6 +1,7 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { CoreError } from "../core/errors";
+import { heldOpenForHuman } from "../messaging/participants";
 import { validateExecution } from "../config/execution";
 import type { ProviderCfg, Strategy } from "../config/strategy";
 import { readJson, writeJsonAtomic } from "../fsutil";
@@ -53,6 +54,11 @@ async function fallback(deps: OrcaRouteDeps, ctx: Ctx, cfg: ProviderCfg, task: T
 /** Run one Orca attempt through the bundled provider; the host keeps fallback, closure and outcome authority. */
 async function runOrcaAttempt(deps: OrcaRouteDeps, caller: OrcaExecutorCaller, ctx: Ctx, cfg: ProviderCfg, task: TaskRecord,
   onSpawn?: (pid: number) => void): Promise<AttemptOutcome> {
+  // A held root belongs to the user: the Orca owned executor.run has a wall deadline that would
+  // abort its signal and reap a still-live terminal. Take the plain direct fallback instead, so the
+  // held-aware supervise path owns the lane (as it does for conversations off the direct owned route).
+  if (task.interactionMode !== "conversation" && heldOpenForHuman(ctx, task))
+    return fallback(deps, ctx, cfg, task, onSpawn, "the interactive session is held open by the user");
   let ex;
   try { ex = deps.loadExecution(ctx); }
   catch (e) { return fallback(deps, ctx, cfg, task, onSpawn, (e as Error).message); }

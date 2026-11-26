@@ -4,6 +4,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.18.6] - 2026-11-26
+
 ### Fixed
 
 - crates.io: bump protocol crates changed by the assistant.respond removal
@@ -27,6 +29,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 ### Fixed
 
 - The desktop menu-bar indicator no longer shows an update failure when a check was only interrupted or unavailable, keeps an available update visible after a failed re-check, and reads "Not checked yet" like the app.
+- Keep sessions you start through pacer open until you end them: idle checks no longer stop them, an agent's done report no longer closes the terminal, and ending the session keeps the reported outcome for review.
 
 ## [0.18.4] - 2026-11-25
 

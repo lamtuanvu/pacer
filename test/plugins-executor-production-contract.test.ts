@@ -18,6 +18,6 @@ test("the future run-directory contract names the files existing readers use", (
   expect((protocol as Record<string, unknown>).RUN_DIR_CONTRACT).toEqual({
     version: 1,
     files: ["argv", "stdout", "stderr", "pid", "exit", "session.log", "session.json",
-      "report.json", "transcript-report.md", "prompt.md"],
+      "report.json", "held-report.json", "transcript-report.md", "prompt.md"],
   });
 });

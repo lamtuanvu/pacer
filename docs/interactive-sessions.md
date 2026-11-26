@@ -14,7 +14,9 @@ Codex accepts initial images natively. Claude Code and OpenCode receive labelled
 
 Claude Code starts with an assigned native conversation UUID. OpenCode creates a specific native session on a private server and applies the selected model to it; its full-screen CLI does not need a model argument. Both persist the identity before launch. Codex records the identity supplied by its native hooks. Resume uses that exact identity without resending the first request or attachments. OpenCode verifies existing history before resuming so a missing history cannot silently become a new conversation. Model and named-account environments are retained, including endpoint configuration. Explicit interactive selection may use the configured planner account; delegation still excludes it. Repository policies, account readiness, budgets and execution slots continue to apply.
 
-End session stops the process while retaining its changes and output. It does not accept or merge the work. Resume conversation is available when the agent supplied a native session identity and its adapter supports resuming; it keeps the same agent/account and worktree.
+A session you start yourself, or a `pacer delegate --interactive` you run yourself, stays open until you end it. Pacer does not stop it for being idle or quiet, and the agent's `pacer report done|failed` is recorded without closing the terminal. Work delegated by another agent still finishes when its agent reports.
+
+End session stops the process while retaining its changes and output. If the agent reported done or failed during the current turn, the task keeps that outcome so you can review and accept it; otherwise it is recorded as stopped. It does not accept or merge the work. Resume conversation is available when the agent supplied a native session identity and its adapter supports resuming; it keeps the same agent/account and worktree.
 
 If a session fails, the working screen shows its recorded failure reason. For a
 full disk, free space on this machine before resuming. Resume keeps the native

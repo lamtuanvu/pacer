@@ -232,6 +232,67 @@ test("strict mode nudges an idle run by default", async () => {
   } finally { stop.mockRestore(); }
 });
 
+/** A human-started conversation: the root has no work registration, so its origin is the parent. */
+function heldConversation(ctx: ReturnType<typeof fakeCtx>, phase: "idle" | "working", activity: "working" | "idle") {
+  const task = createTask(ctx, { brief: { goal: "human session", repo: tmpDir() }, kind: null, requestedExecutor: null, timeoutS: 600 });
+  const dir = tmpDir();
+  updateTask(ctx, task.id, t => {
+    t.state = "running"; t.origin = "human"; t.interactionMode = "conversation"; t.conversation = { activity };
+    t.attemptStartedAt = ctx.now - 3600;
+    t.progress = { phase, lastOutputAt: ctx.now - 5, lastChangeAt: ctx.now - 3600, gitObserved: true } as typeof t.progress;
+    t.run = { dir, attempt: 1, executor: "codex", startedAt: ctx.now - 3600, mode: "current", workdir: t.brief.repo, logFile: "/dev/null", session: "interactive" };
+  });
+  return { id: task.id, node: `task:${task.id}`, dir };
+}
+
+test("a running conversation with idle phase is not stalled or stopped", async () => {
+  const ctx = fakeCtx({ now: 1_000_000 });
+  const { node } = heldConversation(ctx, "idle", "idle");
+  const stop = spyOn(runs, "stopRun").mockResolvedValue({ code: 143, killed: false });
+  try {
+    await brokerTick(ctx, { mode: async () => "strict" as const });
+    await brokerTick({ ...ctx, now: ctx.now + 60 }, { mode: async () => "strict" as const });
+    expect(getLiveness(ctx, node)).toBeNull();
+    expect(byRequest(ctx, "broker", `nudge:${node}:a1:1`)).toBeNull();
+    expect(stop.mock.calls).toEqual([]);
+  } finally { stop.mockRestore(); }
+});
+
+test("a human-started conversation working without progress is never stopped", async () => {
+  const ctx = fakeCtx({ now: 1_000_000 });
+  const { id, node } = heldConversation(ctx, "working", "working");
+  const stop = spyOn(runs, "stopRun").mockResolvedValue({ code: 143, killed: false });
+  try {
+    for (const at of [0, 60, 180, 420, 900]) await brokerTick({ ...ctx, now: ctx.now + at }, { mode });
+    expect(getLiveness(ctx, node)).toBeNull();
+    expect(byRequest(ctx, "broker", `nudge:${node}:a1:3`)).toBeNull();
+    expect(stop.mock.calls).toEqual([]);
+    expect(readTask(ctx, id)?.unresponsive).toBeUndefined();
+  } finally { stop.mockRestore(); }
+});
+
+test("an agent-delegated conversation keeps today's no_progress stop", async () => {
+  // Only a human-started session is held open; a conversation launched by another agent is still
+  // stopped after unanswered pings.
+  const ctx = fakeCtx({ now: 1_000_000 });
+  const task = createTask(ctx, { brief: { goal: "delegated conversation", repo: tmpDir() }, kind: null, requestedExecutor: null, timeoutS: 600 });
+  const dir = tmpDir();
+  updateTask(ctx, task.id, t => {
+    t.state = "running"; t.origin = "external:planner"; t.interactionMode = "conversation"; t.conversation = { activity: "working" };
+    t.attemptStartedAt = ctx.now - 3600;
+    t.progress = { phase: "working", lastOutputAt: ctx.now - 1, lastChangeAt: ctx.now - 3600, gitObserved: true } as typeof t.progress;
+    t.run = { dir, attempt: 1, executor: "codex", startedAt: ctx.now - 3600, mode: "current", workdir: t.brief.repo, logFile: "/dev/null", session: "interactive" };
+  });
+  const node = `task:${task.id}`;
+  const stop = spyOn(runs, "stopRun").mockResolvedValue({ code: 143, killed: false });
+  try {
+    for (const at of [0, 60, 180, 420, 900]) await brokerTick({ ...ctx, now: ctx.now + at }, { mode });
+    expect(byRequest(ctx, "broker", `nudge:${node}:a1:3`)).not.toBeNull();
+    expect(stop.mock.calls).toEqual([[dir]]);
+    expect(readTask(ctx, task.id)?.unresponsive).toEqual({ attempt: 1, pings: 3 });
+  } finally { stop.mockRestore(); }
+});
+
 test("spinner output does not reset a no_progress stall", async () => {
   const ctx = fakeCtx({ now: 1_000_000 });
   const task = createTask(ctx, { brief: { goal: "spin", repo: tmpDir() }, kind: "feature", requestedExecutor: null, timeoutS: 600 });
