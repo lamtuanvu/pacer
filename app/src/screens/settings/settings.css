@@ -378,3 +378,4 @@
 .pc-agent-stack>.pc-agent-list{padding-bottom:var(--space-4);border-bottom:1px solid var(--line)}
 .pc-agent-detail__title .pc-section-heading:focus{outline:none}
 .pc-agent-detail__title .pc-section-heading:focus-visible{outline:var(--stroke-focus) solid var(--focus);outline-offset:var(--stroke-focus)}
+.pc-agent-card .pc-segmented{flex-wrap:wrap;max-width:100%}

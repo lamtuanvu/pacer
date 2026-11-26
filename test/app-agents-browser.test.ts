@@ -324,3 +324,11 @@ browserTest('S5: an account no agent uses opens an account-only page with sign-i
     expect(await page.getByRole('combobox').count()).toBe(0);
   });
 }, 20000);
+
+browserTest('Find an agent is one field (no inner border) and nothing in the fact cards overflows at 1440 or 375', async () => {
+  for (const viewport of [{ width: 1440, height: 1000 }, { width: 375, height: 812 }]) await open(async page => {
+    expect(await page.evaluate(() => getComputedStyle(document.querySelector('.pc-search-input input')!).borderTopWidth)).toBe('0px');
+    const overflow = await page.evaluate(() => [...document.querySelectorAll('.pc-agent-card *')].filter(el => el.getBoundingClientRect().right > el.closest('.pc-agent-card')!.getBoundingClientRect().right + 1).map(el => el.className));
+    expect(overflow).toEqual([]);
+  }, viewport);
+}, 20000);
