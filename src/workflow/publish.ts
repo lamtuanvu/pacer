@@ -150,6 +150,18 @@ function assertHttpsPrUrl(url: string): string {
   return trimmed;
 }
 
+/** Defensive: never push or open a PR for a branch that holds no work. A count
+ *  git cannot make is left to the push. */
+async function assertBranchHasCommits(ctx: Ctx, run: RunRow): Promise<void> {
+  const count = await ctx.run(
+    ["git", "-C", run.repo, "rev-list", "--count", `${run.baseSha ?? run.baseRef}..refs/heads/${run.branch}`],
+    15_000,
+  );
+  if (count.code === 0 && count.stdout.trim() === "0") {
+    throw new CoreError("not_allowed", "the run branch has no commits beyond its base: nothing to publish");
+  }
+}
+
 /** Parse `owner/name` from an origin remote URL for `gh --repo` (M9). */
 export async function originRepoSlug(ctx: Ctx, repoOrWt: string): Promise<string | null> {
   const got = await ctx.run(["git", "-C", repoOrWt, "remote", "get-url", "origin"], 10_000);
@@ -216,6 +228,7 @@ export async function publishRun(ctx: Ctx, runId: string, input: PublishInput): 
     if (!live.branch || !live.baseRef) {
       throw new CoreError("invalid_input", `run ${runId} has no branch to publish`);
     }
+    await assertBranchHasCommits(ctx, live);
 
     const wt = await integrationWorktreeUnderLock(ctx, live);
     const pathEnv = publishChildEnv(ctx);

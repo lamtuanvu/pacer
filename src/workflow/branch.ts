@@ -12,20 +12,15 @@ import { gitInfo, realpathSafe } from "../core/git";
 import { resolveWorktreeBase, taskWorktreesDir, worktreeDirty } from "../supervisor/worktree";
 import { createTask, readTask, updateTask } from "../tasks/store";
 import type { TaskRecord } from "../tasks/types";
-import type { AgentStep } from "./schema";
+import { isCodeStep } from "./schema";
 import {
-  getRun, replaceRunConflicts, setRunBranch, setRunConflict,
-  stepByTask, taskByRequestId, workflowDatabase, type RunConflict, type RunRow,
+  branchOwner, getDefinition, getRun, replaceRunConflicts, setRunBranch, setRunConflict,
+  stepByTask, stepByTaskLineage, taskByRequestId, workflowDatabase, type RunConflict, type RunRow,
 } from "./store";
 import { enqueueWakeup, stepWakeRef } from "./wakeups";
 import { dataPreamble } from "./template";
 
-/** Kinds that edit the tree by default. Research (read-only) and role:reviewer
- *  stay off unless `code: true`. Docs and unfamiliar-code write files so they count as code. */
-const CODE_KINDS = new Set([
-  "boilerplate", "tests", "rename", "migration", "feature", "debug", "refactor", "performance",
-  "docs", "unfamiliar-code",
-]);
+export { isCodeStep };
 
 const firstLine = (s: string) => s.trim().split("\n")[0] ?? "";
 
@@ -38,15 +33,6 @@ function cleanLine(s: string): string {
 export function runBranchName(runId: string): string {
   const suffix = runId.startsWith("run_") ? runId.slice(4) : runId;
   return `pacer/run-${suffix}`;
-}
-
-/** Whether an agent / fan-out-each step should create or use the run branch. */
-export function isCodeStep(step: Pick<AgentStep, "kind" | "role" | "code">): boolean {
-  if (step.role === "orchestrator" || step.role === "reviewer") return false;
-  if (step.code === false) return false;
-  if (step.code === true) return true;
-  if (!step.kind) return false;
-  return CODE_KINDS.has(step.kind);
 }
 
 /** Lock file name fragment: run ids are already `[a-z0-9_]` but keep the lock helper happy. */
@@ -127,8 +113,10 @@ async function ensureRunBranchUnlocked(ctx: Ctx, run: RunRow): Promise<RunBranch
   return info;
 }
 
-/** Create the run branch from the base tip if missing; idempotent under the merge lock. */
-export async function ensureRunBranch(ctx: Ctx, run: RunRow): Promise<RunBranchInfo> {
+/** Create the run branch from the base tip if missing; idempotent under the merge
+ *  lock. A generated child uses (and creates) its owner's branch. */
+export async function ensureRunBranch(ctx: Ctx, of: RunRow): Promise<RunBranchInfo> {
+  const run = branchOwner(ctx, of);
   if (run.branch && run.baseRef && run.baseSha) {
     return { branch: run.branch, base_ref: run.baseRef, base_sha: run.baseSha };
   }
@@ -197,8 +185,9 @@ async function clearResolvedConflicts(
 }
 
 /** One integration worktree per run, checked out on the run branch. */
-export async function integrationWorktree(ctx: Ctx, run: RunRow): Promise<string> {
-  const live = getRun(ctx, run.id) ?? run;
+export async function integrationWorktree(ctx: Ctx, of: RunRow): Promise<string> {
+  const run = branchOwner(ctx, of);
+  const live = run;
   if (live.branch) {
     const top = await resolveRepoTop(ctx, live.repo);
     const path = integrationPath(ctx, top, live.id);
@@ -254,14 +243,157 @@ export type AcceptMergeResult =
   | { merged: true }
   | { merged: false; merge: "conflict"; resolution_task: string };
 
+const RUN_TERMINAL: readonly RunRow["status"][] = ["done", "failed", "stopped"];
+
+/** True when `taskId` works for an agent or fan-out step that changes code. */
+function isCodeTask(ctx: Ctx, taskId: string): boolean {
+  const step = stepByTaskLineage(ctx, taskId);
+  const run = step ? getRun(ctx, step.runId) : null;
+  if (!step || !run) return false;
+  const def = getDefinition(ctx, `${run.workflow}@${run.version}`) ?? getDefinition(ctx, run.workflow);
+  const stepDef = def?.steps[step.stepId];
+  if (stepDef?.type === "agent") return isCodeStep(stepDef);
+  return stepDef?.type === "fanout" && isCodeStep(stepDef.each);
+}
+
+/** True when the local branch exists. F1: --quiet makes a missing ref exit 1
+ *  (locale-independent). Only exit 1 means absent; every other non-zero (incl.
+ *  128 / timeout) stays unavailable. */
+async function localBranchExists(ctx: Ctx, top: string, branch: string): Promise<boolean> {
+  const found = await ctx.run(
+    ["git", "-C", top, "rev-parse", "--verify", "--quiet", `refs/heads/${branch}`],
+    5_000,
+    { env: { ...ctx.env, LC_ALL: "C", LANG: "C" } },
+  );
+  if (found.code === 0) return true;
+  if (found.code === 1) return false;
+  throw new CoreError(
+    "unavailable",
+    `cannot resolve task branch ${branch}: ${cleanLine(found.stderr) || `exit ${found.code}`}`,
+  );
+}
+
+/** The task's own checkout on this machine (never the repository's), if it still exists. */
+async function localTaskWorktree(ctx: Ctx, top: string, task: TaskRecord): Promise<string | undefined> {
+  for (const path of [task.worktree, task.result?.worktree]) {
+    if (!path || !existsSync(path)) continue;
+    const info = await gitInfo(ctx.run, path);
+    if ("error" in info) {
+      // A directory git cannot read may still hold work: let the status check refuse it.
+      return path;
+    }
+    if (realpathSafe(info.top) !== realpathSafe(top)) return path;
+  }
+  return undefined;
+}
+
 /**
- * When `taskId` belongs to a run that has a branch, merge `pacer/<taskId>` into the
+ * The local branch holding a task's work and the commit it started from: its own
+ * `pacer/<id>`, else the branch of the task whose worktree a retry reused, else
+ * (code steps on backends that name branches themselves) the worktree's branch.
+ */
+async function taskWorkBranch(
+  ctx: Ctx, top: string, task: TaskRecord, runBranch: string, code: boolean,
+): Promise<{ branch: string; baseSha?: string } | null> {
+  const own = `pacer/${task.id}`;
+  if (await localBranchExists(ctx, top, own)) return { branch: own, baseSha: task.baseSha };
+  const paths = [task.worktree, task.result?.worktree];
+  const seen = new Set<string>([task.id]);
+  for (let id = task.retryOf; id && !seen.has(id);) {
+    seen.add(id);
+    const prior = readTask(ctx, id);
+    if (!prior) break;
+    if (paths.some(path => path?.includes(`/${id}`)) && await localBranchExists(ctx, top, `pacer/${id}`)) {
+      return { branch: `pacer/${id}`, baseSha: prior.baseSha };
+    }
+    id = prior.retryOf;
+  }
+  if (!code) return null;
+  const worktree = await localTaskWorktree(ctx, top, task);
+  if (!worktree) return null;
+  const head = await ctx.run(["git", "-C", worktree, "symbolic-ref", "--quiet", "--short", "HEAD"], 10_000);
+  const branch = head.stdout.trim();
+  if (head.code !== 0 || !branch || branch === runBranch) return null;
+  return { branch, baseSha: task.baseSha };
+}
+
+/**
+ * A code step's work must be committed on the branch that is about to be merged:
+ * refuses uncommitted or untracked files, commits left on another branch or a
+ * detached HEAD, and work still on a remote host. Nothing is dropped silently.
+ */
+async function assertCodeWorkCommitted(
+  ctx: Ctx, top: string, task: TaskRecord, runBranch: string, tip: string | undefined,
+): Promise<void> {
+  const worktree = await localTaskWorktree(ctx, top, task);
+  const expected = tip ?? `pacer/${task.id}`;
+  if (worktree) {
+    const dirty = await worktreeDirty(ctx, worktree);
+    if (dirty === null) throw new CoreError("unavailable", "cannot read the task worktree status");
+    if (dirty) {
+      throw new CoreError(
+        "invalid_input",
+        `uncommitted changes in the task worktree: commit them on ${expected} (or remove stray files), then accept again`,
+      );
+    }
+    const held = await ctx.run(
+      ["git", "-C", worktree, "merge-base", "--is-ancestor", "HEAD", `refs/heads/${tip ?? runBranch}`],
+      10_000,
+    );
+    if (held.code === 1) {
+      throw new CoreError(
+        "invalid_input",
+        `the task worktree has commits that are not on ${expected}: move them there, then accept again`,
+      );
+    }
+    if (held.code !== 0) {
+      throw new CoreError("unavailable", `cannot compare the task worktree: ${cleanLine(held.stderr) || `exit ${held.code}`}`);
+    }
+  }
+  if (!tip && task.run?.host) {
+    throw new CoreError(
+      "invalid_input",
+      `the work of this task is not in the local repository (host ${task.run.host}): bring ${expected} here, then accept again`,
+    );
+  }
+}
+
+/** Commits on `branch` since the task started; null when git cannot count them. */
+async function commitsAhead(ctx: Ctx, top: string, runBranch: string, work: { branch: string; baseSha?: string }): Promise<number | null> {
+  // Ahead of the task's own base (not the run tip) so a moved base alone is not "ahead" (R2-F4).
+  // Workflow step tasks keep their original baseSha across ask/answer (preserveBase), so
+  // baseSha..task is the real work; fall back to run..task only when baseSha is absent.
+  const range = work.baseSha ? `${work.baseSha}..${work.branch}` : `${runBranch}..${work.branch}`;
+  const ahead = await ctx.run(["git", "-C", top, "rev-list", "--count", range], 10_000);
+  return ahead.code === 0 ? Number(ahead.stdout.trim()) : null;
+}
+
+/**
+ * Whether an accepted step task's work is on the run branch (or it has none).
+ * False when it is not, or git cannot tell.
+ */
+export async function taskWorkMerged(ctx: Ctx, taskId: string): Promise<boolean> {
+  const step = stepByTaskLineage(ctx, taskId);
+  const stepRun = step ? getRun(ctx, step.runId) : null;
+  const run = stepRun ? branchOwner(ctx, stepRun) : null;
+  const task = readTask(ctx, taskId);
+  if (!run?.branch || !task) return true;
+  const top = await resolveRepoTop(ctx, run.repo);
+  const work = await taskWorkBranch(ctx, top, task, run.branch, isCodeTask(ctx, taskId));
+  if (!work) return true;
+  if (await isAncestorOfRun(ctx, top, work.branch, run.branch)) return true;
+  return await commitsAhead(ctx, top, run.branch, work) === 0;
+}
+
+/**
+ * When `taskId` belongs to a run that has a branch, merge its work branch into the
  * run branch under the merge lock. Returns null when the task is not a run-branch
  * task (ordinary accept path). On conflict: aborts, creates a resolution task, no verdict.
  */
 export async function mergeTaskOnAccept(ctx: Ctx, taskId: string): Promise<AcceptMergeResult | null> {
-  const step = stepByTask(ctx, taskId);
-  let run = step ? getRun(ctx, step.runId) : null;
+  const step = stepByTaskLineage(ctx, taskId);
+  const stepRun = step ? getRun(ctx, step.runId) : null;
+  let run = stepRun ? branchOwner(ctx, stepRun) : null;
   // Conflict-resolution tasks are not step-attached; find them via the run marker.
   // Swallow all lookup errors (fail-safe: fall through to ordinary accept). Documented.
   if (!run?.branch) {
@@ -287,61 +419,41 @@ export async function mergeTaskOnAccept(ctx: Ctx, taskId: string): Promise<Accep
   if (!run?.branch) return null;
   // Terminal runs: accept the verdict without merging (settle already dropped the
   // integration worktree; recreating it or enqueueing wake-ups would leak state).
-  const RUN_TERMINAL = ["done", "failed", "stopped"] as const;
-  if (RUN_TERMINAL.includes(run.status as typeof RUN_TERMINAL[number])) {
+  if (RUN_TERMINAL.includes(run.status)) {
     return { merged: true };
   }
   const task = readTask(ctx, taskId);
   if (!task) return null;
+  const code = isCodeTask(ctx, taskId);
 
-  const taskBranch = `pacer/${taskId}`;
   return withMergeLock(ctx, run.id, async () => {
     const live = getRun(ctx, run.id) ?? run;
-    if (RUN_TERMINAL.includes(live.status as typeof RUN_TERMINAL[number])) {
+    if (RUN_TERMINAL.includes(live.status)) {
       return { merged: true };
     }
     const top = await resolveRepoTop(ctx, live.repo);
-    // F1: --quiet makes a missing ref exit 1 (locale-independent). Only exit 1
-    // means absent; every other non-zero (incl. 128 / timeout) stays unavailable.
-    const hasBranch = await ctx.run(
-      ["git", "-C", top, "rev-parse", "--verify", "--quiet", `refs/heads/${taskBranch}`],
-      5_000,
-      { env: { ...ctx.env, LC_ALL: "C", LANG: "C" } },
-    );
-    if (hasBranch.code !== 0) {
-      if (hasBranch.code !== 1) {
-        throw new CoreError(
-          "unavailable",
-          `cannot resolve task branch ${taskBranch}: ${cleanLine(hasBranch.stderr) || `exit ${hasBranch.code}`}`,
-        );
-      }
+    const work = await taskWorkBranch(ctx, top, task, live.branch!, code);
+    // Before any shortcut: a code step with uncommitted work is never accepted.
+    if (code) await assertCodeWorkCommitted(ctx, top, task, live.branch!, work?.branch);
+    if (!work) {
       // Research / current-placement / cleaned worktree / resolution with no branch:
       // accept the verdict but only clear markers whose conflicting branch is already in.
       // Dirty check is skipped: there is nothing to merge (R2-F8).
       await clearResolvedConflicts(ctx, live, top, taskId);
       return { merged: true };
     }
+    const taskBranch = work.branch;
 
-    // Ahead of the task's own base (not the run tip) so a moved base alone is not "ahead" (R2-F4).
-    // Workflow step tasks keep their original baseSha across ask/answer (preserveBase), so
-    // baseSha..task is the real work; fall back to run..task only when baseSha is absent.
     // A failed rev-list is not treated as zero-ahead (pre-fallback behavior).
-    const baseRange = task.baseSha
-      ? `${task.baseSha}..${taskBranch}`
-      : `${live.branch}..${taskBranch}`;
-    const ahead = await ctx.run(
-      ["git", "-C", top, "rev-list", "--count", baseRange],
-      10_000,
-    );
-    if (ahead.code === 0 && Number(ahead.stdout.trim()) === 0) {
-      // M7: dirty check only when exists AND ahead — zero-ahead with untracked notes is plain accept.
+    if (await commitsAhead(ctx, top, live.branch!, work) === 0) {
+      // M7: a non-code step with untracked notes and no commit is a plain accept.
       await clearResolvedConflicts(ctx, live, top, taskId);
       return { merged: true };
     }
 
-    // Dirty check only when we will merge a real pacer/<id> branch that is ahead (R2-F8/M7).
+    // Non-code steps are checked only when there is something to merge (R2-F8/M7).
     const worktree = task.worktree ?? task.result?.worktree;
-    if (worktree) {
+    if (!code && worktree) {
       const dirty = await worktreeDirty(ctx, worktree);
       if (dirty === true) {
         throw new CoreError("invalid_input", "uncommitted changes in the task worktree");
@@ -472,10 +584,9 @@ function createConflictResolutionTask(
 
 /** The run branch tip a retry of this step task should start from, or null when not a run-branch task. */
 export function runBranchBaseForRetry(ctx: Ctx, taskId: string): string | null {
-  const step = stepByTask(ctx, taskId);
-  if (!step) return null;
-  const run = getRun(ctx, step.runId);
-  return run?.branch ?? null;
+  const step = stepByTaskLineage(ctx, taskId);
+  const run = step ? getRun(ctx, step.runId) : null;
+  return run ? branchOwner(ctx, run).branch ?? null : null;
 }
 
 export type SyncBaseResult =
@@ -487,14 +598,16 @@ export type SyncBaseResult =
  * Library form of `run.sync_base`; the op arrives in a later task.
  */
 export async function syncBase(ctx: Ctx, runId: string, expectRev: number): Promise<SyncBaseResult> {
-  const run = getRun(ctx, runId);
-  if (!run) throw new CoreError("not_found", `unknown run ${runId}`);
-  if (run.rev !== expectRev) throw new CoreError("conflict", `conflict: run ${runId} changed since rev ${expectRev}`);
+  const asked = getRun(ctx, runId);
+  if (!asked) throw new CoreError("not_found", `unknown run ${runId}`);
+  if (asked.rev !== expectRev) throw new CoreError("conflict", `conflict: run ${runId} changed since rev ${expectRev}`);
+  const run = branchOwner(ctx, asked);
+  const rev = run.rev;
   if (!run.branch || !run.baseRef) throw new CoreError("invalid_input", `run ${runId} has no branch to sync`);
 
   return withMergeLock(ctx, run.id, async () => {
     const live = getRun(ctx, run.id) ?? run;
-    if (live.rev !== expectRev) throw new CoreError("conflict", `conflict: run ${runId} changed since rev ${expectRev}`);
+    if (live.rev !== rev) throw new CoreError("conflict", `conflict: run ${runId} changed since rev ${expectRev}`);
     if (!live.branch || !live.baseRef) throw new CoreError("invalid_input", `run ${runId} has no branch to sync`);
     const baseRef = live.baseRef;
     const wt = await integrationWorktreeUnlocked(ctx, live);

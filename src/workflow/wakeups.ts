@@ -4,6 +4,7 @@
 import type { Database } from "bun:sqlite";
 import type { Ctx } from "../types";
 import { canAutoApproveGenerate, canAutoDecide } from "./auto";
+import { mergeConflictFor, reviewDueTask } from "./review";
 import {
   getDefinition, getRun, liveRuns, rootRunId, stepsOfRun, updateStep, workflowDatabase,
   type StepRow,
@@ -17,7 +18,9 @@ export type WakeCause =
   | "replan"
   | "message"
   | "returned"
-  | "orchestrator_step";
+  | "orchestrator_step"
+  /** A code step settled and waits for the verdict that merges it. */
+  | "review_due";
 
 export interface Wakeup {
   runId: string;
@@ -269,6 +272,11 @@ export function wakeCauseStillOpen(ctx: Ctx, runId: string, cause: WakeCause, re
       ).get(id, stepId, attempt);
       if (openHuman) return openHuman.answerer === "orchestrator";
       return true;
+    }
+    if (cause === "review_due") {
+      const task = reviewDueTask(ctx, step);
+      // A conflicting merge waits on its resolution task, not on another turn.
+      return !!task && !mergeConflictFor(ctx, id, task.id);
     }
     if (cause === "replan") {
       if (step.status !== "waiting") return false;
@@ -647,6 +655,14 @@ export function needsOrchestrator(ctx: Ctx): NeedsOrchestrator[] {
         }
         if (hasOpenWakeup(ctx, root, "orchestrator_step", ref)) continue;
         push(root, "orchestrator_step", ref, step.startedAt);
+        continue;
+      }
+      const due = reviewDueTask(ctx, step, def);
+      if (due) {
+        if (mergeConflictFor(ctx, run.id, due.id)) continue;
+        const ref = stepWakeRef(run.id, step.stepId, step.attempt, step.branch);
+        if (hasOpenWakeup(ctx, root, "review_due", ref)) continue;
+        push(root, "review_due", ref, step.startedAt);
         continue;
       }
       if (step.status === "running" && stepDef.type === "agent" && stepDef.role === "orchestrator") {

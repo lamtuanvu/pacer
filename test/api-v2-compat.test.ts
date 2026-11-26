@@ -197,6 +197,18 @@ test('v2 snapshot and events strip workflow attention while leaving other items'
       actions: [],
       notify: 'important',
     },
+    {
+      id: 'run_review:t-1',
+      kind: 'review',
+      severity: 'decide',
+      repo: null,
+      title: 'review',
+      detail: 'd',
+      raisedAt: 1,
+      since: 1,
+      actions: [],
+      notify: 'all',
+    },
     // Kind alone must also filter, even with a non-prefix id.
     {
       id: 'custom:orch',

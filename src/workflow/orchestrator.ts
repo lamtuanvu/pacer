@@ -14,13 +14,13 @@ import { loadStrategy } from "../config/strategy";
 import { withoutPlannerSession } from "../exec/process";
 import { dataPreamble, renderPrompt, STEP_RESULT_INSTRUCTION } from "./template";
 import {
-  getDefinition, getQuestion, getRun, listDecisions, liveRuns, resolveWorkflowPrompt, rootRunId, stepsOfRun, updateRun, workflowDatabase,
+  branchOwner, getDefinition, getQuestion, getRun, listDecisions, liveRuns, resolveWorkflowPrompt, rootRunId, stepsOfRun, updateRun, workflowDatabase,
   type RunRow, type StepRow,
 } from "./store";
 import {
   claimedWakeups, claimWakeups, chooseStepChildRunId, completeWakeups, enqueueWakeup, getTurn,
   insertTurn, liveTurn, needsOrchestrator, openWakeups, parseWakeRef, reconcileStaleChooseClaims,
-  releaseWakeups, stepsOfRootTree, updateTurn, wakeCauseStillOpen,
+  releaseWakeups, stepsOfRootTree, stepWakeRef, updateTurn, wakeCauseStillOpen,
   type TurnRow, type Wakeup,
 } from "./wakeups";
 import { revokeOrphanRunGrants, revokeRunGrant, revokeRunGrantsForRun } from "./run-grant";
@@ -728,6 +728,19 @@ export function buildTurnPrompt(
       createdAt: w.createdAt,
       byPerson: w.byPerson,
     };
+    if (w.cause === "review_due") {
+      const row = steps.find(s => stepWakeRef(s.runId, s.stepId, s.attempt, s.branch) === w.ref);
+      const task = row?.taskId ? readTask(ctx, row.taskId) : null;
+      const owning = row ? getRun(ctx, row.runId) : null;
+      if (task && owning) {
+        payload.review = {
+          taskId: task.id,
+          branch: `pacer/${task.id}`,
+          base: task.baseSha ?? null,
+          runBranch: branchOwner(ctx, owning).branch ?? null,
+        };
+      }
+    }
     // Answered (or open) question wakes carry the record as DATA so the turn can act.
     if (w.cause === "question" && w.ref.startsWith("q_")) {
       const q = getQuestion(ctx, w.ref);
@@ -792,6 +805,9 @@ export function buildTurnPrompt(
     "One step.result per turn: report the step shown as task=<id> (the open orchestrator step that owns the shared orchestrator task; listed first below).",
     ...(returned
       ? ["A returned wake-up means the person opened this run: write a short since-you-last-looked summary with `pacer run decide` kind summary (stored on the run, ≤ 4 KiB)."]
+      : []),
+    ...(wakeups.some(w => w.cause === "review_due")
+      ? ["A review_due wake-up: a code step waits for your verdict. Read its changes with `git diff <base>...<branch>`, then `pacer review <taskId> --accept` (merges into the run branch) or `--reject`. The run waits until then."]
       : []),
     "Commands (replace <owningRunId> with the run id from each step line / open block):",
     "  pacer run decide <owningRunId> <step> <choice> --reason <text>",

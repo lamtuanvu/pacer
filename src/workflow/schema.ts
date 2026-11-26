@@ -310,3 +310,19 @@ export function checkWorkflowShape(data: unknown): { def?: WorkflowDef; errors: 
   if (clean.policy !== undefined) def.policy = clean.policy;
   return { def, errors: [] };
 }
+
+/** Kinds that edit the tree by default. Research (read-only) and role:reviewer
+ *  stay off unless `code: true`. Docs and unfamiliar-code write files so they count as code. */
+const CODE_KINDS = new Set([
+  "boilerplate", "tests", "rename", "migration", "feature", "debug", "refactor", "performance",
+  "docs", "unfamiliar-code",
+]);
+
+/** Whether an agent / fan-out-each step should create or use the run branch. */
+export function isCodeStep(step: Pick<AgentStep, "kind" | "role" | "code">): boolean {
+  if (step.role === "orchestrator" || step.role === "reviewer") return false;
+  if (step.code === false) return false;
+  if (step.code === true) return true;
+  if (!step.kind) return false;
+  return CODE_KINDS.has(step.kind);
+}

@@ -10,8 +10,10 @@ import { PLANNERS } from "../config/strategy";
 import { agentInfo } from "../view-model/agents";
 import {
   getRun,
+  rootRunId,
   listOpenPersonQuestions,
   liveRuns,
+  stepsOfRun,
   workflowSchemaPresent,
   type QuestionAskerKind,
   type QuestionBlocks,
@@ -21,6 +23,7 @@ import {
 import { taskDatabase } from "../tasks/store";
 import { isBudgetBlocked, parseBudget, parseSpent } from "./budget";
 import { resolveRunLetters } from "./letters";
+import { mergeConflictFor, reviewDueTask } from "./review";
 
 /** Person-facing cue so human-step / planner / executor questions differ on Dispatch. */
 function askerCue(kind: QuestionAskerKind): string {
@@ -429,6 +432,46 @@ function blockedFailureActions(run: RunRow): Action[] {
   return actions;
 }
 
+/** One item per code step waiting for its verdict: the person can accept (merge
+ *  into the run branch) or reject here; the planner is woken for the same. */
+function reviewItems(ctx: Ctx, run: RunRow, letters: Map<string, string>): AttentionItem[] {
+  const items: AttentionItem[] = [];
+  for (const step of stepsOfRun(ctx, run.id)) {
+    const task = reviewDueTask(ctx, step);
+    if (!task) continue;
+    const conflict = mergeConflictFor(ctx, run.id, task.id);
+    const at = task.settledAt ?? step.startedAt;
+    const name = step.branch ? `${step.stepId}/${step.branch}` : step.stepId;
+    const root = run.parentRunId ? getRun(ctx, rootRunId(ctx, run.id)) ?? run : run;
+    const stuck = !!conflict || root.orchestratorState === "blocked";
+    const waitingOn = runExternalCaller(root);
+    const verdict = (label: string, value: "accept" | "reject"): Action => ({
+      label, op: "task.review", params: { id: task.id, verdict: value, expect_rev: task.rev },
+    });
+    items.push({
+      id: `run_review:${task.id}`,
+      kind: "review",
+      severity: stuck ? "blocked" : "decide",
+      repo: null,
+      taskId: task.id,
+      title: clipCodePoints(`Review the changes from step "${name}"`, QUESTION_TITLE_CLIP, true),
+      detail: conflict
+        ? `${runDetailSubject(root)}. Accepting hit a merge conflict. Resolve it in task ${conflict}, accept that task, then accept this one.`
+        : `${runDetailSubject(root)}. Accepting merges the changes into the run branch and the run continues. Uncommitted work is refused.`,
+      raisedAt: at,
+      since: at,
+      notify: notifyLevelForRun("question", root, ctx.now, { since: at, unblocks: stuck ? "run" : "nothing" }),
+      ...(waitingOn ? { waitingOn } : {}),
+      actions: conflict
+        ? [{ ...verdict("Reject", "reject"), style: "danger" }]
+        : [{ ...verdict("Accept", "accept"), style: "primary" }, { ...verdict("Reject", "reject"), style: "danger" }],
+      unblocks: "run",
+      run: attentionRunRef(root, letters),
+    });
+  }
+  return items;
+}
+
 /** Attention items for live runs: blocked orchestrator, budget thresholds, and person questions. */
 export function deriveWorkflowAttention(ctx: Ctx): AttentionItem[] {
   const items: AttentionItem[] = [];
@@ -441,6 +484,7 @@ export function deriveWorkflowAttention(ctx: Ctx): AttentionItem[] {
     items.push(runQuestionItem(ctx, q, run, letters));
   }
   for (const run of live) {
+    items.push(...reviewItems(ctx, run, letters));
     // Child runs share the root's orchestrator/budget attention.
     if (run.parentRunId) continue;
     const budget = parseBudget(run.budget);

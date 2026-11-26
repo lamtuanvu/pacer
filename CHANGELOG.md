@@ -4,6 +4,16 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Fixed
+
+- **Workflow code now reaches the run branch and the pull request.** A code step waits for review when its task finishes: the run's planner is woken to review it, and the person can accept or reject it from Needs you or `pacer review`. The next step starts only after the accepted work is merged into the run branch, and every later step of that run (reviewers and research steps included) starts from that branch. Steps that already advanced before an upgrade are left as they are.
+- **Executors on workflow code steps are told to commit.** Uncommitted tracked changes are refused when the step reports its result; accepting refuses uncommitted or untracked files and commits left on another branch, so no work is silently left out. Ordinary tasks keep their instructions and review behaviour.
+- A generated sub-workflow now works on its parent run's branch, so the parent's publish approval and `pacer run publish` include its code; a retry of a step under review takes the step over and its work is merged.
+- A `generate` or `choose_workflow` step result now carries the child's `status`, so edges such as `result.status == 'done'` match and runs of the bundled feature workflow continue past planning.
+- A workflow chosen by the router keeps the `publish: draft` choice made at `run.start`.
+- `pacer run publish` refuses a run branch with no commits beyond its base.
+- A step delegation that races another task change (the planner's turn is live while a review advances the run) is made again instead of failing the run.
+
 ## [0.18.6] - 2026-11-26
 
 ### Fixed

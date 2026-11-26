@@ -27,6 +27,7 @@ import {
 import { defaultEngineDeps, failRun, joinFanout, onTaskSettled, readvanceStep, reconcileOrphanStep, stepRequestId, type EngineDeps } from "./engine";
 import { orchestrateRuns, type OrchestratorDeps } from "./orchestrator";
 import { enqueueWakeup, stepWakeRef } from "./wakeups";
+import { awaitsReview } from "./review";
 import { isTransientError } from "./transient";
 
 export { isTransientError };
@@ -149,6 +150,30 @@ async function readvanceStalled(ctx: Ctx, spawn: SpawnRunner | undefined, deps: 
       // failRun leaves the row for the next tick.
       try { await failRun(ctx, row.runId, `re-advance failed: ${err instanceof Error ? err.message : String(err)}`, undefined, deps); }
       catch { /* the next tick retries the row */ }
+    }
+  }
+  return handled;
+}
+
+/** Steps that wait for review move as soon as their task carries a verdict, a
+ *  retry or a failure, whether or not the change log still holds that write. A
+ *  transient or git error leaves the row for the next tick. */
+async function settleReviewedSteps(ctx: Ctx, spawn: SpawnRunner | undefined, deps: EngineDeps): Promise<number> {
+  let handled = 0;
+  for (const run of liveRuns(ctx)) {
+    for (const row of stepsOfRun(ctx, run.id)) {
+      if (!awaitsReview(ctx, row)) continue;
+      const task = readTask(ctx, row.taskId!);
+      if (!task || !(task.review || task.retriedBy || (task.state !== "done" && SETTLE_STATES.includes(task.state)))) continue;
+      try {
+        await onTaskSettled(ctx, task.id, spawn, deps);
+        handled++;
+      } catch (err) {
+        if (isTransientError(err)) continue;
+        try { await failRun(ctx, run.id, `engine error: ${err instanceof Error ? err.message : String(err)}`, undefined, deps); }
+        catch { /* the next tick retries */ }
+        break;
+      }
     }
   }
   return handled;
@@ -354,6 +379,7 @@ export async function advanceRuns(
   handled += await readvanceStalled(ctx, spawn, deps);
   const walk = await processChanges(ctx, getCursor(ctx), spawn, deps);
   handled += walk.handled;
+  handled += await settleReviewedSteps(ctx, spawn, deps);
   // Recovery last: the change loop settles what the log still holds; the recovery
   // then repairs what a lock error took out of it (Review Focus: run correctness 10).
   // It is skipped when the walk stopped early (a transient or an aborted rescan):

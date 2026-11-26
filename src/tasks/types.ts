@@ -37,6 +37,8 @@ export interface Brief {
   qa?: { q: string; a: string }[];
   base?: string;
   worktreeBase?: "default" | "head";
+  /** Set only by the workflow engine for a code step: the executor must commit. */
+  commitWork?: boolean;
   /** Run the acceptance command with `set -o pipefail`. Off by default: the command runs exactly as written. */
   pipefail?: boolean;
 }

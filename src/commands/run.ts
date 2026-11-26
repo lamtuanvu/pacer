@@ -41,7 +41,7 @@ interface RunLike {
   priority?: string;
   pausedReason?: string;
 }
-interface StepLike { stepId: string; attempt: number; branch?: string; taskId?: string; status: string; error?: string }
+interface StepLike { stepId: string; attempt: number; branch?: string; taskId?: string; status: string; error?: string; result?: unknown }
 
 function runListLine(r: RunLike): string {
   const bits = [r.id, r.status, `${r.workflow}@${r.version}`, r.priority ?? "normal"];
@@ -59,7 +59,9 @@ function stepLabel(step: StepLike): string {
 function renderRun(run: RunLike, steps: StepLike[]): string {
   const lines = [`${run.id}  ${run.workflow}@${run.version}  ${run.status}${run.reason ? `  ${run.reason}` : ""}`];
   for (const step of steps) {
-    lines.push([stepLabel(step), step.status, step.taskId ?? "-", ...(step.error ? [step.error] : [])].join("  "));
+    // A waiting step that has its task's result is a code step waiting for review.
+    const status = step.status === "waiting" && step.taskId && step.result !== undefined ? "waiting for review" : step.status;
+    lines.push([stepLabel(step), status, step.taskId ?? "-", ...(step.error ? [step.error] : [])].join("  "));
   }
   return lines.join("\n");
 }
