@@ -15,7 +15,7 @@ import { ApiError, createApi, type BrowserApi } from "./api";
 import { invalidateQueryCache } from "./query";
 import { createServiceNotifier, type ServiceNotifier } from "./service-notifier";
 
-export interface Features { readModel: boolean; ops: ReadonlySet<string> }
+export interface Features { readModel: boolean; /** Absent on older services that never announced the event. */ terminalEvents?: boolean; ops: ReadonlySet<string> }
 export interface StoreState {
   snapshot: SnapshotV2 | null; connectionRevision: number; connected: boolean; sessionEnded: boolean; needsSnapshot: boolean;
   invalidations: Record<string, number>; version: string | null;
@@ -28,12 +28,12 @@ export type StoreAction = { type: "waiting"; waiting: NonNullable<SnapshotV2["se
 const V1_EVENTS = ["budget", "task", "mode", "alert", "config", "reset"] as const;
 const TASK_CAP = 200, ACTIVITY_CAP = 200;
 export function initialState(): StoreState {
-  return { snapshot: null, connectionRevision: 0, connected: false, sessionEnded: false, needsSnapshot: true, invalidations: {}, version: null, desktopBuildDiagnostic: 'unknown', features: { readModel: false, ops: new Set() }, jobs: {}, activity: [], pluginStates: {} };
+  return { snapshot: null, connectionRevision: 0, connected: false, sessionEnded: false, needsSnapshot: true, invalidations: {}, version: null, desktopBuildDiagnostic: 'unknown', features: { readModel: false, terminalEvents: false, ops: new Set() }, jobs: {}, activity: [], pluginStates: {} };
 }
 /** The 2.1 read model is on when the service says protocol >= 2.1 and announces attention events. */
 export function featuresOf(hello: Hello): Features {
   const [major = 0, minor = 0] = hello.protocol.split(".").map(Number);
-  return { readModel: (major > 2 || (major === 2 && minor >= 1)) && hello.events.includes("attention"), ops: new Set(hello.ops) };
+  return { readModel: (major > 2 || (major === 2 && minor >= 1)) && hello.events.includes("attention"), terminalEvents: hello.events.includes("terminal"), ops: new Set(hello.ops) };
 }
 
 type Keyed = Record<string, unknown>;
@@ -144,6 +144,9 @@ export function reduceStore(state: StoreState, action: StoreAction): StoreState 
       }
       // A machine seen on the network changes discovery.list without a config change.
       if (event.type === "discovery.found") return { ...state, snapshot: { ...state.snapshot, seq: event.seq, at: event.at }, invalidations: { ...state.invalidations, discovery: (state.invalidations.discovery ?? 0) + 1 } };
+      // A terminal tab changed (create, rename, close or shell exit); the Terminal screen
+      // refetches terminal.list on this counter instead of polling.
+      if (event.type === "terminal") return { ...state, snapshot: { ...state.snapshot, seq: event.seq, at: event.at }, invalidations: { ...state.invalidations, terminal: (state.invalidations.terminal ?? 0) + 1 } };
       // 2.1 entities carry fields the v1 envelope parser would strip, so they skip it.
       if (state.features.readModel && (event.type === "task" || READ_MODEL_EVENTS.includes(event.type))) return reduceReadModel(state, state.snapshot, event.type, event.data, event.seq, event.at);
       // Workflow entities: bump runs invalidation so the Runs store refetches; keep seq fresh.
