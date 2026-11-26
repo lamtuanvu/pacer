@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Added
+
+- app: the Model matrix Add model field offers a pick list; a Claude Code runner suggests `opus`, `sonnet` and `haiku`
+
 ## [0.18.6] - 2026-11-26
 
 ### Fixed

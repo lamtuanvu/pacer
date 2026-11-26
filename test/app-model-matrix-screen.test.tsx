@@ -944,3 +944,36 @@ test("another agent with a frontier model hides the planner coverage line", asyn
     available: { go: servedGo, "claude-code": { ...unknown, runner: "claude-code" } },
   });
 });
+
+test("the Add model field offers Claude Code aliases for a claude-code runner and nothing for an unlisted one", async () => {
+  await withMatrix(async (container) => {
+    const lists = allNodes(container, n => n.tagName === "datalist");
+    expect(lists.length).toBe(1);
+    expect(lists[0]!.attrs.id).toBe("pc-model-options-claude-code");
+    const options = allNodes(lists[0]!, n => n.tagName === "option").map(n => n.attrs.value);
+    // default-model is already on the row; the aliases are offered, not forced.
+    expect(options).toEqual(["opus", "sonnet", "haiku"]);
+    const inputs = allNodes(container, n => n.tagName === "input" && n.attrs.list === "pc-model-options-claude-code");
+    expect(inputs.length).toBe(1);
+  }, {
+    config: configView("claude-code"),
+    inventory: inventory([
+      record("claude-code", "claude-code", "claude-code", "default-model", { kind: "executor-default" }),
+      record("codex", "work", "codex", "codex-default", { kind: "executor-default" }),
+    ]),
+    models: { "claude-code": declarationsPlanner, codex: declarationsCodex },
+    available: { "claude-code": { ...unknown, runner: "claude-code" }, codex: { ...unknown, runner: "codex" } },
+  });
+});
+
+test("an OpenCode runner lists every listed model as a row, so its Add model field offers no picker", async () => {
+  await withMatrix(async (container) => {
+    expect(textOf(container)).toContain("listed-only");
+    expect(findNode(container, n => n.tagName === "datalist")).toBeFalsy();
+  }, {
+    config: configView(),
+    inventory: inventory([record("codex", "work", "codex", "codex-default", { kind: "executor-default" })]),
+    models: { codex: declarationsCodex },
+    available: { codex: { runner: "codex", source: "opencode", fetchedAt: 1, models: [{ id: "codex-default" }, { id: "listed-only" }] } },
+  });
+});

@@ -13,7 +13,7 @@ import { ErrorMessage, useTaskContext } from "../task-shared";
 import { executorLabel } from "../../../../src/view-model/words";
 import {
   createDraft, suggestRows, acceptSuggestion, acceptAllSuggestions,
-  dismissSuggestions, toggleModel, setTier, addModel, isDirty, buildSavePlan,
+  dismissSuggestions, toggleModel, setTier, addModel, addModelOptions, isDirty, buildSavePlan,
   rebaseSavedDrafts, takesFor, formatPrice, formatContext, formatTools,
   type MatrixRow, type MatrixDraft, type MatrixTier, type MatrixListingModel,
 } from "../../model/model-matrix";
@@ -471,6 +471,7 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
                 {visibleRunners.map(({ id, draft, available, loadError, account }) => {
                   const planner = isPlanner(id);
                   const shownProvider = displayProvider({ available, account });
+                  const addOptions = addModelOptions(id, available?.models, draft?.rows ?? []);
                   const listingModels = available?.models ?? null;
                   const unknownListing = available?.source === "none" || listingModels === null;
                   const noModels = (listingModels?.length ?? 0) === 0 && (draft?.rows.length ?? 0) === 0;
@@ -492,7 +493,8 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
                       {!readOnly && noModels && <p className="u3-muted">{planner ? (fallbackOn ? `To let the planner take complex tasks, add a model and set its size to ${complexSize}.` : "No models.") : "Uses its default and can take any difficulty"}</p>}
                       {!readOnly && unknownListing && (
                         <form className="pc-model-matrix__add" onSubmit={event => { event.preventDefault(); handleAdd(id); }}>
-                          <Field label={modelAddLabel(id)}><TextInput value={addingByRunner[id] ?? ""} disabled={busy} onInput={e => setAddingByRunner(prev => ({ ...prev, [id]: e.currentTarget.value }))} /></Field>
+                          <Field label={modelAddLabel(id)}><TextInput value={addingByRunner[id] ?? ""} disabled={busy} list={addOptions.length ? `pc-model-options-${id}` : undefined} autoComplete="off" onInput={e => setAddingByRunner(prev => ({ ...prev, [id]: e.currentTarget.value }))} /></Field>
+                          {addOptions.length > 0 && <datalist id={`pc-model-options-${id}`}>{addOptions.map(option => <option key={option} value={option} />)}</datalist>}
                           <Button size="sm" type="submit" aria-label={modelAddLabel(id)} disabled={busy}>Add</Button>
                         </form>
                       )}

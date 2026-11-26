@@ -105,8 +105,11 @@ The **Model matrix** page (`#/settings/models`) shows every model each executor
 can run, as the union of the provider's model listing and the executor's
 declared `runners.<id>.models`. For each executor you can turn a model on or
 off, set its size (Small, Medium, Frontier, or return it to Unrated), and add a
-model by ID when the listing is unknown. The planner executor is read-only
-here, matching `runner.models.set`. **Suggest** proposes turning models on and
+model by ID when the listing is unknown. The Add model field offers a pick list:
+for a Claude Code runner, which has no listing, it suggests the Claude Code
+aliases `opus`, `sonnet` and `haiku`; any other ID can still be typed. The
+planner executor's row is editable too (see `pacing.planner_tier_fallback` in
+[configuration](configuration.md)), but suggestions never change it. **Suggest** proposes turning models on and
 a size from each provider's price and tool support; suggestions only apply to
 models with listing facts, and **Accept all** never turns off an enabled model
 without such facts. Coverage cards show how many rated models can take each
