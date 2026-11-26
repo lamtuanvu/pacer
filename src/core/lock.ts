@@ -2,6 +2,7 @@ import { CoreError } from './errors';
 import { closeSync, mkdirSync, openSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
+import { pidAlive } from "../link/pid";
 import type { Ctx } from "../types";
 
 /** Lock files stay in <pacerHome>/orca/ so pacer versions from before the core move still see them. */
@@ -29,17 +30,26 @@ export function writeLockToken(
   }
 }
 
+/** Whether the process a lock token names still runs. */
+function holderAlive(file: string): boolean {
+  const pid = Number(/^(\d+):/.exec(readFileSync(file, "utf8"))?.[1]);
+  return Number.isSafeInteger(pid) && pid > 0 && pidAlive(pid);
+}
+
 /** A cross-process lock file. Stale locks (older than staleMs) are taken over.
  *  M6: heartbeat the mtime every 30s while held; finally deletes only this holder's token. */
 export async function withLock<T>(
-  ctx: Ctx, name: string, fn: () => Promise<T> | T, o: { timeoutMs?: number; staleMs?: number } = {},
+  ctx: Ctx, name: string, fn: () => Promise<T> | T,
+  o: { timeoutMs?: number; staleMs?: number; keepWhileHolderAlive?: boolean } = {},
 ): Promise<T> {
   if (name.includes("/") || name.includes("\\") || name.includes("..")) throw new Error("invalid lock name");
   mkdirSync(lockDir(ctx), { recursive: true });
   const file = join(lockDir(ctx), `${name}.lock`);
   const deadline = Date.now() + (o.timeoutMs ?? 20_000);
   const staleMs = o.staleMs ?? 120_000;
-  const token = randomBytes(16).toString("hex");
+  // With keepWhileHolderAlive the token names its process, so a stale mtime (a
+  // stalled event loop, a suspended machine) never takes a living holder's lock.
+  const token = `${o.keepWhileHolderAlive ? `${process.pid}:` : ""}${randomBytes(16).toString("hex")}`;
   for (;;) {
     try {
       closeSync(openSync(file, "wx"));
@@ -48,7 +58,8 @@ export async function withLock<T>(
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
       try {
-        if (Date.now() - statSync(file).mtimeMs > staleMs) {
+        if (Date.now() - statSync(file).mtimeMs > staleMs
+          && !(o.keepWhileHolderAlive && holderAlive(file))) {
           rmSync(file, { force: true });
           continue;
         }

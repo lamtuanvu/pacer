@@ -158,6 +158,12 @@ export function validateGenerated(
   depth: number,
 ): WorkflowError[] {
   const errors: WorkflowError[] = [...validateWorkflow(graph)];
+  // The agent writes this graph, so it may not declare what lets the run publish.
+  for (const [id, step] of Object.entries(graph.steps ?? {})) {
+    if (step?.type === "human" && step.approves === "publish") {
+      errors.push({ path: `steps.${id}.approves`, message: "a generated graph may not declare approves: publish" });
+    }
+  }
   const maxDepth = limits.max_depth ?? 2;
   if (depth > maxDepth) {
     errors.push({ path: "limits.max_depth", message: `generated depth ${depth} exceeds max_depth ${maxDepth}` });

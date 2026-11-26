@@ -211,14 +211,15 @@ async function continueWithMessage(ctx: Ctx, task: TaskRecord, m: { kind: "answe
   return null;
 }
 
-/** The holder refreshes the lock every 30 s, so one silent for 90 s is dead. A
- *  waiter outlasts that, and gives up with an ordinary error behind a live one. */
+/** The holder refreshes the lock every 30 s. One silent for 90 s whose process is
+ *  gone is taken over; a waiter outlasts that, and gives up with an ordinary error
+ *  behind a living holder. */
 export const REVIEW_LOCK = { timeoutMs: 120_000, staleMs: 90_000 };
 
 async function withReviewLock<T>(ctx: Ctx, id: string, fn: () => Promise<T>): Promise<T> {
   const name = `review-${id}`;
   try {
-    return await withLock(ctx, name, fn, REVIEW_LOCK);
+    return await withLock(ctx, name, fn, { ...REVIEW_LOCK, keepWhileHolderAlive: true });
   } catch (error) {
     if (error instanceof Error && !(error instanceof CoreError) && error.message.startsWith("timed out waiting for ")
       && error.message.endsWith(`${name}.lock`)) {

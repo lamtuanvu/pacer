@@ -2,7 +2,7 @@
 // git, the real engine and tick, and the real review op: no step row is written by
 // hand and no verdict is recorded around the engine, so the ordering is covered.
 import { expect, test } from "bun:test";
-import { chmodSync, mkdirSync, readdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fakeCtx, gitRepo, realRun, tmpDir } from "./helpers";
 import { callOp } from "../src/api/ops";
@@ -25,11 +25,11 @@ import {
   answerGenerateApproval, answerHumanStep, awaitTerminalSettle, chooseWorkflow, failRun, recordStepResult,
   retryFailedStep, skipFailedStep, startRun, stopRun, type EngineDeps,
 } from "../src/workflow/engine";
-import { submitGraph } from "../src/workflow/generate";
+import { submitGraph, validateGenerated } from "../src/workflow/generate";
 import { parseWorkflow } from "../src/workflow/parse";
 import { publishRun } from "../src/workflow/publish";
 import type { WorkflowDef } from "../src/workflow/schema";
-import { addDefinition, clearRunBranch, getRun, recordDecision, setCursor, setPublishOptIn, setRunConflict, setRunBranch, stepsOfRun, workflowDatabase, type StepRow } from "../src/workflow/store";
+import { addDefinition, clearRunBranch, getRun, listDecisions, recordDecision, setCursor, setPublishOptIn, setRunConflict, setRunBranch, stepsOfRun, workflowDatabase, type StepRow } from "../src/workflow/store";
 import { taskChangesSince } from "../src/tasks/changes";
 import { settleTurn } from "../src/workflow/orchestrator";
 import { issueRunGrant } from "../src/workflow/run-grant";
@@ -46,9 +46,20 @@ function world() {
   const bin = tmpDir();
   const ghLog = join(bin, "gh.log");
   const gh = join(bin, "gh");
+  const prView = join(bin, "pr-view.json"), prList = join(bin, "pr-list.json");
+  /** What GitHub says about the pull request now; null: gh cannot tell. */
+  const pr = (state: { state: string; isDraft: boolean } | null) =>
+    state ? writeFileSync(prView, JSON.stringify(state)) : rmSync(prView, { force: true });
   writeFileSync(gh, `#!/bin/sh
 echo "$@" >> "${ghLog}"
-if [ "$1 $2" = "pr list" ]; then echo '[]'; else cat >/dev/null; echo "https://github.com/acme/widget/pull/7"; fi
+case "$1 $2" in
+  "pr list") cat "${prList}" 2>/dev/null || echo '[]' ;;
+  "pr view") cat "${prView}" 2>/dev/null || exit 1 ;;
+  *) cat >/dev/null
+     case "$*" in *--draft*) d=true ;; *) d=false ;; esac
+     echo "{\\"state\\":\\"OPEN\\",\\"isDraft\\":$d}" > "${prView}"
+     echo "https://github.com/acme/widget/pull/7" ;;
+esac
 `);
   chmodSync(gh, 0o755);
   const ctx = fakeCtx({ run: realRun, home, pacerHome: join(home, ".pacer"), now: Math.floor(Date.now() / 1000), which: name => name === "gh" ? gh : "/usr/bin/fake" });
@@ -180,7 +191,7 @@ if [ "$1 $2" = "pr list" ]; then echo '[]'; else cat >/dev/null; echo "https://g
     .query<{ ref: string }, [string]>("SELECT ref FROM workflow_wakeups WHERE cause = ? AND done_at IS NULL").all(cause).map(r => r.ref);
   return {
     ctx, repo, remote, ghLog, git, inputs, deps, tick, checkout, commit, finish, execute, step, accept, branchFile,
-    install, bundled, resumable, spawned, reviewDeps, sendBack, taskOf, reject, wakes,
+    install, bundled, pr, prList, resumable, spawned, reviewDeps, sendBack, taskOf, reject, wakes,
   };
 }
 
@@ -1127,11 +1138,16 @@ test("a review lock left by a dead holder is taken over; a live one gives an ord
   const saved = { ...tasks.REVIEW_LOCK };
   Object.assign(tasks.REVIEW_LOCK, { timeoutMs: 300 });
   try {
-    writeFileSync(lock, "held");
+    // A living holder keeps its lock however old the file looks.
+    writeFileSync(lock, `${process.pid}:held`);
+    const stale = new Date(Date.now() - saved.staleMs - 5_000);
+    utimesSync(lock, stale, stale);
     await expect(tasks.review(w.ctx, impl, { verdict: "accept" }))
       .rejects.toMatchObject({ code: "unavailable", message: expect.stringMatching(/still in progress/) });
-    const old = new Date(Date.now() - saved.staleMs - 5_000);
-    utimesSync(lock, old, old);
+    // A holder that is gone is taken over once it is silent.
+    const gone = Bun.spawnSync(["true"]).pid;
+    writeFileSync(lock, `${gone}:dead`);
+    utimesSync(lock, stale, stale);
     await tasks.review(w.ctx, impl, { verdict: "accept" });
   } finally { Object.assign(tasks.REVIEW_LOCK, saved); }
   expect(readTask(w.ctx, impl)!.review).toMatchObject({ accepted: true });
@@ -1244,4 +1260,233 @@ test("a branch that cannot be adopted for a reason other than a conflict is show
   expect(item.actions[0]!.op).toBe("run.stop");
   expect(await adoptGeneratedBranches(w.ctx, getRun(w.ctx, run.id)!)).toBe(true);
   expect(deriveWorkflowAttention(w.ctx).some(i => i.id === `run_review:adopt:${childId}`)).toBe(false);
+});
+
+/** One accepted code step, a publish approval, and more code after it. */
+const shipping: WorkflowDef = {
+  id: "t/ship", version: 1, entry: "impl",
+  steps: {
+    impl: { type: "agent", kind: "feature", prompt: "I" },
+    ok: { type: "human", decision: "must", approves: "publish", question: { text: "ok?", kind: "approve_revise" } },
+    more: { type: "agent", kind: "feature", prompt: "M" },
+    done: { type: "end" },
+  },
+  edges: [{ from: "impl", to: "ok" }, { from: "ok", to: "more", when: "result.answer == 'approve'" }, { from: "more", to: "done" }],
+};
+
+async function shipped(how: "approval" | "draft_opt_in") {
+  const w = world();
+  w.install(shipping);
+  const run = await startRun(w.ctx, { workflow: shipping.id, repo: w.repo, brief: "b", publish: "draft" }, undefined, w.deps);
+  const impl = w.taskOf(run.id, "impl");
+  await w.execute(impl, { file: "first.txt" });
+  await w.accept(impl);
+  const publish = (draft: boolean) => publishRun(w.ctx, run.id, { draft, title: "t", body: "b", expectRev: getRun(w.ctx, run.id)!.rev });
+  if (how === "approval") await answerHumanStep(w.ctx, run.id, "ok", "approve", getRun(w.ctx, run.id)!.rev, w.deps);
+  await publish(how === "draft_opt_in");
+  if (how === "draft_opt_in") await answerHumanStep(w.ctx, run.id, "ok", "revise", getRun(w.ctx, run.id)!.rev, w.deps).catch(() => {});
+  const branch = getRun(w.ctx, run.id)!.branch!;
+  const published = w.git(w.remote, "rev-parse", branch);
+  /** More accepted work on the run branch than the pull request has. */
+  const moreWork = (file: string) => {
+    const tree = join(tmpDir(), "later");
+    w.git(w.repo, "worktree", "add", "-q", "--force", tree, branch);
+    writeFileSync(join(tree, file), file);
+    w.git(tree, "add", file);
+    w.git(tree, "commit", "-qm", file);
+    w.git(w.repo, "worktree", "remove", "--force", tree);
+  };
+  const untouched = () => expect(w.git(w.remote, "rev-parse", branch)).toBe(published);
+  return { w, run, publish, branch, moreWork, untouched };
+}
+
+test("the draft opt-in never pushes into a ready pull request an approval opened", async () => {
+  const s = await shipped("approval");
+  s.moreWork("later.txt");
+  for (const draft of [false, true]) {
+    await expect(s.publish(draft)).rejects.toMatchObject({ code: "not_allowed", message: expect.stringContaining(`git push origin ${s.branch}`) });
+  }
+  s.untouched();
+  // Even a draft now: it was not published as one.
+  s.w.pr({ state: "OPEN", isDraft: true });
+  await expect(s.publish(true)).rejects.toMatchObject({ code: "not_allowed" });
+  s.untouched();
+});
+
+test("the draft opt-in updates a pull request only while it is confirmed to be a draft", async () => {
+  const s = await shipped("draft_opt_in");
+  s.moreWork("later.txt");
+  await s.publish(true);
+  expect(s.w.git(s.w.remote, "show", `${s.branch}:later.txt`)).toBe("later.txt");
+  s.moreWork("ready.txt");
+  const before = s.w.git(s.w.remote, "rev-parse", s.branch);
+  s.w.pr({ state: "OPEN", isDraft: false }); // marked ready
+  await expect(s.publish(true)).rejects.toMatchObject({ code: "not_allowed", message: expect.stringMatching(/not one/) });
+  s.w.pr(null); // gh cannot tell
+  await expect(s.publish(true)).rejects.toMatchObject({ code: "unavailable", message: expect.stringMatching(/nothing was pushed/) });
+  expect(s.w.git(s.w.remote, "rev-parse", s.branch)).toBe(before);
+});
+
+for (const state of ["CLOSED", "MERGED"]) {
+  test(`later work is refused, with the way out, when the pull request is ${state.toLowerCase()}`, async () => {
+    const s = await shipped("draft_opt_in");
+    s.moreWork("later.txt");
+    s.w.pr({ state, isDraft: true });
+    const refused = { code: "not_allowed", message: expect.stringMatching(new RegExp(`is ${state.toLowerCase()}.*git push origin`)) };
+    await expect(s.publish(true)).rejects.toMatchObject(refused);
+    // An approval of the tip does not reopen it either.
+    recordDecision(s.w.ctx, {
+      runId: s.run.id, stepId: "ok", attempt: 2, actor: "person", kind: "publish_approved", choice: "approve",
+      reason: `approves: publish tip=${s.w.git(s.w.repo, "rev-parse", s.branch)}`,
+    });
+    await expect(s.publish(false)).rejects.toMatchObject(refused);
+    s.untouched();
+  });
+}
+
+test("the draft opt-in does not push onto a branch that already has a ready pull request", async () => {
+  const w = world();
+  w.install(shipping);
+  const run = await startRun(w.ctx, { workflow: shipping.id, repo: w.repo, brief: "b", publish: "draft" }, undefined, w.deps);
+  const impl = w.taskOf(run.id, "impl");
+  await w.execute(impl, { file: "first.txt" });
+  await w.accept(impl);
+  writeFileSync(w.prList, JSON.stringify([{ url: "https://github.com/acme/widget/pull/3", state: "OPEN", isDraft: false }]));
+  await expect(publishRun(w.ctx, run.id, { draft: true, title: "t", body: "b", expectRev: getRun(w.ctx, run.id)!.rev }))
+    .rejects.toMatchObject({ code: "not_allowed" });
+  expect(w.git(w.remote, "branch", "--list", "pacer/*")).toBe("");
+});
+
+/** A code step whose task works from before the accepted prep step, so merging it conflicts. */
+const stale: WorkflowDef = {
+  id: "t/stale", version: 1, entry: "prep",
+  steps: {
+    prep: { type: "agent", kind: "feature", prompt: "P" },
+    impl: { type: "agent", kind: "feature", prompt: "I" },
+    done: { type: "end" },
+  },
+  edges: [{ from: "prep", to: "impl" }, { from: "impl", to: "done" }],
+};
+
+async function staleRun() {
+  const w = world();
+  w.install(stale);
+  const run = await startRun(w.ctx, { workflow: stale.id, repo: w.repo, brief: "b", publish: "draft" }, undefined, w.deps);
+  const prep = w.taskOf(run.id, "prep");
+  await w.execute(prep, { file: "same.txt", body: "prep\n" });
+  await w.accept(prep);
+  const impl = w.taskOf(run.id, "impl");
+  const conflictingWork = async (taskId: string) => {
+    const tree = await w.checkout(taskId);
+    w.git(tree, "reset", "-q", "--hard", "main");
+    await w.commit(taskId, "same.txt", `${taskId}\n`);
+  };
+  const publish = () => publishRun(w.ctx, run.id, { draft: true, title: "t", body: "b", expectRev: getRun(w.ctx, run.id)!.rev });
+  const blocked = { code: "not_allowed", message: expect.stringMatching(/conflict/) };
+  return { w, run, impl, conflictingWork, publish, blocked };
+}
+
+test("a conflict from accepting the task of an already failed step keeps publishing closed", async () => {
+  const s = await staleRun();
+  await s.conflictingWork(s.impl);
+  s.w.finish(s.impl, "limit");
+  await s.w.tick();
+  expect(s.w.step(s.run.id, "impl").status).toBe("failed");
+  expect((await s.w.accept(s.impl)).merge).toBe("conflict");
+  await s.w.tick();
+  await expect(s.publish()).rejects.toMatchObject(s.blocked);
+  expect(getRun(s.w.ctx, s.run.id)!.conflict).toHaveLength(1);
+  // Rejecting the task is the way to give its work up.
+  await s.w.reject(s.impl);
+  await s.publish();
+});
+
+test("a conflict from a retry the failed step did not take over keeps publishing closed", async () => {
+  const s = await staleRun();
+  await s.conflictingWork(s.impl);
+  recordStepResult(s.w.ctx, s.impl, { summary: "ok" });
+  s.w.finish(s.impl);
+  await s.w.tick();
+  expect((await s.w.accept(s.impl)).merge).toBe("conflict");
+  await s.w.reject(s.impl);
+  expect(getRun(s.w.ctx, s.run.id)!.conflict ?? []).toEqual([]);
+  // The person retries the rejected task; the failed step does not follow it.
+  const { retry } = await tasks.retry(s.w.ctx, s.impl, {}, {
+    delegate: async (c, input) => input.commitWith!(() => {
+      const next = createTask(c, { brief: input.brief, kind: input.kind ?? null, requestedExecutor: null, timeoutS: 600 });
+      return updateTask(c, next.id, t => { t.retryOf = input.retryOf; });
+    }),
+  });
+  expect(s.w.step(s.run.id, "impl").taskId).toBe(s.impl);
+  await s.conflictingWork(retry.id);
+  s.w.finish(retry.id);
+  expect((await s.w.accept(retry.id)).merge).toBe("conflict");
+  await s.w.tick();
+  await expect(s.publish()).rejects.toMatchObject(s.blocked);
+  expect(getRun(s.w.ctx, s.run.id)!.conflict!.map(e => e.taskId)).toEqual([retry.id]);
+});
+
+test("clearing a resolved conflict keeps one raised while git was running", async () => {
+  const s = await staleRun();
+  await s.conflictingWork(s.impl);
+  recordStepResult(s.w.ctx, s.impl, { summary: "ok" });
+  s.w.finish(s.impl);
+  await s.w.tick();
+  await s.w.accept(s.impl);
+  const tree = readTask(s.w.ctx, s.impl)!.worktree!;
+  Bun.spawnSync(["git", "-C", tree, "-c", "user.email=t@t", "-c", "user.name=t", "merge", "-q", getRun(s.w.ctx, s.run.id)!.branch!]);
+  writeFileSync(join(tree, "same.txt"), "both\n");
+  s.w.git(tree, "commit", "-qam", "resolve");
+  const meanwhile = { taskId: "base:main", branch: "0".repeat(40), resolutionTaskId: "t-other" };
+  let raised = false;
+  const racing: Ctx = {
+    ...s.w.ctx,
+    run: async (argv, timeout, o) => {
+      if (!raised && argv.includes("--is-ancestor") && argv.includes(`pacer/${s.impl}`) && !argv.includes("HEAD")) {
+        raised = true;
+        setRunConflict(s.w.ctx, s.run.id, meanwhile);
+      }
+      return s.w.ctx.run(argv, timeout, o);
+    },
+  };
+  await tasks.review(racing, s.impl, { verdict: "accept" });
+  expect(raised).toBe(true);
+  expect(getRun(s.w.ctx, s.run.id)!.conflict).toEqual([meanwhile]);
+});
+
+test("a generated graph may not declare publishing approval, and one already stored approves nothing", async () => {
+  const gated: WorkflowDef = {
+    id: "gen/gate", version: 1, entry: "impl",
+    steps: {
+      impl: { type: "agent", kind: "feature", prompt: "I" },
+      sure: { type: "human", decision: "must", approves: "publish", question: { text: "ok?", kind: "approve_revise" } },
+      done: { type: "end" },
+    },
+    edges: [{ from: "impl", to: "sure" }, { from: "sure", to: "done", when: "result.answer == 'approve'" }],
+  };
+  expect(validateGenerated(gated, planned.steps.plan!.type === "generate" ? { ...planned.steps.plan!.limits, step_types: ["agent", "human"] } : (undefined as never), 1))
+    .toContainEqual({ path: "steps.sure.approves", message: "a generated graph may not declare approves: publish" });
+  const w = world();
+  const plain: WorkflowDef = { ...gated, steps: { ...gated.steps, sure: { type: "human", decision: "must", question: { text: "ok?", kind: "approve_revise" } } } };
+  const bare: WorkflowDef = {
+    ...planned, id: "t/planned-gate", entry: "plan",
+    steps: { plan: { ...planned.steps.plan!, limits: { step_types: ["agent", "human"], max_steps: 5, max_depth: 2, kinds: ["feature"] } } as WorkflowDef["steps"][string], ok: planned.steps.ok!, done: planned.steps.done! },
+    edges: planned.edges.slice(1),
+  };
+  const run = await startChain(w, bare);
+  expect((await submitGraph(w.ctx, { runId: run.id, stepId: "plan", source: plain }, w.deps)).errors).toEqual([]);
+  const childId = (w.step(run.id, "plan").result as { childRunId: string }).childRunId;
+  const child = getRun(w.ctx, childId)!;
+  // As an earlier version could have stored it.
+  const row = workflowDatabase(w.ctx).query<{ def: string }, [string, number]>("SELECT def FROM workflow_defs WHERE id = ? AND version = ?").get(child.workflow, child.version)!;
+  const def = JSON.parse(row.def) as WorkflowDef;
+  (def.steps.sure as { approves?: string }).approves = "publish";
+  workflowDatabase(w.ctx).query("UPDATE workflow_defs SET def = ? WHERE id = ? AND version = ?").run(JSON.stringify(def), child.workflow, child.version);
+  const impl = w.taskOf(childId, "impl");
+  await w.execute(impl, { file: "a.txt" });
+  await w.accept(impl);
+  await answerHumanStep(w.ctx, childId, "sure", "approve", getRun(w.ctx, childId)!.rev, w.deps);
+  expect(listDecisions(w.ctx, run.id).concat(listDecisions(w.ctx, childId)).filter(d => d.kind === "publish_approved")).toEqual([]);
+  await expect(publishRun(w.ctx, run.id, { draft: false, title: "t", body: "b", expectRev: getRun(w.ctx, run.id)!.rev }))
+    .rejects.toMatchObject({ code: "not_allowed" });
 });

@@ -14,7 +14,7 @@ import { createTask, readTask, updateTask } from "../tasks/store";
 import type { TaskRecord } from "../tasks/types";
 import { isCodeStep } from "./schema";
 import {
-  branchOwner, clearRunBranch, clearRunConflict, generatedChildren, getDefinition, getRun, replaceRunConflicts,
+  branchOwner, clearRunBranch, clearRunConflict, generatedChildren, getDefinition, getRun, removeRunConflicts,
   setRunBranch, setRunConflict, stepsOfRun, updateStep,
   stepByTask, stepByTaskLineage, taskByRequestId, workflowDatabase, type RunConflict, type RunRow,
 } from "./store";
@@ -170,23 +170,19 @@ async function clearResolvedConflicts(
 ): Promise<void> {
   const live = getRun(ctx, run.id) ?? run;
   if (!live.branch || !live.conflict?.length) return;
-  const remaining: RunConflict[] = [];
+  const resolved: RunConflict[] = [];
   for (const entry of live.conflict) {
     const related = entry.resolutionTaskId === taskId || entry.taskId === taskId
       || entry.branch === `pacer/${taskId}`;
-    if (!related) {
-      remaining.push(entry);
-      continue;
-    }
     // Only clear when the conflicting work is actually on the run branch.
-    if (await isAncestorOfRun(ctx, top, entry.branch, live.branch)) {
-      if (entry.resolutionTaskId !== taskId) closeConflictRecord(ctx, entry.resolutionTaskId);
-      continue;
-    }
-    remaining.push(entry);
+    if (related && await isAncestorOfRun(ctx, top, entry.branch, live.branch)) resolved.push(entry);
   }
-  if (remaining.length !== live.conflict.length) {
-    replaceRunConflicts(ctx, live.id, remaining);
+  if (resolved.length === 0) return;
+  // Removed from the list as it is now: git ran since it was read.
+  removeRunConflicts(ctx, live.id, entry => resolved.some(done =>
+    done.taskId === entry.taskId && done.branch === entry.branch && done.resolutionTaskId === entry.resolutionTaskId));
+  for (const entry of resolved) {
+    if (entry.resolutionTaskId !== taskId) closeConflictRecord(ctx, entry.resolutionTaskId);
   }
 }
 
@@ -629,14 +625,20 @@ function createConflictResolutionTask(
     prior = taskByRequestId(ctx, requestId);
   }
   if (prior && resolutionStillOpen(prior)) {
+    const live = stepByTask(ctx, task.id)?.status;
     setRunConflict(ctx, run.id, {
       taskId: task.id,
       branch: taskBranch,
       resolutionTaskId: prior.id,
+      live: live === "running" || live === "waiting",
     });
     return prior;
   }
 
+  // Whether a step still holds the conflicting task: only then may giving that
+  // step up drop the marker.
+  const held = stepByTask(ctx, task.id);
+  const heldNow = held?.status === "running" || held?.status === "waiting";
   const rawFiles = files.trim() || "(unknown)";
   const capped = rawFiles.length > CONFLICT_FILES_CAP
     ? `${rawFiles.slice(0, CONFLICT_FILES_CAP)}\n…(truncated)`
@@ -672,6 +674,7 @@ function createConflictResolutionTask(
     taskId: task.id,
     branch: taskBranch,
     resolutionTaskId: resolution.id,
+    live: heldNow,
   });
 
   // Wake the orchestrator: on the parked step's review when it waits for one (it

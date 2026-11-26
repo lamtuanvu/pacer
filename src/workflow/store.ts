@@ -425,6 +425,9 @@ export type RunConflict = {
   taskId: string;
   branch: string;
   resolutionTaskId: string;
+  /** Whether a step still held the task when the merge conflicted (unset on
+   *  markers stored before this was recorded: treated as held). */
+  live?: boolean;
 };
 
 function isConflictEntry(value: unknown): value is RunConflict {
@@ -1188,6 +1191,18 @@ export function generatedChildren(ctx: Ctx, parent: RunRow): RunRow[] {
     .filter((child): child is RunRow => !!child && isGeneratedChild(ctx, child, parent));
 }
 
+/** Whether a `generate` step produced `run`, directly or through its parents. */
+export function isGeneratedRun(ctx: Ctx, run: RunRow): boolean {
+  let current: RunRow | null = run;
+  while (current?.parentRunId) {
+    const parent: RunRow | null = getRun(ctx, current.parentRunId);
+    if (!parent) return false;
+    if (isGeneratedChild(ctx, current, parent)) return true;
+    current = parent;
+  }
+  return false;
+}
+
 /** `owner` plus every generated descendant: all runs whose steps share its branch. */
 export function runsSharingBranch(ctx: Ctx, owner: RunRow): RunRow[] {
   const out: RunRow[] = [owner];
@@ -1262,6 +1277,12 @@ export function setRunPrUrl(ctx: Ctx, runId: string, prUrl: string): void {
  */
 export function setRunConflict(ctx: Ctx, runId: string, conflict: RunConflict): void {
   const db = workflowDatabase(ctx);
+  db.transaction(() => upsertRunConflict(ctx, runId, conflict)).immediate();
+  touchMeaningful(ctx, runId);
+}
+
+function upsertRunConflict(ctx: Ctx, runId: string, conflict: RunConflict): void {
+  const db = workflowDatabase(ctx);
   const current = getRun(ctx, runId);
   if (!current) throw new CoreError("not_found", `unknown run ${runId}`);
   const list = [...(current.conflict ?? [])];
@@ -1272,7 +1293,16 @@ export function setRunConflict(ctx: Ctx, runId: string, conflict: RunConflict): 
     "UPDATE workflow_runs SET conflict = ? WHERE id = ?",
   ).run(JSON.stringify(list), runId);
   if (result.changes === 0) throw new CoreError("not_found", `unknown run ${runId}`);
-  touchMeaningful(ctx, runId);
+}
+
+/** Removes the matching entries from the run's current list, in one transaction. */
+export function removeRunConflicts(ctx: Ctx, runId: string, match: (entry: RunConflict) => boolean): RunConflict[] {
+  return workflowDatabase(ctx).transaction(() => {
+    const list = getRun(ctx, runId)?.conflict ?? [];
+    const removed = list.filter(match);
+    if (removed.length > 0) replaceRunConflicts(ctx, runId, list.filter(entry => !match(entry)));
+    return removed;
+  }).immediate();
 }
 
 /** Replace the full conflict list (or clear when empty). */
@@ -1296,10 +1326,7 @@ export function clearRunConflictEntry(
   runId: string,
   match: (entry: RunConflict) => boolean,
 ): void {
-  const current = getRun(ctx, runId);
-  if (!current?.conflict?.length) return;
-  const next = current.conflict.filter(e => !match(e));
-  if (next.length !== current.conflict.length) replaceRunConflicts(ctx, runId, next);
+  removeRunConflicts(ctx, runId, match);
 }
 
 /** Find a conflict entry that names this resolution task (or the conflicting task). */

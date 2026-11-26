@@ -12,8 +12,8 @@ import { readTask, updateTask } from "../tasks/store";
 import { canContinue, TERMINAL_STATES, type TaskRecord } from "../tasks/types";
 import { isCodeStep, type WorkflowDef } from "./schema";
 import {
-  attachStepTask, branchOwner, fanoutAttempt, getDefinition, getRun, replaceRunConflicts,
-  runsSharingBranch, stepByTaskIfPresent, stepsOfRun, updateStep, workflowDatabase, type RunRow, type StepRow,
+  attachStepTask, branchOwner, fanoutAttempt, getDefinition, getRun, removeRunConflicts, replaceRunConflicts,
+  runsSharingBranch, stepByTaskIfPresent, stepsOfRun, updateStep, workflowDatabase, type RunConflict, type RunRow, type StepRow,
 } from "./store";
 
 /** Whether the row's step is an agent or fan-out branch step that changes code. */
@@ -132,12 +132,8 @@ export function clearTaskConflict(ctx: Ctx, taskId: string): void {
   const row = stepByTaskIfPresent(ctx, taskId);
   const run = row ? getRun(ctx, row.runId) : null;
   if (!run) return;
-  const owner = branchOwner(ctx, run);
-  const conflicts = owner.conflict ?? [];
-  const mine = conflicts.filter(entry => entry.taskId === taskId);
-  if (mine.length === 0) return;
-  replaceRunConflicts(ctx, owner.id, conflicts.filter(entry => entry.taskId !== taskId));
-  for (const entry of mine) closeConflictRecord(ctx, entry.resolutionTaskId);
+  const dropped = removeRunConflicts(ctx, branchOwner(ctx, run).id, entry => entry.taskId === taskId);
+  for (const entry of dropped) closeConflictRecord(ctx, entry.resolutionTaskId);
 }
 
 /** Whether a task was started for a workflow step (itself, or the task it retries). */
@@ -152,18 +148,24 @@ function startedForStep(ctx: Ctx, taskId: string): boolean {
   return false;
 }
 
-/** Whether the work of a conflicting task was given up: rejected, or its step
- *  failed, skipped, stopped, or moved to another task. */
-function abandoned(ctx: Ctx, owner: RunRow, taskId: string): boolean {
-  if (/^(base|child):/.test(taskId)) return false;
+/**
+ * Whether the work of a conflicting task was given up: the task was rejected or
+ * retried, or the step that held it when the merge conflicted has since failed,
+ * been skipped or been stopped. A conflict raised by accepting a task whose step
+ * had already ended, or that no step holds, is the person's own and stays until
+ * they reject or retry that task.
+ */
+function abandoned(ctx: Ctx, owner: RunRow, entry: RunConflict): boolean {
+  const { taskId } = entry;
+  // A record that never was a step's task goes with the marker it resolves.
+  if (/^(base|child):/.test(taskId) || !startedForStep(ctx, taskId)) return false;
+  const task = readTask(ctx, taskId);
+  if (task?.review?.accepted === false || task?.retriedBy) return true;
+  if (entry.live === false) return false;
   const rows = runsSharingBranch(ctx, owner)
     .flatMap(run => stepsOfRun(ctx, run.id))
     .filter(row => row.taskId === taskId);
-  // A task no step holds any more was replaced; one that never was a step is a
-  // resolution record, whose marker goes with the one it resolves.
-  if (rows.length === 0) return startedForStep(ctx, taskId);
-  if (readTask(ctx, taskId)?.review?.accepted === false) return true;
-  return rows.every(row => row.status === "failed" || row.status === "stopped"
+  return rows.length > 0 && rows.every(row => row.status === "failed" || row.status === "stopped"
     || (row.status === "done" && (row.result as { skipped?: unknown } | undefined)?.skipped === true));
 }
 
@@ -175,18 +177,22 @@ function abandoned(ctx: Ctx, owner: RunRow, taskId: string): boolean {
 export function pruneAbandonedConflicts(ctx: Ctx, runId: string): void {
   const run = getRun(ctx, runId);
   if (!run) return;
-  const owner = branchOwner(ctx, run);
-  let kept = owner.conflict ?? [];
-  const dropped: typeof kept = [];
-  for (;;) {
-    const gone = kept.filter(entry => abandoned(ctx, owner, entry.taskId)
-      || dropped.some(d => d.resolutionTaskId === entry.taskId));
-    if (gone.length === 0) break;
-    dropped.push(...gone);
-    kept = kept.filter(entry => !gone.includes(entry));
-  }
-  if (dropped.length === 0) return;
-  replaceRunConflicts(ctx, owner.id, kept);
+  const ownerId = branchOwner(ctx, run).id;
+  // Read and replace in one transaction: a conflict raised meanwhile is not lost.
+  const dropped = workflowDatabase(ctx).transaction(() => {
+    const owner = getRun(ctx, ownerId)!;
+    let kept = owner.conflict ?? [];
+    const gone: RunConflict[] = [];
+    for (;;) {
+      const now = kept.filter(entry => abandoned(ctx, owner, entry)
+        || gone.some(d => d.resolutionTaskId === entry.taskId));
+      if (now.length === 0) break;
+      gone.push(...now);
+      kept = kept.filter(entry => !now.includes(entry));
+    }
+    if (gone.length > 0) replaceRunConflicts(ctx, ownerId, kept);
+    return gone;
+  }).immediate();
   for (const entry of dropped) closeConflictRecord(ctx, entry.resolutionTaskId);
 }
 

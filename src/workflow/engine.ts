@@ -32,7 +32,7 @@ import {
   claimStepAnswer, claimStepReview, claimStepSettlement, fanoutAttempt, insertBranchRetry, clearEntryLease,
   clearEntrySeed, ENTRY_START_TRANSIENT_MAX, ENTRY_START_TRANSIENT_MIN_S,
   entryLeaseSeconds, fireEdge, getDefinition,
-  getRun, insertFanoutBranches, insertJoinStep,
+  getRun, insertFanoutBranches, insertJoinStep, isGeneratedRun,
   insertRun, insertStep, leaseNow,
   listQuestions, liveRunsNeedingEntry, newEntryOwner,
   recordDecision, resetEntryStartAttempts, rootRunId,
@@ -2330,8 +2330,11 @@ export async function answerHumanStep(
   // Publishing gate (D5/R2-F6): tip is read BEFORE the claim; grant callers refused
   // before burning the step; decision is written inside claimStepAnswer's transaction.
   const humanDef = def.steps[stepId];
+  // A generated graph's `approves` means nothing: graphs stored before the
+  // validator refused it answer like any other human step.
   const isPublishApproval = humanDef?.type === "human"
     && humanDef.approves === "publish"
+    && !isGeneratedRun(ctx, run)
     && (answer === "approve" || answer === "yes");
   let publishDecision: {
     runId: string; stepId: string; attempt: number; actor: string;
