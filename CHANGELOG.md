@@ -7,6 +7,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 ### Fixed
 
 - Workflow orchestrator turns work behind the native front door: `run publish`, `run submit-graph`, `run choose`, `run decide`, `step retry`, `step skip` and the other run-grant operations no longer answer HTTP 401. The front door forwards a `prg_` run grant on operation posts only and the core verifies it, as before. `pacer api --stdio` in an orchestrator turn now leaves every operation to the core instead of running some natively.
+- Security: `pacer api --stdio` holding an enforcement identity (`PACER_ENFORCEMENT_TOKEN`) or an assistant grant (`PACER_ASSISTANT_GRANT`) ran some operations natively, such as `repo.add`, even with an invalid token. The front door now leaves every operation to the core, which refuses them as before. Strict executors' denial reports and the assistant's MCP server are unchanged.
 
 ## [0.18.8] - 2026-11-26
 

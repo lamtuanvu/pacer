@@ -116,13 +116,14 @@ test.skipIf(!front)("params errors match forced forwarding byte for byte on stdi
   expect(await replies(false)).toEqual(await replies(true));
 }, 120000);
 
-test.skipIf(!front)("an enforcement identity is refused natively before the schema", async () => {
+test.skipIf(!front)("an enforcement identity over stdio is refused by Core before the schema", async () => {
   const dir = home();
   const requests = [request(2, "session.create", "bad"), request(3, "session.draft.create", {}), request(4, "task.session", { id: TASK }), request(5, "session.agent.list", { x: 1 })];
   const env = { PACER_ENFORCEMENT_TOKEN: "pet_x" };
   const native = await stdio(dir, requests, false, env);
   expect(native.lines).toEqual((await stdio(dir, requests, true, env)).lines);
-  expect(native.marked).toEqual([2, 3, 4, 5]);
+  // API-5: a stdio session holding the identity runs nothing natively.
+  expect(native.marked).toEqual([]);
   expect(native.lines.every(line => JSON.parse(line).error?.data?.code === "not_allowed")).toBe(true);
 }, 60000);
 

@@ -221,11 +221,12 @@ test.skipIf(!front)("account inputs only TypeScript owns stay forwarded", async 
   expect(await exchange(broken, loads, false, {}, false)).toEqual(await exchange(broken, loads, true));
 }, 120000);
 
-test.skipIf(!front)("an enforcement identity is refused natively", async () => {
+test.skipIf(!front)("an enforcement identity over stdio is refused by Core, never natively", async () => {
+  // API-5: a stdio session holding the identity runs nothing natively; Core refuses it.
   const dir = home();
   const enforced = requests([["account.list", {}], ["account.signin", { name: "nope" }]]);
   const extra = { PACER_ENFORCEMENT_TOKEN: "pet_x" };
-  expect(await exchange(dir, enforced, false, extra)).toEqual(await exchange(dir, enforced, true, extra));
+  expect(await exchange(dir, enforced, false, extra, false)).toEqual(await exchange(dir, enforced, true, extra));
 }, 60000);
 
 async function serve(dir: string, forward: boolean, extra: Record<string, string> = {}) {

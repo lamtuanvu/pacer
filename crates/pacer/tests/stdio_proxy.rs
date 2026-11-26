@@ -346,3 +346,96 @@ fn run_grant_and_orchestrator_sessions_are_authorized_by_the_core_alone() {
         }
     }
 }
+
+/// Whether any file under `dir` mentions `needle`.
+fn mentions(dir: &std::path::Path, needle: &str) -> bool {
+    std::fs::read_dir(dir).unwrap().any(|entry| {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            mentions(&path, needle)
+        } else {
+            std::fs::read(&path).is_ok_and(|bytes| String::from_utf8_lossy(&bytes).contains(needle))
+        }
+    })
+}
+
+#[test]
+fn enforcement_and_assistant_identities_are_authorized_by_the_core_alone() {
+    // API-5: a `pet_` or `pag_` session is never the operator, so `repo.add` reaches the core's
+    // refusal and persists nothing, even with a token no store knows.
+    if Command::new("bun").arg("--version").output().is_err() {
+        return;
+    }
+    let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let cli = repo.join("src/cli.ts").to_string_lossy().into_owned();
+    let target = tempfile::tempdir().unwrap();
+    let checkout = target.path().join("scoped-identity-checkout");
+    assert!(
+        Command::new("git")
+            .args(["init", "-q"])
+            .arg(&checkout)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let input = format!(
+        "{}\n{}\n",
+        serde_json::json!({"jsonrpc":"2.0","id":1,"method":"hello","params":{"protocol":3}}),
+        serde_json::json!({"jsonrpc":"2.0","id":2,"method":"repo.add","params":{"path":checkout}}),
+    )
+    .into_bytes();
+    let registered = |home: &std::path::Path| mentions(home, "scoped-identity-checkout");
+
+    // The control: without a scoped identity the same request registers the repository.
+    let home = tempfile::tempdir().unwrap();
+    let output = exchange(
+        proxy(&["bun".into(), cli.clone()], home.path()),
+        input.clone(),
+    );
+    assert!(output.status.success());
+    assert!(registered(home.path()));
+
+    for (name, value) in [
+        ("PACER_ENFORCEMENT_TOKEN", "pet_junk"),
+        ("PACER_ASSISTANT_GRANT", "pag_junk"),
+    ] {
+        let direct_home = tempfile::tempdir().unwrap();
+        let mut direct = Command::new("bun");
+        direct
+            .args([&cli, "api", "--stdio"])
+            .env("PACER_HOME", direct_home.path())
+            .env(
+                "PATH",
+                keychain_stub::keychain_stub_path(direct_home.path(), "bun"),
+            )
+            .env(name, value);
+        let expected = exchange(direct, input.clone());
+        let home = tempfile::tempdir().unwrap();
+        let mut command = proxy(&["bun".into(), cli.clone()], home.path());
+        command.env(name, value).env("PACER_DEBUG_NATIVE", "1");
+        let actual = exchange(command, input.clone());
+        let stderr = String::from_utf8_lossy(&actual.stderr);
+        assert!(!registered(home.path()), "{name}: {stderr}");
+        assert!(!stderr.contains("native "), "{name}: {stderr}");
+        assert_eq!(
+            actual.status.code(),
+            expected.status.code(),
+            "{name}: {stderr}"
+        );
+        let parse = |bytes: &[u8]| -> Vec<serde_json::Value> {
+            bytes
+                .split(|b| *b == b'\n')
+                .filter(|line| !line.is_empty())
+                .map(|line| serde_json::from_slice(line).unwrap())
+                .collect()
+        };
+        assert_eq!(parse(&actual.stdout), parse(&expected.stdout), "{name}");
+        if name == "PACER_ENFORCEMENT_TOKEN" {
+            let replies = parse(&actual.stdout);
+            assert_eq!(replies[1]["error"]["data"]["code"], "not_allowed");
+        } else {
+            // The CLI refuses the whole transport for an assistant grant.
+            assert!(stderr.contains("an assistant grant only allows the MCP server"));
+        }
+    }
+}
