@@ -4,6 +4,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.18.6] - 2026-11-26
+
 ### Fixed
 
 - crates.io: bump protocol crates changed by the assistant.respond removal
