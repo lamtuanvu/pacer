@@ -46,6 +46,8 @@ export interface DesktopUpdateDeps {
   schedule?: (callback: () => void, delayMs: number) => () => void;
   admission?: Pick<typeof admission, "reserveIdle" | "releaseReservation" | "reconcileAdmission">;
   publish?: (status: UpdateStatus) => Promise<void>;
+  /** The native commit signal: ask older runners to hand over once (ADR 2026-11-25 point 4). */
+  handover?: (ctx: Ctx) => Promise<{ summary: string }>;
 }
 export interface DesktopUpdateRuntime {
   status(installationId: string): UpdateStatus;
@@ -123,6 +125,25 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
   const recoveryAttempts = new Map<string, { transactionId: string; count: number; retryAt: number | null }>();
   /** Bounded automatic retries of interrupted/transient CHECKs, with up to an hour of jitter. Installs keep their own recovery loop. */
   const checkRetries = new Map<string, { count: number; retryAt: number }>();
+  /** Transactions whose commit already asked older runners to hand over in this service. */
+  const handedOver = new Set<string>();
+  const handover = deps.handover ?? (async (c: Ctx) => {
+    const { sharedHandover, triggerHandover } = await import("../../tasks/handover-service");
+    return sharedHandover(() => triggerHandover(c));
+  });
+  /**
+   * Native commit signal (ADR 2026-11-25 point 4): the committed outcome is recorded by the new
+   * service after the helper's rollback window, so survivors are never signalled before it. Plain
+   * start-up and a restored update signal nothing. Fire-and-forget; the report goes to the log.
+   */
+  const signalCommitted = (transactionId: string) => {
+    if (handedOver.has(transactionId)) return;
+    handedOver.add(transactionId);
+    void handover(ctx()).then(
+      report => console.info(`pacer: desktop update handover: ${report.summary}`),
+      error => console.warn(`pacer: desktop update handover failed: ${error instanceof Error ? error.message : String(error)}`),
+    );
+  };
   let publications = Promise.resolve(), started = false, stopped = false, ticking = false;
   let unsubscribe: (() => void) | undefined, cancelTimer: (() => void) | undefined;
   let runtimeError = false;
@@ -376,6 +397,7 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
           const { markSetupHealthRequired } = await import("../../install/setup-health-store");
           markSetupHealthRequired(ctx());
         } catch { /* Health stamp is best-effort after a committed desktop update. */ }
+        signalCommitted(transactionId);
       }
       await release(id, transactionId);
       recoveryAttempts.delete(id);
@@ -415,7 +437,8 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
     if (!session || value.requesterBootId !== clock.bootId() || value.requestedBy !== session.desktopClientId || waitingSessions.get(tx) !== session.sessionId) { revokeWaiting(id); return; }
     await native.reverify(session);
     if (!isCurrent(session) || stopped) { revokeWaiting(id); return; }
-    const reservation = installation(id).ownership === "attached" ? { reserved: true, blockers: [] } : await gate.reserveIdle(ctx(), tx);
+    const survivors = admission.survivorSupport(installation(id).version, value.candidate?.version);
+    const reservation = installation(id).ownership === "attached" ? { reserved: true, blockers: [] } : await gate.reserveIdle(ctx(), tx, { survivors });
     value = record(id);
     if (value.phase !== "waiting" || value.transactionId !== tx || !isCurrent(session) || stopped) {
       if (reservation.reserved) await release(id, tx);

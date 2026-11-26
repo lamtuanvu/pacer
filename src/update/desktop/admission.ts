@@ -1,9 +1,10 @@
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { Ctx } from "../../types";
 import { CoreError } from "../../core/errors";
+import { compareVersions } from "../version";
 import { assertIdentifier, type Blocker } from "./types";
 import { withDesktopCoordinator } from "./coordinator";
 import { optionalFence } from "./reconciliation-fence";
@@ -17,8 +18,10 @@ import { externalBlockers, storedBlockers, runFinished } from "./blockers";
 const incarnation = randomUUID();
 const identitySchema = z.object({ pid: z.number().int().positive(), bootId: z.string().min(1), birth: z.string().min(1) });
 const blockerSchema = z.object({ kind: z.enum(["task", "session", "launch", "operation"]), id: z.string().min(1), label: z.string() });
-const leaseSchema = z.object({ id: z.string().uuid(), blocker: blockerSchema, owner: z.string().uuid(), process: identitySchema.nullable(), state: z.enum(["pending", "active"]), runDir: z.string().optional(), remote: z.object({ host: z.string(), dir: z.string() }).optional(), launched: z.boolean().optional(), orca: z.object({ dispatchId: z.string(), terminal: z.string().nullable(), incarnationId: z.string().optional() }).optional() });
-const stateSchema = z.object({ schema: z.literal(1), reservation: z.string().nullable(), leases: z.array(leaseSchema) });
+const leaseSchema = z.object({ id: z.string().uuid(), blocker: blockerSchema, owner: z.string().uuid(), process: identitySchema.nullable(), state: z.enum(["pending", "active"]), runDir: z.string().optional(), remote: z.object({ host: z.string(), dir: z.string() }).optional(), launched: z.boolean().optional(), orca: z.object({ dispatchId: z.string(), terminal: z.string().nullable(), incarnationId: z.string().optional() }).optional(), class: z.literal("survivor").optional() });
+// `survivors: true` marks a reservation admitted while survivor leases ran (ADR 2026-11-25).
+// Older services and helpers strip or refuse it; both fall back to waiting.
+const stateSchema = z.object({ schema: z.literal(1), reservation: z.string().nullable(), leases: z.array(leaseSchema), survivors: z.literal(true).optional() });
 type AdmissionState = z.infer<typeof stateSchema>;
 
 // The fence marker witnesses this row once initialized. Legacy admission is
@@ -87,7 +90,12 @@ export function finishWorkSync(ctx: Ctx, leaseId: string): void {
 }
 export async function finishWork(ctx: Ctx, leaseId: string): Promise<void> { finishWorkSync(ctx, leaseId); }
 
-export async function reserveIdle(ctx: Ctx, transactionId: string): Promise<{ reserved: boolean; blockers: Blocker[] }> {
+/**
+ * Reserve the swap. With `survivors` (every party declared support, see `survivorSupport`),
+ * survivor leases and the stored work they cover do not block; the native helper verifies
+ * each survivor process before it installs. Every other lease, start and stored record blocks.
+ */
+export async function reserveIdle(ctx: Ctx, transactionId: string, options: { survivors?: boolean } = {}): Promise<{ reserved: boolean; blockers: Blocker[] }> {
   assertIdentifier(transactionId);
   await reconcileAdmission(ctx);
   const external = await externalBlockers(ctx);
@@ -95,11 +103,76 @@ export async function reserveIdle(ctx: Ctx, transactionId: string): Promise<{ re
     pruneDeadLocalLeases(state);
     if (optionalFence(db)?.transaction) throw new CoreError("conflict", "Reconciliation maintenance is reserved");
     if (state.reservation && state.reservation !== transactionId) throw new CoreError("conflict", "Desktop reservation conflict");
-    const blockers = [...state.leases.map(lease => lease.blocker), ...storedBlockers(ctx), ...external];
+    const survivors = options.survivors ? state.leases.filter(survivorLease) : [];
+    const blockers = [
+      ...state.leases.filter(lease => !survivors.includes(lease)).map(lease => lease.blocker),
+      ...storedBlockers(ctx).filter(blocker => !coveredBySurvivor(ctx, blocker, survivors)),
+      ...external,
+    ];
     if (blockers.length) return { reserved: false, blockers };
     state.reservation = transactionId;
+    if (survivors.length) state.survivors = true; else delete state.survivors;
     return { reserved: true, blockers: [] };
   });
+}
+
+type Lease = z.infer<typeof leaseSchema>;
+/** A claimed local lease of a handover-capable process; Orca and remote work never survive. */
+function survivorLease(lease: Lease): boolean {
+  return lease.class === "survivor" && !!lease.process && !lease.orca && !lease.remote;
+}
+/** A stored running task or unfinished run is covered when a survivor lease owns it. */
+function coveredBySurvivor(ctx: Ctx, blocker: Blocker, survivors: readonly Lease[]): boolean {
+  if (!survivors.length) return false;
+  const runs = resolve(ctx.pacerHome, "runs");
+  const runOf = (lease: Lease) => lease.runDir ? relative(runs, resolve(lease.runDir)).split(sep) : null;
+  if (blocker.kind === "session") {
+    const [task, attempt] = blocker.id.split("/");
+    return survivors.some(lease => { const run = runOf(lease); return !!run && run.length === 2 && run[0] === task && run[1] === attempt; });
+  }
+  if (blocker.kind === "task") {
+    return survivors.some(lease => (lease.blocker.kind === "task" && lease.blocker.id === blocker.id)
+      || (() => { const run = runOf(lease); return !!run && run.length === 2 && run[0] === blocker.id; })());
+  }
+  return false;
+}
+
+/** First version whose service, helper and rollback path understand survivor leases. */
+export const SURVIVOR_LEASES_SINCE = "0.18.7";
+/**
+ * ADR point 3: survivors only when the installed helper and rollback target (the installed
+ * bundle), this service and the update target all declare support. Otherwise wait for idle.
+ */
+export function survivorSupport(installed: string, target: string | undefined): boolean {
+  try {
+    return !!target && compareVersions(installed, SURVIVOR_LEASES_SINCE) >= 0 && compareVersions(target, SURVIVOR_LEASES_SINCE) >= 0;
+  } catch { return false; }
+}
+
+/**
+ * Mark this incarnation's claimed lease as a survivor: its process speaks the handover protocol
+ * (or is a session host) and keeps running across a desktop update. The class is never cleared;
+ * the process stays handover-capable until it finishes its lease.
+ */
+export function markSurvivorSync(ctx: Ctx, leaseId: string): void {
+  mutate(ctx, state => {
+    const lease = state.leases.find(item => item.id === leaseId);
+    if (!lease || lease.owner !== incarnation || !lease.process || lease.orca || lease.remote) return;
+    lease.class = "survivor";
+  });
+}
+/** Mark this incarnation's leases bound to `runDir` (the run a runner advertised for handover). */
+export function markRunSurvivorsSync(ctx: Ctx, runDir: string): void {
+  const dir = resolve(runDir);
+  mutate(ctx, state => {
+    for (const lease of state.leases) {
+      if (lease.owner === incarnation && lease.runDir && resolve(lease.runDir) === dir && lease.process && !lease.orca && !lease.remote) lease.class = "survivor";
+    }
+  });
+}
+/** A refusal because an update holds the reservation; callers that may wait can retry. */
+export function maintenanceReserved(error: unknown): boolean {
+  return error instanceof CoreError && error.code === "conflict" && error.message === "Desktop update maintenance is reserved";
 }
 /** Read-only transaction authority check. Never acquires a work lease or reservation. */
 export function hasReservation(ctx: Ctx, transactionId: string): boolean {
@@ -127,6 +200,7 @@ export async function releaseReservation(ctx: Ctx, transactionId: string): Promi
   mutate(ctx, state => {
     if (state.reservation && state.reservation !== transactionId) throw new CoreError("conflict", "Desktop reservation conflict");
     state.reservation = null;
+    delete state.survivors;
   });
 }
 

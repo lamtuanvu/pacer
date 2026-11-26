@@ -87,3 +87,38 @@ test("recovery marks update.apply failed when handover rejects", async () => {
   await Bun.sleep(10);
   expect(getJob(ctx, "job-failed")).toMatchObject({ state: "failed", error: { message: expect.stringContaining("handover failed") }, steps: [{ name: "Restart", state: "failed" }] });
 });
+
+test("service.handover signals nothing while a desktop update can still roll back", async () => {
+  const { readUpdate, writeUpdate } = await import("../src/update/desktop/store");
+  const { desktopTransactionOpen } = await import("../src/update/desktop/store");
+  const ctx = fakeCtx({ now: Date.now() / 1000 });
+  const t = createTask(ctx, { brief: { goal: "g", repo: tmpDir() }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  updateTask(ctx, t.id, x => { x.state = "running"; x.runnerPid = 4194302; x.runnerPacer = "0.10.0";
+    x.handover = { protocol: 1, pacer: "0.10.0", identity: { pid: 4194302, bootId: "b", birth: "1:2" } }; });
+  expect(desktopTransactionOpen(ctx)).toBe(false);
+  mkdirSync(join(ctx.pacerHome, "desktop-updates"), { recursive: true, mode: 0o700 });
+  const { requestRestart } = await import("../src/update/desktop/policy");
+  const candidate = { version: "9.9.9", arch: "aarch64", sha256: "a".repeat(64), signature: "s", url: "https://example.invalid/a", protocolMajors: [3], rollbackCompatible: true, notes: "" };
+  const value = readUpdate(ctx, "desktop");
+  const ready = writeUpdate(ctx, { ...value, phase: "ready", candidate, downloadedBytes: 10, totalBytes: 10, checkedAt: 100 }, value.revision);
+  const waiting = requestRestart(ready, { installationId: "desktop", requestId: "r", expectRevision: ready.revision, version: candidate.version, clientId: "native-desktop" }, "boot-1");
+  writeUpdate(ctx, { ...waiting, phase: "verifying" }, ready.revision);
+  expect(desktopTransactionOpen(ctx)).toBe(true);
+  const reply = await callOp(ctx, "service.handover", { wait_s: 0 }) as { deferred?: boolean; handed_over: number };
+  expect(reply).toMatchObject({ deferred: true, handed_over: 0, tasks: 1 });
+  // Nothing was signalled: the advertisement carries no signal time.
+  const { readTask } = await import("../src/tasks/store");
+  expect(readTask(ctx, t.id)?.handover?.signalledAt).toBeUndefined();
+});
+
+test("concurrent handovers in one service share a single run", async () => {
+  const { sharedHandover } = await import("../src/tasks/handover-service");
+  let starts = 0, finish!: () => void;
+  const start = () => { starts++; return new Promise<any>(resolve => { finish = () => resolve({ summary: "ok" }); }); };
+  const first = sharedHandover(start), second = sharedHandover(start);
+  finish();
+  expect(await first).toEqual(await second);
+  expect(starts).toBe(1);
+  await sharedHandover(async () => { starts++; return { summary: "again" } as any; });
+  expect(starts).toBe(2);
+});

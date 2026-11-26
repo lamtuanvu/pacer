@@ -110,10 +110,24 @@ fn read_admission(
         .get("leases")
         .and_then(serde_json::Value::as_array)
         .ok_or(OtaError::Invalid)?;
-    if state.get("schema").and_then(serde_json::Value::as_u64) != Some(1)
-        || (!leases.is_empty() && !state["reservation"].is_null())
-    {
+    if state.get("schema").and_then(serde_json::Value::as_u64) != Some(1) {
         return Err(OtaError::Identity);
+    }
+    // A reservation coexists only with survivor leases the service admitted for it
+    // (`survivors: true`), and only when each one's process is gone or still runs
+    // code signed by the release signer for the CLI role (dynamic identity).
+    if !leases.is_empty() && !state["reservation"].is_null() {
+        if state.get("survivors") != Some(&serde_json::Value::Bool(true)) {
+            return Err(OtaError::Identity);
+        }
+        let trust = super::trust::ReleaseTrust::configured().ok_or(OtaError::Identity)?;
+        for lease in leases {
+            verify_survivor(lease, |identity| {
+                trust
+                    .verify_process(identity, super::trust::CodeRole::Cli)
+                    .map(|_| ())
+            })?;
+        }
     }
     let held = match state.get("reservation") {
         Some(serde_json::Value::Null) => transaction.is_none() && leases.is_empty(),
@@ -134,6 +148,45 @@ fn read_admission(
         held
     };
     Ok(held)
+}
+
+/// One survivor lease under a reservation: it must say `class: "survivor"` and
+/// name a process. A process that no longer exists (or whose PID now belongs to
+/// another incarnation) runs no code and is accepted; a live one must verify.
+#[cfg(target_os = "macos")]
+fn verify_survivor(
+    lease: &serde_json::Value,
+    verify: impl Fn(&super::native::ProcessIdentity) -> Result<(), OtaError>,
+) -> Result<(), OtaError> {
+    if lease.get("class").and_then(serde_json::Value::as_str) != Some("survivor") {
+        return Err(OtaError::Identity);
+    }
+    let process = lease.get("process").ok_or(OtaError::Identity)?;
+    let pid = process
+        .get("pid")
+        .and_then(serde_json::Value::as_u64)
+        .and_then(|pid| u32::try_from(pid).ok())
+        .filter(|pid| *pid > 1)
+        .ok_or(OtaError::Identity)?;
+    let text = |key: &str| {
+        process
+            .get(key)
+            .and_then(serde_json::Value::as_str)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned)
+            .ok_or(OtaError::Identity)
+    };
+    let expected = super::native::ProcessIdentity {
+        pid,
+        boot_id: text("bootId")?,
+        birth: text("birth")?,
+    };
+    match super::native::process_details(pid) {
+        Ok(None) => Ok(()),
+        Ok(Some(details)) if details.identity != expected => Ok(()),
+        Ok(Some(_)) => verify(&expected),
+        Err(_) => Err(OtaError::Identity),
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -385,6 +438,81 @@ mod tests {
         assert!(reservation_held(&home, "transaction-one").unwrap());
         assert!(!reservation_held(&home, "another-transaction").unwrap());
         assert!(reservation_held(&home, "transaction-one").unwrap());
+    }
+    fn own_identity() -> serde_json::Value {
+        let details = super::super::native::process_details(std::process::id())
+            .unwrap()
+            .unwrap();
+        serde_json::json!({"pid": details.identity.pid, "bootId": details.identity.boot_id, "birth": details.identity.birth})
+    }
+    #[test]
+    fn survivor_leases_need_the_flag_the_class_and_a_verified_or_gone_process() {
+        let gone = serde_json::json!({"pid": 999_999, "bootId": "boot", "birth": "1:2"});
+        let ok = |_: &super::super::native::ProcessIdentity| Ok(());
+        let refuse = |_: &super::super::native::ProcessIdentity| Err(OtaError::Identity);
+        // Gone processes run no code; a reused PID is a different incarnation.
+        assert!(verify_survivor(
+            &serde_json::json!({"class": "survivor", "process": gone}),
+            refuse
+        )
+        .is_ok());
+        let mut reused = own_identity();
+        reused["birth"] = serde_json::json!("0:0");
+        assert!(verify_survivor(
+            &serde_json::json!({"class": "survivor", "process": reused}),
+            refuse
+        )
+        .is_ok());
+        // A live survivor must verify; ordinary or process-less leases never pass.
+        let live = serde_json::json!({"class": "survivor", "process": own_identity()});
+        assert!(verify_survivor(&live, ok).is_ok());
+        assert_eq!(verify_survivor(&live, refuse), Err(OtaError::Identity));
+        assert!(verify_survivor(&serde_json::json!({"process": own_identity()}), ok).is_err());
+        assert!(verify_survivor(
+            &serde_json::json!({"class": "survivor", "process": null}),
+            ok
+        )
+        .is_err());
+        assert!(
+            verify_survivor(&serde_json::json!({"class": "other", "process": gone}), ok).is_err()
+        );
+    }
+    #[test]
+    fn reservation_with_survivors_needs_the_admitted_flag() {
+        let temp = fixture();
+        let home = temp.path().canonicalize().unwrap();
+        let database = home.join("desktop-updates/admission.sqlite");
+        let set = |state: &str| {
+            let output = std::process::Command::new("/usr/bin/sqlite3")
+                .arg(&database)
+                .arg(format!("UPDATE admission SET state='{state}';"))
+                .output()
+                .unwrap();
+            assert!(output.status.success());
+        };
+        let lease =
+            r#"{"id":"1","class":"survivor","process":{"pid":999999,"bootId":"b","birth":"1:2"}}"#;
+        // Without `survivors: true` an older helper's rule holds: leases refuse.
+        set(&format!(
+            r#"{{"schema":1,"reservation":"transaction-one","leases":[{lease}]}}"#
+        ));
+        assert!(reservation_held(&home, "transaction-one").is_err());
+        // With the flag, a gone survivor process is held. A build without a
+        // configured release signer has no trust anchor and refuses every survivor.
+        set(&format!(
+            r#"{{"schema":1,"reservation":"transaction-one","leases":[{lease}],"survivors":true}}"#
+        ));
+        let held = reservation_held(&home, "transaction-one");
+        if super::super::trust::ReleaseTrust::configured().is_some() {
+            assert!(held.unwrap());
+        } else {
+            assert!(held.is_err());
+        }
+        // A reservation never coexists with an ordinary lease.
+        set(
+            r#"{"schema":1,"reservation":"transaction-one","leases":[{"id":"1","process":null}],"survivors":true}"#,
+        );
+        assert!(reservation_held(&home, "transaction-one").is_err());
     }
     #[test]
     fn conflicting_leases_and_redirected_database_are_not_recovery_authority() {

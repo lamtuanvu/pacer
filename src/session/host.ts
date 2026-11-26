@@ -1,4 +1,4 @@
-import { beginWorkSync, claimWorkSync, attachRunEvidenceSync, finishWorkSync } from "../update/desktop/admission";
+import { beginWorkSync, claimWorkSync, attachRunEvidenceSync, finishWorkSync, markSurvivorSync } from "../update/desktop/admission";
 import { makeCtx } from "../ctx";
 import { nativeTerminalEnv } from "./environment";
 import { readReport, writeReport, clearHeldReport } from "./reports";
@@ -69,6 +69,8 @@ export async function sessionHost(dir:string):Promise<number> {
   const lease = inherited ?? beginWorkSync(ctx, { kind: "session", id: createHash("sha256").update(dir).digest("hex"), label: "Executor session" });
   claimWorkSync(ctx, lease);
   attachRunEvidenceSync(ctx, lease, dir);
+  // A session host keeps its terminal across service and desktop updates (ADR 2026-11-25).
+  try { markSurvivorSync(ctx, lease); } catch { /* best effort: an unmarked lease still blocks updates */ }
   // Executor subprocesses must not inherit the private admission capability.
   delete process.env.PACER_ADMISSION_SESSION; delete process.env.PACER_ADMISSION_DIR; delete process.env.PACER_COMPLETION_NONCE;
   // Interactive roots a person started keep their terminal after reporting done; the report stays in

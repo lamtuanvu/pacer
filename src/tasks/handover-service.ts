@@ -57,3 +57,15 @@ export async function triggerHandover(ctx: Ctx, deps: HandoverDeps = {}): Promis
   const report = { pacer: current, tasks: counts.tasks, sessions: counts.sessions, handedOver: committed.size, keptOnPreviousRunner: kept };
   return { ...report, summary: upgradeSummary(`Updated to v${current}.`, report) };
 }
+
+let inflight: Promise<HandoverReport> | null = null;
+/**
+ * One handover at a time per service: a desktop update's commit signal and the desktop's own
+ * post-install `service.handover` call can arrive together; the later caller joins the running one.
+ */
+export function sharedHandover(start: () => Promise<HandoverReport>): Promise<HandoverReport> {
+  if (inflight) return inflight;
+  const run = start().finally(() => { if (inflight === run) inflight = null; });
+  inflight = run;
+  return run;
+}
