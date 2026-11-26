@@ -201,6 +201,7 @@ pub fn begin_blocker(home: &Path, blocker: Blocker) -> Result<WorkLease, BrokerE
             remote: None,
             launched: None,
             orca: None,
+            survivor: false,
             appended: Vec::new(),
         });
         Ok(())

@@ -87,7 +87,7 @@ export function toV2Snapshot(s: CompatSnapshot): SnapshotV2 {
  */
 export function v3OnlyEvent(e: {type: string; data: unknown}): boolean {
  const d=e.data as {area?:unknown;id?:unknown;key?:unknown;kind?:unknown}|null;
- return e.type==='control'||e.type==='discovery.found'||e.type==='config'&&d?.area==='discovery'
+ return e.type==='control'||e.type==='discovery.found'||e.type==='terminal'||e.type==='config'&&d?.area==='discovery'
   ||e.type==='attention'&&(isDiscoveryItemId(d?.id)||isWorkflowAttentionId(d?.id)||d?.kind==='orchestrator_failed')
   ||e.type==='notify'&&(isDiscoveryItemId(d?.key)||isWorkflowAttentionId(d?.key));
 }
@@ -103,7 +103,7 @@ export function toV2Event(e: CompatEvent): ApiEventV2 | null {
  if(V2_EVENT in e)return stripPromptWaitFromEvent(e[V2_EVENT]??null);
  // Messaging (msg.*) is v3-only, so v2 clients get no message events either.
  // Workflow runs, decisions and structured questions are v3-only.
- if(e.type==='planner'||e.type==='assistant'||e.type==='machine'||e.type==='message'||e.type==='run'||e.type==='decision'||e.type==='question'||e.type==='discovery.found'||e.type==='control')return null;
+ if(e.type==='planner'||e.type==='assistant'||e.type==='machine'||e.type==='message'||e.type==='run'||e.type==='decision'||e.type==='question'||e.type==='discovery.found'||e.type==='control'||e.type==='terminal')return null;
  // The machine and discovery operations are v3-only, so v2 clients have no area to refetch.
  if(e.type==='config'&&['machine','discovery'].includes(String((e.data as {area?:unknown}|null)?.area)))return null;
  return stripPromptWaitFromEvent({...e,type:e.type,seq:e.seq>=V3_CURSOR_BASE?e.seq-V3_CURSOR_BASE:e.seq});
