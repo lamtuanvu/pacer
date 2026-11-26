@@ -7,6 +7,7 @@ import { existsSync } from "node:fs";
 import type { Ctx } from "../types";
 import { CoreError } from "../core/errors";
 import { gitInfo, realpathSafe } from "../core/git";
+import { getWork } from "../dispatch/work";
 import { readTask, updateTask } from "../tasks/store";
 import { canContinue, TERMINAL_STATES, type TaskRecord } from "../tasks/types";
 import { isCodeStep, type WorkflowDef } from "./schema";
@@ -50,10 +51,16 @@ export function mergeConflictFor(ctx: Ctx, runId: string, taskId: string): strin
   return branchOwner(ctx, run).conflict?.find(entry => entry.taskId === taskId)?.resolutionTaskId;
 }
 
-/** A conflicting merge the orchestrator cannot send back (the session does not
- *  resume): only the person can resolve it, so no turn is woken for it. */
+/** Whether a send-back can still continue the task: its session resumes, and
+ *  managed work has an attempt left (a continuation is a new attempt). */
+export function canSendBack(ctx: Ctx, task: TaskRecord): boolean {
+  const work = getWork(ctx, task.id);
+  return canContinue(ctx, task) && !(work && task.attempts.length >= (work.options.maxAttempts ?? 3));
+}
+
+/** A conflicting merge the orchestrator cannot send back: only the person can resolve it, so no turn is woken for it. */
 export function waitsOnPerson(ctx: Ctx, runId: string, task: TaskRecord): boolean {
-  return !!mergeConflictFor(ctx, runId, task.id) && !canContinue(ctx, task);
+  return !!mergeConflictFor(ctx, runId, task.id) && !canSendBack(ctx, task);
 }
 
 /** The task a parked row is waiting on a verdict for, or null when nobody owes one

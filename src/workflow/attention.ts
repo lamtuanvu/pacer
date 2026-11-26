@@ -24,8 +24,7 @@ import {
 import { taskDatabase } from "../tasks/store";
 import { isBudgetBlocked, parseBudget, parseSpent } from "./budget";
 import { resolveRunLetters } from "./letters";
-import { mergeConflictFor, reviewDueTask } from "./review";
-import { canContinue } from "../tasks/types";
+import { canSendBack, mergeConflictFor, reviewDueTask } from "./review";
 
 /** Person-facing cue so human-step / planner / executor questions differ on Dispatch. */
 function askerCue(kind: QuestionAskerKind): string {
@@ -451,7 +450,7 @@ function reviewItems(ctx: Ctx, run: RunRow, letters: Map<string, string>): Atten
       label, op: "task.review",
       params: { id: task.id, verdict: value, expect_rev: task.rev, ...(note ? { note } : {}) },
     });
-    const sendable = !!conflict && canContinue(ctx, task);
+    const sendable = !!conflict && canSendBack(ctx, task);
     const branch = branchOwner(ctx, run).branch;
     items.push({
       id: `run_review:${task.id}`,

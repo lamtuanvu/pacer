@@ -24,7 +24,7 @@ import {
   type TurnRow, type Wakeup,
 } from "./wakeups";
 import { reviewRef, type ReviewRef } from "./branch";
-import { mergeConflictFor } from "./review";
+import { canSendBack, mergeConflictFor } from "./review";
 import { revokeOrphanRunGrants, revokeRunGrant, revokeRunGrantsForRun } from "./run-grant";
 import {
   budgetAllowsTurn as defaultBudgetAllowsTurn,
@@ -711,7 +711,12 @@ function reviewPayload(
   const ref = taskId ? reviews.get(taskId) : undefined;
   if (!taskId || !ref) return undefined;
   const conflict = mergeConflictFor(ctx, reviewRow(w, steps)!.runId, taskId);
-  return { taskId, ...ref, ...(conflict ? { mergeConflict: conflict } : {}) };
+  const task = readTask(ctx, taskId);
+  return {
+    taskId, ...ref,
+    canSendBack: !!task && canSendBack(ctx, task),
+    ...(conflict ? { mergeConflict: conflict } : {}),
+  };
 }
 
 /** Standard orchestrator turn prompt: wake-ups first, then summary; each block capped. */
@@ -817,7 +822,7 @@ export function buildTurnPrompt(
       ? ["A returned wake-up means the person opened this run: write a short since-you-last-looked summary with `pacer run decide` kind summary (stored on the run, ≤ 4 KiB)."]
       : []),
     ...(wakeups.some(w => w.cause === "review_due")
-      ? ["A review_due wake-up: a code step waits for your verdict. Read its changes with `git diff <runBranch>...<branch>`, then `pacer review <taskId> --accept` (merges into the run branch), `--reject`, or `--send-back --note <what to fix>` to continue the same task (uncommitted work, or a conflict: ask it to merge <runBranch>, resolve and commit). The run waits until then."]
+      ? ["A review_due wake-up: a code step waits for your verdict. Read its changes with `git diff <runBranch>...<branch>`, then `pacer review <taskId> --accept` (merges into the run branch), `--reject`, or `--send-back --note <what to fix>` to continue the same task (uncommitted work, or a conflict: ask it to merge <runBranch>, resolve and commit; only while canSendBack is true). The run waits until then."]
       : []),
     "Commands (replace <owningRunId> with the run id from each step line / open block):",
     "  pacer run decide <owningRunId> <step> <choice> --reason <text>",

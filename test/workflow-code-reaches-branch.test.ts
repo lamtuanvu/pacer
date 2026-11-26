@@ -17,7 +17,8 @@ import type { DelegateInput } from "../src/tasks/api";
 import type { TaskRecord, TaskState } from "../src/tasks/types";
 import { deriveWorkflowAttention } from "../src/workflow/attention";
 import { evalCondition, parseCondition } from "../src/workflow/condition";
-import { reviewRef, runBranchName, syncBase } from "../src/workflow/branch";
+import { mergeTaskOnAccept, reviewRef, runBranchName, syncBase } from "../src/workflow/branch";
+import { registerWork } from "../src/dispatch/work";
 import {
   answerGenerateApproval, answerHumanStep, awaitTerminalSettle, chooseWorkflow, failRun, recordStepResult,
   retryFailedStep, skipFailedStep, startRun, stopRun, type EngineDeps,
@@ -831,6 +832,24 @@ test("a conflicting branch is sent back to merge the run branch, then accepted; 
   await w.accept(y);
   expect(getRun(w.ctx, run.id)!.status).toBe("done");
   expect(w.branchFile(branch, "same.txt")).toBe("both\n");
+});
+
+test("a conflict on a task out of attempts offers only what still works", async () => {
+  const w = world();
+  const run = await startChain(w, fan);
+  const x = w.taskOf(run.id, "build", "x"), y = w.taskOf(run.id, "build", "y");
+  await w.checkout(x);
+  await w.checkout(y);
+  await w.execute(x, { file: "same.txt", body: "from x\n" });
+  await w.execute(y, { file: "same.txt", body: "from y\n" });
+  w.resumable(y);
+  registerWork(w.ctx, y, { allowDelegation: false, maxAttempts: 1 });
+  updateTask(w.ctx, y, t => { t.attempts = [{ executor: "codex" } as TaskRecord["attempts"][number]]; });
+  await w.accept(x);
+  await mergeTaskOnAccept(w.ctx, y);
+  const item = deriveWorkflowAttention(w.ctx).find(i => i.id === `run_review:${y}`)!;
+  expect(item.actions.map(a => a.label)).toEqual(["Accept", "Reject"]);
+  expect(wakeCauseStillOpen(w.ctx, run.id, "review_due", stepWakeRef(run.id, "build", 1, "y"))).toBe(false);
 });
 
 test("a base update conflict can be resolved by the commands its record gives", async () => {
