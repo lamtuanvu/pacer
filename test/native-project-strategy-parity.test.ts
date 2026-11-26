@@ -9,6 +9,18 @@ import { join } from "node:path";
 const front = process.env.PACER_TEST_NATIVE_FRONT_DOOR;
 const core = JSON.stringify([process.execPath, join(import.meta.dir, "../src/cli.ts")]);
 const OPS = ["project.strategy.list", "project.strategy.get", "project.strategy.set", "project.strategy.remove", "strategy.preview"];
+/** Cases whose strategy.preview base is still read by TypeScript (shared forward boundary). */
+const previewStillForwards = new Set([
+  "empty strategy", "active name path.join normalizes", "absolute active name, no file",
+  "absolute active name, file outside home", "YAML syntax error", "strategy is a directory",
+  "unreadable strategy", "strategy is not UTF-8", "YAML tab indentation",
+  "YAML tab inside a quoted scalar", "YAML tab-indented valid strategy", "YAML two documents",
+  "YAML valid first document", "YAML document end then content", "YAML document end",
+  "YAML empty documents first", "YAML CR line breaks, two documents", "YAML CRLF two documents",
+  "YAML %YAML directive", "YAML merge key", "YAML quoted merge key", "YAML __proto__ account",
+  "YAML block indicator in a flow mapping", "YAML folded indicator in a flow sequence",
+  "YAML bare tag in a flow mapping", "YAML aliased mapping in a valid strategy", "YAML comment only",
+]);
 const APP = "github.com/acme/app", OTHER = "github.com/acme/other";
 const STRATEGY = `planner: claude-code
 accounts:
@@ -198,7 +210,10 @@ async function compare(transport: "stdio" | "http", cases: Case[]) {
         expect(policyBytes(homes[0]), `${label}: bytes`).toBe(policyBytes(homes[1]));
         expect(registryBytes(homes[0]), `${label}: registry`).toEqual(registryBytes(homes[1]));
         expect(envelopes(homes[0], outbox(homes[0]).slice(before[0])), `${label}: events`).toEqual(envelopes(homes[1], outbox(homes[1]).slice(before[1])));
-        if (c.native) expectedMarkers.push(`native ${op}`);
+        // project.strategy.* answers every case natively. strategy.preview keeps its own,
+        // narrower forward boundary (shared with other slices): these are the cases where
+        // its base strategy is still read by TypeScript.
+        if (c.native && !(op === "strategy.preview" && previewStillForwards.has(c.name))) expectedMarkers.push(`native ${op}`);
       }
       await settle(doors[0].markers, expectedMarkers.length);
       expect(doors[0].markers.map(marker => marker.replace(/ \d+$/, "")), `${transport} ${c.name}: trace`).toEqual(expectedMarkers);
@@ -234,41 +249,41 @@ const strategyCases: Case[] = [
   { name: "missing strategy", strategy: null, steps: [...writes, preview], native: true },
   { name: "schema-invalid planner", strategy: "planner: nobody\n", steps: [...writes, preview], native: true },
   { name: "top level not a mapping", strategy: "- a\n- b\n", steps: [...writes, preview], native: true },
-  // The Rust YAML reader reports an empty document as a syntax error, so it keeps Bun's reading.
-  { name: "empty strategy", strategy: "", steps: [...writes, preview], native: false },
+  // An empty document is a native `null`, which the strategy schema rejects as non-mapping.
+  { name: "empty strategy", strategy: "", steps: [...writes, preview], native: true },
   { name: "invalid terminal template", strategy: `${STRATEGY}terminal: {open: "x {cmd} '"}\n`, steps: [...writes, preview], native: true },
   { name: "active strategy missing", active: "work\n", steps: [...writes, preview], native: true },
-  { name: "active name path.join normalizes", active: "x/../work", steps: [...writes, preview], native: false },
+  { name: "active name path.join normalizes", active: "x/../work", steps: [...writes, preview], native: true },
   // Rust's Path::join would replace the home with an absolute name; path.join keeps it inside.
-  { name: "absolute active name, no file", active: "/nonexistent-pacer-test/work", steps: [...writes, preview], native: false },
-  { name: "absolute active name, file outside home", active: join(OUTSIDE, "work"), steps: [...writes, preview], native: false },
-  { name: "YAML syntax error", strategy: "planner: [\n", steps: [...writes, preview], native: false },
-  { name: "strategy is a directory", strategy: { dir: true }, steps: [...writes, preview], native: false },
-  { name: "unreadable strategy", strategy: { mode: 0o000, text: STRATEGY }, steps: [...writes, preview], native: false },
-  { name: "strategy is not UTF-8", strategy: new Uint8Array([...Buffer.from("planner: claude-code\n# "), 0xff, 0x0a]), steps: [...writes, preview], native: false },
+  { name: "absolute active name, no file", active: "/nonexistent-pacer-test/work", steps: [...writes, preview], native: true },
+  { name: "absolute active name, file outside home", active: join(OUTSIDE, "work"), steps: [...writes, preview], native: true },
+  { name: "YAML syntax error", strategy: "planner: [\n", steps: [...writes, preview], native: true },
+  { name: "strategy is a directory", strategy: { dir: true }, steps: [...writes, preview], native: true },
+  { name: "unreadable strategy", strategy: { mode: 0o000, text: STRATEGY }, steps: [...writes, preview], native: true },
+  { name: "strategy is not UTF-8", strategy: new Uint8Array([...Buffer.from("planner: claude-code\n# "), 0xff, 0x0a]), steps: [...writes, preview], native: true },
 ];
 
-/** Strategy YAML shapes: the Rust reader and Bun.YAML agree on the native ones; Bun reads the forwarded ones differently, or may. */
+/** Strategy YAML shapes the native loader reads with Bun's semantics. */
 const yamlCorpus: [string, string, boolean][] = [
-  ["tab indentation", "\tplanner: nobody\n", false],
-  ["tab inside a quoted scalar", "planner: \"no\tbody\"\n", false],
-  ["tab-indented valid strategy", STRATEGY.replace("  claude:", "\tclaude:"), false],
-  ["two documents", "a: 1\n---\nb: 2\n", false],
-  ["valid first document", `${STRATEGY}---\nb: 2\n`, false],
-  ["document end then content", "planner: nobody\n...\nb: 2\n", false],
-  ["document end", "planner: nobody\n...\n", false],
-  ["empty documents first", "---\n---\nplanner: nobody\n", false],
-  ["CR line breaks, two documents", "a: 1\r---\rb: 2\r", false],
-  ["CRLF two documents", "a: 1\r\n---\r\nb: 2\r\n", false],
-  ["%YAML directive", "%YAML 1.2\n---\nplanner: nobody\n", false],
-  ["merge key", "base: &b {planner: nobody}\n<<: *b\n", false],
-  ["quoted merge key", "\"<<\": {planner: nobody}\n", false],
-  ["__proto__ account", STRATEGY.replace("accounts:\n", "accounts:\n  __proto__: {kind: claude}\n"), false],
-  ["block indicator in a flow mapping", "{a: |}\n", false],
-  ["folded indicator in a flow sequence", "planner: [>]\n", false],
-  ["bare tag in a flow mapping", "{a: !}\n", false],
-  ["aliased mapping in a valid strategy", `${STRATEGY.replace("codex: {kind: codex}", "codex: &k {kind: codex}")}x: *k\n`, false],
-  ["comment only", "# nothing\n", false],
+  ["tab indentation", "\tplanner: nobody\n", true],
+  ["tab inside a quoted scalar", "planner: \"no\tbody\"\n", true],
+  ["tab-indented valid strategy", STRATEGY.replace("  claude:", "\tclaude:"), true],
+  ["two documents", "a: 1\n---\nb: 2\n", true],
+  ["valid first document", `${STRATEGY}---\nb: 2\n`, true],
+  ["document end then content", "planner: nobody\n...\nb: 2\n", true],
+  ["document end", "planner: nobody\n...\n", true],
+  ["empty documents first", "---\n---\nplanner: nobody\n", true],
+  ["CR line breaks, two documents", "a: 1\r---\rb: 2\r", true],
+  ["CRLF two documents", "a: 1\r\n---\r\nb: 2\r\n", true],
+  ["%YAML directive", "%YAML 1.2\n---\nplanner: nobody\n", true],
+  ["merge key", "base: &b {planner: nobody}\n<<: *b\n", true],
+  ["quoted merge key", "\"<<\": {planner: nobody}\n", true],
+  ["__proto__ account", STRATEGY.replace("accounts:\n", "accounts:\n  __proto__: {kind: claude}\n"), true],
+  ["block indicator in a flow mapping", "{a: |}\n", true],
+  ["folded indicator in a flow sequence", "planner: [>]\n", true],
+  ["bare tag in a flow mapping", "{a: !}\n", true],
+  ["aliased mapping in a valid strategy", `${STRATEGY.replace("codex: {kind: codex}", "codex: &k {kind: codex}")}x: *k\n`, true],
+  ["comment only", "# nothing\n", true],
   ["leading document start", "---\nplanner: nobody\n", true],
   ["document start with a comment", "--- # c\nplanner: nobody\n", true],
   ["BOM", "\ufeffplanner: nobody\n", true],

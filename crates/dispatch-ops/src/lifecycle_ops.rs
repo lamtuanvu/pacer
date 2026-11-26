@@ -4,24 +4,52 @@
 //! `stopWork` in `src/core/work.ts`).
 //!
 //! Rust owns the caller refusals (`authorizeWorkOperation`) and the Zod issue
-//! text of the published params. A request that would act stays forwarded:
-//! admission and `launchTaskRunner` spawn, queue drain and runner supervision
-//! while waiting, and the review, retry, answer and subtree-stop transactions
-//! belong to Core. `options` on `submit` and `child` forwards as well, because
-//! `workOptionsSchema` issues interleave with the other fields' issues. So does
-//! a fractional, exponent or out-of-range number in a schema field, which
-//! serde_json may round differently from `JSON.parse`.
-//! Callers holding a work grant never reach these handlers.
+//! text of the published params. All seven lifecycle ops are served natively
+//! end-to-end: after `check` passes they route through [`LifecycleEffects`],
+//! which the server backs with `pacer_delegation::work`. `options`,
+//! `difficulty` and `model` are validated natively against `workOptionsSchema`
+//! (see [`crate::work_options`]), so those requests no longer forward. B2-9
+//! owned submit/child, B2-10 added wait/review/stop and B2-11 adds retry and
+//! answer (`pacer_delegation::work::{retry_work, answer_work}`).
 #![allow(clippy::result_large_err)]
 use pacer_foundation::{
     Ctx,
     api::{Code, CoreError, OpFuture},
 };
 use serde_json::{Map, Value};
+use std::sync::{Arc, OnceLock};
 
 use crate::dispatch_ops::{
     authorize, finish, int_issues, params_object, positive_int_issues, string_issues, type_name,
 };
+use crate::preview_ops::{issue_enum, issue_string};
+
+/// Effects a native lifecycle op needs that `dispatch_ops` cannot own. The
+/// front door installs a runtime-backed implementation once at startup; all
+/// seven ops route through it.
+pub trait LifecycleEffects: Send + Sync {
+    fn submit<'a>(&'a self, ctx: &'a Ctx, params: Value) -> OpFuture<'a>;
+    fn child<'a>(&'a self, ctx: &'a Ctx, params: Value) -> OpFuture<'a>;
+    fn wait<'a>(&'a self, ctx: &'a Ctx, params: Value) -> OpFuture<'a>;
+    fn review<'a>(&'a self, ctx: &'a Ctx, params: Value) -> OpFuture<'a>;
+    fn retry<'a>(&'a self, ctx: &'a Ctx, params: Value) -> OpFuture<'a>;
+    fn answer<'a>(&'a self, ctx: &'a Ctx, params: Value) -> OpFuture<'a>;
+    fn stop<'a>(&'a self, ctx: &'a Ctx, params: Value) -> OpFuture<'a>;
+}
+
+static EFFECTS: OnceLock<Arc<dyn LifecycleEffects + Send + Sync>> = OnceLock::new();
+
+/// Install the [global] runtime-backed effects. Called once by the front door.
+pub fn install_lifecycle_effects(effects: Arc<dyn LifecycleEffects + Send + Sync>) {
+    let _ = EFFECTS.set(effects);
+}
+
+fn effects() -> Result<&'static (dyn LifecycleEffects + Send + Sync), CoreError> {
+    EFFECTS
+        .get()
+        .map(Arc::as_ref)
+        .ok_or_else(|| CoreError::new(Code::Unavailable, "dispatch lifecycle bridge unavailable"))
+}
 
 pub const LIFECYCLE_OPS: &[&str] = &[
     "dispatch.submit",
@@ -46,6 +74,13 @@ enum Field {
     PositiveInt,
     /// `z.boolean()`.
     Bool,
+    /// `workOptionsSchema.partial().optional()` for the `options` param
+    /// (`src/api/ops.ts`), served natively under B2-9.
+    Options,
+    /// `delegateSchema.difficulty` passed as a top-level `dispatch.child` param.
+    Difficulty,
+    /// `delegateSchema.model` passed as a top-level `dispatch.child` param.
+    Model,
 }
 
 /// `(key, schema, required)` in schema key order, which is Zod's issue order.
@@ -65,6 +100,7 @@ const SUBMIT: Shape = &[
     ("constraints", LONG, false),
     ("executor", ID, false),
     ("requestId", ID, false),
+    ("options", Field::Options, false),
 ];
 const CHILD: Shape = &[
     ("goal", Field::Name(20_000), true),
@@ -75,7 +111,10 @@ const CHILD: Shape = &[
     ("context", LONG, false),
     ("constraints", LONG, false),
     ("executor", ID, false),
+    ("difficulty", Field::Difficulty, false),
+    ("model", Field::Model, false),
     ("requestId", ID, true),
+    ("options", Field::Options, false),
 ];
 const WAIT: Shape = &[
     ("id", ID, true),
@@ -149,6 +188,20 @@ fn field_issues(name: &str, field: Field, value: Option<&Value>, issues: &mut Ve
             "{name}: Invalid input: expected boolean, received {}",
             type_name(value)
         )),
+        // `options` is `workOptionsSchema.partial().optional()`; issue text and
+        // key order mirror the `work_options` port of `src/dispatch/work.ts`.
+        (Field::Options, Some(value)) => {
+            crate::work_options::work_options_issues(issues, "options", value);
+        }
+        // `dispatch.child` also accepts `difficulty`/`model` as top-level
+        // params, validated like `delegateSchema.difficulty`/`delegateSchema.model`.
+        (Field::Difficulty, Some(value)) => {
+            issues.extend(issue_enum(name, value, &["simple", "standard", "complex"]));
+        }
+        (Field::Model, Some(value)) => {
+            issues.extend(issue_string(name, value, 1, 256));
+        }
+        (Field::Options | Field::Difficulty | Field::Model, None) => {}
     }
 }
 
@@ -172,68 +225,58 @@ fn check(ctx: &Ctx, op: &str, params: &Value) -> Result<(), CoreError> {
             format!("unknown operation \"{op}\""),
         ));
     };
-    authorize(ctx)?;
+    authorize(ctx, op, params)?;
     let p = params_object(params)?;
-    if (matches!(op, "dispatch.submit" | "dispatch.child") && p.contains_key("options"))
-        || (op == "dispatch.child" && (p.contains_key("difficulty") || p.contains_key("model")))
-    {
-        return Ok(());
-    }
-    if inexact_number(shape, &p) {
-        return Ok(());
-    }
     finish(params_issues(shape, &p))
 }
 
-/// serde_json reads integer literals that fit 64 bits exactly; any other number
-/// may round differently from `JSON.parse`, so Core reads it.
-fn inexact_number(shape: Shape, p: &Map<String, Value>) -> bool {
-    shape
-        .iter()
-        .any(|(name, ..)| matches!(p.get(*name), Some(Value::Number(n)) if n.is_f64()))
-}
-
-/// Inputs Rust would not refuse: Core spawns, supervises and settles the work.
-pub fn lifecycle_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
-    LIFECYCLE_OPS.contains(&op) && check(ctx, op, params).is_ok()
-}
-
-fn refuse<'a>(ctx: &'a Ctx, op: &'static str, params: Value) -> OpFuture<'a> {
+pub fn dispatch_submit(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
-        check(ctx, op, &params)?;
-        Err(CoreError::new(
-            Code::Unavailable,
-            "dispatch lifecycle bridge unavailable",
-        ))
+        check(ctx, "dispatch.submit", &params)?;
+        effects()?.submit(ctx, params).await
     })
 }
 
-pub fn dispatch_submit(ctx: &Ctx, params: Value) -> OpFuture<'_> {
-    refuse(ctx, "dispatch.submit", params)
-}
-
 pub fn dispatch_child(ctx: &Ctx, params: Value) -> OpFuture<'_> {
-    refuse(ctx, "dispatch.child", params)
+    Box::pin(async move {
+        check(ctx, "dispatch.child", &params)?;
+        effects()?.child(ctx, params).await
+    })
 }
 
 pub fn dispatch_wait(ctx: &Ctx, params: Value) -> OpFuture<'_> {
-    refuse(ctx, "dispatch.wait", params)
+    Box::pin(async move {
+        check(ctx, "dispatch.wait", &params)?;
+        effects()?.wait(ctx, params).await
+    })
 }
 
 pub fn dispatch_review(ctx: &Ctx, params: Value) -> OpFuture<'_> {
-    refuse(ctx, "dispatch.review", params)
+    Box::pin(async move {
+        check(ctx, "dispatch.review", &params)?;
+        effects()?.review(ctx, params).await
+    })
 }
 
 pub fn dispatch_retry(ctx: &Ctx, params: Value) -> OpFuture<'_> {
-    refuse(ctx, "dispatch.retry", params)
+    Box::pin(async move {
+        check(ctx, "dispatch.retry", &params)?;
+        effects()?.retry(ctx, params).await
+    })
 }
 
 pub fn dispatch_answer(ctx: &Ctx, params: Value) -> OpFuture<'_> {
-    refuse(ctx, "dispatch.answer", params)
+    Box::pin(async move {
+        check(ctx, "dispatch.answer", &params)?;
+        effects()?.answer(ctx, params).await
+    })
 }
 
 pub fn dispatch_stop(ctx: &Ctx, params: Value) -> OpFuture<'_> {
-    refuse(ctx, "dispatch.stop", params)
+    Box::pin(async move {
+        check(ctx, "dispatch.stop", &params)?;
+        effects()?.stop(ctx, params).await
+    })
 }
 
 #[cfg(test)]

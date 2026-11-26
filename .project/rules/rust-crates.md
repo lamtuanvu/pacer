@@ -59,6 +59,7 @@ Layers from bottom (0) to top. Budgets are the planned size at the end of M3; CR
 | 1 | `pacer-js-json` (`crates/js-json`) | JavaScript JSON semantics: `JSON.parse` acceptance (exact `WireReply` documents and the quoted serde Value form with lone surrogates and signed Infinity), `JSON.stringify` bytes, ECMAScript number text and JS value helpers | ≤ 2,000 | none |
 | 2 | `pacer-store` (`crates/store`) | Task store, activity log, outbox and events | 2,000–2,500 | none |
 | 3 | `pacer-config` (`crates/config`) | Strategy, YAML editor, config areas (publishes config changes through `pacer-store`) | 3,000–3,800 | none |
+| 3 | `pacer-work` (`crates/work`) | Work grants and `authorizeWorkOperation` | ≤ 1,500 | none |
 | 2 | `pacer-discovery-ops` (`crates/discovery-ops`) | Native LAN discovery write operation handlers (`discovery.set`, `discovery.respond`) | ≤ 800 | none |
 | 3 | `pacer-machine-ops` (`crates/machine-ops`) | Machine identity store, key rotation and the native `machine.*` operation handlers | ≤ 1,500 | none |
 | 3 | `pacer-sessions` (`crates/sessions`) | PTY sessions, screen, recording, terminal opening | 2,000–2,500 | `portable-pty`, `vt100` |
@@ -76,10 +77,11 @@ Layers from bottom (0) to top. Budgets are the planned size at the end of M3; CR
 | 6 | `pacer-plugin-runtime` (`crates/plugin-runtime`) | Plugin child transport, native process owner, reverse bridge and capability sessions | ≤ 4,500 | none |
 | 6 | `pacer-account-ops` (`crates/account-ops`) | Native account operation handlers: `account.remove` and managed endpoint `account.add`, `account.edit` and `account.adopt` without key writes or test tasks, with their strategy, endpoint state and evidence writes; the `account.usage.check`, `account.models` and `account.test` refusals | ≤ 2,000 | none |
 | 6 | `pacer-update` (`crates/update`) | Update, release manifest, service install (native today: `update.check` over `ureq` and `service.status`) | 1,500 | none (`ureq`, as in `pacer-cli`) |
-| 7 | `pacer-read-model` (`crates/read-model`) | Snapshot and view model | 1,300–1,600 | none |
+| 6 | `pacer-read-model` (`crates/read-model`) | Snapshot and view model | 1,300–1,600 | none |
 | 7 | `pacer-config-ops` (`crates/config-ops`) | Native config and host operation handlers (strategy, strategy preview, routing, runners, notifications, host reads and edits, OpenCode executor setup and candidates, setup init, strategy build over the setup effects bridge, `limits.refresh` for accounts without a refresh source) | ≤ 4,000 | none |
 | 7 | `pacer-dispatch-ops` (`crates/dispatch-ops`) | Native dispatch work-graph and analytics operation handlers (`dispatch.config.get`, `dispatch.tree`, `dispatch.list`, `dispatch.events`, `dispatch.dependencies*`, `dispatch.analytics`, `dispatch.learning.reset`, `insights.summary`, `dispatch.models`, `dispatch.refresh`, `dispatch.enforcement.consent`) | ≤ 3,000 | none |
 | 7 | `pacer-issues` (`crates/issues`) | Native GitHub issue reads for registered repositories (`issue.import`, `issue.search`) through the user's `gh` login: origin-remote identity, the allowlisted `gh` environment, deadlines, output caps, concurrency and the search cache, and plain-text cleaning of untrusted issue content | ≤ 1,200 | none |
+| 7 | `pacer-delegation` (`crates/delegation`) | Native task delegation, managed-work lifecycle and message turns (message delivery turns and cleanup effects) behind plugin, spawn and supervision traits | ≤ 5,000 | none |
 | 8 | `pacer-assistant-ops` (`crates/assistant-ops`) | Native assistant settings and history operation handlers (`assistant.status`, `assistant.settings.*`, `assistant.candidates`, `assistant.conversations`, `assistant.conversation`, `assistant.turn`, `assistant.delete`, `assistant.card.*`) | ≤ 1,000 | none |
 | 8 | `pacer-task-ops` (`crates/task-ops`) | Native task, session, snapshot and shared job operation handlers (reads, list, detail, review, stop, dismiss, diff, wait, `job.*`) | ≤ 2,500 | none |
 | 8 | `pacer-tui` (`crates/tui`) | Dashboard (an API client: ARCH-1) | 1,000–1,200 | `ratatui`, `crossterm` |

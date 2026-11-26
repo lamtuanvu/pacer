@@ -20,15 +20,24 @@ fn message(op: &str, params: Value) -> String {
 }
 
 #[test]
-fn valid_requests_forward_to_core() {
+fn every_lifecycle_op_is_admitted_without_forwarding() {
     let ctx = ctx(&[]);
+    // B2-9 owned submit/child, B2-10 added wait/review/stop and B2-11 adds
+    // retry/answer. A request Rust would not refuse runs every op natively.
     for (op, params) in [
         ("dispatch.submit", json!({"goal": "g", "repo": "/r"})),
         ("dispatch.child", json!({"goal": "g", "requestId": "r1"})),
+        ("dispatch.submit", json!({"goal": "g", "repo": "/r", "options": {"allowDelegation": true}})),
+        ("dispatch.child", json!({"goal": "g", "requestId": "r1", "difficulty": "simple", "model": "x"})),
         ("dispatch.wait", json!({"id": "t", "timeout_s": 3000})),
         (
             "dispatch.review",
             json!({"id": "t", "accepted": false, "note": "n", "expect_rev": 2}),
+        ),
+        ("dispatch.stop", json!({"id": "t"})),
+        (
+            "dispatch.stop",
+            json!({"id": "t", "expect_rev": 3, "extra": 1}),
         ),
         (
             "dispatch.retry",
@@ -38,65 +47,72 @@ fn valid_requests_forward_to_core() {
             "dispatch.answer",
             json!({"id": "t", "expect_rev": 1, "requestId": "r", "text": "yes"}),
         ),
-        ("dispatch.stop", json!({"id": "t"})),
-        (
-            "dispatch.stop",
-            json!({"id": "t", "expect_rev": 3, "extra": 1}),
-        ),
     ] {
-        assert!(lifecycle_stays_forwarded(&ctx, op, &params), "{op}");
+        assert!(check(&ctx, op, &params).is_ok(), "{op} {params}");
     }
-    assert!(!lifecycle_stays_forwarded(
-        &ctx,
-        "dispatch.tree",
-        &json!({"id": "t"})
-    ));
+    assert_eq!(
+        check(&ctx, "dispatch.tree", &json!({"id": "t"}))
+            .unwrap_err()
+            .code,
+        Code::UnknownOp
+    );
 }
 
 #[test]
-fn options_forward_whatever_the_other_fields_hold() {
+fn work_options_validate_natively_and_interleave_with_field_issues() {
     let ctx = ctx(&[]);
-    assert!(lifecycle_stays_forwarded(
+    // Unknown `workOptionsSchema` key is refused natively (not forwarded).
+    assert!(check(
         &ctx,
         "dispatch.submit",
         &json!({"goal": 1, "options": {"bogus": true}})
-    ));
-    assert!(lifecycle_stays_forwarded(
-        &ctx,
+    )
+    .is_err());
+    let text = message(
+        "dispatch.submit",
+        json!({"goal": "", "options": {"bogus": true}}),
+    );
+    assert!(
+        text.contains("options: Unrecognized key: \"bogus\"") && text.contains("goal: Too small"),
+        "{text}"
+    );
+    let child = message(
         "dispatch.child",
-        &json!({"options": null})
-    ));
-    assert!(!lifecycle_stays_forwarded(
-        &ctx,
-        "dispatch.wait",
-        &json!({"options": {}})
-    ));
+        json!({"goal": "g", "requestId": "r", "difficulty": "hard", "model": 7}),
+    );
+    assert!(
+        child.contains("difficulty: Invalid option: expected one of \"simple\"|\"standard\"|\"complex\"")
+            && child.contains("model: Invalid input: expected string"),
+        "{child}"
+    );
+    // `options` on `wait` is an unknown key, not a work option, so that op
+    // publishes its own shape issue natively.
+    assert!(check(&ctx, "dispatch.wait", &json!({"options": {}})).is_err());
 }
 
 #[test]
-fn numbers_serde_may_round_differently_forward() {
+fn numbers_are_validated_natively_without_forwarding() {
     let ctx = ctx(&[]);
     let parse = |text: &str| serde_json::from_str::<Value>(text).unwrap();
+    // With the lifecycle forward deleted, every decodable number is answered
+    // by the native Zod issue text rather than reaching Core.
+    assert!(check(
+        &ctx,
+        "dispatch.wait",
+        &parse(r#"{"id": "t", "timeout_s": 3000.0}"#)
+    )
+    .is_ok());
     for body in [
         r#"{"id": "t", "timeout_s": 1.5}"#,
-        r#"{"id": "t", "timeout_s": 3000.0}"#,
-        r#"{"id": "t", "timeout_s": 1e300}"#,
         r#"{"id": "", "timeout_s": 99999999999999999999}"#,
-    ] {
-        assert!(
-            lifecycle_stays_forwarded(&ctx, "dispatch.wait", &parse(body)),
-            "{body}"
-        );
-    }
-    for body in [
         r#"{"id": "", "timeout_s": 18446744073709551615}"#,
         r#"{"id": "", "timeout_s": -9223372036854775808}"#,
         r#"{"id": "", "extra": 1.5}"#,
     ] {
-        assert!(
-            !lifecycle_stays_forwarded(&ctx, "dispatch.wait", &parse(body)),
-            "{body}"
-        );
+        let params = parse(body);
+        let result = check(&ctx, "dispatch.wait", &params);
+        assert!(result.is_err(), "{body}");
+        assert_eq!(result.unwrap_err().code, Code::InvalidInput, "{body}");
     }
 }
 
@@ -181,11 +197,6 @@ async fn callers_without_a_grant_are_refused_before_params() {
         ),
     ] {
         let ctx = ctx(&[env]);
-        assert!(!lifecycle_stays_forwarded(
-            &ctx,
-            "dispatch.submit",
-            &json!({})
-        ));
         let err = dispatch_submit(&ctx, json!("bad")).await.unwrap_err();
         assert_eq!((err.code, err.message.as_str()), (Code::NotAllowed, text));
     }
@@ -199,3 +210,4 @@ async fn a_request_core_must_run_is_unavailable_natively() {
     let err = dispatch_wait(&ctx, Value::Null).await.unwrap_err();
     assert_eq!(err.code, Code::InvalidInput);
 }
+

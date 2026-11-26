@@ -45,7 +45,7 @@ type Object = Map<String, Value>;
 
 /// Core's per-runner native-control reads for an enforcement request.
 pub trait Bridge: Send {
-    /// Dispatch parts (`src/api/dispatch-parts-bridge.ts`).
+    /// Dispatch parts (`pacer_dispatch::guards`), now answered natively by the caller.
     fn parts(&mut self, params: Value) -> OpFuture<'_>;
 }
 
@@ -523,14 +523,6 @@ fn schedule_for(
     }
 }
 
-/// The `repo` a `dispatch.enforcement` request names; `""` when missing.
-fn repo_input(params: &Value) -> &str {
-    params
-        .get("repo")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-}
-
 /// `dispatch.enforcement` forwards when the repository or policy needs Core.
 fn enforcement_forwarded(ctx: &Ctx, repo: &str) -> bool {
     repo_needs_core(ctx, repo, true)
@@ -766,12 +758,11 @@ pub fn dispatch_enforcement<'a>(
         string_issues("repo", p.get("repo"), Some(4096), &mut issues);
         finish(issues)?;
         let repo_input = p["repo"].as_str().unwrap_or_default();
-        let strategy = load_strategy(&ctx.pacer_home).map_err(internal)?;
-        if enforcement_forwarded(ctx, repo_input) {
-            return Err(unavailable("pacer core must resolve the repository"));
-        }
+        // TS resolves the repo before loading the strategy; keep that order so a
+        // relative, unregistered repo is refused `invalid_input` in both paths.
         let projects = read_project_strategies(&ctx.pacer_home).map_err(policy_error)?;
         let repo = policy_repo(ctx, repo_input, &projects)?;
+        let strategy = load_strategy(&ctx.pacer_home).map_err(internal)?;
         let repo_path = repo["path"].as_str().unwrap_or_default().to_owned();
         let now = now(ctx);
         let Some((consent, attempts)) = read_schedule(ctx) else {
@@ -851,9 +842,10 @@ pub fn dispatch_enforcement<'a>(
 
 /// Whether `dispatch.enforcement` (or `dispatch.enforcement.denied`) should
 /// stay forwarded: the repository or policy needs Core.
-pub fn dispatch_enforcement_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
+pub fn dispatch_enforcement_stays_forwarded(_ctx: &Ctx, op: &str, _params: &Value) -> bool {
     match op {
-        "dispatch.enforcement" => enforcement_forwarded(ctx, repo_input(params)),
+        // B2-5: dispatch parts are native, so the repository no longer needs Core.
+        "dispatch.enforcement" => false,
         "dispatch.enforcement.denied" => false,
         _ => false,
     }
@@ -883,7 +875,7 @@ fn probe_stays_forwarded(ctx: &Ctx, params: &Value) -> bool {
 /// forwards by answering `unavailable`.
 pub fn dispatch_enforcement_probe(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
-        authorize(ctx)?;
+        authorize(ctx, &params)?;
         let p = params_object(&params)?;
         let mut issues = Vec::new();
         string_issues("repo", p.get("repo"), Some(4096), &mut issues);
@@ -1010,8 +1002,8 @@ fn enum_issues(name: &str, value: Option<&Value>, options: &[&str], issues: &mut
     }
 }
 
-fn authorize(ctx: &Ctx) -> Result<(), CoreError> {
-    crate::dispatch_ops::authorize(ctx)
+fn authorize(ctx: &Ctx, params: &Value) -> Result<(), CoreError> {
+    crate::dispatch_ops::authorize(ctx, "dispatch.enforcement.probe", params)
 }
 
 fn sha256_hex(value: &str) -> String {

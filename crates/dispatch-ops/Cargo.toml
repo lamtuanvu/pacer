@@ -16,6 +16,7 @@ pacer-engine = { path = "../engine" }
 pacer-repos = { path = "../repos" }
 pacer-lifecycle = { path = "../lifecycle" }
 pacer-store = { path = "../store" }
+pacer-work = { path = "../work" }
 rusqlite = { version = "0.41", features = ["bundled"] }
 icu_collator = { version = "=2.4.0", features = ["unstable"] }
 ryu-js = "1"

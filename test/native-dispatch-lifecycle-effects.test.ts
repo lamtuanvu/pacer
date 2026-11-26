@@ -1,10 +1,14 @@
 import { expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
 import { join } from "node:path";
 import { registerWork, workEvents } from "../src/dispatch/work";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
 import type { TaskRecord } from "../src/tasks/types";
-import { fakeCtx, gitRepo, pinnedPort } from "./helpers";
+import { readRun } from "../src/supervisor/run";
+import { FrameType, wire } from "../src/session/framing";
+import { ViewerHub } from "../src/session/viewers";
+import { fakeCtx, gitRepo, pinnedPort, tmpDir } from "./helpers";
 
 const front = process.env.PACER_TEST_NATIVE_FRONT_DOOR;
 const core = JSON.stringify([process.execPath, join(import.meta.dir, "../src/cli.ts")]);
@@ -31,16 +35,12 @@ function killRunners(ids: string[]) {
   }
 }
 
-test.skipIf(!front)("valid review, retry and answer reach Core over stdio and persist their effects", async () => {
+test.skipIf(!front)("valid review, retry and answer run natively over stdio and persist their effects", async () => {
   const ctx = fakeCtx({ now: Math.floor(Date.now() / 1000) });
   const repo = gitRepo();
   const stubs = join(ctx.home, "bin");
   mkdirSync(stubs, { recursive: true });
   for (const bin of EXECUTORS) writeFileSync(join(stubs, bin), "#!/bin/sh\necho 'executor stub refuses to run' >&2\nexit 3\n", { mode: 0o700 });
-  // Every Bun process below the front door (Core and its detached runners) logs the port it inherited.
-  const spawned = join(ctx.home, "bun-processes");
-  const probe = join(ctx.home, "port-probe.cjs");
-  writeFileSync(probe, `require("node:fs").appendFileSync(${JSON.stringify(spawned)}, JSON.stringify({ port: process.env.PACER_PORT ?? null, args: process.argv.slice(2) }) + "\\n");\n`);
   const review = seed(ctx, repo, "Review me", record => {
     record.state = "done"; record.settledAt = ctx.now - 120;
     record.result = { status: "done", executor: "codex#personal", model: null, backend: "direct", files: "", report: "Done.", acceptance: { cmd: "bun test", passed: true, tail: "1 passed" } };
@@ -61,7 +61,7 @@ test.skipIf(!front)("valid review, retry and answer reach Core over stdio and pe
     { jsonrpc: "2.0", id: 5, method: "dispatch.review", params: { id: review.id } },
   ];
   const env = pinnedPort({ HOME: ctx.home, PACER_HOME: ctx.pacerHome, PATH: `${stubs}:/usr/bin:/bin`, PACER_CORE_ARGV: core,
-    PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off", PACER_DEBUG_NATIVE: "1", BUN_OPTIONS: `--preload ${probe}` });
+    PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off", PACER_DEBUG_NATIVE: "1" });
   const child = Bun.spawn([front!, "api", "--stdio"], {
     cwd: ctx.home,
     env,
@@ -74,10 +74,16 @@ test.skipIf(!front)("valid review, retry and answer reach Core over stdio and pe
     expect(code, stderr).toBe(0);
     const replies = new Map(stdout.trim().split("\n").map(line => JSON.parse(line)).map(reply => [reply.id, reply]));
     expect([...replies.keys()].sort((a, b) => String(a).localeCompare(String(b)))).toEqual([1, 3, 4, 5, "e2e-review"]);
-    expect(stderr.split("\n").filter(line => line.startsWith("native dispatch."))).toEqual(["native dispatch.review 5"]);
+    expect(stderr.split("\n").filter(line => line.startsWith("native dispatch."))).toEqual([
+      "native dispatch.review \"e2e-review\"", "native dispatch.retry 3",
+      "native dispatch.answer 4", "native dispatch.review 5",
+    ]);
     expect(replies.get(5).error.data.code).toBe("invalid_input");
 
-    expect(replies.get("e2e-review").result.task).toMatchObject({ id: review.id, rev: review.rev + 1, review: { accepted: true, note: "Looks right" } });
+    // The native review answers with the read-model projection (no `rev`), so
+    // assert the CAS bump on the persisted task instead.
+    expect(replies.get("e2e-review").result.task).toMatchObject({ id: review.id, review: { accepted: true, note: "Looks right" } });
+    expect(readTask(ctx, review.id)!.rev).toBe(review.rev + 1);
     expect(replies.get(3).result).toMatchObject({ task_id: retry.id, state: "queued", queue: { detail: "Restart requested" }, result: null });
     expect(replies.get(4).result).toMatchObject({ task_id: answer.id, state: "queued", queue: { detail: "Restart requested" }, requested_executor: "codex#personal" });
 
@@ -89,12 +95,19 @@ test.skipIf(!front)("valid review, retry and answer reach Core over stdio and pe
     expect(answered.question).toBeUndefined();
     expect(workEvents(ctx, answer.id).map(event => event.kind)).toContain("work.answer_recorded");
 
-    const processes = () => existsSync(spawned) ? readFileSync(spawned, "utf8").trim().split("\n").map(line => JSON.parse(line) as { port: string | null; args: string[] }) : [];
-    const runners = () => processes().filter(entry => entry.args[0] === "_run").map(entry => entry.args[1]).sort();
+    // B2-11 launches `_run` from Rust, so the detached processes are Rust
+    // binaries rather than Bun children with the preload probe: observe them
+    // directly and assert neither launch was deferred.
+    const runners = () => {
+      const ps = Bun.spawnSync(["ps", "-axo", "pid=,command="]).stdout.toString();
+      const ids = [retry.id, answer.id];
+      return ids.filter(id => ps.split("\n").some(line => line.includes(`_run ${id}`))).sort();
+    };
     for (let n = 0; n < 900 && runners().length < 2; n++) await Bun.sleep(100);
     expect(runners()).toEqual([retry.id, answer.id].sort());
-    expect(processes().filter(entry => entry.args.join(" ") === "api --stdio")).toHaveLength(1);
-    expect(new Set(processes().map(entry => entry.port))).toEqual(new Set([env.PACER_PORT]));
+    for (const id of [retry.id, answer.id]) {
+      expect(workEvents(ctx, id).map(event => event.kind)).not.toContain("work.launch_deferred");
+    }
   } finally {
     if (child.exitCode === null) { child.kill("SIGTERM"); await child.exited; }
     killRunners([review.id, retry.id, answer.id]);
@@ -102,3 +115,133 @@ test.skipIf(!front)("valid review, retry and answer reach Core over stdio and pe
     rmSync(repo, { recursive: true, force: true });
   }
 }, 150000);
+
+/** Seed a work child under a running root with Core's own store calls. */
+function seedChild(
+  ctx: ReturnType<typeof fakeCtx>,
+  repo: string,
+  title: string,
+  parentId: string,
+  apply: (record: TaskRecord) => void,
+) {
+  const { id } = createTask(ctx, { title, brief: { goal: title, repo }, kind: "feature", requestedExecutor: null, timeoutS: 3600 });
+  registerWork(ctx, id, {}, parentId);
+  updateTask(ctx, id, record => {
+    record.executor = "codex#personal";
+    record.attempts = [{ executor: "codex#personal", model: null, startedAt: ctx.now - 600, endedAt: ctx.now - 120, exitCode: 0, timedOut: false, limitHit: false, log: join(ctx.pacerHome, "logs", `${id}.log`) }];
+    apply(record);
+  });
+  return readTask(ctx, id)!;
+}
+
+test.skipIf(!front)("native dispatch wait, stop and review answer every managed-work caller", async () => {
+  const ctx = fakeCtx({ now: Math.floor(Date.now() / 1000) });
+  const repo = gitRepo();
+  const { id: rootId } = createTask(ctx, { title: "Root", brief: { goal: "Root", repo }, kind: "feature", requestedExecutor: null, timeoutS: 3600 });
+  registerWork(ctx, rootId, { allowDelegation: true });
+  updateTask(ctx, rootId, record => { record.state = "running"; });
+  const root = readTask(ctx, rootId)!;
+  const done = seedChild(ctx, repo, "Done child", root.id, record => {
+    record.state = "done"; record.settledAt = ctx.now - 120;
+    record.result = { status: "done", executor: "codex#personal", model: null, backend: "direct", files: "", report: "Done.", acceptance: { cmd: "bun test", passed: true, tail: "1 passed" } };
+  });
+  const running = seedChild(ctx, repo, "Running child", root.id, record => { record.state = "running"; });
+  const reviewed = seedChild(ctx, repo, "Review child", root.id, record => {
+    record.state = "done"; record.settledAt = ctx.now - 120;
+    record.result = { status: "done", executor: "codex#personal", model: null, backend: "direct", files: "", report: "Done.", acceptance: { cmd: "bun test", passed: true, tail: "1 passed" } };
+  });
+  const lines = [
+    { jsonrpc: "2.0", id: 1, method: "hello", params: { protocol: 3 } },
+    { jsonrpc: "2.0", id: 2, method: "dispatch.wait", params: { id: done.id, timeout_s: 5 } },
+    { jsonrpc: "2.0", id: 3, method: "dispatch.wait", params: { id: running.id, timeout_s: 1 } },
+    { jsonrpc: "2.0", id: 4, method: "dispatch.stop", params: { id: root.id, expect_rev: root.rev } },
+    { jsonrpc: "2.0", id: 5, method: "dispatch.review", params: { id: reviewed.id, accepted: true, expect_rev: reviewed.rev } },
+    { jsonrpc: "2.0", id: 6, method: "dispatch.review", params: { id: reviewed.id, accepted: true, expect_rev: reviewed.rev - 1 } },
+  ];
+  const env = pinnedPort({ HOME: ctx.home, PACER_HOME: ctx.pacerHome, PATH: `${join(ctx.home, "bin")}:/usr/bin:/bin`, PACER_CORE_ARGV: core,
+    PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off", PACER_DEBUG_NATIVE: "1" });
+  const child = Bun.spawn([front!, "api", "--stdio"], { cwd: ctx.home, env, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+  try {
+    await child.stdin.write(lines.map(line => JSON.stringify(line)).join("\n") + "\n");
+    await child.stdin.end();
+    const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    expect(code, stderr).toBe(0);
+    const replies = new Map(stdout.trim().split("\n").map(line => JSON.parse(line)).map(reply => [reply.id, reply]));
+    expect(stderr.split("\n").filter(line => /^native dispatch\.\w+ \d+$/.test(line))).toEqual([
+      "native dispatch.wait 2",
+      "native dispatch.wait 3",
+      "native dispatch.stop 4",
+      "native dispatch.review 5",
+      "native dispatch.review 6",
+    ]);
+    expect(replies.get(2).result).toMatchObject({ task_id: done.id, state: "done" });
+    expect(replies.get(3).result).toMatchObject({ task_id: running.id });
+    expect(replies.get(4).result).toMatchObject({ task_id: root.id });
+    expect(replies.get(5).result.task).toMatchObject({ id: reviewed.id, review: { accepted: true } });
+    expect(replies.get(6).error.data.code).toBe("conflict");
+    expect(readTask(ctx, root.id)!.state).toBe("stopped");
+    expect(readTask(ctx, reviewed.id)!.review).toMatchObject({ accepted: true });
+  } finally {
+    if (child.exitCode === null) { child.kill("SIGTERM"); await child.exited; }
+    killRunners([root.id, done.id, running.id, reviewed.id]);
+    rmSync(ctx.home, { recursive: true, force: true });
+    rmSync(repo, { recursive: true, force: true });
+  }
+}, 60000);
+
+/** A live lane answers in place: the text is typed into the session, not a new attempt. */
+test.skipIf(!front)("dispatch.answer on a live child is typed into its session natively", async () => {
+  const ctx = fakeCtx({ now: Math.floor(Date.now() / 1000) });
+  const repo = gitRepo();
+  const dir = tmpDir();
+  writeFileSync(join(dir, "interactive.json"), "{}");
+  const script = join(dir, "run.sh");
+  writeFileSync(script, "#!/bin/sh\nwhile :; do sleep 0.1; done\n", { mode: 0o700 });
+  const session = Bun.spawn(["/bin/sh", script, dir], { detached: true, stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+  writeFileSync(join(dir, "pid"), String(session.pid));
+  const sock = join(tmpDir(), "s.sock");
+  writeFileSync(join(dir, "session.sock.path"), sock);
+  const input: Buffer[] = [];
+  const hub = new ViewerHub(() => wire(FrameType.snapshot, {}), () => null, fn => fn(), () => {},
+    (viewers, controller) => writeFileSync(join(dir, "session.state"), JSON.stringify({ viewers, controller, cols: 120, rows: 40 })),
+    { input: bytes => input.push(Buffer.from(bytes)), resize() {}, release() {} });
+  const server = createServer(socket => hub.add(socket));
+  await new Promise<void>(resolve => server.listen(sock, resolve));
+  try {
+    for (let n = 0; n < 100 && !readRun(dir).alive; n++) await Bun.sleep(25);
+    expect(readRun(dir).alive).toBe(true);
+    const task = seed(ctx, repo, "Live answer", record => {
+      record.state = "running";
+      record.run = { dir, attempt: 1, executor: "codex", startedAt: 1, mode: "new", workdir: repo, logFile: "/dev/null" };
+      record.question = { text: "Which file should the parser write?", at: ctx.now - 5 };
+      record.attempts = [];
+    });
+    const env = pinnedPort({ HOME: ctx.home, PACER_HOME: ctx.pacerHome, PATH: process.env.PATH ?? "/usr/bin:/bin", PACER_CORE_ARGV: core,
+      PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off", PACER_DEBUG_NATIVE: "1" });
+    const child = Bun.spawn([front!, "api", "--stdio"], { cwd: ctx.home, stdin: "pipe", stdout: "pipe", stderr: "pipe", env });
+    try {
+      const lines = [
+        { jsonrpc: "2.0", id: 1, method: "hello", params: { protocol: 3 } },
+        { jsonrpc: "2.0", id: 2, method: "dispatch.answer", params: { id: task.id, expect_rev: task.rev, requestId: "e2e-live-answer", text: "src/report.ts" } },
+      ];
+      await child.stdin.write(lines.map(line => JSON.stringify(line)).join("\n") + "\n");
+      await child.stdin.end();
+      const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+      expect(code, stderr).toBe(0);
+      expect(stderr.split("\n").filter(line => /^native dispatch\.\w+ \d+$/.test(line))).toEqual(["native dispatch.answer 2"]);
+      const reply = JSON.parse(stdout.trim().split("\n").find(line => JSON.parse(line).id === 2)!);
+      expect(reply.result).toMatchObject({ task_id: task.id });
+      expect(readTask(ctx, task.id)!.question!.answer).toBe("src/report.ts");
+      expect(Buffer.concat(input).toString()).toContain("src/report.ts");
+      expect(workEvents(ctx, task.id).map(event => event.kind)).not.toContain("work.answer_recorded");
+    } finally {
+      if (child.exitCode === null) { child.kill("SIGTERM"); await child.exited; }
+    }
+  } finally {
+    server.close();
+    try { process.kill(session.pid!, "SIGKILL"); } catch {}
+    killRunners([/* no detached runner for a live answer */]);
+    rmSync(ctx.home, { recursive: true, force: true });
+    rmSync(repo, { recursive: true, force: true });
+  }
+}, 60000);

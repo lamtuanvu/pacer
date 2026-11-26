@@ -78,7 +78,7 @@ test.skipIf(!front)("callers without a work grant are refused natively as TypeSc
   }
 }, 60000);
 
-test.skipIf(!front)("requests Core must run and work options stay with TypeScript", async () => {
+test.skipIf(!front)("every lifecycle request is answered natively", async () => {
   const ctx = fakeCtx();
   const requests = [
     request(2, "dispatch.wait", { id: "missing", timeout_s: 1 }),
@@ -87,7 +87,8 @@ test.skipIf(!front)("requests Core must run and work options stay with TypeScrip
     request(5, "dispatch.answer", { id: "missing", expect_rev: 1, requestId: "r", text: "yes" }),
     request(6, "dispatch.stop", { id: "missing" }),
     request(7, "dispatch.child", { goal: "g", requestId: "r" }),
-    // workOptionsSchema issues interleave with the field issues, so any `options` forwards.
+    // B2-9 serves `dispatch.submit`/`dispatch.child` natively, so `options`,
+    // `difficulty` and `model` are validated against `workOptionsSchema` here too.
     request(8, "dispatch.submit", { goal: "", options: { bogus: true } }),
     request(9, "dispatch.child", { options: null }),
     request(10, "dispatch.stop", { expect_rev: 0 }),
@@ -98,7 +99,9 @@ test.skipIf(!front)("requests Core must run and work options stay with TypeScrip
     // New child fields must be validated together with the original fields by Core.
     request(14, "dispatch.child", { difficulty: "invalid", model: 42 }),
   ];
-  const routed = await exchange(ctx.home, requests, false, {}, [8]);
+  // B2-11 serves `dispatch.retry` and `dispatch.answer` natively too, so every
+  // lifecycle request now stays at the front door (indexes 2 and 3 included).
+  const routed = await exchange(ctx.home, requests, false);
   expect(wire(routed)).toEqual(wire(await exchange(ctx.home, requests, true)));
   expect(routed.every(reply => reply.error != null)).toBe(true);
   expect(routed[6].error.message).toContain("options");
@@ -133,27 +136,34 @@ async function serve(home: string, forward: boolean) {
   return { post, stop };
 }
 
-test.skipIf(!front)("HTTP bodies serde_json cannot represent reach Core exactly as forced forwarding does", async () => {
+test.skipIf(!front)("decodable lifecycle bodies are native; undecodable ones are refused without forwarding", async () => {
   const bytes = (...parts: (string | number[])[]) => new Uint8Array(parts.flatMap(part => typeof part === "string" ? [...new TextEncoder().encode(part)] : part));
-  // `native` marks the requests Rust answers itself; every other body must reach Core unchanged.
+  // B2-11 deleted the dispatch undecodable-body forward: every body serde_json
+  // decodes is answered natively, and one it cannot decode gets "body is not JSON".
   const cases: { op: string; body: string | Uint8Array<ArrayBuffer>; native?: true }[] = [
+    { op: "dispatch.review", body: '{"id":"t","accepted":true,"expect_rev":1.0000000000000002}', native: true },
+    { op: "dispatch.retry", body: '{"id":"","expect_rev":0.1e1,"requestId":"r"}', native: true },
+    { op: "dispatch.child", body: '{"goal":"g","requestId":"r","acceptance_timeout_min":-1e-400}', native: true },
+    { op: "dispatch.stop", body: '{"id":"t","expect_rev":12345678901234567890}', native: true },
+    { op: "dispatch.wait", body: '{"id":"","timeout_s":-9223372036854775808}', native: true },
+    { op: "dispatch.answer", body: String.raw`{"id":"t","expect_rev":1,"requestId":"r","text":"\ud83d\ude00","note":"\u00e9"}`, native: true },
+    { op: "dispatch.review", body: '{"id":"t","accepted":"no","expect_rev":9007199254740993}', native: true },
+    { op: "dispatch.submit", body: "null", native: true },
+    { op: "dispatch.stop", body: "x".repeat(256 * 1024 + 1), native: true },
+  ];
+  // serde_json decodes a 30-digit integer into an inexact f64, so the native
+  // validator owns its issue text; no body reaches Core any more.
+  const nativeOnly: { op: string; body: string; message: string }[] = [
+    { op: "dispatch.stop", body: '{"id":"t","expect_rev":123456789012345678901234567890}', message: "expect_rev: Too big: expected int to be <=9007199254740991" },
+  ];
+  const undecodable: { op: string; body: string | Uint8Array<ArrayBuffer> }[] = [
     { op: "dispatch.answer", body: String.raw`{"id":"missing","expect_rev":1,"requestId":"r","text":"\ud800"}` },
     { op: "dispatch.answer", body: String.raw`{"id":"","expect_rev":0,"requestId":"r","text":"a\udfffb"}` },
     { op: "dispatch.submit", body: String.raw`{"goal":"\ud83d","repo":""}` },
     { op: "dispatch.stop", body: bytes('{"id":"', [0xff, 0xfe], '","expect_rev":0}') },
     { op: "dispatch.wait", body: bytes([0xef, 0xbb, 0xbf], '{"timeout_s":5000}') },
     { op: "dispatch.wait", body: '{"id":"missing","timeout_s":1e400}' },
-    { op: "dispatch.stop", body: '{"id":"t","expect_rev":123456789012345678901234567890}' },
-    { op: "dispatch.review", body: '{"id":"t","accepted":true,"expect_rev":1.0000000000000002}' },
-    { op: "dispatch.retry", body: '{"id":"","expect_rev":0.1e1,"requestId":"r"}' },
-    { op: "dispatch.child", body: '{"goal":"g","requestId":"r","acceptance_timeout_min":-1e-400}' },
     { op: "dispatch.wait", body: "{" },
-    { op: "dispatch.stop", body: '{"id":"t","expect_rev":12345678901234567890}', native: true },
-    { op: "dispatch.wait", body: '{"id":"","timeout_s":-9223372036854775808}', native: true },
-    { op: "dispatch.answer", body: String.raw`{"id":"t","expect_rev":1,"requestId":"r","text":"\ud83d\ude00","note":"\u00e9"}` },
-    { op: "dispatch.review", body: '{"id":"t","accepted":"no","expect_rev":9007199254740993}', native: true },
-    { op: "dispatch.submit", body: "null", native: true },
-    { op: "dispatch.stop", body: "x".repeat(256 * 1024 + 1) },
   ];
   const run = async (forward: boolean) => {
     const home = mkdtempSync("/tmp/pdl-");
@@ -162,7 +172,13 @@ test.skipIf(!front)("HTTP bodies serde_json cannot represent reach Core exactly 
     try {
       const replies = [];
       for (const { op, body } of cases) replies.push(await service.post(op, body));
-      return { replies, stderr: await service.stop() };
+      const rejected = [];
+      const nativeReplies = [];
+      if (!forward) {
+        for (const { op, body } of undecodable) rejected.push(await service.post(op, body));
+        for (const { op, body } of nativeOnly) nativeReplies.push(await service.post(op, body));
+      }
+      return { replies, rejected, nativeReplies, stderr: await service.stop() };
     } finally { await service.stop(); rmSync(home, { recursive: true, force: true }); }
   };
   const native = await run(false), forwarded = await run(true);
@@ -172,5 +188,6 @@ test.skipIf(!front)("HTTP bodies serde_json cannot represent reach Core exactly 
   expect(markers(forwarded.stderr)).toEqual([]);
   expect(native.replies.every(reply => reply.type?.startsWith("application/json"))).toBe(true);
   expect(native.replies.at(-1)!.status).toBe(413);
-  expect(JSON.parse(native.replies[10]!.body).error.message).toBe("body is not JSON");
+  expect(native.rejected.every(reply => reply.status === 400 && JSON.parse(reply.body).error.message === "body is not JSON")).toBe(true);
+  expect(native.nativeReplies.every((reply, index) => reply.status === 400 && JSON.parse(reply.body).error.message === nativeOnly[index]!.message)).toBe(true);
 }, 120000);

@@ -78,6 +78,8 @@ pub fn task_stop<'a>(
     effects: OpFuture<'a>,
 ) -> OpFuture<'a> {
     Box::pin(async move {
+        let is_executor = ctx.env.get("PACER_ROLE").map(String::as_str) == Some("executor");
+        pacer_work::authorize_work_operation(ctx, "task.stop", &params, is_executor)?;
         let p = object(&params)?;
         let id = require_task_id(p, "id")?;
         let expect_rev = optional_expect_rev(p)?;

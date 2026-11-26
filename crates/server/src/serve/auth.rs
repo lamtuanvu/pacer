@@ -12,11 +12,13 @@ use std::{
 };
 use subtle::ConstantTimeEq;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AuthKind {
     Bearer,
     Cookie,
     Task,
+    /// A live `pwg_` work grant or `pet_` enforcement bearer (token without the `Bearer ` prefix).
+    Grant(String),
 }
 
 pub enum Decision {
@@ -179,14 +181,19 @@ pub fn classify<B>(req: &Request<B>, port: u16, token: &str, ctx: &Ctx) -> Decis
             .bytes()
             .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
     {
-        // The assistant grant (`pag_`) is a third, narrower credential: one operation, `assistant.tool`.
+        // `pwg_` / `pet_` are native grant identities; `pag_` stays a Task forward to Core (B4).
         if req.method() == "POST"
             && (bearer.starts_with("pwg_") && path.starts_with("/v3/ops/")
                 || bearer.starts_with("pet_") && path == "/v3/ops/dispatch.enforcement.denied"
                 || bearer.starts_with("pag_") && path == "/v3/ops/assistant.tool")
         {
+            if bearer.starts_with("pag_") {
+                return Decision::Forward {
+                    auth: AuthKind::Task,
+                };
+            }
             return Decision::Forward {
-                auth: AuthKind::Task,
+                auth: AuthKind::Grant(bearer.to_owned()),
             };
         }
         return reject(StatusCode::FORBIDDEN, "forbidden\n", None);
@@ -252,8 +259,10 @@ mod tests {
 
     #[derive(Debug, PartialEq, Eq)]
     enum Verdict {
-        /// Forwarded to the core with the task-grant header.
+        /// Forwarded to the core with the task-grant header (`pag_`).
         Task,
+        /// Native work/enforcement grant identity (`pwg_` / `pet_`).
+        Grant,
         Rejected(StatusCode),
         /// Bearer, cookie, health or app-auth: never a scoped credential.
         Unscoped,
@@ -277,6 +286,9 @@ mod tests {
             Decision::Forward {
                 auth: AuthKind::Task,
             } => Verdict::Task,
+            Decision::Forward {
+                auth: AuthKind::Grant(_),
+            } => Verdict::Grant,
             Decision::Forward { .. } | Decision::Health | Decision::AppAuth => Verdict::Unscoped,
             Decision::Reject(response) => Verdict::Rejected(response.status()),
         }
@@ -333,11 +345,11 @@ mod tests {
         let work = format!("pwg_{HEX}");
         assert_eq!(
             verdict(Method::POST, "/v3/ops/assistant.tool", &work),
-            Verdict::Task
+            Verdict::Grant
         );
         assert_eq!(
             verdict(Method::POST, "/v3/ops/task.get", &work),
-            Verdict::Task
+            Verdict::Grant
         );
         assert_eq!(
             verdict(Method::POST, "/v3/snapshot", &work),
@@ -350,7 +362,7 @@ mod tests {
                 "/v3/ops/dispatch.enforcement.denied",
                 &enforcement
             ),
-            Verdict::Task
+            Verdict::Grant
         );
         assert_eq!(
             verdict(Method::POST, "/v3/ops/assistant.tool", &enforcement),
