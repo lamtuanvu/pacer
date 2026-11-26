@@ -203,9 +203,12 @@ export const RUNS_UNAVAILABLE_DETAIL = "Update pacer to see runs here.";
 export const RUNS_REFRESH_ERROR = "The list may be out of date. Reload the page to try again.";
 export const RUN_DETAIL_ERROR = "Couldn't load this run's details.";
 export const RUN_QUESTIONS_ERROR = "Couldn't load this run's questions.";
-export const RUN_SEEN_OK = "Marked as seen.";
 export const RUN_SEEN_ERROR = "Couldn't mark this run as seen.";
-export const RUN_VIEW_PENDING = "Run details aren't shown on this page yet.";
+/** Run view heading when nothing names the run yet. */
+export const RUN_HEADING = "Run";
+export const RUN_MESSAGES_ERROR = "Couldn't load the latest messages.";
+export const RUN_MESSAGE_SEND_ERROR = "Couldn't send your message. It is still in the box; try again.";
+export const RUN_ARTIFACT_ERROR = "The file could not be read.";
 export const QUESTION_SUBMIT_ERROR = "Couldn't submit your answer. Try again.";
 export const QUESTION_NO_OPTIONS = "This question has no options, so it can't be answered here. Answer it from a terminal with pacer.";
 export const QUESTION_ANSWER_TOO_LONG = "These choices are too long to send together. Choose fewer.";

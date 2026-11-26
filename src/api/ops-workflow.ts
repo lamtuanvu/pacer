@@ -13,7 +13,7 @@ import { normalizeWorkflowObject, parseWorkflow } from "../workflow/parse";
 import { validateWorkflow } from "../workflow/validate";
 import {
   addDefinition, getDefinition, getGraph, getQuestion, getRun, listDefinitions, listOpenPersonQuestions,
-  listQuestions, listRuns, recordDecision,
+  listDecisions, listQuestions, listRuns, recordDecision,
   rootRunId, runEntityValue, stepByTask, stepByTaskIfPresent, stepsOfRun, updateRun, workflowDatabase,
   type RunRow, type RunStatus,
 } from "../workflow/store";
@@ -252,6 +252,8 @@ export const workflowOps: Record<string, OpDef> = {
         steps,
         graphs: listGraphSummaries(ctx, p.id),
         artifacts: listArtifacts(ctx, p.id),
+        // Person-only: the decision log with reasons (the app run view's conversation rail).
+        ...(ctx.env.PACER_RUN_GRANT ? {} : { decisions: listDecisions(ctx, p.id) }),
         ...(definition ? { definition } : {}),
         ...(pendingApproval ? { pendingApproval } : {}),
       };

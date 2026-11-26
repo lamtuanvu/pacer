@@ -40,6 +40,12 @@ export interface RunQuestionView {
   stepId?: string;
   attempt?: number;
   branch?: string;
+  /** open | answered | withdrawn (from question.list); absent in attention-derived views. */
+  status?: string;
+  createdAt?: number;
+  answerer?: string;
+  answer?: string;
+  note?: string;
 }
 
 export interface RunListRow {
@@ -65,12 +71,34 @@ export interface RunsListState {
   badge: number;
 }
 
+/** A child run (generated plan) read with its own `run.get`. */
+export interface RunChildDetail {
+  run: Record<string, unknown>;
+  steps: unknown[];
+  definition?: unknown;
+  graphs?: unknown[];
+}
+
+/** One message in the orchestrator's thread (`msg.log`). */
+export interface RunMessageView { id: string; from: string; to: string; kind: string; body: string; at: number }
+
 export interface RunDetailState {
   id: string;
   run: Record<string, unknown> | null;
   steps: unknown[];
   questions: RunQuestionView[];
   decisions: unknown[];
+  /** Additive `run.get` projections (graph versions, artifact metadata, exact definition, pending approval). */
+  graphs?: unknown[];
+  artifacts?: unknown[];
+  definition?: unknown;
+  pendingApproval?: unknown;
+  /** Orchestrator thread, when `msg.log` is offered and the run has an orchestrator task. */
+  messages?: RunMessageView[];
+  /** The last msg.log read failed; `messages` is what was loaded earlier. */
+  messagesError?: boolean;
+  /** Generated child runs keyed by id (Phase 3 `work_node` plans). */
+  children?: Record<string, RunChildDetail>;
   loading: boolean;
   error: string | null;
   stamp: number;
@@ -98,6 +126,7 @@ interface RunSummaryRow {
   paused_reason?: string;
   pausedReason?: string;
   waits_on?: string;
+  parentRunId?: string;
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -195,6 +224,11 @@ export function questionFromEntity(data: Record<string, unknown>, runId: string)
     ...(typeof data.stepId === "string" ? { stepId: data.stepId } : {}),
     ...(typeof data.attempt === "number" && Number.isFinite(data.attempt) ? { attempt: data.attempt } : {}),
     ...(typeof data.branch === "string" && data.branch ? { branch: data.branch } : {}),
+    ...(typeof data.status === "string" ? { status: data.status } : {}),
+    ...(typeof data.createdAt === "number" && Number.isFinite(data.createdAt) ? { createdAt: data.createdAt } : {}),
+    ...(typeof data.answerer === "string" ? { answerer: data.answerer } : {}),
+    ...(typeof data.answer === "string" ? { answer: data.answer } : {}),
+    ...(typeof data.note === "string" ? { note: data.note } : {}),
   };
 }
 
@@ -328,7 +362,19 @@ export function mergeListRefresh(current: RunsStoreState, next: RunsStoreState):
 /** Apply a finished detail refresh for one run onto the latest state; the list is left alone. */
 export function mergeDetailRefresh(current: RunsStoreState, next: RunsStoreState, id: string): RunsStoreState {
   const detail = next.details[id];
-  return detail ? { ...current, details: { ...current.details, [id]: detail } } : current;
+  if (!detail) return current;
+  const held = current.details[id];
+  // A failed read carries the data it started from, which may be older than what is shown now.
+  const merged = held?.run && detail.error === RUN_DETAIL_ERROR
+    ? { ...held, loading: false, error: detail.error }
+    // Loads can overlap: each applied one gets its own stamp, so artifact text is read again.
+    : {
+      ...detail,
+      // Likewise a failed message read must not replace messages another load brought meanwhile.
+      ...(detail.messagesError && held?.messages ? { messages: held.messages } : {}),
+      stamp: Math.max(detail.stamp, (held?.stamp ?? 0) + 1),
+    };
+  return { ...current, details: { ...current.details, [id]: merged } };
 }
 
 function normalizeListRow(row: RunSummaryRow | Record<string, unknown>): RunSummaryRow {
@@ -345,10 +391,43 @@ function normalizeListRow(row: RunSummaryRow | Record<string, unknown>): RunSumm
     reason: typeof r.reason === "string" ? r.reason : undefined,
     paused_reason: typeof r.paused_reason === "string" ? r.paused_reason : undefined,
     pausedReason: typeof r.pausedReason === "string" ? r.pausedReason : undefined,
+    parentRunId: typeof r.parentRunId === "string" ? r.parentRunId : undefined,
   };
 }
 
-/** Load run.get (+ question.list when available) into the detail map. */
+const asArray = (v: unknown): unknown[] => Array.isArray(v) ? v : [];
+
+function messageFrom(raw: unknown): RunMessageView | undefined {
+  if (!isObj(raw) || typeof raw.id !== "string" || typeof raw.body !== "string") return undefined;
+  const at = typeof raw.createdAt === "number" ? raw.createdAt : typeof raw.at === "number" ? raw.at : 0;
+  return {
+    id: raw.id,
+    from: typeof raw.from === "string" ? raw.from : "",
+    to: typeof raw.to === "string" ? raw.to : "",
+    kind: typeof raw.kind === "string" ? raw.kind : "message",
+    body: raw.body,
+    at,
+  };
+}
+
+/** Generated child runs (`parentRunId` = this run), read with their own run.get; capped, failures skipped. */
+async function loadChildren(
+  api: BrowserApi,
+  state: RunsStoreState,
+  id: string,
+): Promise<Record<string, RunChildDetail>> {
+  const ids = state.list.filter(r => r.parentRunId === id).map(r => r.id).slice(0, 8);
+  const out: Record<string, RunChildDetail> = {};
+  await Promise.all(ids.map(async childId => {
+    try {
+      const child = await api.call<{ run: Record<string, unknown>; steps?: unknown[]; definition?: unknown; graphs?: unknown[] }>("run.get", { id: childId });
+      out[childId] = { run: child.run, steps: asArray(child.steps), definition: child.definition, graphs: asArray(child.graphs) };
+    } catch { /* a child that cannot be read is simply not drawn */ }
+  }));
+  return out;
+}
+
+/** Load run.get (+ questions, orchestrator thread and generated child runs when offered) into the detail map. */
 export async function refreshRunDetail(
   api: BrowserApi,
   state: RunsStoreState,
@@ -366,26 +445,40 @@ export async function refreshRunDetail(
       run: Record<string, unknown>;
       steps: unknown[];
       questions?: unknown[];
+      decisions?: unknown[];
+      graphs?: unknown[];
+      artifacts?: unknown[];
+      definition?: unknown;
+      pendingApproval?: unknown;
     }>("run.get", { id });
     let questions: RunQuestionView[] = [];
     let questionsError: string | null = null;
+    const mapQuestions = (rows: unknown): RunQuestionView[] => asArray(rows)
+      .map(q => isObj(q) ? questionFromEntity(q, id) : undefined)
+      .filter((q): q is RunQuestionView => !!q);
     if (Array.isArray(got.questions)) {
-      questions = got.questions
-        .map(q => isObj(q) ? questionFromEntity(q, id) : undefined)
-        .filter((q): q is RunQuestionView => !!q);
+      questions = mapQuestions(got.questions);
     } else if (ops?.has("question.list") || ops === undefined) {
-      try {
-        const listed = await api.call<unknown>("question.list", { run: id });
-        if (Array.isArray(listed)) {
-          questions = listed
-            .map(q => isObj(q) ? questionFromEntity(q, id) : undefined)
-            .filter((q): q is RunQuestionView => !!q);
-        }
-      } catch (error) {
+      try { questions = mapQuestions(await api.call<unknown>("question.list", { run: id })); }
+      catch (error) {
         console.warn("runs: question list failed", error);
         questionsError = RUN_QUESTIONS_ERROR;
       }
     }
+    const taskId = typeof got.run?.orchestratorTaskId === "string" ? got.run.orchestratorTaskId : "";
+    let messages: RunMessageView[] | undefined;
+    let messagesError = false;
+    if (taskId && (ops === undefined || ops.has("msg.log"))) {
+      try {
+        const log = await api.call<{ messages?: unknown[] }>("msg.log", { task: taskId });
+        messages = asArray(log?.messages).map(messageFrom).filter((m): m is RunMessageView => !!m);
+      } catch (error) {
+        console.warn("runs: message log failed", error);
+        messages = prev.messages;
+        messagesError = true;
+      }
+    }
+    const children = await loadChildren(api, state, id);
     return {
       ...loading,
       details: {
@@ -393,9 +486,16 @@ export async function refreshRunDetail(
         [id]: {
           id,
           run: got.run,
-          steps: Array.isArray(got.steps) ? got.steps : [],
+          steps: asArray(got.steps),
           questions,
-          decisions: prev.decisions,
+          decisions: Array.isArray(got.decisions) ? got.decisions : prev.decisions,
+          graphs: asArray(got.graphs),
+          artifacts: asArray(got.artifacts),
+          definition: got.definition,
+          pendingApproval: got.pendingApproval,
+          ...(messages ? { messages } : {}),
+          ...(messagesError ? { messagesError } : {}),
+          children,
           loading: false,
           error: questionsError,
           stamp: prev.stamp + 1,
