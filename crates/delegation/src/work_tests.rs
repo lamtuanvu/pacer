@@ -1,10 +1,43 @@
 #![allow(clippy::unwrap_used)]
 use super::*;
-use crate::runtime::{NoPlugins, NoSpawn, NoSupervisor};
+use crate::runtime::{PluginCalls, RunnerSpawn, Supervisor};
 use pacer_store::TaskStore;
 use serde_json::json;
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 use tempfile::{TempDir, tempdir};
+
+struct TestPlugins;
+impl PluginCalls for TestPlugins {
+    fn providers(&self, _: &Ctx, _: &str) -> Vec<String> {
+        Vec::new()
+    }
+    fn call<'a>(
+        &'a self,
+        _: &'a Ctx,
+        _: &'a str,
+        _: &'a str,
+        _: Value,
+        _: Duration,
+    ) -> pacer_foundation::api::OpFuture<'a> {
+        Box::pin(async { Err(internal("plugin calls unavailable")) })
+    }
+}
+
+/// Child creation must launch; a stub pid keeps admission from failing while
+/// the test only asserts on the persisted work options.
+struct TestSpawn;
+impl RunnerSpawn for TestSpawn {
+    fn launch(&self, _: &Ctx, _: &str, _: Option<&str>) -> Result<Option<u32>, CoreError> {
+        Ok(Some(4242))
+    }
+}
+
+struct TestSupervisor;
+impl Supervisor for TestSupervisor {
+    fn tick<'a>(&'a self, _: &'a Ctx, _: &'a str) -> pacer_foundation::api::OpFuture<'a> {
+        Box::pin(async { Ok(Value::Null) })
+    }
+}
 
 const STRATEGY: &str = "planner: claude-code\nproviders:\n  claude-code: {}\n  codex: {}\nmessaging:\n  grants: {}\n";
 
@@ -21,9 +54,9 @@ fn fixture() -> (TempDir, Ctx, Runtime, String, String) {
     std::fs::create_dir_all(&repo).unwrap();
     let ctx = Ctx::with(home, pacer_home, Default::default(), 1_800_000_000.0);
     let runtime = Runtime {
-        plugins: Arc::new(NoPlugins),
-        spawn: Arc::new(NoSpawn),
-        supervisor: Arc::new(NoSupervisor),
+        plugins: Arc::new(TestPlugins),
+        spawn: Arc::new(TestSpawn),
+        supervisor: Arc::new(TestSupervisor),
     };
 
     let mut store = TaskStore::open(&ctx.pacer_home).unwrap();

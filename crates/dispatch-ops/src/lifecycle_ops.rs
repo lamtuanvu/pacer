@@ -9,10 +9,9 @@
 //! routes through [`LifecycleEffects`], which the server backs with
 //! `pacer_delegation::work::{submit_work, delegate_child}`. `options`,
 //! `difficulty` and `model` are validated natively against `workOptionsSchema`
-//! (see [`crate::work_options`]), so those requests no longer forward. The
-//! remaining lifecycle ops (wait, review, retry, answer, stop) still act in
-//! Core: a request Rust would not refuse stays forwarded (B2-10 wires those
-//! natively).
+//! (see [`crate::work_options`]), so those requests no longer forward. B2-10
+//! adds native `wait`, `review` and `stop`; `retry` and `answer` still act in
+//! Core until B2-11.
 #![allow(clippy::result_large_err)]
 use pacer_foundation::{
     Ctx,
@@ -27,9 +26,9 @@ use crate::dispatch_ops::{
 use crate::preview_ops::{issue_enum, issue_string};
 
 /// Effects a native lifecycle op needs that `dispatch_ops` cannot own. The
-/// front door installs a runtime-backed implementation once at startup. Only
-/// `submit` and `child` are wired natively in B2-9; the remaining methods
-/// default to an unavailable bridge until B2-10.
+/// front door installs a runtime-backed implementation once at startup. B2-9
+/// wired `submit`/`child`, B2-10 adds `wait`/`review`/`stop`; `retry` and
+/// `answer` still default to an unavailable bridge until B2-11.
 pub trait LifecycleEffects: Send + Sync {
     fn submit<'a>(&'a self, ctx: &'a Ctx, params: Value) -> OpFuture<'a>;
     fn child<'a>(&'a self, ctx: &'a Ctx, params: Value) -> OpFuture<'a>;
@@ -251,14 +250,22 @@ fn inexact_number(shape: Shape, p: &Map<String, Value>) -> bool {
 }
 
 /// Inputs Rust would not refuse: Core spawns, supervises and settles the work.
-/// B2-9 owns `dispatch.submit`/`dispatch.child` natively (both refusals and
-/// action), so they never forward through this predicate; under
-/// `PACER_FORWARD_OPS` the registry drops them instead.
+/// B2-9 owns `submit`/`child` and B2-10 owns `wait`/`review`/`stop` end to end,
+/// so those never forward through this predicate; under `PACER_FORWARD_OPS`
+/// the registry drops them instead. `retry` and `answer` still forward until
+/// B2-11.
 pub fn lifecycle_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
     if !LIFECYCLE_OPS.contains(&op) {
         return false;
     }
-    if matches!(op, "dispatch.submit" | "dispatch.child") {
+    if matches!(
+        op,
+        "dispatch.submit"
+            | "dispatch.child"
+            | "dispatch.wait"
+            | "dispatch.review"
+            | "dispatch.stop"
+    ) {
         return false;
     }
     check(ctx, op, params).is_ok()
@@ -289,11 +296,17 @@ pub fn dispatch_child(ctx: &Ctx, params: Value) -> OpFuture<'_> {
 }
 
 pub fn dispatch_wait(ctx: &Ctx, params: Value) -> OpFuture<'_> {
-    refuse(ctx, "dispatch.wait", params)
+    Box::pin(async move {
+        check(ctx, "dispatch.wait", &params)?;
+        effects()?.wait(ctx, params).await
+    })
 }
 
 pub fn dispatch_review(ctx: &Ctx, params: Value) -> OpFuture<'_> {
-    refuse(ctx, "dispatch.review", params)
+    Box::pin(async move {
+        check(ctx, "dispatch.review", &params)?;
+        effects()?.review(ctx, params).await
+    })
 }
 
 pub fn dispatch_retry(ctx: &Ctx, params: Value) -> OpFuture<'_> {
@@ -305,7 +318,10 @@ pub fn dispatch_answer(ctx: &Ctx, params: Value) -> OpFuture<'_> {
 }
 
 pub fn dispatch_stop(ctx: &Ctx, params: Value) -> OpFuture<'_> {
-    refuse(ctx, "dispatch.stop", params)
+    Box::pin(async move {
+        check(ctx, "dispatch.stop", &params)?;
+        effects()?.stop(ctx, params).await
+    })
 }
 
 #[cfg(test)]

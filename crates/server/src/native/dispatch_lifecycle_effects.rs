@@ -1,9 +1,9 @@
-//! Native `dispatch.submit` and `dispatch.child` effects (B2-9). The server
-//! installs this once at startup as the [`LifecycleEffects`] implementation; the
-//! ops themselves (`submitWork`, `delegateChild`) route through
-//! `pacer_delegation::work` after `dispatch_ops`'s `check` admits the request.
-//! The runtime replicates `msg_effects`: no policy plugins, a native `_run`
-//! launcher and no supervisor, until later batches wire those.
+//! Native `dispatch` lifecycle effects (B2-9 submit/child, B2-10 wait/review/
+//! stop). The server installs this once at startup as the [`LifecycleEffects`]
+//! implementation; the ops route through `pacer_delegation::work` after
+//! `dispatch_ops`'s `check` admits the request. The runtime replicates
+//! `msg_effects`: no policy plugins, a native `_run` launcher and no
+//! supervisor, until later batches wire those.
 #![allow(clippy::result_large_err)]
 use pacer_delegation::runtime::{NoPlugins, NoSupervisor, RunnerSpawn, Runtime};
 use pacer_dispatch_ops::lifecycle_ops::LifecycleEffects;
@@ -99,12 +99,28 @@ impl LifecycleEffects for NativeDispatchEffects {
         Box::pin(async move { pacer_delegation::work::delegate_child(ctx, &rt, &params).await })
     }
 
-    fn wait<'a>(&'a self, _ctx: &'a Ctx, _params: Value) -> OpFuture<'a> {
-        Box::pin(async { Err(unavailable()) })
+    fn wait<'a>(&'a self, ctx: &'a Ctx, params: Value) -> OpFuture<'a> {
+        let rt = self.rt.clone();
+        Box::pin(async move {
+            let id = params.get("id").and_then(Value::as_str).ok_or_else(unavailable)?;
+            let timeout_s = params
+                .get("timeout_s")
+                .and_then(Value::as_u64)
+                .unwrap_or(600)
+                .min(u32::MAX as u64) as u32;
+            pacer_delegation::work::wait_work(ctx, &rt, id, timeout_s).await
+        })
     }
 
-    fn review<'a>(&'a self, _ctx: &'a Ctx, _params: Value) -> OpFuture<'a> {
-        Box::pin(async { Err(unavailable()) })
+    fn review<'a>(&'a self, ctx: &'a Ctx, params: Value) -> OpFuture<'a> {
+        let rt = self.rt.clone();
+        Box::pin(async move {
+            let id = params.get("id").and_then(Value::as_str).ok_or_else(unavailable)?;
+            let accepted = params.get("accepted").and_then(Value::as_bool).ok_or_else(unavailable)?;
+            let note = params.get("note").and_then(Value::as_str);
+            let expect_rev = params.get("expect_rev").and_then(Value::as_i64);
+            pacer_delegation::work::review_work(ctx, &rt, id, accepted, note, expect_rev).await
+        })
     }
 
     fn retry<'a>(&'a self, _ctx: &'a Ctx, _params: Value) -> OpFuture<'a> {
@@ -115,7 +131,12 @@ impl LifecycleEffects for NativeDispatchEffects {
         Box::pin(async { Err(unavailable()) })
     }
 
-    fn stop<'a>(&'a self, _ctx: &'a Ctx, _params: Value) -> OpFuture<'a> {
-        Box::pin(async { Err(unavailable()) })
+    fn stop<'a>(&'a self, ctx: &'a Ctx, params: Value) -> OpFuture<'a> {
+        let rt = self.rt.clone();
+        Box::pin(async move {
+            let id = params.get("id").and_then(Value::as_str).ok_or_else(unavailable)?;
+            let expect_rev = params.get("expect_rev").and_then(Value::as_i64);
+            pacer_delegation::work::stop_work(ctx, &rt, id, expect_rev).await
+        })
     }
 }

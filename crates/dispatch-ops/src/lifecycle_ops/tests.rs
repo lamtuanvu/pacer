@@ -20,25 +20,30 @@ fn message(op: &str, params: Value) -> String {
 }
 
 #[test]
-fn submit_and_child_stay_native_while_the_rest_forward() {
+fn submit_child_wait_review_and_stop_stay_native_while_rest_forward() {
     let ctx = ctx(&[]);
-    // B2-9 owns `dispatch.submit` and `dispatch.child` natively, so a request
+    // B2-9 owns `submit`/`child`, B2-10 adds `wait`/`review`/`stop`: a request
     // Rust would not refuse still runs them natively rather than forwarding.
     for (op, params) in [
         ("dispatch.submit", json!({"goal": "g", "repo": "/r"})),
         ("dispatch.child", json!({"goal": "g", "requestId": "r1"})),
         ("dispatch.submit", json!({"goal": "g", "repo": "/r", "options": {"allowDelegation": true}})),
         ("dispatch.child", json!({"goal": "g", "requestId": "r1", "difficulty": "simple", "model": "x"})),
-    ] {
-        assert!(!lifecycle_stays_forwarded(&ctx, op, &params), "{op} {params}");
-    }
-    // The remaining lifecycle ops still act in Core (B2-10), so they forward.
-    for (op, params) in [
         ("dispatch.wait", json!({"id": "t", "timeout_s": 3000})),
         (
             "dispatch.review",
             json!({"id": "t", "accepted": false, "note": "n", "expect_rev": 2}),
         ),
+        ("dispatch.stop", json!({"id": "t"})),
+        (
+            "dispatch.stop",
+            json!({"id": "t", "expect_rev": 3, "extra": 1}),
+        ),
+    ] {
+        assert!(!lifecycle_stays_forwarded(&ctx, op, &params), "{op} {params}");
+    }
+    // `retry` and `answer` still act in Core until B2-11.
+    for (op, params) in [
         (
             "dispatch.retry",
             json!({"id": "t", "expect_rev": 1, "requestId": "r", "feedback": ""}),
@@ -46,11 +51,6 @@ fn submit_and_child_stay_native_while_the_rest_forward() {
         (
             "dispatch.answer",
             json!({"id": "t", "expect_rev": 1, "requestId": "r", "text": "yes"}),
-        ),
-        ("dispatch.stop", json!({"id": "t"})),
-        (
-            "dispatch.stop",
-            json!({"id": "t", "expect_rev": 3, "extra": 1}),
         ),
     ] {
         assert!(lifecycle_stays_forwarded(&ctx, op, &params), "{op}");
@@ -98,21 +98,16 @@ fn work_options_validate_natively_and_interleave_with_field_issues() {
 }
 
 #[test]
-fn numbers_serde_may_round_differently_forward() {
+fn native_wait_answers_every_number_shape() {
     let ctx = ctx(&[]);
     let parse = |text: &str| serde_json::from_str::<Value>(text).unwrap();
+    // `dispatch.wait` is native under B2-10, including bodies whose numbers
+    // serde_json may round differently: Rust parses and answers them itself.
     for body in [
         r#"{"id": "t", "timeout_s": 1.5}"#,
         r#"{"id": "t", "timeout_s": 3000.0}"#,
         r#"{"id": "t", "timeout_s": 1e300}"#,
         r#"{"id": "", "timeout_s": 99999999999999999999}"#,
-    ] {
-        assert!(
-            lifecycle_stays_forwarded(&ctx, "dispatch.wait", &parse(body)),
-            "{body}"
-        );
-    }
-    for body in [
         r#"{"id": "", "timeout_s": 18446744073709551615}"#,
         r#"{"id": "", "timeout_s": -9223372036854775808}"#,
         r#"{"id": "", "extra": 1.5}"#,

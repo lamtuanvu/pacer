@@ -1,19 +1,20 @@
-//! Native `dispatch.submit` and `dispatch.child` (`submitWork` and `delegateChild`
-//! in `src/core/work.ts`).
+//! Native managed-work lifecycle ops (`src/core/work.ts`): `submitWork`,
+//! `delegateChild`, `waitWork`, `stopWork` and `reviewWork`.
 //!
-//! Both route through the native [`delegate`] admission (B3-6) after resolving
-//! the request's gate: `submit_work` is the planner/human door (requires an
-//! explicit repository, or a live scoped work grant), and `delegate_child` is
-//! the scoped work-grant door an executor uses to run an isolated child under
-//! its parent's root. `delegate` already handles brief parsing, request-id
-//! idempotency, repository validation, work-option setup and create-and-launch.
+//! Submit and child route through the native [`delegate`] admission (B3-6)
+//! after resolving the request's gate. Wait, stop and review resolve their
+//! work-grant scope here and then call the delegation modules that own the
+//! effects (`wait::wait_task`, `stop::stop_work`, `review::review_work`).
 #![allow(clippy::result_large_err)]
+
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use pacer_foundation::{
     Ctx,
     api::{Code, CoreError},
 };
 use pacer_store::TaskStore;
+use rusqlite::OptionalExtension;
 use serde_json::{Value, json};
 
 use crate::delegate::delegate;
@@ -25,6 +26,17 @@ fn invalid(message: impl Into<String>) -> CoreError {
 
 fn not_allowed(message: impl Into<String>) -> CoreError {
     CoreError::new(Code::NotAllowed, message)
+}
+
+fn internal(message: impl Into<String>) -> CoreError {
+    CoreError::new(Code::Internal, message)
+}
+
+fn now_secs() -> f64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs_f64()
 }
 
 /// True when `parameter` is a value present but nullish (`null`), mirroring
@@ -187,6 +199,143 @@ pub async fn delegate_child(
     call["worktree_reason"] = json!("Isolated delegated child work");
     call["source"] = json!("planner");
     delegate(ctx, runtime, &call, Some("planner")).await
+}
+
+/// Record the start of a `child` wait for `id` (`setWorkWait`/`beginChildWait`
+/// in `src/dispatch/work.ts:148-159`). A nested wait increments the refcount;
+/// an idle slot starts a fresh measurement.
+fn begin_child_wait(ctx: &Ctx, id: &str) -> Result<(), CoreError> {
+    let mut store = TaskStore::open(&ctx.pacer_home).map_err(|e| internal(e.to_string()))?;
+    let db = store.connection().map_err(|e| internal(e.to_string()))?;
+    let row: Option<(Option<f64>, i64)> = db
+        .query_row(
+            "SELECT started_at,refs FROM work_waits WHERE task_id=?1 AND kind='child'",
+            rusqlite::params![id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .map_err(|e| internal(e.to_string()))?;
+    match row {
+        None => {
+            db.execute(
+                "INSERT INTO work_waits(task_id,kind,started_at,total_seconds,refs) VALUES(?1,'child',?2,0,1)",
+                rusqlite::params![id, ctx.now],
+            )
+            .map_err(|e| internal(e.to_string()))?;
+        }
+        Some((None, _)) => {
+            db.execute(
+                "UPDATE work_waits SET started_at=?1,refs=1 WHERE task_id=?2 AND kind='child'",
+                rusqlite::params![ctx.now, id],
+            )
+            .map_err(|e| internal(e.to_string()))?;
+        }
+        Some((Some(_), refs)) => {
+            db.execute(
+                "UPDATE work_waits SET refs=?1 WHERE task_id=?2 AND kind='child'",
+                rusqlite::params![refs + 1, id],
+            )
+            .map_err(|e| internal(e.to_string()))?;
+        }
+    }
+    Ok(())
+}
+
+/// Close a `child` wait for `id` (`endChildWait` in `src/dispatch/work.ts:161`).
+/// A nested wait only drops the refcount; the last waiter accumulates the
+/// elapsed time and clears the slot.
+fn end_child_wait(ctx: &Ctx, id: &str) -> Result<(), CoreError> {
+    let mut store = TaskStore::open(&ctx.pacer_home).map_err(|e| internal(e.to_string()))?;
+    let db = store.connection().map_err(|e| internal(e.to_string()))?;
+    let row: Option<(Option<f64>, i64)> = db
+        .query_row(
+            "SELECT started_at,refs FROM work_waits WHERE task_id=?1 AND kind='child'",
+            rusqlite::params![id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .map_err(|e| internal(e.to_string()))?;
+    let Some((started, refs)) = row else { return Ok(()) };
+    if refs <= 0 {
+        return Ok(());
+    }
+    if refs > 1 {
+        db.execute(
+            "UPDATE work_waits SET refs=?1 WHERE task_id=?2 AND kind='child'",
+            rusqlite::params![refs - 1, id],
+        )
+        .map_err(|e| internal(e.to_string()))?;
+        return Ok(());
+    }
+    let elapsed = started.map(|start| (ctx.now - start).max(0.0)).unwrap_or(0.0);
+    db.execute(
+        "UPDATE work_waits SET total_seconds=total_seconds+?1,started_at=NULL,refs=0 WHERE task_id=?2 AND kind='child'",
+        rusqlite::params![elapsed, id],
+    )
+    .map_err(|e| internal(e.to_string()))?;
+    Ok(())
+}
+
+/// `dispatch.wait`: wait for managed work to settle (`waitWork`,
+/// `src/core/work.ts:309-315`). A grant holder measures the wait against its
+/// own work item, but may never wait on itself; the wait itself belongs to
+/// `wait::wait_task`.
+pub async fn wait_work(
+    ctx: &Ctx,
+    runtime: &Runtime,
+    id: &str,
+    timeout_s: u32,
+) -> Result<Value, CoreError> {
+    let parent = if let Some(token) = ctx.env.get("PACER_WORK_GRANT") {
+        let caller = pacer_work::authorize_work_grant(ctx, token)?;
+        if caller.task_id == id {
+            return Err(not_allowed("A work item cannot wait for itself"));
+        }
+        pacer_work::require_work_scope(ctx, token, id, false)?;
+        begin_child_wait(ctx, &caller.task_id)?;
+        Some(caller.task_id)
+    } else {
+        None
+    };
+    let result = crate::wait::wait_task(ctx, runtime, id, timeout_s).await;
+    if let Some(parent) = parent {
+        let mut end_ctx = ctx.clone();
+        end_ctx.now = now_secs();
+        end_child_wait(&end_ctx, &parent)?;
+    }
+    result
+}
+
+/// `dispatch.stop`: stop every non-terminal node in a work tree (`stopWork`,
+/// `src/core/work.ts:317-326`). The tree walk and signals belong to
+/// `stop::stop_work`; a grant holder must first prove the root is in scope.
+pub async fn stop_work(
+    ctx: &Ctx,
+    runtime: &Runtime,
+    id: &str,
+    expect_rev: Option<i64>,
+) -> Result<Value, CoreError> {
+    if let Some(token) = ctx.env.get("PACER_WORK_GRANT") {
+        pacer_work::require_work_scope(ctx, token, id, false)?;
+    }
+    crate::stop::stop_work(ctx, runtime, id, expect_rev).await
+}
+
+/// `dispatch.review`: record a verdict on managed work (`reviewWork`,
+/// `src/core/work.ts:117-135`). `review::review_work` owns the lock, CAS and
+/// evidence; a grant holder may only review a child in its subtree.
+pub async fn review_work(
+    ctx: &Ctx,
+    runtime: &Runtime,
+    id: &str,
+    accepted: bool,
+    note: Option<&str>,
+    expect_rev: Option<i64>,
+) -> Result<Value, CoreError> {
+    if let Some(token) = ctx.env.get("PACER_WORK_GRANT") {
+        pacer_work::require_work_scope(ctx, token, id, true)?;
+    }
+    crate::review::review_work(ctx, runtime, id, accepted, note, expect_rev).await
 }
 
 #[cfg(test)]
