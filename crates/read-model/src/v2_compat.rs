@@ -193,6 +193,7 @@ pub fn event(value: &Value, legacy: Option<&Value>) -> Value {
             | "question"
             | "discovery.found"
             | "control"
+            | "terminal"
     ) || kind == "config"
         && matches!(
             string(&value["data"]["area"]).as_str(),
