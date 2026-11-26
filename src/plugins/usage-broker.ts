@@ -9,15 +9,36 @@ import { pluginRegistry } from "./index";
 import type { CallResources } from "./authority";
 import { NETWORK_ENV } from "./capability-spawn";
 
-/** Project public account identity and fixed host-owned resources, never credential configuration. */
-export async function readPluginUsage(ctx: Ctx, cfg: ProviderCfg, account?: AccountCfg, refresh = false): Promise<UsageReading> {
-  if (cfg.usage === "reactive") return { windows: [], capturedAt: null, stale: false, source: "reactive" };
-  if (cfg.usage === "unmetered") return { windows: [], capturedAt: null, stale: false, source: "unmetered" };
+/** The call a usage read needs, before the registry call that makes it. */
+export type UsageCallSpec = { reading: UsageReading } | {
+  plugin: string;
+  params: {
+    provider: string;
+    usage: ProviderCfg["usage"];
+    account: { name: string; kind: AccountCfg["kind"]; source: AccountCfg["source"] } | null;
+    accountHome: string | null;
+    model: string | null;
+    weeklyTokens: number | null;
+    weeklyUsd: number | null;
+    quotaSource: "arkcli" | null;
+    now: number;
+    readOnly: boolean;
+    refresh: boolean;
+    resources: { claudeFiles?: string[]; codexSessions?: string };
+  };
+  resources: CallResources;
+  accountHome: string | null;
+};
+
+/** `readPluginUsage` without the call: project public account identity and fixed host-owned resources, never credential configuration. */
+export function usageCallSpec(ctx: Ctx, cfg: ProviderCfg, account?: AccountCfg, refresh = false): UsageCallSpec {
+  if (cfg.usage === "reactive") return { reading: { windows: [], capturedAt: null, stale: false, source: "reactive" } };
+  if (cfg.usage === "unmetered") return { reading: { windows: [], capturedAt: null, stale: false, source: "unmetered" } };
   const provider = cfg.usage === "metered" ? "metered" : ["claude-code", "codex"].includes(cfg.id) ? cfg.id : cfg.quotaSource === "arkcli" ? "arkcli" : null;
-  if (!provider) return { windows: [], capturedAt: null, stale: false, error: `no quota source for ${cfg.id}` };
+  if (!provider) return { reading: { windows: [], capturedAt: null, stale: false, error: `no quota source for ${cfg.id}` } };
   const registry = pluginRegistry(ctx);
   const plugin = registry.find(ctx, "usage", contribution => Array.isArray(contribution.providers) && contribution.providers.includes(provider));
-  if (!plugin) return { windows: [], capturedAt: null, stale: false, error: `no enabled plugin reads ${provider} usage (pacer plugin list)` };
+  if (!plugin) return { reading: { windows: [], capturedAt: null, stale: false, error: `no enabled plugin reads ${provider} usage (pacer plugin list)` } };
   const resources: CallResources = { reads: [], commands: [], stores: [] };
   let accountHome: string | null = null;
   const inputResources: { claudeFiles?: string[]; codexSessions?: string } = {};
@@ -29,7 +50,7 @@ export async function readPluginUsage(ctx: Ctx, cfg: ProviderCfg, account?: Acco
   } else if (cfg.usage === "quota" && cfg.id === "codex") {
     const home = account?.source === "orca" ? orcaAccountHome(ctx, "codex", account.orcaAccount ?? "")
       : account?.home ? account.home.replace(/^~(?=\/|$)/, ctx.home) : defaultAccountFolder(ctx, "codex");
-    if (!home) return { windows: [], capturedAt: null, stale: false, error: "Orca account folder not found" };
+    if (!home) return { reading: { windows: [], capturedAt: null, stale: false, error: "Orca account folder not found" } };
     accountHome = resolve(home);
     const root = join(accountHome, "sessions");
     inputResources.codexSessions = root;
@@ -44,9 +65,24 @@ export async function readPluginUsage(ctx: Ctx, cfg: ProviderCfg, account?: Acco
     resources.commands.push({ argv: ["opencode", "stats", "--standalone", "--models", "--cost", "--json", "--days", "7"], timeoutMs: 15000 });
     resources.stores.push({ id: "opencode-stats-7d-cost", path: join(ctx.pacerHome, "cache", "opencode-stats-7d-cost.json"), kind: "cache" });
   }
-  return registry.call<UsageReading>(ctx, plugin, "usage.read", {
-    provider, usage: cfg.usage, account: account ? { name: account.name, kind: account.kind, source: account.source } : null,
-    accountHome, model: cfg.model ?? null, weeklyTokens: cfg.weeklyTokens ?? null, weeklyUsd: cfg.weeklyUsd ?? null,
-    quotaSource: cfg.quotaSource ?? null, now: ctx.now, readOnly: ctx.readOnly === true, refresh, resources: inputResources,
-  }, { resources, accountHome });
+  return {
+    plugin,
+    params: {
+      provider, usage: cfg.usage, account: account ? { name: account.name, kind: account.kind, source: account.source } : null,
+      accountHome, model: cfg.model ?? null, weeklyTokens: cfg.weeklyTokens ?? null, weeklyUsd: cfg.weeklyUsd ?? null,
+      quotaSource: cfg.quotaSource ?? null, now: ctx.now, readOnly: ctx.readOnly === true, refresh, resources: inputResources,
+    },
+    resources,
+    accountHome,
+  };
+}
+
+/** Project public account identity and fixed host-owned resources, never credential configuration. */
+export async function readPluginUsage(ctx: Ctx, cfg: ProviderCfg, account?: AccountCfg, refresh = false): Promise<UsageReading> {
+  const spec = usageCallSpec(ctx, cfg, account, refresh);
+  if ("reading" in spec) return spec.reading;
+  return pluginRegistry(ctx).call<UsageReading>(ctx, spec.plugin, "usage.read", spec.params, {
+    resources: spec.resources,
+    accountHome: spec.accountHome,
+  });
 }
