@@ -4,12 +4,12 @@ import { reviewQueue, needsYou } from "../../view-model/selectors";
 import { costCopy, reasonCopy } from "../../view-model/copy";
 import { displayTitle } from "../../view-model/titles";
 import { elapsed } from "../../view-model/time";
-import { executorLabel, taskStatus, taskOutcome, attentionStatus, mergeConflictStatus, type Status } from "../../view-model/words";
+import { executorLabel, taskStatus, taskOutcome, attentionStatus, type Status } from "../../view-model/words";
 import type { ClientTask } from "../../view-model/snapshot";
 import { box, cols, flex, glyph, heading, span, statusSpans, wrap, type Line, lineWidth } from "../frame";
 import type { Act, Item } from "../state";
 import { blank, defined, empty, GAP, MARK, time, wrapAfter, wrapLines, serviceAct } from "./common";
-import { acceptWords, isConflictGate, MERGE_ON_ACCEPT_WORDS, RECORD_ONLY_WORDS } from "../../view-model/run-gate";
+import { acceptWords, gateStatus, isConflictGate, MERGE_ON_ACCEPT_WORDS, RECORD_ONLY_WORDS } from "../../view-model/run-gate";
 import type { Resource, Row, ScreenCtx, ScreenView, TaskDetail } from "./types";
 import { managedSkipRows } from "./work";
 import {workRows} from "./work";
@@ -153,8 +153,9 @@ export function reviewDetail(ctx: ScreenCtx, a: AttentionItem, resource: Resourc
   const title = task ? displayTitle(task) : d ? displayTitle(d) : a.title;
   const rows: Row[] = [];
   for (const line of wrap(title, width, 2)) rows.push({ line: [span(line, { bold: true })] });
-  // A branch conflict's record asks nothing: say what it is, not "needs your answer".
-  const status = isConflictGate(a) ? mergeConflictStatus : taskStatus(d ?? task ?? { state: "done" });
+  // What a gate holds up beats "completed", as in the list beside this page; a conflict record asks nothing.
+  const shown = d ?? task ?? { state: "done" };
+  const status = gateStatus(s.attention, { ...shown, id: a.taskId! }) ?? taskStatus(shown);
   const executor = d?.executor ?? task?.executor ?? a.executor;
   const ran = d?.startedAt && d.endedAt ? `ran ${elapsed(d.endedAt - d.startedAt)}` : task?.attemptStartedAt ? `ran ${elapsed(task.updatedAt - task.attemptStartedAt)}` : "";
   const branch = d?.branch ? `${d.branch}${d.base ? ` ${glyph(theme, "→")} ${d.base}` : ""}` : "";

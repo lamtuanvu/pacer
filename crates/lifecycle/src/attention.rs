@@ -770,14 +770,15 @@ pub fn apply(store: &mut Value, items: Vec<Item>, time: f64, prune: Prune<'_>) -
             store[&id] = json!({"since":time});
         }
         let e = &store[&id];
-        if e.get("dismissedSince") == e.get("since") || n(&e["snoozedUntil"]) > time {
+        let stays = is_review_gate(&id);
+        if !stays && (e.get("dismissedSince") == e.get("since") || n(&e["snoozedUntil"]) > time) {
             continue;
         }
         item.fields.insert("since".into(), e["since"].clone());
         if !truth(item.get("taskId")) {
             item.fields.insert("raisedAt".into(), e["since"].clone());
         }
-        if let Some(until) = e.get("snoozedUntil") {
+        if !stays && let Some(until) = e.get("snoozedUntil") {
             item.fields.insert("snoozedUntil".into(), until.clone());
         }
         out.push(item);
@@ -785,6 +786,14 @@ pub fn apply(store: &mut Value, items: Vec<Item>, time: f64, prune: Prune<'_>) -
     sort(&mut out);
     out
 }
+/// A review gate is not dismissible and cannot be snoozed (`isReviewGate`,
+/// `src/view-model/run-gate.ts`): it clears when the work is decided.
+pub fn is_review_gate(id: &str) -> bool {
+    id.starts_with("run_review:")
+}
+pub const REVIEW_GATE_STAYS: &str =
+    "This item stays until the work is decided: it cannot be dismissed or snoozed.";
+
 pub fn dismiss(store: &mut Value, id: &str, items: &[Item], time: f64) -> Result<Value, Error> {
     raised(store, id, items, time, true)?;
     store[id]["dismissedSince"] = store[id]["since"].clone();
@@ -815,6 +824,9 @@ fn raised(
     time: f64,
     allow: bool,
 ) -> Result<(), Error> {
+    if is_review_gate(id) {
+        return Err(Error::new("not_allowed", REVIEW_GATE_STAYS));
+    }
     if !items.iter().any(|i| s(i.get("id")) == id)
         && !(allow
             && store.get(id).is_some()
@@ -896,5 +908,32 @@ mod stalled_detail_tests {
             stalled_detail(&json!({"reason":"cycle","since":now}), now),
             "Conversation stalled: cycle"
         );
+    }
+}
+
+#[cfg(test)]
+mod gate_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn a_review_gate_ignores_and_refuses_dismiss_and_snooze() {
+        let gate =
+            Item::from_value(&json!({"id":"run_review:t-1","taskId":"t-1","severity":"decide"}));
+        let other =
+            Item::from_value(&json!({"id":"review:t-2","taskId":"t-2","severity":"decide"}));
+        // As an earlier version could have stored them.
+        let hidden = json!({"since":1,"dismissedSince":1,"snoozedUntil":999});
+        let mut store = json!({"run_review:t-1": hidden, "review:t-2": hidden});
+        let shown = apply(&mut store, vec![gate, other], 10.0, Prune::All);
+        assert_eq!(shown.len(), 1);
+        assert_eq!(s(shown[0].get("id")), "run_review:t-1");
+        assert!(shown[0].get("snoozedUntil").is_null());
+        for refused in [
+            dismiss(&mut store, "run_review:t-1", &shown, 10.0),
+            snooze(&mut store, "run_review:t-1", "1h", &shown, 10.0),
+        ] {
+            assert!(refused.is_err());
+        }
     }
 }

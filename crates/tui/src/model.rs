@@ -227,6 +227,27 @@ pub fn title(t: &V) -> String {
     crate::titles::title(t)
 }
 
+/// What a workflow gate says about a task it holds (`gateStatus`,
+/// `src/view-model/run-gate.ts`): it beats the task's own "completed".
+pub fn held_status(s: &V, t: &V) -> Line {
+    let id = text(&t["id"]);
+    let items = arr(&s["attention"]);
+    if t["state"] == "needs_input" && items.iter().any(|a| text(&a["gate"]["recordId"]) == id) {
+        return line("! Merge conflict");
+    }
+    if t["review"].is_null() {
+        let held = items
+            .iter()
+            .find(|a| !a["gate"].is_null() && text(&a["taskId"]) == id);
+        match held.map(|a| text(&a["gate"]["kind"])) {
+            Some("step_conflict") => return line("! Merge conflict"),
+            Some("step_review") => return line("◐ Waiting for review"),
+            _ => {}
+        }
+    }
+    status(t)
+}
+
 pub fn status(t: &V) -> Line {
     let state = text(&t["state"]);
     let phase = text(fallback(&t["progress"]["phase"], &t["phase"]));

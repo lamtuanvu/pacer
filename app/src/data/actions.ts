@@ -1,5 +1,5 @@
 import type { Action } from "../../../src/api/read-model/types";
-import { OutcomeError, outcomeProblem } from "../../../src/view-model/run-gate";
+import { isReviewGate, OutcomeError, outcomeProblem } from "../../../src/view-model/run-gate";
 import { ApiError, type BrowserApi } from "./api";
 import type { StoreState } from "./store";
 
@@ -64,6 +64,8 @@ export function createActionRunner(deps: ActionDeps) {
     refetch: () => deps.refetch(),
     async run(key: string, action: Action, confirmDone?: (s: StoreState) => boolean): Promise<ActionState> {
       if (action.op === "ui.open") { deps.navigate(uiHref(action.params)); return set(key, { status: "done" }); }
+      // A review gate stays until its work is decided: a dismiss shortcut does nothing to it.
+      if ((action.op === "attention.dismiss" || action.op === "attention.snooze") && isReviewGate(String(action.params.id))) return set(key, { status: "idle" });
       if (deps.connected && !deps.connected()) return set(key, { status: "error", message: "Reconnecting… Service actions are available when pacer reconnects." });
       set(key, { status: "pending" });
       results.delete(key);

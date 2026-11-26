@@ -44,6 +44,14 @@ export const acceptWords = (item: AttentionItem | undefined): string => item?.ga
 export const isConflictGate = (item: AttentionItem | undefined): boolean =>
   item?.gate?.kind === "step_conflict" || item?.gate?.kind === "branch_conflict";
 
+/**
+ * A review gate is not dismissible and cannot be snoozed: hiding it would take away
+ * the only offer to accept, send back or resolve, and dismissing its item would
+ * dismiss the task under review. It clears when the work is decided.
+ */
+export const isReviewGate = (id: string): boolean => id.startsWith("run_review:");
+export const REVIEW_GATE_STAYS = "This item stays until the work is decided: it cannot be dismissed or snoozed.";
+
 /** A call that succeeded without doing what was asked, such as an accept that conflicts. */
 export class OutcomeError extends Error {}
 

@@ -1,7 +1,7 @@
 /** Home: the app's Overview — Needs you, Running, Capacity, Done today, in that order. */
 import { capacity, counts, doneToday, needsYou, otherReposNeedingYou, reviewQueue, running } from "../../view-model/selectors";
 import { attentionStatus, taskOutcome } from "../../view-model/words";
-import { taskStatusIn } from "../../view-model/run-gate";
+import { isReviewGate, taskStatusIn } from "../../view-model/run-gate";
 import { executorEligibility, executorPace, queueWait } from "../../view-model/capacity";
 import { displayTitle } from "../../view-model/titles";
 import { ago, elapsed } from "../../view-model/time";
@@ -31,7 +31,7 @@ export function homeScreen(ctx: ScreenCtx): ScreenView {
     // As the app: the task's complete title, else the attention item's own. Titles get the larger share of the row.
     const title = task?.fullTitle?.trim() || (a as { fullTitle?: string }).fullTitle?.trim() || a.title;
     const acts = defined(a.actions.map(action => serviceAct(ctx, action, title)));
-    const dismiss = opAct(ctx, "Dismiss", "attention.dismiss", { id: a.id });
+    const dismiss = isReviewGate(a.id) ? undefined : opAct(ctx, "Dismiss", "attention.dismiss", { id: a.id });
     const review: Act | undefined = a.kind === "review" && a.taskId ? { label: "Review changes", effect: { type: "navigate", screen: "review", id: a.taskId } } : undefined;
     const item: Item = { id: `attention:${a.id}`, primary: acts[0], actions: [...acts.slice(1), ...defined([review, dismiss])], keys: { ...(dismiss ? { x: dismiss } : {}), ...(review ? { v: review } : {}) } };
     const w = wide ? flex(width, [{ fixed: 20 }, { weight: 3, min: 16 }, { fixed: 10 }, { weight: 2, min: 10 }, { fixed: 5 }]) : flex(width, [{ fixed: 20 }, { weight: 1, min: 12 }, { weight: 1, min: 8 }]);

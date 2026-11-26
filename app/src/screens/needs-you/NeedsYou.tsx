@@ -60,7 +60,7 @@ export function NeedsYouPage({ query }: { query: RouteQuery }) {
             <span className="ny-reason" title={reason}>{reason}</span>
             <span className="ny-meta ny-cap"><AgentMark agent={agent} size={16} labelled={false} /><span className="ny-mono" title={repoLabel}>{repoLabel}</span> · {question ? "asked " : review ? "finished " : ""}{question || review ? `${durationWords(now - item.raisedAt)} ago` : clock(item.raisedAt, now)}</span>
           </TextAction>
-          <span className="ny-actions">{question ? <ButtonLink typography="board" size="sm" href={`#/workspace?task=${encodeURIComponent(item.taskId!)}&panel=session&tab=answer`}>Open in workspace</ButtonLink> : review ? <ButtonLink typography="board" size="sm" href={`#/workspace?task=${encodeURIComponent(item.taskId!)}`}>Open workspace</ButtonLink> : stop ? <ActionButton runner={runner} id={`${item.id}:stop`} action={{ ...stop, label: "Stop task" }} /> : null}<ButtonLink typography="board" size="sm" variant="primary" href={href}>{question ? "Answer" : review ? "Review" : "Inspect failures"}</ButtonLink></span>
+          <span className="ny-actions">{question ? <ButtonLink typography="board" size="sm" href={`#/workspace?task=${encodeURIComponent(item.taskId!)}&panel=session&tab=answer`}>Open in workspace</ButtonLink> : review ? <ButtonLink typography="board" size="sm" href={`#/workspace?task=${encodeURIComponent(item.taskId!)}`}>Open workspace</ButtonLink> : stop ? <ActionButton runner={runner} id={`${item.id}:stop`} action={{ ...stop, label: "Stop task" }} /> : null}<ButtonLink typography="board" size="sm" href={href}>{question ? "Answer" : review ? "Review" : "Inspect failures"}</ButtonLink></span>
         </div>;
       })}
       {!shown.length && <EmptyState title="Nothing needs your attention" description="Tasks appear here when they need an answer, a fix or a review." />}
@@ -86,7 +86,7 @@ function GateRow({ item, query, now }: { item: AttentionItem; query: RouteQuery;
     </div>
     <span className="ny-actions">
       {review && <ButtonLink typography="board" size="sm" href={withQuery(`${task}/review`, query)}>Review</ButtonLink>}
-      {item.actions.map(action => <ActionButton key={action.label} runner={runner} id={`${item.id}:${action.label}`} action={action} strong={action.style === "primary"} />)}
+      {item.actions.map(action => <ActionButton key={action.label} runner={runner} id={`${item.id}:${action.label}`} action={action} />)}
     </span>
   </div>;
 }

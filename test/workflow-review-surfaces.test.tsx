@@ -29,6 +29,10 @@ import { orchestratorBlock, runReasonWords, waitsOnLabel } from "../src/view-mod
 import { attentionStatus, stepReviewStatus } from "../src/view-model/words";
 import { Tray } from "../app/src/tray/Tray";
 import { keepFocus } from "../app/src/data/announce";
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { applyStore, dismissItem, snoozeItem } from "../src/attention/store";
+import { fakeCtx } from "./helpers";
 import { sessionDetail } from "../app/src/screens/session/controller";
 import { readableBrief } from "../src/view-model/brief";
 
@@ -161,7 +165,7 @@ function dashboard(attention: AttentionItem[], respond: (op: string) => unknown)
   const s = snapshotWith(attention), calls: { op: string; params: unknown }[] = [], frames: string[] = [];
   const client: ApiClient = {
     kind: "http",
-    hello: async () => ({ protocol: "3.0.0", pacer: "0", ops: ["task.review", "task.get", "run.stop", "run.sync_base", "run.get"], events: [] }),
+    hello: async () => ({ protocol: "3.0.0", pacer: "0", ops: ["task.review", "task.get", "run.stop", "run.sync_base", "run.get", "attention.dismiss"], events: [] }),
     snapshot: async () => ({ protocol: "3.0.0", seq: 1, snapshot: s }),
     call: async <T,>(op: string, params?: unknown) => {
       calls.push({ op, params });
@@ -300,4 +304,63 @@ test("a record brief is shown without its own fence, in every web view of the br
   const session = sessionDetail({ ...taskGet, brief: { goal: fenced, repo: "r" } } as never);
   expect(session.briefSections![0]).toEqual({ label: "Goal", text: shown });
   expect(JSON.stringify(session.brief)).not.toContain("1a2b3c4d");
+});
+
+test("Needs you and Dispatch make no gate action the primary one", () => {
+  const snapshot = snapshotWith([stepConflict, stepReview, adoption]);
+  const page = draw(snapshot, <NeedsYouPage query={{ repo: null, scope: null }} />);
+  expect(page).toContain("Send back to resolve");
+  expect(page).not.toContain("pc-btn--primary");
+  const cards = draw(snapshot, <NeedsYouList snapshot={snapshot} scope={{ repo: null }} runner={runner} now={200} query={{ repo: null, scope: null }} narrow={false} />);
+  expect(cards).not.toContain("pc-btn--primary");
+  // An ordinary review row follows the same rule.
+  const ordinary = { ...stepReview, id: "review:" + TASK, gate: undefined };
+  const waiting = snapshotWith([ordinary]);
+  waiting.tasks[0]!.reviewRequest = { note: "check", at: 100 } as never;
+  const rows = draw(waiting, <NeedsYouPage query={{ repo: null, scope: null }} />);
+  expect(rows).toContain("data-attention-id");
+  expect(rows).not.toContain("pc-btn--primary");
+});
+
+test("the terminal's detail pane says what its list says about a held task", async () => {
+  const t = dashboard([stepReview], () => undefined);
+  await t.dash.refresh();
+  await t.keys("3");
+  expect(t.last()).toContain("Waiting for review");
+  expect(t.last()).not.toContain("Completed ·");
+});
+
+test("a review gate cannot be dismissed or snoozed, and an earlier dismissal does not hide it", async () => {
+  const ctx = fakeCtx();
+  const ordinary = { ...stepReview, id: "review:t-1", gate: undefined };
+  const items = () => applyStore(ctx, [stepReview, ordinary]);
+  items();
+  expect(() => dismissItem(ctx, stepReview.id, [stepReview])).toThrow("cannot be dismissed or snoozed");
+  expect(() => snoozeItem(ctx, stepReview.id, "1h", [stepReview])).toThrow("cannot be dismissed or snoozed");
+  // As an earlier version could have stored it.
+  const path = join(ctx.pacerHome, "state", "attention.json");
+  const store = JSON.parse(readFileSync(path, "utf8")) as Record<string, Record<string, number>>;
+  store[stepReview.id]!.dismissedSince = store[stepReview.id]!.since!;
+  store[stepReview.id]!.snoozedUntil = ctx.now + 3600;
+  writeFileSync(path, JSON.stringify(store));
+  dismissItem(ctx, ordinary.id, [ordinary]);
+  const shown = items();
+  expect(shown.map(i => i.id)).toEqual([stepReview.id]);
+  expect(shown[0]!.snoozedUntil).toBeUndefined();
+});
+
+test("the terminal offers no dismiss for a review gate", async () => {
+  const t = dashboard([stepReview], () => undefined);
+  await t.dash.refresh();
+  await t.keys("1", "x");
+  expect(t.calls.filter(c => c.op === "attention.dismiss")).toEqual([]);
+});
+
+test("the web dismiss shortcut leaves a review gate alone", async () => {
+  const calls: string[] = [];
+  const app = createActionRunner({ call: async op => { calls.push(op); return {} as never; }, waitFor: async () => true, refetch: () => {}, navigate: () => {} });
+  await app.run("k", { label: "Dismiss", op: "attention.dismiss", params: { id: stepReview.id } });
+  await app.run("s", { label: "Snooze", op: "attention.snooze", params: { id: stepReview.id, for: "1h" } });
+  await app.run("o", { label: "Dismiss", op: "attention.dismiss", params: { id: "review:t-1" } });
+  expect(calls).toEqual(["attention.dismiss"]);
 });

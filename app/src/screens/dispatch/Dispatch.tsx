@@ -61,8 +61,9 @@ const taskLink = (query: RouteQuery) => (id: string) => withQuery(`#/workspace?t
 /** Card actions retain scoped result links and open questions in the Answer panel. */
 function itemActions(item: AttentionItem, runner: ActionRunner, strong: boolean, count: 1 | 2, query: RouteQuery, ops: ReadonlySet<string>) {
   return item.actions.slice(0, count).map((action, i) => {
-    // A workflow gate's actions are what can be done now: never replaced.
-    if (item.gate) return <ActionButton key={action.label} runner={runner} id={`${item.id}:${action.label}`} strong={strong && i === 0} action={action} confirmDone={gone(item)} />;
+    // A workflow gate's actions are what can be done now: never replaced. A run can
+    // hold many gates, so none is the screen's primary (UI-14).
+    if (item.gate) return <ActionButton key={action.label} runner={runner} id={`${item.id}:${action.label}`} action={action} confirmDone={gone(item)} />;
     if ((action.op === "task.answer" || action.op === "dispatch.answer")) {
       return <TextAction key={i} href={withQuery(`#/workspace?task=${encodeURIComponent(item.taskId!)}`, query)}>{action.label}</TextAction>;
     }
