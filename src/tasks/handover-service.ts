@@ -62,9 +62,9 @@ let inflight: Promise<HandoverReport> | null = null;
 /**
  * One handover at a time per service: a desktop update's commit signal and the desktop's own
  * post-install `service.handover` call can arrive together; the later caller joins the running one.
- * Each run logs one line with its origin, so evidence can count handovers per update.
+ * Each run logs one line with its origin to stderr (stdout carries stdio JSON-RPC replies), so evidence can count handovers per update.
  */
-export function sharedHandover(start: () => Promise<HandoverReport>, origin: "commit" | "request" = "request", log: (line: string) => void = line => console.info(line)): Promise<HandoverReport> {
+export function sharedHandover(start: () => Promise<HandoverReport>, origin: "commit" | "request" = "request", log: (line: string) => void = line => console.error(line)): Promise<HandoverReport> {
   if (inflight) return inflight;
   const run = start().then(
     report => { log(`pacer: handover (${origin}): signalled=${report.signalled ?? 0}; ${report.summary}`); return report; },
