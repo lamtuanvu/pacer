@@ -1,7 +1,8 @@
 // A session host, its hooks and `pacer report` are re-entries of the pacer CLI that inherit the agent's
 // environment. A planner turn or a step worker holds a scoped grant there, which must not refuse them.
 import { expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { main } from "../src/cli";
 import { readReport } from "../src/session/reports";
@@ -36,6 +37,8 @@ async function exited(dir: string) {
     await Bun.sleep(50);
   }
 }
+
+const REFUSED: Record<string, string> = { "planner turn": "orchestrator role only allows", "step worker": "work grants only allow" };
 
 for (const [holder, grant] of Object.entries(GRANTS)) {
   for (const session of ["interactive", "pty"] as const) {
@@ -73,7 +76,7 @@ for (const [holder, grant] of Object.entries(GRANTS)) {
   test(`a ${holder} still cannot open another session or report as the user`, async () => {
     const { ctx, task, dir } = runningTask("interactive");
     const holding = { ...ctx, env: { ...ctx.env, ...grant } };
-    const refused = holder === "planner turn" ? "orchestrator role only allows" : "work grants only allow";
+    const refused = REFUSED[holder]!;
     for (const [argv, env] of [
       [["_session", dir], {}],
       [["_session", `socket:${join(dir, "session.sock")}`], {}],
@@ -81,10 +84,67 @@ for (const [holder, grant] of Object.entries(GRANTS)) {
       [["_session", dir], { PACER_ADMISSION_DIR: join(dir, "..", "2"), PACER_ADMISSION_SESSION: "lease" }],
       [["report", "--task", task.id, "--outcome", "done", "--summary", "x"], {}],
       [["report", "--task", task.id, "--outcome", "done", "--summary", "x"], { PACER_RUN_DIR: dir }],
+      [["_session-hook", dir], {}],
+      [["_session-hook", dir], { PACER_RUN_DIR: dir }],
+      [["_session-hook", dir], { PACER_REPORT_TOKEN: "token" }],
     ] as [string[], Record<string, string>][]) {
       const result = await main(argv, { ...holding, env: { ...holding.env, ...env } });
       expect({ argv, code: result.code, err: result.err }).toEqual({ argv, code: 2, err: expect.stringContaining(refused) });
     }
     expect(readReport(dir)).toBeNull();
   });
+}
+
+for (const [holder, grant] of Object.entries(GRANTS)) {
+  // The gate only reads variables the caller controls; these are the checks that bound what passes it.
+  test(`a ${holder} cannot forge a session host, a report token or another task's report`, async () => {
+    const mine = runningTask("interactive"), { ctx, task, dir } = mine;
+    const other = createTask(ctx, { brief: { goal: "other", repo: tmpDir() }, kind: null, requestedExecutor: null, timeoutS: 60 });
+    const otherDir = join(ctx.pacerHome, "runs", other.id, "1");
+    updateTask(ctx, other.id, t => {
+      t.state = "running";
+      t.run = { dir: otherDir, attempt: 1, executor: "codex", startedAt: Date.now() / 1000, mode: "current",
+        workdir: t.brief.repo, logFile: join(otherDir, "stdout"), session: "interactive" };
+    });
+    for (const [run, token] of [[dir, "mine"], [otherDir, "theirs"]] as const) {
+      mkdirSync(run, { recursive: true });
+      writeFileSync(join(run, "interactive.json"), JSON.stringify({ reportToken: token }));
+    }
+    writeFileSync(join(dir, "session.json"), JSON.stringify({ interactive: true, argv: ["/bin/sh", "-c", "exit 0"], cwd: task.brief.repo, pacerHome: ctx.pacerHome }));
+    const agent = { ...ctx, env: { ...ctx.env, ...grant, PACER_RUN_DIR: dir, PACER_REPORT_TOKEN: "mine" } };
+    const report = (id: string) => ["report", "--task", id, "--outcome", "done", "--summary", "x"];
+    for (const [argv, env, reason] of [
+      [report(task.id), { PACER_REPORT_TOKEN: "wrong" }, "PACER_REPORT_TOKEN mismatch"],
+      [report(other.id), {}, "report task id does not match"],
+      [report(other.id), { PACER_RUN_DIR: otherDir }, "PACER_REPORT_TOKEN mismatch"],
+      [["_session-hook", dir], { PACER_REPORT_TOKEN: "wrong" }, "PACER_REPORT_TOKEN mismatch"],
+      [["_session-hook", otherDir], {}, "invalid hook destination"],
+      [["_session-hook", otherDir], { PACER_RUN_DIR: otherDir }, "PACER_REPORT_TOKEN mismatch"],
+    ] as [string[], Record<string, string>, string][]) {
+      const result = await main(argv, { ...agent, env: { ...agent.env, ...env } });
+      expect({ argv, code: result.code, err: result.err }).toEqual({ argv, code: 2, err: expect.stringContaining(reason) });
+    }
+    expect([readReport(dir), readReport(otherDir)]).toEqual([null, null]);
+    // A made-up admission pair passes the gate and fails on the lease claim, before any run file is written.
+    const forged = spawnSync(process.execPath, [cli, "_session", dir], { encoding: "utf8", timeout: 15_000,
+      env: { PATH: process.env.PATH, HOME: ctx.home, PACER_HOME: ctx.pacerHome, ...grant,
+        PACER_ADMISSION_DIR: dir, PACER_ADMISSION_SESSION: "made-up" } });
+    expect(forged.status).toBe(2);
+    expect(forged.stderr).toContain("lease");
+    expect(["pid", "started", "exit"].filter(name => existsSync(join(dir, name)))).toEqual([]);
+  }, 30_000);
+
+  test(`the agent of a ${holder} gets no admission variables`, async () => {
+    const { ctx, task, dir } = runningTask("interactive");
+    const out = join(tmpDir(), "agent.env");
+    startRun({ dir, argv: ["/bin/sh", "-c", 'env > "$OUT"'], cwd: task.brief.repo, session: "interactive",
+      env: { PATH: process.env.PATH, ...grant, PACER_TASK_ID: task.id, PACER_HOME: ctx.pacerHome, PACER_RUN_DIR: dir,
+        PACER_COMPLETION_NONCE: "nonce", OUT: out } });
+    try {
+      expect((await exited(dir)).exit).toBe(0);
+      const names = readFileSync(out, "utf8").split("\n").map(line => line.split("=")[0]);
+      expect(names).toContain("PACER_REPORT_TOKEN");
+      expect(names.filter(name => name!.startsWith("PACER_ADMISSION_") || name === "PACER_COMPLETION_NONCE")).toEqual([]);
+    } finally { await stopRun(dir, { graceMs: 500 }); }
+  }, 30_000);
 }
