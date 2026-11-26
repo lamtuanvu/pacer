@@ -634,32 +634,30 @@ fn agent_workspace_busy(ctx: &Ctx, db: &Connection, path: &Path) -> Result<bool,
     Ok(false)
 }
 
-/// Git runs off the reactor thread and under the same deadlines as
-/// `src/supervisor/worktree.ts` (15 s status, 60 s remove), so a hung git cannot
-/// hold the clean locks or stall the caller indefinitely.
+/// Git runs under the same deadlines as `src/supervisor/worktree.ts` (15 s
+/// status, 60 s remove). `kill_on_drop` makes a timeout kill the child instead
+/// of detaching it, so a late `git worktree remove` cannot mutate a worktree
+/// that cleanup just decided to keep.
 async fn git_output(
     ctx: &Ctx,
     args: &[&str],
     timeout: Duration,
 ) -> Result<std::process::Output, String> {
-    let home = ctx.home.clone();
-    let pacer_home = ctx.pacer_home.clone();
-    let argv: Vec<String> = args.iter().map(|arg| (*arg).to_owned()).collect();
-    let handle = tokio::task::spawn_blocking(move || {
-        std::process::Command::new("git")
-            .args(&argv)
-            .env("HOME", &home)
-            .env("PACER_HOME", &pacer_home)
-            .output()
-    });
-    match tokio::time::timeout(timeout, handle).await {
-        Ok(Ok(result)) => result.map_err(|error| error.to_string()),
-        Ok(Err(error)) => Err(format!("git task failed: {error}")),
-        Err(_) => Err(format!(
-            "git {} timed out",
-            args.first().copied().unwrap_or("command")
-        )),
-    }
+    let mut command = tokio::process::Command::new("git");
+    command
+        .args(args)
+        .env("HOME", &ctx.home)
+        .env("PACER_HOME", &ctx.pacer_home)
+        .kill_on_drop(true);
+    tokio::time::timeout(timeout, command.output())
+        .await
+        .map_err(|_| {
+            format!(
+                "git {} timed out",
+                args.first().copied().unwrap_or("command")
+            )
+        })?
+        .map_err(|error| error.to_string())
 }
 
 async fn worktree_dirty(ctx: &Ctx, path: &Path) -> Option<bool> {
