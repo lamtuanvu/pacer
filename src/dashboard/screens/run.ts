@@ -9,7 +9,8 @@ import {
   stepMarkerGlyph,
 } from "../../view-model/runs";
 import { elapsed } from "../../view-model/time";
-import { cols, flex, heading, span, statusSpans, wrap } from "../frame";
+import { cols, flex, glyph, heading, span, statusSpans, wrap } from "../frame";
+import { stepReviewStatus } from "../../view-model/words";
 import type { Act, Item } from "../state";
 import { blank, empty, MARK, opAct } from "./common";
 import { MSG_BODY_MAX } from "./answer-encoding";
@@ -42,8 +43,8 @@ function stepDetailRows(ctx: ScreenCtx, detail: RunDetail, line: TreeLine | unde
   const rows: Row[] = [];
   rows.push({ line: heading(ctx.theme, line.label) });
   rows.push({
-    line: statusSpans(ctx.theme, {
-      label: line.waitsOnYou ? "Waits on you" : line.awaitsReview ? "Waiting for review" : line.status,
+    line: statusSpans(ctx.theme, line.awaitsReview && !line.waitsOnYou ? stepReviewStatus : {
+      label: line.waitsOnYou ? "Waits on you" : line.status,
       tone: line.waitsOnYou ? "warn" : line.status === "failed" ? "bad" : line.status === "done" ? "good" : "info",
       glyph: stepMarkerGlyph(stepMarkerFor({ status: line.status, waitsOnYou: line.waitsOnYou }), ctx.theme.unicode),
     }),
@@ -228,7 +229,7 @@ export function runViewScreen(ctx: ScreenCtx, runId: string): ScreenView {
     };
     items.push(item);
 
-    const marker = stepMarkerGlyph(stepMarkerFor({ status: line.status, waitsOnYou: line.waitsOnYou }), ctx.theme.unicode);
+    const marker = line.awaitsReview && !line.waitsOnYou ? glyph(ctx.theme, stepReviewStatus.glyph) : stepMarkerGlyph(stepMarkerFor({ status: line.status, waitsOnYou: line.waitsOnYou }), ctx.theme.unicode);
     const indent = "  ".repeat(line.depth);
     const elapsedFor = elapsed(Math.max(0, ctx.now - (detail.steps.find(s => s.stepId === line.stepId && s.attempt === line.attempt && (s.branch ?? "") === (line.branch ?? ""))?.startedAt ?? ctx.now)));
     // Qualifier + duration so truncated cells still show running/waiting (N4).

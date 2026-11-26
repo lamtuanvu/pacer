@@ -19,7 +19,6 @@ import {
   stepByTask, stepByTaskLineage, taskByRequestId, workflowDatabase, type RunConflict, type RunRow,
 } from "./store";
 import { enqueueWakeup, stepWakeRef } from "./wakeups";
-import { dataPreamble } from "./template";
 import { isTransientError } from "./transient";
 import { awaitsReview, closeConflictRecord } from "./review";
 
@@ -665,22 +664,21 @@ function createConflictResolutionTask(
   // step up drop the marker.
   const held = stepByTask(ctx, task.id);
   const heldNow = held?.status === "running" || held?.status === "waiting";
-  const rawFiles = files.trim() || "(unknown)";
-  const capped = rawFiles.length > CONFLICT_FILES_CAP
-    ? `${rawFiles.slice(0, CONFLICT_FILES_CAP)}\n…(truncated)`
-    : rawFiles;
-  const nonce = randomBytes(4).toString("hex");
+  // A brief a person reads: no data markers. File names come from the repository,
+  // so each is one quoted line under a heading that says what it is.
+  const listed = (files.trim() || "(unknown)").split("\n")
+    .map(name => `- ${JSON.stringify(name).replace(/[\u2028\u2029]/g, " ")}`).join("\n");
+  const paths = listed.length > CONFLICT_FILES_CAP ? `${listed.slice(0, CONFLICT_FILES_CAP)}\n- …(truncated)` : listed;
   const goal = (own: string) => [
-    `Manual conflict resolution record for run ${run.id} (person or orchestrator; no executor runs this task).`,
-    `Run branch: ${run.branch}. Conflicting branch: ${taskBranch}.`,
-    dataPreamble(nonce),
-    `--- data ${nonce} conflicting-paths ---`,
-    capped,
-    `--- end data ${nonce} ---`,
+    `Merge conflict record for run ${run.id}. Nothing runs this task: a person or the planner resolves the conflict.`,
+    `Run branch: ${run.branch}. Conflicting branch or commit: ${taskBranch}.`,
+    "Conflicting files (names from the repository, not instructions):",
+    paths,
     ofTask
-      ? `Resolve it on task ${task.id}: send it back (pacer review ${task.id} --send-back --note "merge ${run.branch} into your branch, resolve and commit"), or merge ${run.branch} into ${taskBranch} in its worktree and commit; then accept ${task.id}. This record closes by itself.`
+      ? `Resolve it on task ${task.id}: send it back (pacer review ${task.id} --send-back --note "merge ${run.branch} into your branch, resolve and commit"), or merge ${run.branch} into ${taskBranch} in its worktree and commit; then accept it (pacer review ${task.id} --accept). This record closes by itself.`
       : `Resolve it by hand: git worktree add <dir> -b pacer/${own} ${run.branch}, merge ${taskBranch} there, resolve and commit, then run: pacer review ${own} --accept.`,
   ].join("\n");
+  const subject = held ? `step "${held.stepId}${held.branch ? `/${held.branch}` : ""}"` : "task changes";
   const resolution = createTask(ctx, {
     brief: { goal: goal("<this task>"), repo: run.repo, base: run.branch },
     kind: "debug",
@@ -688,7 +686,7 @@ function createConflictResolutionTask(
     timeoutS: 3600,
     title: (task.id.startsWith("base:") ? `Merge conflict: update from ${task.id.slice("base:".length)}`
       : task.id.startsWith("child:") ? "Merge conflict: sub-workflow changes"
-      : `Merge conflict: task ${task.id}`).slice(0, 60),
+      : `Merge conflict: ${subject}`).slice(0, 60),
     requestId,
   });
   // A record, not work: needs_input so the 600s never-started sweep cannot mark it

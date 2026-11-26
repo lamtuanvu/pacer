@@ -14,6 +14,7 @@ import { sendBackSteps, userStartedRoot, withManagedFallback } from '../../../..
 import { conflictRecordFor, gateFor, isConflictGate, MERGE_ON_ACCEPT_WORDS } from '../../../../src/view-model/run-gate';
 import { sendBackOnly } from '../review/RunGatePanel';
 import { ActionButton } from '../ActionButton';
+import { afterVerdict } from '../../data/announce';
 import { useActions } from '../../data/action-context';
 
 export function TaskActions({task:t,query,reload,embedded=false}:{task:TaskDetail;query:RouteQuery;reload:()=>void;embedded?:boolean}) {
@@ -35,7 +36,7 @@ export function TaskActions({task:t,query,reload,embedded=false}:{task:TaskDetai
  const node=tree.data?.nodes.find(n=>n.taskId===t.id);
  const ready=!t.work||!!node&&tree.data!.nodes.filter(n=>n.parentId===t.id).every(n=>n.review?.accepted||node.waivedChildren.includes(n.taskId));
  const stop=state.snapshot?.attention?.filter(i=>i.taskId===t.id).flatMap(i=>i.actions).find(a=>a.op==='task.stop'||a.op==='dispatch.stop');
- const submit=(accept:boolean)=>void action.run(managed?'dispatch.review':'task.review',managed?{id:t.id,expect_rev:t.rev,accepted:accept,...(!accept?{note:note.trim()}:{})}:verdictParams(t,{verdict:accept?'accept':'reject',note}),()=>{setReject(false);reload();});
+ const submit=(accept:boolean)=>{const op=managed?'dispatch.review':'task.review',params=managed?{id:t.id,expect_rev:t.rev,accepted:accept,...(!accept?{note:note.trim()}:{})}:verdictParams(t,{verdict:accept?'accept':'reject',note});void action.run(op,params,()=>{setReject(false);reload();afterVerdict({label:'',op,params});});};
  // Send back continues the session with the note; without one, the service names dispatch.* and the managed steps run.
  const sendBackNow=async()=>{
   if(sending||!note.trim())return;setSending(true);setSendError(undefined);

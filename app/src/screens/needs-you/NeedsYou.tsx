@@ -74,7 +74,7 @@ export function NeedsYouPage({ query }: { query: RouteQuery }) {
 /** A workflow gate in its own words, with the actions its item offers. */
 function GateRow({ item, query, now }: { item: AttentionItem; query: RouteQuery; now: number }) {
   const runner = useActions(), review = item.gate!.kind === "step_review" || item.gate!.kind === "step_conflict";
-  const status = item.gate!.kind === "step_review" ? { label: "Ready for review", tone: "info" as const, glyph: "●" } : attentionStatus(item);
+  const status = attentionStatus(item);
   const task = item.taskId ? `#/tasks/${encodeURIComponent(item.taskId)}` : item.run ? `#/runs/${encodeURIComponent(item.run.id)}` : "#/runs";
   return <div className="ny-item" data-attention-id={item.id}>
     <span aria-hidden="true" className={`ny-glyph ny-glyph--${status.tone === "neutral" ? "info" : status.tone}`}>{status.glyph}</span>

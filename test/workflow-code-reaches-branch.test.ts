@@ -1568,7 +1568,13 @@ test("a conflicting step shows the conflict, how to send it back and its record"
   expect(item.actions.map(a => a.label)).toEqual(["Accept", "Reject"]);
   expect(item.detail).toContain("worktree and commit");
   expect(conflictRecordFor(attention, c.record)?.id).toBe(item.id);
-  expect(readTask(w.ctx, c.record)!.title).toStartWith("Merge conflict: task");
+  const record = readTask(w.ctx, c.record)!;
+  // A title and brief a person can read: no task id in the title, no data markers.
+  expect(record.title).toStartWith('Merge conflict: step "');
+  expect(record.title).not.toContain("t-2");
+  expect(record.brief.goal).not.toMatch(/--- (end )?data|nonce/);
+  expect(record.brief.goal).toContain(`pacer review ${c.y}`);
+  expect(item.title).toEndWith(" · run A");
 });
 
 test("a base update conflict reads plainly, keeps one open record and refuses an accept that resolves nothing", async () => {
@@ -1583,7 +1589,7 @@ test("a base update conflict reads plainly, keeps one open record and refuses an
   expect(outcomeProblem("run.sync_base", first)).toContain("still conflicts");
   const record = first.resolution_task;
   const item = seen(s.w).needs.find(i => i.id === `run_review:${record}`)!;
-  expect(item.title).toBe("Merge conflict: update from main");
+  expect(item.title).toBe("Merge conflict: update from main · run A");
   expect(item.gate!.kind).toBe("branch_conflict");
   expect(item.gate!.commands!.join("\n")).toContain(`merge ${getRun(s.w.ctx, s.run.id)!.conflict![0]!.branch}`);
   expect(item.actions.map(a => a.label)).toEqual(["Try the update again", "Accept the resolution"]);

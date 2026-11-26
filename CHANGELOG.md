@@ -52,6 +52,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - The review gate is usable from Needs you in the web app, the browser tray and the terminal. Code-step reviews, merge conflicts, base-update conflicts and sub-workflow branches that cannot reach the run branch are listed with the actions that can work, and a finished or partial step keeps Accept and Reject.
 - An accept or base update that conflicts says that nothing was merged, instead of reporting success or nothing. Accepting a code step says it merges, the tray asks before it does, and a run is not stopped by one key press.
 - A base-update conflict keeps one open record, shows the commands that resolve it, and its record can be accepted only once the conflict is resolved. A parked step reads "waiting for review".
+- A step under review reads "Waiting for review" on every surface, a Dispatch conflict card says "Merge conflict", review-gate titles end with the run letter, and an accept, reject or send-back is announced with focus kept on the page. Conflict records are titled by step and described in plain words, and a blocked planner's reason is no longer shown as an internal code.
 - A generated run whose code cannot be added to the run branch is shown in Needs you with the reason.
 
 ## [0.18.6] - 2026-11-26

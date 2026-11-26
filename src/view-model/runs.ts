@@ -101,6 +101,10 @@ export function pausedReasonLabel(reason: string | null | undefined): string {
  * First line of the run view: the orchestrator block.
  * Example: `planner at limit until 18:00`.
  */
+/** A run's stored reason in plain words (UI-12). */
+export const runReasonWords = (reason: string): string => /^unresolved wake /i.test(reason)
+  ? "The planner stopped after two turns that left work undone. Retry it to continue." : reason;
+
 export function orchestratorBlock(
   orch: { state?: string; planner?: string; reason?: string; next_wake_at?: number } | null | undefined,
   now: number,
@@ -115,7 +119,7 @@ export function orchestratorBlock(
       });
       return `planner at limit until ${until}`;
     }
-    return reason;
+    return runReasonWords(reason);
   }
   if (orch.state === "turn") return "Orchestrator working";
   if (orch.state === "retrying") return "Orchestrator retrying";

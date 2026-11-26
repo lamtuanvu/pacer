@@ -84,6 +84,8 @@ const sessionStates: Record<string, Status> = {
 const waitingReview = status("Review requested", "warn", "◐");
 /** A workflow merge that conflicted, on its attention item and its record task. */
 export const mergeConflictStatus: Status = status("Merge conflict", "warn", "!");
+/** A workflow code step that waits for its verdict, wherever it is shown. */
+export const stepReviewStatus: Status = status("Waiting for review", "info", "◐");
 export interface TaskStatusInput { activeAgentSessions?:number; interactionMode?: import("../tasks/types").InteractionMode; conversation?: import("../tasks/types").ConversationState; dismissed?: boolean; resolved?: string | null; retriedBy?: string | null; state: string; review?: { accepted: boolean } | null; acceptanceState?: string; phase?: string; progress?: { phase?: string } | null }
 export function taskStatus(task: TaskStatusInput): Status {
   if(task.activeAgentSessions)return status("Working", "info", "▶");
@@ -154,6 +156,7 @@ export function paceStatus(verdict: string): Status {
 export function attentionStatus(item: { kind: string; taskId?: string; gate?: { kind: string } }, tasks: (TaskStatusInput & { id: string })[] = []): Status {
   const task = tasks.find(t => t.id === item.taskId);
   if (item.gate?.kind === "step_conflict" || item.gate?.kind === "branch_conflict") return mergeConflictStatus;
+  if (item.gate?.kind === "step_review") return stepReviewStatus;
   if (item.gate?.kind === "adoption") return status("Run blocked", "bad", "✕");
   if (item.kind === "review") return waitingReview;
   if (item.kind === "message") return status("Waiting on you", "warn", "!");

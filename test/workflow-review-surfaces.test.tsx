@@ -22,10 +22,13 @@ import type { ClientSnapshot } from "../src/view-model/snapshot";
 import { counts, needsYou } from "../src/view-model/selectors";
 import { decisionKindLabel, stripSteps } from "../src/view-model/run-board";
 import { buildRunTree } from "../src/view-model/run-tree";
-import { conflictedTasks, OutcomeError, runGateNote, taskStatusIn } from "../src/view-model/run-gate";
+import { conflictedTasks, OutcomeError, runGateNote, taskStatusIn, verdictAnnouncement } from "../src/view-model/run-gate";
 import { deskWords } from "../app/src/screens/runs/BoardCanvas";
 import { layoutLiveBoard } from "../app/src/screens/runs/live-board-layout";
-import { waitsOnLabel } from "../src/view-model/runs";
+import { orchestratorBlock, runReasonWords, waitsOnLabel } from "../src/view-model/runs";
+import { attentionStatus, stepReviewStatus } from "../src/view-model/words";
+import { Tray } from "../app/src/tray/Tray";
+import { keepFocus } from "../app/src/data/announce";
 
 const TASK = "t-20261001-100000-aaaa", RECORD = "t-20261001-100000-bbbb";
 const base = { repo: null, raisedAt: 100, since: 100, notify: "all" as const, severity: "blocked" as const, run: { id: "run_abc", letter: "A", title: "Ship it", priority: "normal" as const } };
@@ -201,7 +204,7 @@ test("the terminal's send-back to resolve sends the service's own note", async (
 test("a task held by a gate never reads completed in a list", () => {
   const task = { id: TASK, state: "done" };
   expect(taskStatusIn([stepConflict], task).label).toBe("Merge conflict");
-  expect(taskStatusIn([{ ...stepConflict, gate: { kind: "step_review" } }], task).label).toBe("Waiting for review");
+  expect(taskStatusIn([{ ...stepConflict, gate: { kind: "step_review" } }], task)).toEqual(stepReviewStatus);
   expect(taskStatusIn([stepConflict], { id: RECORD, state: "needs_input" }).label).toBe("Merge conflict");
   expect(taskStatusIn([], task).label).toBe("Completed");
 });
@@ -217,4 +220,63 @@ test("the live board names review and conflict desks and never says nothing wait
   expect(runGateNote("run_abc", [stepConflict])).toBe("A conflict waits for you");
   expect(runGateNote("run_abc", [{ ...stepConflict, gate: { kind: "step_review" } }])).toContain("A review waits");
   expect(runGateNote("run_other", [stepConflict])).toBeNull();
+});
+
+const stepReview: AttentionItem = {
+  ...stepConflict, title: 'Review the changes from step "impl" · run A', detail: "Ship it.", gate: { kind: "step_review" },
+  actions: [{ label: "Accept", op: "task.review", params: verdict(TASK, "accept"), confirm: "Accept and merge?", style: "primary" }],
+};
+
+test("a step under review has one label, tone and glyph on every surface", () => {
+  expect(stepReviewStatus).toEqual({ label: "Waiting for review", tone: "info", glyph: "◐" });
+  expect(attentionStatus(stepReview)).toEqual(stepReviewStatus);
+  const snapshot = snapshotWith([stepReview]);
+  for (const html of [
+    draw(snapshot, <NeedsYouPage query={{ repo: null, scope: null }} />),
+    draw(snapshot, <NeedsYouList snapshot={snapshot} scope={{ repo: null }} runner={runner} now={200} query={{ repo: null, scope: null }} narrow={false} />),
+    renderToString(<Tray snapshot={snapshot} api={{} as never} ipc={{} as never} />),
+    renderToString(<StepState marker="waits_others" status="waiting" awaitsReview />),
+  ]) {
+    expect(html).toContain("Waiting for review");
+    expect(html).not.toContain("Ready for review");
+    expect(html).not.toContain("Review requested");
+    expect(html).toContain("◐");
+  }
+  expect(deskWords({ status: "waiting", waitsOnYou: false, awaitsReview: true })).toMatchObject({ label: "Waiting for review", glyph: "◐" });
+});
+
+test("a Dispatch gate card shows its state in words", () => {
+  const snapshot = snapshotWith([stepConflict]);
+  for (const narrow of [false, true]) {
+    const html = draw(snapshot, <NeedsYouList snapshot={snapshot} scope={{ repo: null }} runner={runner} now={200} query={{ repo: null, scope: null }} narrow={narrow} />);
+    expect(html).toMatch(/class="pc-pill[^"]*"[^>]*>(<[^>]*>)*[^<]*Merge conflict/);
+    expect(html).not.toContain('class="sr-only">Merge conflict');
+  }
+});
+
+test("a blocked planner's reason is shown in plain words everywhere", () => {
+  const raw = "unresolved wake review_due:run_abc/build#1/b after 2 done turns";
+  const shown = orchestratorBlock({ state: "blocked", reason: raw }, 0);
+  expect(shown).toBe(runReasonWords(raw));
+  expect(shown).not.toMatch(/wake|review_due|run_abc/);
+  expect(shown).toContain("Retry");
+  expect(runReasonWords("turn budget spent")).toBe("turn budget spent");
+});
+
+test("a verdict says what happened", () => {
+  const said = (v: string) => verdictAnnouncement({ label: "x", op: "task.review", params: { verdict: v } });
+  expect([said("accept"), said("reject"), said("send_back")]).toEqual(["Accepted.", "Rejected.", "Sent back."]);
+  expect(verdictAnnouncement({ label: "x", op: "dispatch.review", params: { accepted: false } })).toBe("Rejected.");
+  expect(verdictAnnouncement({ label: "x", op: "run.stop", params: {} })).toBeNull();
+});
+
+test("focus lost with a decided item goes to the main region", () => {
+  const body = {}, focused: string[] = [];
+  const main = { tabIndex: undefined as number | undefined, hasAttribute: () => false, focus: () => focused.push("main") };
+  const doc = { body, activeElement: body as unknown, querySelector: () => main };
+  expect(keepFocus(doc as never)).toBe(true);
+  expect(focused).toEqual(["main"]);
+  expect(main.tabIndex).toBe(-1);
+  doc.activeElement = { isConnected: true };
+  expect(keepFocus(doc as never)).toBe(false);
 });

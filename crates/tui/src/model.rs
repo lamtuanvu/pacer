@@ -283,6 +283,7 @@ pub fn attention_status(a: &V, s: &V) -> Line {
     let t = task(s, text(&a["taskId"]));
     match text(&a["gate"]["kind"]) {
         "step_conflict" | "branch_conflict" => return line("! Merge conflict"),
+        "step_review" => return line("◐ Waiting for review"),
         "adoption" => return line("✕ Run blocked"),
         _ => {}
     }

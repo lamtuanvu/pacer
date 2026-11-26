@@ -8,6 +8,7 @@ import { TaskOutputPreview } from './TaskOutputPreview';
 import type { AttentionItem } from '../../../../src/attention/types';
 import { conflictRecordFor, gateFor, isConflictGate } from '../../../../src/view-model/run-gate';
 import { RunGatePanel } from '../review/RunGatePanel';
+import { stepReviewStatus } from '../../../../src/view-model/words';
 import { hasTaskExecution, tokenValue } from './model';
 
 export function NowCard({task:t,compact=false,attention}:{task:TaskDetail;compact?:boolean;attention?:readonly AttentionItem[]}) {
@@ -22,7 +23,7 @@ export function NowCard({task:t,compact=false,attention}:{task:TaskDetail;compac
  const agent=identity&&!/^unknown$/i.test(identity)?identity:'The agent';
  const account=executor?.split('@')[0]?.split('#')[1]||t.cost.executor?.account;
  const phase=t.state==='needs_input'?'waiting':t.progress?.phase==='testing'?'testing':['needs-input','idle','lost-contact','starting'].includes(t.progress?.phase??'')?'waiting':'editing';
- const title=t.state==='stopped'?'Task stopped':failed?'What failed':t.review?t.review.accepted?'Result accepted':'Result rejected':active?t.state==='needs_input'?`${agent} is waiting now`:t.state==='queued'?'Waiting to start':`${agent} is ${phase} now`:'Ready for your review';
+ const title=t.state==='stopped'?'Task stopped':failed?'What failed':t.review?t.review.accepted?'Result accepted':'Result rejected':active?t.state==='needs_input'?`${agent} is waiting now`:t.state==='queued'?'Waiting to start':`${agent} is ${phase} now`:gate?stepReviewStatus.label:'Ready for your review';
  const detail=t.state==='stopped'?'Output and any recorded changes are kept. Open Task history for the stop details.':t.review?t.review.accepted?'The accepted result and report are recorded on this task.':'The rejected result and review note are recorded on this task.':failed?t.acceptance.summary??'Inspect the failing check output before retrying.':active?[agent,account&&!/^unknown$/i.test(account)&&account.toLocaleLowerCase()!==agent.toLocaleLowerCase()?account:null,t.progress?.files!=null?`${t.progress.files} files touched so far`:t.derived?.files==='ready'?`${t.files.length} files touched so far`:null,t.brief.acceptance?'runs acceptance when it finishes':null].filter(Boolean).join(' · '):`${t.derived?.files==='unavailable'?'Changes unavailable':`${t.files.length} files changed`} · ${t.acceptance.state==='passed'?'Checks passed':'Checks not recorded'} · the planner summary is in Notes`;
  const attempt = t.attempts.at(-1);
  const tier = attempt?.tier;
