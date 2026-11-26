@@ -204,7 +204,6 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             || crate::native::service_agent_stays_forwarded(&ctx, op.name, &params)
             || crate::native::account_stays_forwarded(&ctx, op.name, &params)
             || crate::native::host_stays_forwarded(&ctx, op.name, &params)
-            || crate::native::strategy_settings_stays_forwarded(&ctx, op.name, &params)
             || crate::native::dispatch_preview_stays_forwarded(&ctx, op.name, &params)
             || crate::native::dispatch_enforcement_stays_forwarded(&ctx, op.name, &params)
             || crate::native::session_lifecycle_stays_forwarded(&ctx, op.name, &params)
@@ -874,7 +873,9 @@ fn plugin_json(status: StatusCode, body: Value) -> Response {
     json_headers((status, pacer_plugin_ops::settings::js_json(&body)).into_response())
 }
 fn native_json(status: StatusCode, body: Value) -> Response {
-    json_headers((status, axum::Json(body)).into_response())
+    // Native op results carry `pacer-js-json` quoted values; the JS codec
+    // writes lone surrogates and JS number text as TypeScript does.
+    json_headers((status, pacer_plugin_ops::settings::js_json(&body)).into_response())
 }
 fn json_headers(mut response: Response) -> Response {
     response.headers_mut().insert(
@@ -901,6 +902,7 @@ pub async fn run_serve(
     _version: &str,
     _argv: Vec<String>,
 ) -> io::Result<()> {
+    crate::core_process::record_startup();
     let mut ctx = Ctx::from_env();
     let scoped_work = env.contains_key("PACER_WORK_GRANT");
     let forward = env

@@ -74,7 +74,7 @@ const CASES: [Record<string, unknown>, boolean][] = [
   [{ id: "opencode#oc-fresh", model: "acme/zz" }, true],
   [{ id: "opencode#oc-null", enabled: false, model: "acme/q" }, true],
   [{ id: "opencode#oc-stale", model: "acme/c" }, true],
-  [{ id: "opencode#oc-odd", model: "acme/x" }, false],
+  [{ id: "opencode#oc-odd", model: "acme/x" }, true],
   [{ id: "opencode#oc-miss", model: "acme/nope" }, true],
 ];
 

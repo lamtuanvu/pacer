@@ -52,13 +52,14 @@ fn forwards_runtime_text_other_paths_and_bun_yaml_shapes() {
     fs::remove_file(home.join("strategy.yaml")).unwrap();
     fs::create_dir(home.join("strategy.yaml")).unwrap();
     assert!(load().is_none());
-    // `path.join` resolves these active names elsewhere than `Path::join`.
+    // Node's `path.join` normalization is now shared with the strategy path,
+    // so these active names load natively instead of forwarding.
     let outside = tempfile::tempdir().unwrap();
     fs::write(outside.path().join("work.yaml"), "planner: nobody\n").unwrap();
     let absolute = outside.path().join("work");
     for active in [absolute.to_str().unwrap(), "x/../work", ".//work"] {
         fs::write(home.join("active"), active).unwrap();
-        assert!(load().is_none(), "{active:?}");
+        assert!(load().is_some(), "{active:?}");
     }
     fs::write(home.join("active"), "work\n").unwrap();
     assert!(matches!(load(), Some(Err(StrategyError::Missing(_)))));

@@ -207,37 +207,6 @@ async fn set_many_refuses_a_stale_revision_and_writes_nothing() {
     }
 }
 
-#[test]
-fn saves_forward_whole_when_any_runner_needs_discovery() {
-    let (_dir, c) = seeded(STRATEGY);
-    let set = |id: &str| json!({"id": id, "expectedRevision": "x", "default": "m", "models": []});
-    assert!(runner_models_stays_forwarded(
-        &c,
-        "runner.models.set",
-        &set("opencode#oc")
-    ));
-    assert!(!runner_models_stays_forwarded(
-        &c,
-        "runner.models.set",
-        &set("codex")
-    ));
-    assert!(!runner_models_stays_forwarded(
-        &c,
-        "runner.models.get",
-        &json!({"id": "opencode#oc"})
-    ));
-    assert!(runner_models_stays_forwarded(
-        &c,
-        "runner.models.set_many",
-        &json!({"expectedRevision": "x", "runners": [set("codex"), set("opencode#oc")]})
-    ));
-    assert!(!runner_models_stays_forwarded(
-        &c,
-        "runner.models.set",
-        &json!({"id": "opencode#oc"})
-    ));
-}
-
 /// Flips the strategy between two texts by rename until the returned guard drops.
 fn flipping(dir: &tempfile::TempDir, texts: [String; 2]) -> impl Drop {
     struct Flip(
@@ -298,11 +267,6 @@ async fn a_new_endpoint_default_resets_its_test_state_natively() {
     let stale = "{\n  \"ep\": {\n    \"state\": \"not_working\",\n    \"detail\": \"old\"\n  },\n  \"oc\": {\n    \"state\": \"ready\"\n  }\n}\n";
     fs::write(&states, stale).unwrap();
     let set = |default: &str| json!({"id": "opencode#ep", "expectedRevision": revision(&text(&dir)), "default": default, "models": []});
-    assert!(!runner_models_stays_forwarded(
-        &c,
-        "runner.models.set",
-        &set("pacer-ep/m2")
-    ));
     // The same default keeps the saved result.
     runner_models_set(&c, set("pacer-ep/m1")).await.unwrap();
     assert_eq!(fs::read_to_string(&states).unwrap(), stale);
@@ -311,13 +275,10 @@ async fn a_new_endpoint_default_resets_its_test_state_natively() {
         fs::read_to_string(&states).unwrap(),
         "{\n  \"ep\": {\n    \"state\": \"not_tested\"\n  },\n  \"oc\": {\n    \"state\": \"ready\"\n  }\n}\n"
     );
-    // A document Rust cannot rewrite as TypeScript would forwards the save.
+    // A document Rust cannot rewrite as TypeScript writes is handled natively
+    // too; the reset is best effort and never fails the save.
     fs::write(&states, "{\"1\": {\"state\": \"ready\"}}").unwrap();
-    assert!(runner_models_stays_forwarded(
-        &c,
-        "runner.models.set",
-        &set("pacer-ep/m1")
-    ));
+    runner_models_set(&c, set("pacer-ep/m1")).await.unwrap();
 }
 
 #[tokio::test]

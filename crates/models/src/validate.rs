@@ -1,7 +1,7 @@
 //! The model checks `runnersConfig.set` and `runner.models.set*` run before
 //! editing a runner.
 use crate::{
-    AvailableModels, Listing, ModelSource, closest_models, is_offered, listing, listing_needs_core,
+    AvailableModels, Listing, ModelSource, closest_models, is_offered, listing,
 };
 use pacer_config::config_writes::{planner, resolve};
 use serde_json::{Map, Value};
@@ -18,8 +18,9 @@ pub enum Validation {
         message: String,
         hint: Option<String>,
     },
-    /// Only TypeScript can list these models: OpenCode discovery or an odd cache.
-    NeedsCore,
+    /// The catalog fact lookup threw a `TypeError` in TypeScript; the string
+    /// is Bun's message, which the native reply reproduces.
+    Failed(String),
 }
 
 /// An `invalid_input` refusal with its optional hint.
@@ -67,12 +68,6 @@ fn listed_runner<'a>(strategy: &'a Value, reference: &'a str) -> Option<(&'a Val
     Some((runner, runner["id"].as_str().unwrap_or(reference)))
 }
 
-/// Whether [`validate_runner_model`] could answer `NeedsCore`.
-pub fn model_check_needs_core(home: &Path, now: f64, strategy: &Value, reference: &str) -> bool {
-    listed_runner(strategy, reference)
-        .is_some_and(|(_, id)| listing_needs_core(home, now, strategy, id))
-}
-
 /// Check `model` for the runner `reference` names, against the strategy
 /// `set_runner` would edit (already migrated; params already validated).
 /// An OpenCode runner without a fresh cache runs discovery first.
@@ -86,12 +81,15 @@ pub async fn validate_runner_model(
     let Some((runner, id)) = listed_runner(strategy, reference) else {
         return Validation::NotReached;
     };
-    let Listing::Known(list) = listing(home, now, strategy, id).await else {
-        return Validation::NeedsCore;
-    };
-    match check_offered(&list, provider_name(strategy, runner), model) {
-        Ok(warning) => Validation::Accepted(warning),
-        Err(Refusal { message, hint }) => Validation::Refused { message, hint },
+    match listing(home, now, strategy, id).await {
+        Listing::Known(list) => {
+            match check_offered(&list, provider_name(strategy, runner), model) {
+                Ok(warning) => Validation::Accepted(warning),
+                Err(Refusal { message, hint }) => Validation::Refused { message, hint },
+            }
+        }
+        Listing::Failed(message) => Validation::Failed(message),
+        _ => Validation::NotReached,
     }
 }
 
