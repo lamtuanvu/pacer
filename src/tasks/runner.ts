@@ -74,6 +74,7 @@ import { listTasksWhere, readTask, updateTask, withTaskLock, withTaskLockAsync }
 import { resolvePlacement, reuseWorktreePlacement, TERMINAL_STATES, type AttemptUsage, type RoutingNote, type TaskRecord, type TaskResult, type Verification } from "./types";
 import { liveTurnForTask } from "../workflow/wakeups";
 import { issueRunGrant } from "../workflow/run-grant";
+import { orchestratorRootRun, pinTurnPlanner, plannerWaitDetail, rankTurnPlanner, turnPlanner } from "../workflow/turn-planner";
 
 export const MAX_ATTEMPTS = 3;
 /** Only a structured executor identity is evidence of the model actually used. */
@@ -205,6 +206,17 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
   }
 }
 
+/** Queue an orchestrator turn until its planner is eligible; the drain relaunches it. The turn deadline bounds the wait. */
+function holdForPlanner(ctx: Ctx, id: string, planner: string, reason: string | undefined, since: number | undefined): TaskRecord {
+  const now = Date.now() / 1000;
+  return updateTask(ctx, id, t => {
+    if (TERMINAL_STATES.includes(t.state)) return;
+    t.state = "queued";
+    t.queue = {reason: "waiting_retry", detail: plannerWaitDetail(planner, reason), since: since ?? now, position: 1, nextAt: now + 30};
+    delete t.runnerPid; delete t.executor; delete t.attemptStartedAt; delete t.run; delete t.pendingAttempt;
+  });
+}
+
 /** A human-managed root with no strict-ready route can run unmanaged before any child exists. */
 async function unmanageUnreachableRoot(ctx: Ctx, strategy: Strategy, task: TaskRecord, routable: string[]): Promise<boolean> {
   const work = getWork(ctx, task.id);
@@ -329,13 +341,14 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
         const snapshot = projectSnapshot(ctx, s, repo.key);
         policySnapshot = snapshot;
         selection = snapshot.selection;
+        const orchTurn = task.kind === "orchestrate";
+        if (orchTurn) task = pinTurnPlanner(ctx, s, task);
         if (!tried.has(task.requestedExecutor ?? "")) requireProjectExecutor(selection, task.requestedExecutor);
         const now = Date.now() / 1000;
         // The installed check uses the PATH the attempt will: strict work runs with the service's environment;
         // other work reads the login environment first.
         const servicePath = work?.options.delegationEnforcement === "strict";
         if (!servicePath) await terminalEnv(ctx.env, {cwd: ctx.home}).catch(() => undefined);
-        const orchTurn = task.kind === "orchestrate";
         const st = await deps.computeStatus({ ...ctx, now }, s, {
           includePlannerSignIn: task.interactionMode === "conversation" || orchTurn,
           servicePath,
@@ -356,9 +369,9 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
         // `undefined` (not an explicit selection) here, same as a delegated task with no project policy,
         // keeps rankExecutors' own pacing-policy ordering in effect; conversationFallback below only
         // appends the requested executor afterward, when a routing rule left it out of the pool entirely.
-        // Orchestrator turns run as the planner (kind orchestrate); include it in the pool (round-2 B1).
-        const ranking = rankExecutors(kind, s, byId, selection && {executors: selection.executors, order: "configured"},
-          {includePlanner: !!work?.options.allowDelegation || task.interactionMode === "conversation" || orchTurn,
+        // Orchestrator turns rank only the run's planner (P3, API-5b).
+        const ranking = orchTurn ? rankTurnPlanner(task.requestedExecutor!, s, byId) : rankExecutors(kind, s, byId, selection && {executors: selection.executors, order: "configured"},
+          {includePlanner: !!work?.options.allowDelegation || task.interactionMode === "conversation",
             targetTier: fallbackTier(task.difficulty, (s.dispatch ?? dispatchConfigSchema.parse({})).tierTargets)});
         if (task.interactionMode === "conversation" && !selection) conversationFallback(ranking, kind, s, byId, task.requestedExecutor);
         routableCandidates = ranking.ranked.map(e => e.id);
@@ -515,6 +528,10 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
               delete t.runnerPid;delete t.executor;delete t.attemptStartedAt;
             });return;
           }
+          if (orchTurn && !pick && !paused && req && !tried.has(req) && !full.has(req)) {
+            task = holdForPlanner(ctx, id, req, excluded.find(e => e.id === req)?.reason, initial.queue?.since ?? now);
+            return;
+          }
           if (paused || (req && !tried.has(req) && full.has(req)) || (!pick && [...full].some(e => !tried.has(e)))) {
             task = updateTask(ctx, id, t => {
               routeAdmission!.revalidate();
@@ -564,6 +581,8 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
         const guard = executorExclusion({ ...ctx, now: Date.now() / 1000 }, s, pick);
         if (guard) {
           excluded.push({ id: pick, reason: guard });
+          // A budget refusal below is the planner hold; any other guard keeps the turn waiting.
+          if (task.kind === "orchestrate" && !REQUESTED_EXECUTOR_BUDGET_REFUSAL.test(guard)) return holdForPlanner(ctx, id, pick, guard, initial.queue?.since);
           if (pick === task.requestedExecutor) throw new Error(`requested executor "${pick}" is unavailable (${guard})`);
           tried.add(pick); continue;
         }
@@ -697,13 +716,14 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
         }
         const prepared = await prepareLaunch(launchCtx, currentStrategy, pick, deps.computeStatus, startStatus);
         const refreshedById = Object.fromEntries(prepared.status.providers.map(p => [p.id, p]));
-        const refreshedRanking = rankExecutors(kind, currentStrategy, refreshedById, selection && {executors: selection.executors, order: "configured"},
-          {includePlanner: !!work?.options.allowDelegation || task.interactionMode === "conversation" || task.kind === "orchestrate", targetTier: fallbackTier(task.difficulty, (currentStrategy.dispatch ?? dispatchConfigSchema.parse({})).tierTargets)});
+        const refreshedRanking = task.kind === "orchestrate" ? rankTurnPlanner(pick, currentStrategy, refreshedById) : rankExecutors(kind, currentStrategy, refreshedById, selection && {executors: selection.executors, order: "configured"},
+          {includePlanner: !!work?.options.allowDelegation || task.interactionMode === "conversation", targetTier: fallbackTier(task.difficulty, (currentStrategy.dispatch ?? dispatchConfigSchema.parse({})).tierTargets)});
         if (task.interactionMode === "conversation" && !selection) conversationFallback(refreshedRanking, kind, currentStrategy, refreshedById, task.requestedExecutor);
         const candidate = refreshedRanking.ranked.find(e => e.id === pick);
         if (!candidate || prepared.decision.state === "ineligible") {
           const refusal = refreshedRanking.excluded.find(e => e.id === pick && REQUESTED_EXECUTOR_BUDGET_REFUSAL.test(e.reason));
           if (pick === task.requestedExecutor && refusal) throw new Error(`requested executor "${pick}" is unavailable (${refusal.reason})`);
+          if (task.kind === "orchestrate") return holdForPlanner(ctx, id, pick, refreshedRanking.excluded.find(e => e.id === pick)?.reason, initial.queue?.since);
           excluded.push(...refreshedRanking.excluded);
           tried.add(pick); continue;
         }
@@ -791,13 +811,11 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
       }
       if(work?.options.allowDelegation&&!(resuming&&handedOver)){const token=issueWorkGrant({...ctx,now:Date.now()/1000},id,task.attempts.length+1);executionCtx={...executionCtx,env:{...executionCtx.env,PACER_WORK_GRANT:token}};}
       // Orchestrator turns: issue the prg_ into the AGENT execution env only (not the
-      // `_run` child). Mirrors work-grant issuance above (round-2 B1).
-      if (task.kind === "orchestrate") {
+      // `_run` child). Mirrors work-grant issuance above (round-2 B1). Only the run's planner
+      // gets it, also when an attempt is resumed.
+      if (task.kind === "orchestrate" && pick === turnPlanner(ctx, s, task)) {
         // Shared orch task can bind turns on child runs; prefer the root run from requestId.
-        const rootFromReq = typeof task.requestId === "string"
-          ? /^orch:(.+)$/.exec(task.requestId)?.[1]
-          : undefined;
-        const turn = liveTurnForTask(ctx, id, rootFromReq);
+        const turn = liveTurnForTask(ctx, id, orchestratorRootRun(task));
         if (turn) {
           // Use the runner ctx clock: turn.deadline is on that clock (tests freeze now).
           const token = issueRunGrant(ctx, {
