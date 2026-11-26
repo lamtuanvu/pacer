@@ -9,7 +9,7 @@ use crate::{
 };
 use pacer_js_json::{js_semantics::trim, quoted};
 use std::{
-    ffi::OsString,
+    ffi::{OsStr, OsString},
     fs,
     io::Write,
     os::unix::fs::{DirBuilderExt, OpenOptionsExt},
@@ -48,6 +48,37 @@ pub fn set_core_process(process: Option<CoreProcess>) {
 
 pub fn core_process() -> Option<Arc<CoreProcess>> {
     CORE_PROCESS.read().ok().and_then(|slot| slot.clone())
+}
+
+/// Keys Core removes from `process.env` at start-up, mirrored from
+/// `crates/server/src/core_process.rs` so a front door with no Core child runs
+/// `opencode` with the same stripped environment.
+const CONSUMED: [&str; 5] = [
+    "PACER_CORE_SECRETS",
+    "PACER_HOST_SOCKET_KEY",
+    "PACER_INTERNAL_NATIVE_BOOTSTRAP",
+    "PACER_INTERNAL_TOKEN",
+    "PACER_NATIVE_CONFIG_SYNC_KEY",
+];
+
+/// The front door's own working directory and environment when no Core child
+/// was recorded. The server records this at start-up; this is the fallback for
+/// in-process callers and the rare case where `current_dir` failed there.
+pub fn front_process() -> Arc<CoreProcess> {
+    Arc::new(CoreProcess {
+        env: std::env::vars_os()
+            .filter(|(key, _)| {
+                !CONSUMED.iter().any(|name| key == OsStr::new(name))
+            })
+            .collect(),
+        cwd: std::env::current_dir().unwrap_or_default(),
+    })
+}
+
+/// The recorded Core process, or the front door's own, so discovery never has
+/// to stay with TypeScript just because no Core child exists.
+pub fn process() -> Arc<CoreProcess> {
+    core_process().unwrap_or_else(front_process)
 }
 
 /// Kills the process group unless the run finished; a dropped request must not leave OpenCode running.
@@ -229,10 +260,10 @@ pub async fn discover(home: &Path, discovery: Discovery, process: &CoreProcess) 
     for id in ids {
         let mut model = AvailableModel::new(format!("{provider}/{id}"));
         match &entry {
-            Entry::Throws => return Listing::Unsupported,
+            Entry::Throws(message) => return Listing::Failed((*message).to_owned()),
             Entry::Absent => {}
             Entry::Models(items) => match catalog::find(items, &id) {
-                Err(()) => return Listing::Unsupported,
+                Err(message) => return Listing::Failed(message.to_owned()),
                 Ok(Some(found)) => catalog::facts(found, &mut model),
                 Ok(None) => {}
             },

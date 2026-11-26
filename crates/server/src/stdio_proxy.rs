@@ -124,7 +124,10 @@ fn rpc_line(id: &Value, result: Result<Value, CoreError>) -> io::Result<Vec<u8>>
         Ok(value) => json!({"jsonrpc":"2.0", "id":id, "result":value}),
         Err(error) => json!({"jsonrpc":"2.0", "id":id, "error":error.rpc()}),
     };
-    let mut bytes = serde_json::to_vec(&response)?;
+    // Native op results carry `pacer-js-json` quoted values; writing them with
+    // the JS codec preserves lone surrogates and JS number text as TypeScript
+    // sends them.
+    let mut bytes = pacer_plugin_ops::settings::js_json(&response).into_bytes();
     bytes.push(b'\n');
     Ok(bytes)
 }
@@ -285,7 +288,7 @@ async fn forward_input<
                         };
                         let response =
                             json!({"jsonrpc":"2.0", "id":id, "result":hello_body(version, build)?});
-                        let mut bytes = serde_json::to_vec(&response)?;
+                        let mut bytes = pacer_plugin_ops::settings::js_json(&response).into_bytes();
                         bytes.push(b'\n');
                         write_line(out, &bytes).await?;
                     }
@@ -293,7 +296,7 @@ async fn forward_input<
                 Err(message) => {
                     if let Some(id) = request.get("id") {
                         let response = json!({"jsonrpc":"2.0", "id":id, "error":CoreError::new(Code::InvalidInput, message).rpc()});
-                        let mut bytes = serde_json::to_vec(&response)?;
+                        let mut bytes = pacer_plugin_ops::settings::js_json(&response).into_bytes();
                         bytes.push(b'\n');
                         write_line(out, &bytes).await?;
                     }
@@ -365,11 +368,6 @@ async fn forward_input<
                 && !crate::native::service_agent_stays_forwarded(&ctx.at_now(), op.name, &params)
                 && !crate::native::account_stays_forwarded(&ctx.at_now(), op.name, &params)
                 && !crate::native::host_stays_forwarded(&ctx.at_now(), op.name, &params)
-                && !crate::native::strategy_settings_stays_forwarded(
-                    &ctx.at_now(),
-                    op.name,
-                    &params,
-                )
                 && !crate::native::dispatch_preview_stays_forwarded(&ctx.at_now(), op.name, &params)
                 && !crate::native::dispatch_enforcement_stays_forwarded(
                     &ctx.at_now(),
@@ -712,7 +710,7 @@ async fn forward_input<
                                 "id: Invalid input: expected string, received undefined",
                             );
                             let response = json!({"jsonrpc":"2.0", "id":id, "error":error.rpc()});
-                            let mut bytes = serde_json::to_vec(&response)?;
+                            let mut bytes = pacer_plugin_ops::settings::js_json(&response).into_bytes();
                             bytes.push(b'\n');
                             write_line(out, &bytes).await?;
                         }
@@ -735,7 +733,7 @@ async fn forward_input<
                             if let Some(id) = request.get("id") {
                                 let response =
                                     json!({"jsonrpc":"2.0", "id":id, "error":error.rpc()});
-                                let mut bytes = serde_json::to_vec(&response)?;
+                                let mut bytes = pacer_plugin_ops::settings::js_json(&response).into_bytes();
                                 bytes.push(b'\n');
                                 write_line(out, &bytes).await?;
                             }
@@ -756,7 +754,7 @@ async fn forward_input<
                                 "id: Invalid input: expected string, received undefined",
                             );
                             let response = json!({"jsonrpc":"2.0", "id":id, "error":error.rpc()});
-                            let mut bytes = serde_json::to_vec(&response)?;
+                            let mut bytes = pacer_plugin_ops::settings::js_json(&response).into_bytes();
                             bytes.push(b'\n');
                             write_line(out, &bytes).await?;
                         }
@@ -831,7 +829,7 @@ async fn forward_input<
                                         json!({"jsonrpc":"2.0", "id":id, "error":error.rpc()})
                                     }
                                 };
-                                let mut bytes = serde_json::to_vec(&response)?;
+                                let mut bytes = pacer_plugin_ops::settings::js_json(&response).into_bytes();
                                 bytes.push(b'\n');
                                 write_line(out, &bytes).await?;
                             }
@@ -841,7 +839,7 @@ async fn forward_input<
                             if let Some(id) = request.get("id") {
                                 let response =
                                     json!({"jsonrpc":"2.0", "id":id, "error":error.rpc()});
-                                let mut bytes = serde_json::to_vec(&response)?;
+                                let mut bytes = pacer_plugin_ops::settings::js_json(&response).into_bytes();
                                 bytes.push(b'\n');
                                 write_line(out, &bytes).await?;
                             }
@@ -862,7 +860,7 @@ async fn forward_input<
                                 "id: Invalid input: expected string, received undefined",
                             );
                             let response = json!({"jsonrpc":"2.0", "id":id, "error":error.rpc()});
-                            let mut bytes = serde_json::to_vec(&response)?;
+                            let mut bytes = pacer_plugin_ops::settings::js_json(&response).into_bytes();
                             bytes.push(b'\n');
                             write_line(out, &bytes).await?;
                         }
@@ -924,7 +922,7 @@ async fn forward_input<
                                         json!({"jsonrpc":"2.0", "id":id, "error":error.rpc()})
                                     }
                                 };
-                                let mut bytes = serde_json::to_vec(&response)?;
+                                let mut bytes = pacer_plugin_ops::settings::js_json(&response).into_bytes();
                                 bytes.push(b'\n');
                                 write_line(out, &bytes).await?;
                             }
@@ -934,7 +932,7 @@ async fn forward_input<
                             if let Some(id) = request.get("id") {
                                 let response =
                                     json!({"jsonrpc":"2.0", "id":id, "error":error.rpc()});
-                                let mut bytes = serde_json::to_vec(&response)?;
+                                let mut bytes = pacer_plugin_ops::settings::js_json(&response).into_bytes();
                                 bytes.push(b'\n');
                                 write_line(out, &bytes).await?;
                             }
@@ -1243,7 +1241,7 @@ async fn forward_input<
                         Ok(value) => json!({"jsonrpc":"2.0", "id":id, "result":value}),
                         Err(error) => json!({"jsonrpc":"2.0", "id":id, "error":error.rpc()}),
                     };
-                    let mut bytes = serde_json::to_vec(&response)?;
+                    let mut bytes = pacer_plugin_ops::settings::js_json(&response).into_bytes();
                     bytes.push(b'\n');
                     write_line(out, &bytes).await?;
                 }
@@ -1316,6 +1314,7 @@ pub async fn run_stdio(core: Vec<String>, env: HashMap<String, String>) -> i32 {
 }
 
 async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i32> {
+    crate::core_process::record_startup();
     let scoped_work = env.contains_key("PACER_WORK_GRANT");
     let forward = env
         .get("PACER_FORWARD_OPS")

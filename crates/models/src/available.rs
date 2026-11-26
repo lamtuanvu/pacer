@@ -152,6 +152,9 @@ pub enum Listing {
     NeedsDiscovery(Discovery),
     /// A state TypeScript serves whose values the native check cannot reproduce.
     Unsupported,
+    /// A value TypeScript's catalog fact lookup throws a `TypeError` on. The
+    /// string is Bun's `Error.message`, which the native reply reproduces.
+    Failed(String),
 }
 
 pub(crate) enum Cached {
@@ -273,9 +276,8 @@ pub(crate) fn compose(now: f64, strategy: &Value, runner_id: &str) -> Listing {
     };
     let name = runner["account"].as_str().unwrap_or("");
     let Some(account) = strategy["accounts"].get(name) else {
-        if PROTOTYPE_KEYS.contains(&name) {
-            return Listing::Unsupported;
-        }
+        // An inherited `Object.prototype` runner has no account: TypeScript
+        // reports the bare "none" listing with no provider.
         return Listing::Known(list);
     };
     let opencode = account["provider"]
@@ -325,7 +327,21 @@ pub(crate) fn compose(now: f64, strategy: &Value, runner_id: &str) -> Listing {
 /// the account is now.
 pub fn available_models(home: &Path, now: f64, strategy: &Value, runner_id: &str) -> Listing {
     match read_cache(&cache_file(home, runner_id), now) {
-        Cached::Hit(value) => listing_of(&value).map_or(Listing::Unsupported, Listing::Known),
+        Cached::Hit(value) => {
+            // `isOffered`/`closestModels` read `m.id.length` for every cached
+            // model; an entry that is not an object with a string id throws
+            // the same TypeError in TypeScript.
+            let odd = value["models"].as_array().is_some_and(|items| {
+                items
+                    .iter()
+                    .any(|item| !item.is_object() || !item["id"].is_string())
+            });
+            if odd {
+                Listing::Failed("undefined is not an object (evaluating 'a.length')".into())
+            } else {
+                listing_of(&value).map_or(Listing::Unsupported, Listing::Known)
+            }
+        }
         Cached::Unsupported => Listing::Unsupported,
         Cached::Miss => compose(now, strategy, runner_id),
     }

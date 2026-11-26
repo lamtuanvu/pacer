@@ -414,18 +414,18 @@ const cases: Case[] = [
     ["dispatch.tierTargets.set", { expectedRevision: "$REV", targets: { simple: "medium" } }],
   ], native: true },
   { name: "legacy tier targets", strategy: LEGACY, steps: [["dispatch.tierTargets.set", { expectedRevision: "$REV", targets: { simple: "medium" } }]], native: true },
-  { name: "missing strategy", strategy: null, steps: unloadable, native: false },
-  { name: "YAML syntax error", strategy: "planner: [\n", steps: unloadable, native: false },
-  { name: "schema-invalid strategy", strategy: "planner: nobody\n", steps: unloadable, native: false },
+  { name: "missing strategy", strategy: null, steps: unloadable, native: true },
+  { name: "YAML syntax error", strategy: "planner: [\n", steps: unloadable, native: true },
+  { name: "schema-invalid strategy", strategy: "planner: nobody\n", steps: unloadable, native: true },
   { name: "a named active strategy", setup: home => writeNamed(home, "work\n"), steps: named, native: true },
   // Rust's `Path::join` reads an absolute name itself; Node joins it under strategies/.
   { name: "an absolute active name", setup: home => {
     mkdirSync(join(home, "outside"));
     writeFileSync(join(home, "outside", "evil.yaml"), STRATEGY.replace("codex: {model: gpt-5}", "codex: {model: rust-joined}"));
     writeNamed(home, join(home, "outside", "evil"));
-  }, steps: named, native: false },
+  }, steps: named, native: true },
   // With strategies/ present, Rust's `strategies/../x.yaml` reaches the same file; only the path check forwards.
-  { name: "an active name with ..", setup: home => { mkdirSync(join(home, ".pacer", "strategies")); writeNamed(home, "../x"); }, steps: named, native: false },
+  { name: "an active name with ..", setup: home => { mkdirSync(join(home, ".pacer", "strategies")); writeNamed(home, "../x"); }, steps: named, native: true },
 ];
 
 for (const transport of ["stdio", "http"] as const) {

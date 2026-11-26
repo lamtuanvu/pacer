@@ -178,6 +178,12 @@ pub fn legacy_dir_for_platform(ctx: &Ctx, macos: bool) -> std::path::PathBuf {
 #[allow(clippy::result_large_err)]
 async fn set_runner(ctx: &Ctx, id: &str, p: &Value) -> Result<Value, CoreError> {
     let home = &ctx.pacer_home;
+    // `runnersConfig.set` calls `ensureAccounts` first: a legacy strategy is
+    // migrated (with its backup) before the runner is resolved or its model
+    // checked, so the check reads the migrated document.
+    if let Err(migration) = config_writes::ensure_migrated(home) {
+        return Err(error("runner.set", migration));
+    }
     let mut unverified = None;
     if let Some(model) = p["model"].as_str() {
         let strategy =
@@ -192,11 +198,8 @@ async fn set_runner(ctx: &Ctx, id: &str, p: &Value) -> Result<Value, CoreError> 
                     None => refused,
                 });
             }
-            Validation::NeedsCore => {
-                return Err(CoreError::new(
-                    Code::Unavailable,
-                    "runner.set model check requires the forwarded operation",
-                ));
+            Validation::Failed(message) => {
+                return Err(CoreError::new(Code::Internal, message));
             }
         }
     }

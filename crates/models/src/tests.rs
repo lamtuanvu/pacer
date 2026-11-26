@@ -167,7 +167,7 @@ fn a_fresh_cache_is_served_whatever_the_account_is() {
 }
 
 #[test]
-fn cache_values_typescript_would_mishandle_stay_unsupported() {
+fn cache_values_typescript_throws_on_are_reproduced() {
     let dir = tempfile::tempdir().unwrap();
     let s = strategy();
     for models in [
@@ -181,7 +181,7 @@ fn cache_values_typescript_would_mishandle_stay_unsupported() {
         seed(dir.path(), "codex", &cache(models.clone(), NOW));
         assert_eq!(
             available_models(dir.path(), NOW, &s, "codex"),
-            Listing::Unsupported,
+            Listing::Failed("undefined is not an object (evaluating 'a.length')".into()),
             "{models}"
         );
     }
@@ -310,11 +310,6 @@ async fn validation_follows_the_runner_set_order() {
     assert_eq!(check("missing", "m").await, Validation::NotReached);
     assert_eq!(check("claude-code", "m").await, Validation::NotReached);
     assert_eq!(check("codex", "anything").await, Validation::Accepted(None));
-    // No core process is recorded in unit tests, so discovery stays with TypeScript.
-    assert_eq!(check("opencode#oc", "acme/a").await, Validation::NeedsCore);
-    assert!(model_check_needs_core(dir.path(), NOW, &s, "opencode#oc"));
-    assert!(!model_check_needs_core(dir.path(), NOW, &s, "codex"));
-    assert!(!model_check_needs_core(dir.path(), NOW, &s, "claude-code"));
     assert_eq!(
         check("fast", "pacer-acct/y").await,
         Validation::Accepted(None)
@@ -357,7 +352,11 @@ async fn validation_follows_the_runner_set_order() {
         Validation::Accepted(Some("acme/a could not be checked: ".into()))
     );
     seed(dir.path(), "opencode#oc", &cache(json!([null]), NOW));
-    assert_eq!(check("opencode#oc", "acme/a").await, Validation::NeedsCore);
+    // An odd cache entry throws in the same place TypeScript does.
+    assert_eq!(
+        check("opencode#oc", "acme/a").await,
+        Validation::Failed("undefined is not an object (evaluating 'a.length')".into())
+    );
 }
 
 #[test]

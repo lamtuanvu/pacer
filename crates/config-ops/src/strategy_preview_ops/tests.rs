@@ -64,7 +64,7 @@ async fn drafts_stay_native_unless_only_typescript_reads_them() {
         &from("strategies/tabs")
     ));
     fs::write(ctx.pacer_home.join("active"), "/nonexistent/work").unwrap();
-    assert!(strategy_preview_stays_forwarded(&ctx, &from("default")));
+    assert!(!strategy_preview_stays_forwarded(&ctx, &from("default")));
 }
 
 #[tokio::test]

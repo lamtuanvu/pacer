@@ -172,22 +172,6 @@ pub fn runner_attention_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> 
         || attention_ops::attention_stays_forwarded(ctx, op, params)
 }
 
-/// `runner.models.*`, `dispatch.tierTargets.*` and `executor.models.available`
-/// requests whose strategy only TypeScript loads, or whose runners only
-/// TypeScript can list.
-pub fn strategy_settings_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
-    matches!(
-        op,
-        "runner.models.get"
-            | "runner.models.set"
-            | "runner.models.set_many"
-            | "dispatch.tierTargets.get"
-            | "dispatch.tierTargets.set"
-            | "executor.models.available"
-    ) && (pacer_config_ops::active_strategy_needs_core(&ctx.pacer_home)
-        || runner_models_ops::runner_models_stays_forwarded(ctx, op, params)
-        || available_ops::executor_models_available_stays_forwarded(ctx, op, params))
-}
 pub(crate) use session_ops::needs_session_probe;
 pub(crate) use snapshot_get_ops::needs_snapshot_bridge;
 pub(crate) use status_ops::needs_usage_broker;
