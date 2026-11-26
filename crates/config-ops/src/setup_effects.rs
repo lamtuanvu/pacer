@@ -14,7 +14,7 @@ use serde_json::Value;
 use std::time::Duration;
 
 /// One Core effect per call; requests are `{"kind": ...}` objects.
-pub trait SetupEffects: Send {
+pub trait SetupEffects: crate::executor_setup_ops::EndpointModels + Send {
     fn call(&mut self, request: Value) -> OpFuture<'_>;
 }
 
@@ -22,7 +22,7 @@ pub trait SetupEffects: Send {
 pub fn uses_effects(op: &str) -> bool {
     matches!(
         op,
-        "strategy.build" | "executor.setup.candidates" | "setup.init"
+        "strategy.build" | "executor.setup.candidates" | "executor.setup.models" | "setup.init"
     )
 }
 
@@ -51,6 +51,10 @@ pub async fn call(
         "executor.setup.candidates" => {
             crate::executor_candidates_ops::candidates(ctx, params, effects).await
         }
+        "executor.setup.models" => {
+            let endpoints: &mut dyn crate::executor_setup_ops::EndpointModels = effects;
+            crate::executor_setup_ops::executor_setup_models(ctx, params, endpoints).await
+        }
         "setup.init" => crate::setup_init_ops::setup_init(ctx, params, effects).await,
         _ => Err(CoreError::new(Code::UnknownOp, "unknown operation")),
     }
@@ -64,13 +68,9 @@ pub fn setup_stays_forwarded(ctx: &Ctx, op: &str, _params: &Value) -> bool {
     ) {
         return false;
     }
-    if ctx
-        .env
-        .get("PACER_WORK_GRANT")
-        .is_some_and(|grant| !grant.is_empty())
-    {
-        return true;
-    }
+    // A work grant no longer forwards setup operations: the native door owns
+    // their refusal (B2-1). `strategy.build` and `setup.init` stay here for the
+    // remaining TypeScript-only inputs.
     if crate::executor_setup_ops::enforcement(ctx).is_err() {
         return false;
     }

@@ -56,6 +56,14 @@ const models = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: req => {
 } });
 afterAll(() => models.stop(true));
 
+// A stale catalog is refreshed from this fixture through PACER_CATALOG_URL.
+const catalogModel = { id: "fixture", name: "Fixture", tool_call: true, modalities: { input: ["text"], output: ["text"] }, limit: { context: 32000 }, cost: {}, release_date: "2025-03-01" };
+const catalogFixture = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => Response.json({
+  acme: { id: "acme", name: "Acme", models: { fixture: catalogModel } },
+  ollama: { id: "ollama", name: "Ollama", models: { o: catalogModel } },
+}) });
+afterAll(() => catalogFixture.stop(true));
+
 const DEAD = [closedPort(), closedPort()] as const;
 // Keeps every run off the machine's pacer service, Ollama and LM Studio (the front door is built with test-ops).
 const isolated = { OLLAMA_HOST: `127.0.0.1:${DEAD[0]}`, PACER_TEST_LOCAL_SERVER_PORTS: `${DEAD[0]},${DEAD[1]}` };
@@ -301,7 +309,8 @@ test.skipIf(!front)("executor.setup.candidates from a fresh catalog matches forc
   const stale = home();
   catalog(stale, NOW - 90000);
   const one = requests([["executor.setup.candidates", {}]]);
-  expect(await exchange(stale, one, false, {}, false)).toEqual(await exchange(stale, one, true));
+  const fixtureEnv = { PACER_CATALOG_URL: `http://127.0.0.1:${catalogFixture.port}/api.json` };
+  expect(await exchange(stale, one, false, fixtureEnv)).toEqual(await exchange(stale, one, true, fixtureEnv));
 }, 120000);
 
 test.skipIf(!front)("executor.setup.candidates reports distinct probe failures in the order they settle", async () => {

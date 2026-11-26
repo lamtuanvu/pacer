@@ -69,10 +69,31 @@ async fn list_prunes_settled_jobs_after_a_day_and_sorts_newest_first() {
         .collect();
     assert_eq!(ids, [json!("c"), json!("b")]);
     assert!(!directory(&ctx).join("a.json").exists());
-    assert!(!job_stays_forwarded(&ctx, "job.list", &json!({})));
+    // `null` and unparseable files are skipped by listJobs, but getJob returns
+    // the parsed JSON (including null) rather than forwarding.
     fs::write(directory(&ctx).join("null.json"), "null").unwrap();
-    assert!(job_stays_forwarded(&ctx, "job.list", &json!({})));
-    assert!(job_stays_forwarded(&ctx, "job.get", &json!({"id": "bad"})));
+    fs::write(directory(&ctx).join("array.json"), "[]").unwrap();
+    fs::write(directory(&ctx).join("text.json"), r#"{"startedAt":"x"}"#).unwrap();
+    // `[]` and `{"startedAt":"x"}` are retained (NaN comparisons are false),
+    // while `null` is skipped as a TypeError. Their non-string ids make the
+    // sort comparator throw, as in the runtime.
+    let names: Vec<_> = entries(&ctx)
+        .unwrap()
+        .into_iter()
+        .map(|(name, _)| name)
+        .collect();
+    assert_eq!(names.len(), 4);
+    assert!(names.contains(&"array.json".to_owned()) && names.contains(&"text.json".to_owned()));
+    assert!(job_list(&ctx, Value::Null).await.is_err());
+    assert_eq!(
+        job_get(&ctx, json!({"id": "null"})).await.unwrap(),
+        Value::Null
+    );
+    assert_eq!(
+        job_get(&ctx, json!({"id": "array"})).await.unwrap(),
+        json!([])
+    );
+    assert!(job_get(&ctx, json!({"id": "bad"})).await.is_err());
 }
 
 #[tokio::test]

@@ -1806,6 +1806,7 @@ dependencies = [
  "sha2",
  "tempfile",
  "tokio",
+ "ureq",
 ]
 
 [[package]]
@@ -2141,6 +2142,7 @@ name = "pacer-task-ops"
 version = "0.0.0"
 dependencies = [
  "chrono-tz",
+ "icu_collator",
  "pacer-config",
  "pacer-config-ops",
  "pacer-dispatch-ops",

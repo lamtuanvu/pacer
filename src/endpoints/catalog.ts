@@ -54,7 +54,9 @@ export async function loadCatalog(ctx: Ctx, deps: { fetch?: typeof fetch } = {})
   const cached = readCachedCatalog(ctx);
   if (cached && !cached.stale) return cached;
   try {
-    const response = await (deps.fetch ?? fetch)(CATALOG_URL, { signal: AbortSignal.timeout(10000) });
+    // A fixture URL keeps loadCatalog's fetch testable without replacing global fetch.
+    const url = ctx.env.PACER_CATALOG_URL || CATALOG_URL;
+    const response = await (deps.fetch ?? fetch)(url, { signal: AbortSignal.timeout(10000) });
     if (!response.ok) throw Error(`HTTP ${response.status}`);
     const providers = parseCatalog(await response.json());
     if (!Object.keys(providers).length) throw Error("empty catalog");

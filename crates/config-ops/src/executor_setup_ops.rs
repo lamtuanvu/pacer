@@ -1,10 +1,9 @@
 //! Native `executor.setup.connect` and `executor.setup.models`
 //! (`src/core/opencode-setup.ts`). Connect only names the OpenCode sign-in
-//! command. Models is native when a fresh cached catalog lists the provider's
-//! models and OpenCode is not installed; a stale or missing catalog (network
-//! fetch), a local model server (endpoint plugin), OpenCode model listing
-//! (subprocess: the catalog is narrowed to the models OpenCode serves) and a
-//! `base_url` (URL schema) forward to TypeScript.
+//! command. Models reads the catalog cache, refreshing a stale one through
+//! `pacer_models::catalog_fetch`, narrows a provider's models with `opencode
+//! models`, and probes local servers through [`EndpointModels`] (the endpoint
+//! plugin's `endpoint.models`).
 #![allow(clippy::result_large_err)]
 use icu_collator::CollatorBorrowed;
 use pacer_foundation::{
@@ -16,6 +15,14 @@ use std::cmp::Ordering;
 
 const GROUPS: &[&str] = &["signed_in", "local", "catalog"];
 pub(crate) const CATALOG_MAX_AGE_S: f64 = 24.0 * 3600.0;
+
+/// Keyless model discovery (`discoverEndpointModels` in
+/// `src/plugins/endpoint-adapter.ts`). The server implements this over its
+/// plugin/Core call bridge; the request carries a URL, never a credential.
+pub trait EndpointModels: Send {
+    /// `{"listed":bool,"models":[{"id":...}]}` in the endpoint plugin's shape.
+    fn models(&mut self, base_url: &str, timeout_ms: u32) -> OpFuture<'_>;
+}
 
 pub(crate) fn invalid(message: impl Into<String>) -> CoreError {
     CoreError::new(Code::InvalidInput, message)
@@ -157,14 +164,8 @@ pub(crate) fn catalog_model(model: &Value) -> bool {
         && nullable("release", Value::is_string)
 }
 
-/// The provider's cached catalog models when the cache is fresh and well formed.
-fn cached_models(ctx: &Ctx, provider: &str) -> Option<Vec<Value>> {
-    let cache: Value =
-        pacer_foundation::fsutil::read_json(&ctx.pacer_home.join("cache").join("models.json"))?;
-    let fetched = cache["fetchedAt"].as_f64()?;
-    if !cache["providers"].is_object() || ctx.now - fetched >= CATALOG_MAX_AGE_S {
-        return None;
-    }
+/// The provider's catalog models from a cache value, when well formed.
+pub(crate) fn provider_models(cache: &Value, provider: &str) -> Option<Vec<Value>> {
     let models = cache["providers"]
         .get(provider)?
         .get("models")?
@@ -172,27 +173,23 @@ fn cached_models(ctx: &Ctx, provider: &str) -> Option<Vec<Value>> {
     (!models.is_empty() && models.iter().all(catalog_model)).then(|| models.clone())
 }
 
-/// Whether `opencode` is an executable on the context's PATH, as `ctx.which`.
-fn opencode_installed(ctx: &Ctx) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    ctx.env.get("PATH").is_some_and(|path| {
-        std::env::split_paths(path).any(|dir| {
-            std::fs::metadata(dir.join("opencode"))
-                .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
-        })
-    })
-}
-
-/// Inputs whose models only TypeScript can list. Invalid params stay native.
-pub fn executor_setup_models_stays_forwarded(ctx: &Ctx, params: &Value) -> bool {
-    if params.get("base_url").is_some() {
-        return true;
+/// `opencode models <provider>` narrowed to this provider's ids, or `None` when
+/// OpenCode cannot list models. Uses Core's recorded environment and directory.
+async fn served_ids(ctx: &Ctx, provider: &str) -> Option<Vec<String>> {
+    if crate::setup_effects::which(ctx, "opencode").is_none() {
+        return None;
     }
-    match models_params(params) {
-        Err(_) => false,
-        Ok((_, group)) if group == "local" => true,
-        Ok((provider, _)) => opencode_installed(ctx) || cached_models(ctx, &provider).is_none(),
-    }
+    let process = pacer_models::CoreProcess {
+        env: ctx
+            .env
+            .iter()
+            .map(|(key, value)| (key.into(), value.into()))
+            .collect(),
+        cwd: ctx.home.clone(),
+    };
+    let stdout = pacer_models::run_models(&process, pacer_models::TIMEOUT).await?;
+    let ids = pacer_models::model_ids(&stdout, provider);
+    (!ids.is_empty()).then_some(ids)
 }
 
 fn opencode_quota_source(provider: &str) -> bool {
@@ -249,15 +246,7 @@ fn coding(text: &str) -> bool {
     text.to_ascii_lowercase().contains("code")
 }
 
-/// `recommend(usable.map(toChoice), releases)`.
-fn recommend(models: &[Value]) -> (Value, Vec<Value>) {
-    let mut release = Map::new();
-    for model in models.iter().filter(|m| usable(m)) {
-        release.insert(
-            model["id"].as_str().unwrap_or_default().into(),
-            model["release"].clone(),
-        );
-    }
+fn recommend_choices(mut sorted: Vec<Value>, release: &Map<String, Value>) -> (Value, Vec<Value>) {
     let collator = CollatorBorrowed::new_root(Default::default());
     let score = |m: &Value| {
         let id = m["id"].as_str().unwrap_or_default();
@@ -272,7 +261,6 @@ fn recommend(models: &[Value]) -> (Value, Vec<Value>) {
                 .to_owned(),
         )
     };
-    let mut sorted: Vec<Value> = models.iter().filter(|m| usable(m)).map(choice).collect();
     sorted.sort_by(|a, b| {
         let ((ca, xa, ra), (cb, xb, rb)) = (score(a), score(b));
         cb.cmp(&ca)
@@ -292,23 +280,126 @@ fn recommend(models: &[Value]) -> (Value, Vec<Value>) {
     (pick, sorted)
 }
 
-pub fn executor_setup_models(ctx: &Ctx, params: Value) -> OpFuture<'_> {
+/// `recommend(usable.map(toChoice), releases)`.
+fn recommend(models: &[Value]) -> (Value, Vec<Value>) {
+    let mut release = Map::new();
+    for model in models.iter().filter(|m| usable(m)) {
+        release.insert(
+            model["id"].as_str().unwrap_or_default().into(),
+            model["release"].clone(),
+        );
+    }
+    recommend_choices(
+        models.iter().filter(|m| usable(m)).map(choice).collect(),
+        &release,
+    )
+}
+
+/// `idChoice` in recommend.ts: an id without catalog facts keeps the defaults.
+fn id_choice(id: &str) -> Value {
+    json!({"id":id,"context":128_000,"output":16_000,"tools":true,"costIn":null,"costOut":null})
+}
+
+/// `NOT_CHAT` in recommend.ts.
+fn chat_id(id: &str) -> bool {
+    let lower = id.to_ascii_lowercase();
+    [
+        "embed",
+        "image",
+        "tts",
+        "whisper",
+        "vision",
+        "rerank",
+        "moderation",
+        "speech",
+        "audio",
+        "video",
+    ]
+    .iter()
+    .any(|word| lower.contains(word))
+}
+
+pub fn executor_setup_models<'a>(
+    ctx: &'a Ctx,
+    params: Value,
+    endpoints: &'a mut dyn EndpointModels,
+) -> OpFuture<'a> {
     Box::pin(async move {
         enforcement(ctx)?;
         let (provider, group) = models_params(&params)?;
-        let models = (group != "local" && params.get("base_url").is_none())
-            .then(|| cached_models(ctx, &provider))
-            .flatten()
-            .ok_or_else(|| {
-                CoreError::new(
-                    Code::Unavailable,
-                    "executor.setup.models: these models need the forwarded operation",
-                )
-            })?;
-        let (pick, rest) = recommend(&models);
-        Ok(
-            json!({"pick":pick,"rest":rest,"filtered":"catalog","usage":classify(&provider, &models)}),
-        )
+        let local = group == "local" || params.get("base_url").is_some();
+        let mut cache = pacer_models::catalog_fetch::read_cache(&ctx.pacer_home);
+        if cache
+            .as_ref()
+            .is_none_or(|c| !pacer_models::catalog_fetch::fresh(c, ctx.now, CATALOG_MAX_AGE_S))
+        {
+            cache = pacer_models::catalog_fetch::load(&ctx.pacer_home, ctx.now, &ctx.env).await;
+        }
+        let models = cache.as_ref().and_then(|c| provider_models(c, &provider));
+        let usage = if local {
+            json!({"usage":"unmetered","known":true})
+        } else {
+            classify(&provider, &models.clone().unwrap_or_default())
+        };
+        if local {
+            let base_url = params
+                .get("base_url")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let reply = endpoints.models(base_url, 3000).await?;
+            let mut ids: Vec<Value> = if reply["listed"] == true {
+                reply["models"]
+                    .as_array()
+                    .map(|items| {
+                        items
+                            .iter()
+                            .filter_map(|m| m["id"].as_str())
+                            .filter(|id| !chat_id(id))
+                            .map(|id| id_choice(id))
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            } else {
+                vec![]
+            };
+            let (pick, rest) = recommend_choices(std::mem::take(&mut ids), &Map::new());
+            return Ok(json!({"pick":pick,"rest":rest,"filtered":"ids","usage":usage}));
+        }
+        if let Some(models) = models {
+            let served = served_ids(ctx, &provider).await;
+            let live = match &served {
+                Some(ids) if !ids.is_empty() => models
+                    .iter()
+                    .filter(|m| {
+                        ids.iter()
+                            .any(|id| id == m["id"].as_str().unwrap_or_default())
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>(),
+                _ => models.clone(),
+            };
+            let live = if live.is_empty() {
+                models.clone()
+            } else {
+                live
+            };
+            let (pick, rest) = recommend(&live);
+            return Ok(json!({"pick":pick,"rest":rest,"filtered":"catalog","usage":usage}));
+        }
+        match served_ids(ctx, &provider).await {
+            Some(ids) => {
+                let choices: Vec<Value> = ids
+                    .iter()
+                    .map(String::as_str)
+                    .filter(|id| !chat_id(id))
+                    .map(id_choice)
+                    .collect();
+                let (pick, rest) = recommend_choices(choices, &Map::new());
+                Ok(json!({"pick":pick,"rest":rest,"filtered":"ids","usage":usage}))
+            }
+            None => Ok(json!({"pick":null,"rest":[],"filtered":"ids","usage":usage,
+                "note":format!("OpenCode could not list models for {provider}; enter a model id.")})),
+        }
     })
 }
 

@@ -41,5 +41,10 @@ export async function setupEffectsBridge(ctx: Ctx, request: unknown, deps: OpDep
     return { results: await Promise.all((r.baseUrls as string[]).map(baseUrl => discover(ctx, { baseUrl, key: null, timeoutMs: 1000 })
       .catch((error: unknown) => ({ failure: error instanceof Error ? error.message : String(error), settled: settled++ })))) };
   }
+  if (r.kind === "models" && typeof r.baseUrl === "string"
+    && (r.timeoutMs === undefined || typeof r.timeoutMs === "number" && Number.isFinite(r.timeoutMs))) {
+    const { discoverEndpointModels } = await import("../plugins/endpoint-adapter");
+    return await discoverEndpointModels(ctx, { baseUrl: r.baseUrl, key: null, timeoutMs: r.timeoutMs as number | undefined });
+  }
   throw new CoreError("invalid_input", "setup effect required");
 }

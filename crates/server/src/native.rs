@@ -135,17 +135,15 @@ pub fn repo_registry_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> boo
         || project_strategy_ops::project_strategy_stays_forwarded(ctx, op, params)
 }
 
-/// `job.*`, `strategy.preview` and `executor.setup.models` inputs that only TypeScript reproduces.
+/// `strategy.preview` inputs and the remaining TypeScript-only setup effects.
+/// `job.*` and `executor.setup.models` are now native for every input.
 pub fn job_strategy_setup_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
     match op {
         "strategy.preview" => strategy_preview_ops::strategy_preview_stays_forwarded(ctx, params),
-        "executor.setup.models" => {
-            executor_setup_ops::executor_setup_models_stays_forwarded(ctx, params)
-        }
         "strategy.build" | "executor.setup.candidates" | "setup.init" => {
             pacer_config_ops::setup_effects::setup_stays_forwarded(ctx, op, params)
         }
-        _ => job_ops::job_stays_forwarded(ctx, op, params),
+        _ => false,
     }
 }
 
@@ -313,7 +311,7 @@ static OPS: &[NativeOp] = &[
     },
     NativeOp {
         name: "executor.setup.models",
-        call: executor_setup_ops::executor_setup_models,
+        call: pacer_config_ops::setup_effects::effects_stub,
     },
     NativeOp {
         name: "executor.setup.connect",
