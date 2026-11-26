@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { readActivity } from "../src/activity/log";
 import { callOp } from "../src/api/ops";
 import { toApiError } from "../src/api/errors";
-import { taskReviewProbe } from "../src/api/task-review-bridge";
 import { main } from "../src/cli";
 import { pruneScratchRepos, readDoctorReport, recheckDiagnostic, saveDoctorReport, type DoctorReport } from "../src/core/doctor-fix";
 import type { Check } from "../src/install/doctor";
@@ -225,9 +224,6 @@ test("accepting the fix task reruns its check and records whether it now passes"
   const stub = doctorStub(ctx, () => [passing ? { name: "CLI codex", level: "ok", detail: "codex launch flags supported" } : failing(ctx)]);
   const result = await callOp(ctx, "doctor.fix.delegate", { check: "CLI codex", scope: "fix" }, deps(stub.doctor)) as { task: { task_id: string } };
   const id = result.task.task_id;
-  expect(taskReviewProbe(ctx, id, { verdict: "accept" })).toEqual({ forward: true, reason: "diagnostic recheck" });
-  expect(taskReviewProbe(ctx, id, { verdict: "reject" })).toEqual({ forward: false });
-
   const rev = updateTask(ctx, id, t => { t.state = "done"; }).rev;
   passing = true;
   const pending: Promise<void>[] = [];

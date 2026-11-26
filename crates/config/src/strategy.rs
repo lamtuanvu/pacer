@@ -59,10 +59,55 @@ pub fn validate_strategy_text(text: &str, path: &Path) -> Result<Value, Strategy
 }
 
 /// `validateStrategy(Bun.YAML.parse(text), path, name)` for text already read.
+/// Bun's `Bun.YAML.parse` error text for a parser failure. The full corpus is
+/// B3-1's golden work; the shapes that reach the native runner/model reads
+/// collapse to its generic "Unexpected token" message.
+fn bun_yaml_error(error: &impl std::fmt::Display) -> String {
+    let text = error.to_string();
+    if text.contains("did not find expected node content")
+        || text.contains("while parsing a node")
+        || text.contains("unexpected end of stream")
+    {
+        "YAML Parse error: Unexpected token".into()
+    } else {
+        text
+    }
+}
+
 pub fn parse_strategy(text: &str, path: &Path, name: &str) -> Result<Value, StrategyError> {
     let raw = parse_yaml_value(text)
-        .map_err(|e| invalid(path, vec![format!("YAML syntax error: {e}")]))?;
+        .map_err(|e| invalid(path, vec![format!("YAML syntax error: {}", bun_yaml_error(&e))]))?;
     validate_yaml_strategy(&raw, path, name)
+}
+
+/// Node's `path.join`: join the non-empty parts with `/`, then drop empty and
+/// `.` segments and resolve `..` lexically. An absolute later part stays under
+/// the earlier ones, unlike Rust's `Path::join`.
+fn node_join(parts: &[&str]) -> String {
+    let joined = parts
+        .iter()
+        .filter(|part| !part.is_empty())
+        .copied()
+        .collect::<Vec<_>>()
+        .join("/");
+    let absolute = joined.starts_with('/');
+    let mut out: Vec<&str> = Vec::new();
+    for segment in joined.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." if out.last().is_some_and(|last| *last != "..") => {
+                out.pop();
+            }
+            ".." if absolute => {}
+            other => out.push(other),
+        }
+    }
+    let body = out.join("/");
+    match (absolute, body.is_empty()) {
+        (true, _) => format!("/{body}"),
+        (false, true) => ".".into(),
+        (false, false) => body,
+    }
 }
 
 pub fn strategy_path(home: &Path) -> Result<(PathBuf, String), StrategyError> {
@@ -72,11 +117,18 @@ pub fn strategy_path(home: &Path) -> Result<(PathBuf, String), StrategyError> {
     } else {
         String::new()
     };
-    if name.is_empty() {
-        Ok((home.join("strategy.yaml"), "default".into()))
+    let Some(home) = home.to_str() else {
+        return Ok((home.join("strategy.yaml"), name));
+    };
+    let (path, name) = if name.is_empty() {
+        (node_join(&[home, "strategy.yaml"]), "default".into())
     } else {
-        Ok((home.join("strategies").join(format!("{name}.yaml")), name))
-    }
+        (
+            node_join(&[home, "strategies", &format!("{name}.yaml")]),
+            name,
+        )
+    };
+    Ok((PathBuf::from(path), name))
 }
 pub fn load_strategy(home: &Path) -> Result<Value, StrategyError> {
     let (path, name) = strategy_path(home)?;

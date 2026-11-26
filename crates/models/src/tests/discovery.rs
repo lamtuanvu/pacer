@@ -284,11 +284,20 @@ async fn catalog_facts_follow_the_typescript_fact_rules() {
 }
 
 #[tokio::test]
-async fn catalogs_typescript_throws_on_stay_with_typescript() {
-    for providers in [
-        json!({"acme": {"models": [null, {"id": "a"}]}}),
-        json!({"acme": {"models": "a"}}),
-        json!({"acme": "entry"}),
+async fn catalogs_typescript_throws_on_are_reproduced_natively() {
+    for (providers, message) in [
+        (
+            json!({"acme": {"models": [null, {"id": "a"}]}}),
+            "null is not an object (evaluating 'm.id')",
+        ),
+        (
+            json!({"acme": {"models": "a"}}),
+            "entry?.models.find is not a function. (In 'entry?.models.find((m) => m.id === id)', 'entry?.models.find' is undefined)",
+        ),
+        (
+            json!({"acme": "entry"}),
+            "undefined is not an object (evaluating 'entry?.models.find')",
+        ),
     ] {
         let fake = Fake::new("list", "acme/a\n");
         fs::create_dir_all(fake.pacer_home().join("cache")).unwrap();
@@ -298,16 +307,10 @@ async fn catalogs_typescript_throws_on_stay_with_typescript() {
             catalog.to_string(),
         )
         .unwrap();
-        assert!(listing_needs_core(
-            &fake.pacer_home(),
-            NOW,
-            &strategy(),
-            "opencode#oc"
-        ));
-        assert!(
-            matches!(fake.discover().await, Listing::Unsupported),
-            "{providers}"
-        );
+        match fake.discover().await {
+            Listing::Failed(got) => assert_eq!(got, message, "{providers}"),
+            other => panic!("{providers}: expected Failed, got {other:?}"),
+        }
         assert!(!fake.cache().exists());
     }
 }
@@ -322,16 +325,9 @@ async fn fresh_caches_are_echoed_as_parsed_and_refresh_skips_them() {
         .await
         .unwrap();
     assert_eq!(
-        serde_json::to_string(&reply).unwrap(),
+        quoted::stringify(&reply),
         r#"{"runner":"opencode#named","source":"opencode","models":["a",{"id":"b","x":[1,2]}],"fetchedAt":1700000000,"provider":"vendor","extra":{"1":1,"2":0}}"#
     );
-    assert!(!available_needs_core(
-        dir.path(),
-        NOW,
-        &s,
-        "opencode#named",
-        false
-    ));
     let fresh = available_reply(dir.path(), NOW, &s, "opencode#named", true)
         .await
         .unwrap();
@@ -340,30 +336,30 @@ async fn fresh_caches_are_echoed_as_parsed_and_refresh_skips_them() {
         fresh["models"],
         json!([{"id": "pacer-named/a"}, {"id": "pacer-named/b"}])
     );
-    // A cached lone surrogate has no serde_json spelling.
+    // A cached lone surrogate round-trips through the quoted reply form.
     let lone = r#"{"runner":"opencode#named","source":"opencode","models":[{"id":"\ud800"}],"fetchedAt":1700000000}"#;
     super::seed(dir.path(), "opencode#named", lone);
-    assert!(available_needs_core(
-        dir.path(),
-        NOW,
-        &s,
-        "opencode#named",
-        false
-    ));
+    let echoed = available_reply(dir.path(), NOW, &s, "opencode#named", false)
+        .await
+        .unwrap();
     assert_eq!(
-        available_reply(dir.path(), NOW, &s, "opencode#named", false).await,
-        None
+        quoted::stringify(&echoed),
+        r#"{"runner":"opencode#named","source":"opencode","models":[{"id":"\ud800"}],"fetchedAt":1700000000}"#
     );
 }
 
 #[test]
-fn wire_values_match_json_stringify_or_are_absent() {
+fn wire_values_are_echoed_in_quoted_form() {
     let parsed = |text: &str| quoted::parse(text.as_bytes()).unwrap();
     let value = parsed(r#"{"b":1.0,"a":[2e0,-0,1.5],"10":null,"2":"x"}"#);
     assert_eq!(
-        serde_json::to_string(&wire_value(&value).unwrap()).unwrap(),
+        quoted::stringify(&wire_value(&value).unwrap()),
         quoted::stringify(&value)
     );
-    assert_eq!(wire_value(&parsed(r#"["\udc00"]"#)), None);
+    // Lone surrogates survive because the reply writer uses the quoted form.
+    assert_eq!(
+        quoted::stringify(&wire_value(&parsed(r#"["\udc00"]"#)).unwrap()),
+        r#"["\udc00"]"#
+    );
     assert_eq!(wire_value(&Value::Null), Some(Value::Null));
 }

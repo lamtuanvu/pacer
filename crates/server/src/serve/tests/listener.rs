@@ -37,7 +37,8 @@ async fn public_listener_routes_static_and_forwards_fallbacks() {
         token: "token".into(),
         registry: service_registry(""),
         scoped_work: false,
-        plugins: crate::native::plugins::Service::default(),
+        plugins: Arc::new(crate::native::plugins::Service::default()),
+        delegation: Arc::new(pacer_delegation::Runtime::default()),
         forward_log_follow: false,
         forward_events: false,
     });
@@ -149,7 +150,8 @@ async fn host_effects_bridge_to_core_over_http() {
         token: "token".into(),
         registry: service_registry(""),
         scoped_work: false,
-        plugins: crate::native::plugins::Service::default(),
+        plugins: Arc::new(crate::native::plugins::Service::default()),
+        delegation: Arc::new(pacer_delegation::Runtime::default()),
         forward_log_follow: false,
         forward_events: false,
     });
@@ -247,7 +249,8 @@ async fn public_listener_forwards_to_available_core() {
         token: "token".into(),
         registry: service_registry(""),
         scoped_work: false,
-        plugins: crate::native::plugins::Service::default(),
+        plugins: Arc::new(crate::native::plugins::Service::default()),
+        delegation: Arc::new(pacer_delegation::Runtime::default()),
         forward_log_follow: false,
         forward_events: false,
     });

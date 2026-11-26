@@ -7,7 +7,7 @@ import { createTask, readTask, updateTask } from "../src/tasks/store";
 import { fakeCtx } from "./helpers";
 
 const ROOT = join(import.meta.dir, "..");
-const TARGET = join(ROOT, "target");
+const TARGET = process.env.CARGO_TARGET_DIR ?? join(ROOT, "target");
 
 function rustRecord(
   pacerHome: string,
@@ -20,7 +20,9 @@ function rustRecord(
 ) {
   execFileSync("cargo", ["build", "-q", "-p", "pacer-lifecycle", "--bin", "record_review_probe"], {
     cwd: ROOT,
-    env: { ...process.env, CARGO_TARGET_DIR: TARGET },
+    // Respect the caller's shared Cargo target: executors must not create a
+    // per-worktree target directory.
+    env: { ...process.env, CARGO_TARGET_DIR: process.env.CARGO_TARGET_DIR ?? TARGET },
   });
   const probe = join(TARGET, "debug", "record_review_probe");
   const out = execFileSync(

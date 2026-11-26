@@ -149,7 +149,7 @@ fn forwards_only_runtime_text() {
     assert!(forwarded("project.strategy.list", json!({})));
     fs::write(dir.path().join("strategy.yaml"), "planner: nobody\n").unwrap();
     fs::write(dir.path().join("active"), "/nonexistent/work").unwrap();
-    assert!(forwarded("project.strategy.list", json!({})));
+    assert!(!forwarded("project.strategy.list", json!({})));
 }
 
 #[test]

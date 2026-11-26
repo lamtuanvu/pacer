@@ -1,6 +1,6 @@
 #![allow(clippy::result_large_err)]
-//! Core bridges for the native message writes: turn delivery, the human's task
-//! publication and worktree auto-clean stay in the TypeScript core.
+//! Core bridges for the native message writes: turn delivery and the human's
+//! task publication stay in the TypeScript core. Worktree auto-clean is native.
 use pacer_foundation::api::{Code, CoreError, OpFuture};
 use pacer_messaging_ops::msg_writes::Bridge;
 use serde_json::{Value, json};
@@ -26,16 +26,6 @@ pub fn trace(name: &str, request_id: Option<&Value>) {
             None => eprintln!("native {name}"),
         }
     }
-}
-
-fn clean_ids(request: &Value) -> Option<Vec<String>> {
-    (request["kind"] == "clean").then(|| {
-        request["id"]
-            .as_str()
-            .into_iter()
-            .map(str::to_owned)
-            .collect()
-    })
 }
 
 pub struct HttpBridge {
@@ -86,12 +76,7 @@ impl HttpBridge {
 
 impl Bridge for HttpBridge {
     fn call(&mut self, request: Value) -> OpFuture<'_> {
-        Box::pin(async move {
-            match clean_ids(&request) {
-                Some(ids) => crate::task_clean_sync::http(self.target.clone(), &ids).await,
-                None => self.post(request).await,
-            }
-        })
+        Box::pin(async move { self.post(request).await })
     }
 }
 
@@ -143,20 +128,6 @@ impl<W: tokio::io::AsyncWrite + Unpin + Send> StdioBridge<'_, W> {
 
 impl<W: tokio::io::AsyncWrite + Unpin + Send> Bridge for StdioBridge<'_, W> {
     fn call(&mut self, request: Value) -> OpFuture<'_> {
-        Box::pin(async move {
-            match clean_ids(&request) {
-                Some(ids) => {
-                    crate::task_clean_sync::stdio(
-                        self.core,
-                        self.prefix,
-                        self.key,
-                        &ids,
-                        self.replies,
-                    )
-                    .await
-                }
-                None => self.send(request).await,
-            }
-        })
+        Box::pin(async move { self.send(request).await })
     }
 }

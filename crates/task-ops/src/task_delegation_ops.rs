@@ -1,16 +1,13 @@
 //! Selective native `task.delegate`, `task.retry`, `task.retry_all`, `task.answer`, `task.ask`
 //! and `doctor.fix.delegate` (`src/api/ops.ts`).
 //!
-//! Each front door asks [`admit`] once per request. Rust answers only what TypeScript decides
-//! before any effect: the enforcement identity, the Zod issues in schema key order, the executor
-//! refusals, and the task-record refusals that cannot depend on the filesystem or on a lease.
-//! Every other request reaches Core unchanged, so Core keeps repository resolution, plugin policy,
-//! admission, work grants, messaging, `_run` spawn and supervision, and sees the caller's own body
-//! and authentication.
+//! Each front door asks [`admit`] once per request. Rust answers what TypeScript decides before
+//! any effect (the enforcement identity, Zod issues in schema key order, executor refusals and
+//! ids that cannot name a task). Every admitted delegation operation runs as a native effect over
+//! [`DelegationEffects`]; none returns `Admission::Core`.
 //!
-//! A task id that is well formed but missing stays with Core for `task.retry` and `task.answer`:
-//! `retryTask` takes a desktop-update work lease first, and that lease can refuse with a conflict.
-//! A store Rust cannot read also stays with Core, which owns that failure's reply.
+//! The native retry takes the desktop-update work lease and the sorted task locks itself. A store
+//! Rust cannot read is answered by the effect, which owns that failure's reply.
 #![allow(clippy::result_large_err)]
 use pacer_foundation::{
     Ctx,
@@ -20,7 +17,6 @@ use pacer_foundation::{
 use pacer_lifecycle::{files_search::executor_session, work_node_exists};
 use pacer_store::{TaskStore, is_task_id};
 use serde_json::{Map, Value, json};
-use std::collections::HashSet;
 
 use super::files_search_ops::providers;
 use super::lifecycle_ops::{invalid, type_name};
@@ -39,13 +35,49 @@ pub const DELEGATION_OPS: &[&str] = &[
 const EXECUTOR_DELEGATE_ERROR: &str = "PACER_ROLE=executor: pacer executors cannot delegate onward; complete the assigned task directly.";
 const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
 
+/// Native effects for the delegation operations, supplied by the front door.
+pub trait DelegationEffects: Send + Sync {
+    /// Runs the whole native delegation and returns `summarizeTask`.
+    fn delegate<'a>(&'a self, ctx: &'a Ctx, params: &'a Value) -> OpFuture<'a>;
+    /// Re-delegates a stored brief (`task.retry`).
+    fn retry<'a>(&'a self, ctx: &'a Ctx, params: &'a Value) -> OpFuture<'a>;
+    /// Re-delegates several stored briefs (`task.retry_all`).
+    fn retry_all<'a>(&'a self, ctx: &'a Ctx, params: &'a Value) -> OpFuture<'a>;
+    /// Answers an executor question (`task.answer`).
+    fn answer<'a>(&'a self, ctx: &'a Ctx, params: &'a Value) -> OpFuture<'a>;
+    /// Records a question from the current executor (`task.ask`).
+    fn ask<'a>(&'a self, ctx: &'a Ctx, params: &'a Value) -> OpFuture<'a>;
+}
+
 /// What a front door does with a request [`admit`] did not refuse.
-#[derive(Debug, PartialEq)]
-pub enum Admission {
+pub enum Admission<'a> {
     /// The reply, computed without Core.
     Native(Value),
+    /// An asynchronous native effect, awaited by the front door.
+    Effect(OpFuture<'a>),
     /// Core runs the original request.
     Core,
+}
+
+impl std::fmt::Debug for Admission<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Native(value) => f.debug_tuple("Native").field(value).finish(),
+            Self::Effect(_) => f.write_str("Effect"),
+            Self::Core => f.write_str("Core"),
+        }
+    }
+}
+
+impl PartialEq for Admission<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Native(a), Self::Native(b)) => a == b,
+            (Self::Effect(_), Self::Effect(_)) => true,
+            (Self::Core, Self::Core) => true,
+            _ => false,
+        }
+    }
 }
 
 /// One published params field, checked as its Zod schema.
@@ -65,6 +97,10 @@ enum Field {
     PositiveInt,
     /// `z.number().min(min).max(max)`.
     Num(f64, f64),
+    /// `z.string().refine(validBase)`, which runs `git check-ref-format --branch`.
+    Base,
+    /// `messagingOverrideSchema`: a strict object with bounded rule/turn/liveness fields.
+    Messaging,
     /// `z.boolean()`.
     Bool,
     /// `z.array(id).min(1).max(100)`.
@@ -91,8 +127,8 @@ const KINDS: &[&str] = &[
     "research",
 ];
 
-/// `delegateSchema` with `repo` required. `dispatch` is `z.unknown()`; `base` and `messaging` are
-/// absent because any request carrying them goes to Core (see [`core_validates`]).
+/// `delegateSchema` with `repo` required. `dispatch` is `z.unknown()`; `base` and
+/// `messaging` are validated natively (see [`Field::Base`] and [`Field::Messaging`]).
 const DELEGATE: Shape = &[
     (
         "difficulty",
@@ -102,6 +138,7 @@ const DELEGATE: Shape = &[
     ("model", Field::Str(Some(1), Some(256)), false),
     ("title", Field::Title, false),
     ("request_id", ID, false),
+    ("base", Field::Base, false),
     ("source", Field::Enum(&["planner", "ui", "cli"]), false),
     ("goal", NAME, true),
     ("repo", NAME, true),
@@ -119,6 +156,7 @@ const DELEGATE: Shape = &[
     ("timeout_min", Field::Num(1.0, 240.0), false),
     ("interactive", Field::Bool, false),
     ("group", Field::Group, false),
+    ("messaging", Field::Messaging, false),
     ("grant", Field::Bool, false),
 ];
 const RETRY: Shape = &[
@@ -235,6 +273,110 @@ fn ids_issues(name: &str, value: &Value, issues: &mut Vec<String>) {
     }
 }
 
+/// `messagingOverrideSchema` (`src/messaging/types.ts`) issue text in Zod order.
+fn messaging_issues(name: &str, value: &Value, issues: &mut Vec<String>) {
+    let Some(fields) = value.as_object() else {
+        return issues.push(expected(name, "object", value));
+    };
+    for key in fields.keys() {
+        if !matches!(key.as_str(), "rules" | "max_turns" | "liveness") {
+            issues.push(format!("{name}: Unrecognized key: \"{key}\""));
+        }
+    }
+    if let Some(rules) = fields.get("rules") {
+        match rules.as_array() {
+            Some(items) if items.len() <= 50 => {
+                for (index, rule) in items.iter().enumerate() {
+                    let path = format!("{name}.rules.{index}");
+                    let Some(rule) = rule.as_object() else {
+                        issues.push(expected(&path, "object", rule));
+                        continue;
+                    };
+                    for key in rule.keys() {
+                        if !matches!(
+                            key.as_str(),
+                            "effect" | "from_kind" | "to_kind" | "from_position" | "relation"
+                                | "kinds" | "repo" | "executor" | "grant" | "limits"
+                        ) {
+                            issues.push(format!("{path}: Unrecognized key: \"{key}\""));
+                        }
+                    }
+                    if !rule
+                        .get("effect")
+                        .and_then(Value::as_str)
+                        .is_some_and(|effect| matches!(effect, "allow" | "deny"))
+                    {
+                        issues.push(format!(
+                            "{path}.effect: Invalid option: expected one of \"allow\"|\"deny\""
+                        ));
+                    }
+                    if let Some(kinds) = rule.get("kinds")
+                        && kinds.as_array().is_some_and(Vec::is_empty)
+                    {
+                        issues.push(format!(
+                            "{path}.kinds: Too small: expected array to have >=1 items"
+                        ));
+                    }
+                }
+            }
+            Some(_) => issues.push(format!(
+                "{name}.rules: Too big: expected array to have <=50 items"
+            )),
+            None => issues.push(expected(&format!("{name}.rules"), "array", rules)),
+        }
+    }
+    if let Some(turns) = fields.get("max_turns") {
+        match turns.as_f64() {
+            Some(n) if n.fract() != 0.0 => issues.push(format!(
+                "{name}.max_turns: Invalid input: expected int, received number"
+            )),
+            Some(n) if n <= 0.0 => issues.push(format!(
+                "{name}.max_turns: Too small: expected number to be >0"
+            )),
+            Some(n) if n > 10_000.0 => issues.push(format!(
+                "{name}.max_turns: Too big: expected number to be <=10000"
+            )),
+            Some(_) => {}
+            None => issues.push(expected(&format!("{name}.max_turns"), "number", turns)),
+        }
+    }
+    if let Some(liveness) = fields.get("liveness") {
+        match liveness.as_object() {
+            Some(liveness) => {
+                for key in liveness.keys() {
+                    if !matches!(key.as_str(), "interval_s" | "max_nudges" | "escalate_after_s") {
+                        issues.push(format!("{name}.liveness: Unrecognized key: \"{key}\""));
+                    }
+                }
+                for (key, min) in [
+                    ("interval_s", 10.0),
+                    ("max_nudges", 0.0),
+                    ("escalate_after_s", 10.0),
+                ] {
+                    if let Some(value) = liveness.get(key) {
+                        match value.as_f64() {
+                            Some(n) if n.fract() != 0.0 => issues.push(format!(
+                                "{name}.liveness.{key}: Invalid input: expected int, received number"
+                            )),
+                            Some(n) if n < min => issues.push(format!(
+                                "{name}.liveness.{key}: Too small: expected number to be >={:.0}",
+                                min
+                            )),
+                            Some(_) => {}
+                            None => issues.push(expected(
+                                &format!("{name}.liveness.{key}"),
+                                "number",
+                                value,
+                            )),
+                        }
+                    }
+                }
+            }
+            None => issues.push(expected(&format!("{name}.liveness"), "object", liveness)),
+        }
+    }
+}
+
 fn field_issues(name: &str, field: Field, value: &Value, issues: &mut Vec<String>) {
     match field {
         Field::Str(min, max) => string_issues(name, value, min, max, issues),
@@ -263,7 +405,14 @@ fn field_issues(name: &str, field: Field, value: &Value, issues: &mut Vec<String
             )),
             other => issues.push(expected(name, "string", other)),
         },
-        Field::Int(min, max) | Field::Num(min, max) => match value.as_f64() {
+        Field::Int(min, max) => match value.as_f64() {
+            Some(n) if n.fract() != 0.0 => issues.push(format!(
+                "{name}: Invalid input: expected int, received number"
+            )),
+            Some(n) => number_issues(name, n, min, max, issues),
+            None => issues.push(expected(name, "number", value)),
+        },
+        Field::Num(min, max) => match value.as_f64() {
             Some(n) => number_issues(name, n, min, max, issues),
             None => issues.push(expected(name, "number", value)),
         },
@@ -274,18 +423,31 @@ fn field_issues(name: &str, field: Field, value: &Value, issues: &mut Vec<String
             Some(_) => {}
             None => issues.push(expected(name, "number", value)),
         },
+        Field::Base => match value {
+            Value::String(base) => {
+                length_issues(name, base, Some(1), Some(4096), issues);
+                if !pacer_lifecycle::valid_base(base) {
+                    issues.push(format!(
+                        "{name}: base must be a branch name or a 7–40 hex SHA"
+                    ));
+                }
+            }
+            other => issues.push(expected(name, "string", other)),
+        },
+        Field::Messaging => messaging_issues(name, value, issues),
         Field::Bool if value.is_boolean() => {}
         Field::Bool => issues.push(expected(name, "boolean", value)),
         Field::Ids => ids_issues(name, value, issues),
     }
 }
 
-/// Requests whose validation only Core can answer exactly: `base` runs `git check-ref-format`,
-/// `messaging` has its own schema, and a fractional, exponent or unsafe number may read
-/// differently in serde_json and `JSON.parse`.
+/// Requests whose number validation only Core can answer exactly: a fractional,
+/// exponent or unsafe number may read differently in serde_json and `JSON.parse`.
+/// `task.delegate` now validates `base`, `messaging` and numbers natively in
+/// `pacer_delegation`, so it is excluded here.
 fn core_validates(op: &str, shape: Shape, p: &Map<String, Value>) -> bool {
-    (op == "task.delegate" && (p.contains_key("base") || p.contains_key("messaging")))
-        || shape.iter().any(|(name, field, _)| {
+    op != "task.delegate"
+        && shape.iter().any(|(name, field, _)| {
             matches!(field, Field::Int(..) | Field::Num(..) | Field::PositiveInt)
                 && matches!(p.get(*name), Some(Value::Number(n))
                     if n.is_f64() || n.as_f64().is_none_or(|n| n.abs() > MAX_SAFE_INTEGER))
@@ -347,45 +509,44 @@ fn unmanaged(ctx: &Ctx, id: &str) -> Option<bool> {
     work_node_exists(&mut store, id).map(|managed| !managed)
 }
 
-fn retry(ctx: &Ctx, p: &Map<String, Value>) -> Result<Admission, CoreError> {
+/// `task.retry` after the schema and identity checks. Every admitted request now
+/// runs as a native effect; only ids that cannot name a task are answered here.
+fn retry<'a>(
+    ctx: &'a Ctx,
+    params: &'a Value,
+    effects: &'a dyn DelegationEffects,
+) -> Result<Admission<'a>, CoreError> {
     if is_executor(ctx) {
         return Err(not_allowed(EXECUTOR_DELEGATE_ERROR));
     }
+    let p = params.as_object().unwrap_or(&EMPTY_PARAMS);
     let id = p["id"].as_str().unwrap_or_default();
     if !is_task_id(id) && unmanaged(ctx, id) == Some(true) {
         return Err(unknown(id));
     }
-    Ok(Admission::Core)
+    Ok(Admission::Effect(effects.retry(ctx, params)))
 }
 
-/// The reply when no id can name a task; each id is skipped as `task.retry_all` skips it.
-fn retry_all(ctx: &Ctx, p: &Map<String, Value>) -> Result<Admission, CoreError> {
+/// `task.retry_all` after the schema and identity checks: one native effect
+/// retries each id and reports individual skips.
+fn retry_all<'a>(
+    ctx: &'a Ctx,
+    params: &'a Value,
+    effects: &'a dyn DelegationEffects,
+) -> Result<Admission<'a>, CoreError> {
     if is_executor(ctx) {
         return Err(not_allowed(EXECUTOR_DELEGATE_ERROR));
     }
-    let mut seen = HashSet::new();
-    let mut skipped = Vec::new();
-    for id in p["ids"].as_array().into_iter().flatten() {
-        let id = id.as_str().unwrap_or_default();
-        if !seen.insert(id) {
-            continue;
-        }
-        if is_task_id(id) || unmanaged(ctx, id) != Some(true) {
-            return Ok(Admission::Core);
-        }
-        skipped.push(json!({"id": id, "reason": format!("unknown task {id}")}));
-    }
-    Ok(Admission::Native(
-        json!({"retried": [], "skipped": skipped}),
-    ))
+    Ok(Admission::Effect(effects.retry_all(ctx, params)))
 }
 
-fn answer(ctx: &Ctx, p: &Map<String, Value>) -> Result<Admission, CoreError> {
+fn answer<'a>(
+    ctx: &'a Ctx,
+    params: &'a Value,
+    effects: &'a dyn DelegationEffects,
+) -> Result<Admission<'a>, CoreError> {
+    let p = params.as_object().unwrap_or(&EMPTY_PARAMS);
     let id = p["id"].as_str().unwrap_or_default();
-    // The handler's managed-work refusal comes before every refusal below.
-    if unmanaged(ctx, id) != Some(true) {
-        return Ok(Admission::Core);
-    }
     if is_executor(ctx) {
         return Err(not_allowed("executors cannot delegate onward"));
     }
@@ -393,14 +554,19 @@ fn answer(ctx: &Ctx, p: &Map<String, Value>) -> Result<Admission, CoreError> {
     if text.encode_utf16().count() > 2000 {
         return Err(invalid("answer must contain 1–2000 characters"));
     }
-    if !is_task_id(id) {
+    if !is_task_id(id) && unmanaged(ctx, id) == Some(true) {
         return Err(unknown(id));
     }
-    Ok(Admission::Core)
+    Ok(Admission::Effect(effects.answer(ctx, params)))
 }
 
 /// `requireAskingExecutor`, then `ask` up to its first write.
-fn ask(ctx: &Ctx, p: &Map<String, Value>) -> Result<Admission, CoreError> {
+fn ask<'a>(
+    ctx: &'a Ctx,
+    params: &'a Value,
+    effects: &'a dyn DelegationEffects,
+) -> Result<Admission<'a>, CoreError> {
+    let p = params.as_object().unwrap_or(&EMPTY_PARAMS);
     let id = p["id"].as_str().unwrap_or_default();
     let own = ctx.env.get("PACER_TASK_ID").map(String::as_str);
     if !is_executor(ctx) || own.is_none_or(str::is_empty) || own != Some(id) {
@@ -413,31 +579,19 @@ fn ask(ctx: &Ctx, p: &Map<String, Value>) -> Result<Admission, CoreError> {
     if text.encode_utf16().count() > 1000 {
         return Err(invalid("question must contain 1–1000 characters"));
     }
-    let Ok(mut store) = TaskStore::open(&ctx.pacer_home) else {
-        return Ok(Admission::Core);
-    };
-    let task = match store.read(id) {
-        Ok(Some(task)) => task,
-        Ok(None) => return Err(unknown(id)),
-        Err(_) => return Ok(Admission::Core),
-    };
-    if task
-        .get("question")
-        .is_some_and(|q| q.is_object() && q.get("answer").is_none())
-    {
-        return Err(CoreError::new(
-            Code::Conflict,
-            "already asked; stop and wait for the answer",
-        ));
-    }
-    if task.get("state").and_then(Value::as_str) != Some("running") {
-        return Err(CoreError::new(Code::Conflict, "task is not running"));
-    }
-    Ok(Admission::Core)
+    Ok(Admission::Effect(effects.ask(ctx, params)))
 }
 
+static EMPTY_PARAMS: std::sync::LazyLock<Map<String, Value>> =
+    std::sync::LazyLock::new(Map::new);
+
 /// Decides one request, once. `Err` is the reply TypeScript would give.
-pub fn admit(ctx: &Ctx, op: &str, params: &Value) -> Result<Admission, CoreError> {
+pub fn admit<'a>(
+    ctx: &'a Ctx,
+    op: &str,
+    params: &'a Value,
+    effects: &'a dyn DelegationEffects,
+) -> Result<Admission<'a>, CoreError> {
     let Some(shape) = shape(op) else {
         return Ok(Admission::Core);
     };
@@ -468,12 +622,34 @@ pub fn admit(ctx: &Ctx, op: &str, params: &Value) -> Result<Admission, CoreError
         return Err(invalid(issues.join("; ")));
     }
     match op {
-        "task.retry" => retry(ctx, p),
-        "task.retry_all" => retry_all(ctx, p),
-        "task.answer" => answer(ctx, p),
-        "task.ask" => ask(ctx, p),
+        "task.delegate" if is_executor(ctx) => Err(not_allowed(EXECUTOR_DELEGATE_ERROR)),
+        "task.delegate" => Ok(Admission::Effect(effects.delegate(ctx, params))),
+        "task.retry" => retry(ctx, params, effects),
+        "task.retry_all" => retry_all(ctx, params, effects),
+        "task.answer" => answer(ctx, params, effects),
+        "task.ask" => ask(ctx, params, effects),
         _ if is_executor(ctx) => Err(not_allowed(EXECUTOR_DELEGATE_ERROR)),
         _ => Ok(Admission::Core),
+    }
+}
+
+/// A test double that reports an empty reply when a native delegate is admitted.
+pub struct NoDelegationEffects;
+impl DelegationEffects for NoDelegationEffects {
+    fn delegate<'a>(&'a self, _: &'a Ctx, _: &'a Value) -> OpFuture<'a> {
+        Box::pin(async { Ok(json!({})) })
+    }
+    fn retry<'a>(&'a self, _: &'a Ctx, _: &'a Value) -> OpFuture<'a> {
+        Box::pin(async { Ok(json!({})) })
+    }
+    fn retry_all<'a>(&'a self, _: &'a Ctx, _: &'a Value) -> OpFuture<'a> {
+        Box::pin(async { Ok(json!({"retried": [], "skipped": []})) })
+    }
+    fn answer<'a>(&'a self, _: &'a Ctx, _: &'a Value) -> OpFuture<'a> {
+        Box::pin(async { Ok(json!({})) })
+    }
+    fn ask<'a>(&'a self, _: &'a Ctx, _: &'a Value) -> OpFuture<'a> {
+        Box::pin(async { Ok(json!({})) })
     }
 }
 
