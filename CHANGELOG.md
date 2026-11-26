@@ -4,6 +4,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.18.8] - 2026-11-26
+
 ### Changed
 
 - Settings › Dispatcher is now a hub with four tabs, each its own link: Overview (model choice and preview), Agents, Who can run what (guided rules) and Profiles (saved setups). The separate Agents, Accounts and Model matrix pages are gone; their links open Dispatcher › Agents and keep the selected agent.
