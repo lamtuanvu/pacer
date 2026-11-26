@@ -496,6 +496,22 @@ test("S3: a pinned default with no declared models is kept as a row when the fir
   await page.unmount();
 });
 
+test("R-1: a removed pinned default or a removed added model never comes back when another model is added", async () => {
+  for (const steps of [
+    [["add", "a"], ["remove", "gpt-5"], ["remove", "a"]],
+    [["add", "a"], ["remove", "a"], ["remove", "gpt-5"]],
+  ] as const) {
+    const s = server({ codex: { default: "gpt-5", models: [] } });
+    const page = await models(s);
+    for (const [kind, id] of steps) await act(async () => kind === "add" ? page.get().edits.add("codex", id, "small") : page.get().edits.remove("codex", id));
+    await act(async () => page.get().edits.add("codex", "b", "medium"));
+    const draft = page.get().draftOf("codex")!;
+    expect(draft.rows.map(row => row.id)).toEqual(["b"]);
+    expect(draft.default).toBe("b");
+    await page.unmount();
+  }
+});
+
 test("Replace swaps a model in place and keeps its size and default; a size can go back to Unrated", async () => {
   const s = server({ go: { default: "old", models: [{ id: "old", tier: "frontier" }, { id: "b", tier: "small" }] } });
   const page = await models(s);

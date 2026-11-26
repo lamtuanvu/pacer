@@ -60,6 +60,8 @@ export function useModelDrafts(runners: readonly string[], targets: TierTargets)
   targetsRef.current = targets; basesRef.current = bases; draftsRef.current = drafts;
   // Per-runner edit generation: a save folds its result back only into runners not edited while it ran.
   const versions = useRef<Record<string, number>>({});
+  /** Ids removed in the current draft, per runner: a removed pinned default never comes back as a row. */
+  const removedRef = useRef<Record<string, Set<string>>>({});
   const bump = (runner: string) => { versions.current = { ...versions.current, [runner]: (versions.current[runner] ?? 0) + 1 }; };
   const dirtyOf = (list: readonly MatrixDraft[], base: readonly MatrixDraft[]) => list.some(d => {
     const b = base.find(x => x.runner === d.runner);
@@ -85,7 +87,7 @@ export function useModelDrafts(runners: readonly string[], targets: TierTargets)
   const apply = (next: Loaded) => {
     setAvailable(next.available); setErrors(next.errors);
     setDrafts(next.drafts); setBases(next.drafts.map(copyDraft));
-    setRevision(next.drafts[0]?.revision ?? ""); versions.current = {}; setLoaded(true);
+    setRevision(next.drafts[0]?.revision ?? ""); versions.current = {}; removedRef.current = {}; setLoaded(true);
   };
   useEffect(() => {
     if (!key) { setLoaded(true); return; }
@@ -121,7 +123,8 @@ export function useModelDrafts(runners: readonly string[], targets: TierTargets)
       // A pinned default the saved state never declared (no models at all) stays: it becomes the first row, so
       // adding never replaces it. A default left behind by removing every row in this draft does not come back.
       const savedRows = basesRef.current.find(base => base.runner === runner)?.rows ?? [];
-      const pinned = savedRows.length === 0 && !!d.default && d.default !== value && !d.rows.some(r => r.id === d.default);
+      const pinned = savedRows.length === 0 && !!d.default && d.default !== value && !d.rows.some(r => r.id === d.default)
+        && !removedRef.current[runner]?.has(d.default);
       let rows = addModel(pinned ? addModel(d.rows, d.default!) : d.rows, value);
       if (tier) rows = setTier(rows, value, tier);
       const valid = !!d.default && rows.some(r => r.id === d.default && r.on);
@@ -135,6 +138,7 @@ export function useModelDrafts(runners: readonly string[], targets: TierTargets)
       return { ...d, rows, default: d.default === id ? value : d.default };
     }),
     remove: (runner: string, id: string) => update(runner, d => {
+      (removedRef.current[runner] ??= new Set()).add(id);
       const rows = removeModel(d.rows, id);
       // The last model removed leaves the saved default in place: the save needs one.
       return { ...d, rows, default: d.default === id ? rows.find(r => r.on)?.id ?? d.default : d.default };
