@@ -74,6 +74,7 @@ export interface RunStepRow {
   error?: string;
   startedAt: number;
   endedAt?: number;
+  trigger?: string;
 }
 export interface RunGraphSummary {
   stepId: string;

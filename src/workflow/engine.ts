@@ -46,6 +46,7 @@ import {
 } from "./store";
 import { assertPluginAllowsWorkflowStart, parsePluginOrigin } from "./plugin-sync";
 import { isAdmissionRace, isTransientError } from "./transient";
+import { speaksFor } from "./fanout";
 import { runPriorityOf, stepDispatchOptions, taskPriorityFor, type RunPriority } from "./priority";
 import { isPersonPaused, isRunStepPaused, readPacingMode, syncRunPacingPause } from "./pacing";
 import { chooseStepChildRunId, completeWakeupRef, enqueueWakeup, liveTurnForTask, stepWakeRef } from "./wakeups";
@@ -58,7 +59,8 @@ import { ensureRootWorkNode, isWorkNodeRun, startStepTask } from "./worknode";
 import { installGeneratedDefinition } from "./generate";
 import { adoptGeneratedBranches, ensureRunBranch, mergeTaskOnAccept, taskWorkMerged } from "./branch";
 import {
-  adoptRetriedStep, awaitsReview, fanoutJoined, isHeldBranch, needsReview, resumedForFollowUp, REVIEW_REJECTED,
+  adoptRetriedStep, awaitsReview, fanoutJoined, isHeldBranch, needsReview, pruneAbandonedConflicts, resumedForFollowUp,
+  REVIEW_REJECTED,
 } from "./review";
 import { branchReportFor, settleRunGitOnTerminal } from "./cleanup";
 import { isCodeStep, isPlainObject, type AgentStep, type ChooseWorkflowStep, type FanoutStep, type GenerateStep, type HumanStep, type JsonSchemaLite, type StepResultSchema, type WorkflowDef } from "./schema";
@@ -303,11 +305,13 @@ function nextAttempt(ctx: Ctx, runId: string, stepId: string): number {
  *  Rows are ordered by start time, so the newest attempt (and a fan-out's join row)
  *  wins. */
 function stepResults(ctx: Ctx, runId: string): Record<string, { result?: unknown }> {
-  const out: Record<string, { result?: unknown }> = {};
+  const latest = new Map<string, StepRow>();
   for (const row of stepsOfRun(ctx, runId)) {
-    if (row.result !== undefined) out[row.stepId] = { result: row.result };
+    if (row.result === undefined) continue;
+    const prior = latest.get(row.stepId);
+    if (!prior || speaksFor(row, prior)) latest.set(row.stepId, row);
   }
-  return out;
+  return Object.fromEntries([...latest].map(([id, row]) => [id, { result: row.result }]));
 }
 
 /** Publishes a run entity event the way ops-workflow does. publish() already swallows
@@ -412,6 +416,7 @@ export async function failRun(ctx: Ctx, runId: string, reason: string, loops?: R
       stopStepTask(ctx, row, deps);
       try { updateStep(ctx, keyOf(row), { status: "stopped", error: "run failed", endedAt: ctx.now }); } catch { /* the row may have settled meanwhile */ }
     }
+    pruneAbandonedConflicts(ctx, runId);
   } finally {
     failingRuns.delete(runId);
   }
@@ -1823,6 +1828,8 @@ async function settleReview(ctx: Ctx, run: RunRow, def: WorkflowDef, row: StepRo
     : { status: "failed", error, endedAt: ctx.now });
   if (!claimed) return; // another caller settled this step: the run advances exactly once
   completeWakeupRef(ctx, run.id, "review_due", ref);
+  // A step that failed here no longer stands behind a merge conflict it raised.
+  pruneAbandonedConflicts(ctx, run.id);
   await publishRunChange(ctx, getRun(ctx, run.id) ?? run);
   const stepDef = def.steps[row.stepId];
   if (claimed.status === "failed") {
@@ -1943,6 +1950,7 @@ export async function joinFanout(ctx: Ctx, run: RunRow, def: WorkflowDef, settle
   await Promise.resolve();
   const joinRow = insertJoinStep(ctx, run.id, settled.stepId, attempt, outcome, result);
   if (!joinRow) return; // the concurrent join inserted the row and owns the advancement
+  pruneAbandonedConflicts(ctx, run.id);
   // A rejected branch the join no longer needs owes no decision.
   for (const held of running.filter(isHeldBranch)) closeHeldBranch(ctx, held);
   await publishRunChange(ctx, getRun(ctx, run.id) ?? run); // the join publishes the run
@@ -2153,26 +2161,23 @@ export async function readvanceStep(ctx: Ctx, row: StepRow, spawn?: SpawnRunner,
   return true;
 }
 
-/** Latest failed instance of a step on a run, if any.
- *  Returns null only when every failure is superseded by a later attempt of the
- *  same step+branch (N5). With several open failed branches, returns the earliest
- *  deterministically (startedAt, then branch name) — one branch at a time (G5). */
-function latestFailedStep(ctx: Ctx, runId: string, stepId: string): StepRow | null {
+/** The open failed instances of a step: failures not superseded by a later attempt
+ *  of the same step+branch (N5), earliest first (startedAt, then branch name). */
+function openFailedSteps(ctx: Ctx, runId: string, stepId: string): StepRow[] {
   const steps = stepsOfRun(ctx, runId).filter(s => s.stepId === stepId);
-  const failed = steps.filter(s => s.status === "failed");
-  const candidates = failed.filter(f =>
-    !steps.some(s =>
+  return steps.filter(s => s.status === "failed")
+    .filter(f => !steps.some(s =>
       (f.branch === undefined ? s.branch === undefined : s.branch === f.branch)
       && s.attempt > f.attempt,
-    ),
-  );
-  if (candidates.length === 0) return null;
-  candidates.sort((a, b) =>
-    a.startedAt !== b.startedAt
+    ))
+    .sort((a, b) => a.startedAt !== b.startedAt
       ? a.startedAt - b.startedAt
-      : (a.branch ?? "").localeCompare(b.branch ?? ""),
-  );
-  return candidates[0]!;
+      : (a.branch ?? "").localeCompare(b.branch ?? ""));
+}
+
+/** The earliest open failure — one branch at a time (G5). */
+function latestFailedStep(ctx: Ctx, runId: string, stepId: string): StepRow | null {
+  return openFailedSteps(ctx, runId, stepId)[0] ?? null;
 }
 
 function clearStepFailureWakeups(ctx: Ctx, row: StepRow): void {
@@ -2204,6 +2209,7 @@ export async function skipFailedStep(
   const result = { skipped: true };
   const done = updateStep(ctx, keyOf(row), { status: "done", result, endedAt: ctx.now });
   clearStepFailureWakeups(ctx, row);
+  pruneAbandonedConflicts(ctx, run.id);
   try {
     if (!isTerminal(getRun(ctx, run.id)) && getRun(ctx, run.id)?.status === "waiting") {
       await patchRun(ctx, run.id, { status: "running" });
@@ -2230,18 +2236,18 @@ export async function retryFailedStep(
   const run = getRun(ctx, input.runId);
   if (!run) throw new CoreError("not_found", `unknown run ${input.runId}`);
   if (RUN_TERMINAL.includes(run.status)) throw new CoreError("conflict", `conflict: run ${input.runId} is ${run.status}`);
-  const row = latestFailedStep(ctx, input.runId, input.stepId);
-  if (!row) throw new CoreError("conflict", `conflict: step ${input.stepId} of ${input.runId} is not failed`);
-  // Cap retries per step — count prior retried failures (advancedAt), not loop
-  // attempt numbers (S N5).
+  const open = openFailedSteps(ctx, input.runId, input.stepId);
+  if (open.length === 0) throw new CoreError("conflict", `conflict: step ${input.stepId} of ${input.runId} is not failed`);
+  // Cap retries per step and branch — count prior retried failures (advancedAt),
+  // not loop attempt numbers (S N5). A branch at its cap does not block the others.
   const MAX_STEP_RETRIES = 3;
-  const priorRetries = stepsOfRun(ctx, input.runId).filter(s =>
+  const row = open.find(failed => stepsOfRun(ctx, input.runId).filter(s =>
     s.stepId === input.stepId
-    && (row.branch === undefined ? s.branch === undefined : s.branch === row.branch)
+    && s.branch === failed.branch
     && s.status === "failed"
     && s.advancedAt !== undefined,
-  ).length;
-  if (priorRetries >= MAX_STEP_RETRIES) {
+  ).length < MAX_STEP_RETRIES);
+  if (!row) {
     throw new CoreError("not_allowed", `step ${input.stepId} has reached the retry limit (${MAX_STEP_RETRIES})`);
   }
   const def = loadDefinition(ctx, run);
@@ -2271,6 +2277,8 @@ export async function retryFailedStep(
   } else {
     await startStep(ctx, getRun(ctx, run.id)!, def, input.stepId, row.branch, { deps, spawn });
   }
+  // The failed attempt's conflicts went with it.
+  pruneAbandonedConflicts(ctx, run.id);
   return getRun(ctx, run.id)!;
 }
 
@@ -2728,6 +2736,7 @@ export async function stopRun(ctx: Ctx, runId: string, expectRev: number, deps: 
     stopStepTask(ctx, row, deps);
     try { updateStep(ctx, keyOf(row), { status: "stopped", endedAt: ctx.now }); } catch { /* the row may have settled meanwhile */ }
   }
+  pruneAbandonedConflicts(ctx, runId);
   const stopped = await patchRun(ctx, runId, { status: "stopped" }, { deps, spawn: undefined });
   settleRootWorkNode(ctx, stopped, "stopped");
   const report = await branchReportFor(ctx, stopped);

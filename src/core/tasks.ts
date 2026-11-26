@@ -211,6 +211,23 @@ async function continueWithMessage(ctx: Ctx, task: TaskRecord, m: { kind: "answe
   return null;
 }
 
+/** The holder refreshes the lock every 30 s, so one silent for 90 s is dead. A
+ *  waiter outlasts that, and gives up with an ordinary error behind a live one. */
+export const REVIEW_LOCK = { timeoutMs: 120_000, staleMs: 90_000 };
+
+async function withReviewLock<T>(ctx: Ctx, id: string, fn: () => Promise<T>): Promise<T> {
+  const name = `review-${id}`;
+  try {
+    return await withLock(ctx, name, fn, REVIEW_LOCK);
+  } catch (error) {
+    if (error instanceof Error && !(error instanceof CoreError) && error.message.startsWith("timed out waiting for ")
+      && error.message.endsWith(`${name}.lock`)) {
+      throw new CoreError("unavailable", `another review of ${id} is still in progress; try again shortly`);
+    }
+    throw error;
+  }
+}
+
 export async function review(
   ctx: Ctx, id: string, v: ReviewOptions, deps: RetryDeps = {},
 ): Promise<{ task: ApiTask; retry?: ApiTask; accepted?: false; merge?: "conflict"; resolution_task?: string }> {
@@ -240,7 +257,7 @@ export async function review(
   // lock, so none can land between them.
   const {stepTaskNeedsRunBranchMerge}=await import("../workflow/store");
   const serialized=<T>(fn:()=>Promise<T>)=>stepTaskNeedsRunBranchMerge(ctx,id)
-    ?withLock(ctx,`review-${id}`,fn,{timeoutMs:200_000,staleMs:600_000}):fn();
+    ?withReviewLock(ctx,id,fn):fn();
   try { return await serialized(async()=>{
   const strategy=()=>{try{return loadStrategy(ctx);}catch(error){if(error instanceof MissingStrategyError)return null;throw error;}};
   const {applyPolicy}=await import("../plugins/policy");

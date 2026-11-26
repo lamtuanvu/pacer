@@ -15,11 +15,12 @@ import type { TaskRecord } from "../tasks/types";
 import { isCodeStep } from "./schema";
 import {
   branchOwner, clearRunBranch, clearRunConflict, generatedChildren, getDefinition, getRun, replaceRunConflicts,
-  setRunBranch, setRunConflict,
+  setRunBranch, setRunConflict, stepsOfRun, updateStep,
   stepByTask, stepByTaskLineage, taskByRequestId, workflowDatabase, type RunConflict, type RunRow,
 } from "./store";
 import { enqueueWakeup, stepWakeRef } from "./wakeups";
 import { dataPreamble } from "./template";
+import { isTransientError } from "./transient";
 import { awaitsReview, closeConflictRecord } from "./review";
 
 export { isCodeStep };
@@ -447,6 +448,19 @@ function adoptBranch(ctx: Ctx, ownerId: string, childId: string): Promise<boolea
   });
 }
 
+/** Records on the waiting generate step why its child's branch is not on the run
+ *  yet (shown as attention), and clears it once it is. Logs each new reason once. */
+function noteAdoption(ctx: Ctx, parentId: string, childId: string, error: string | undefined): void {
+  for (const row of stepsOfRun(ctx, parentId)) {
+    const result = row.result as { childRunId?: unknown; adoptError?: unknown } | undefined;
+    if (row.status !== "waiting" || result?.childRunId !== childId || result.adoptError === error) continue;
+    updateStep(ctx, { runId: row.runId, stepId: row.stepId, attempt: row.attempt }, {
+      result: { ...result, adoptError: error },
+    });
+    if (error) console.warn(`pacer: run ${childId} branch is not on run ${parentId} yet: ${error}`);
+  }
+}
+
 /**
  * Moves the branches that ended generated children of `parent` still own (runs
  * started before a generated child shared its parent's branch) to the owner,
@@ -460,8 +474,13 @@ export async function adoptGeneratedBranches(ctx: Ctx, parent: RunRow): Promise<
     if (RUN_TERMINAL.includes(owner.status)) continue;
     try {
       if (!await adoptBranch(ctx, owner.id, child.id)) all = false;
+      noteAdoption(ctx, parent.id, child.id, undefined);
     } catch (error) {
-      console.warn(`pacer: run ${child.id} branch is not on run ${owner.id} yet: ${error instanceof Error ? error.message : String(error)}`);
+      const message = error instanceof Error ? error.message : String(error);
+      // A held lock clears by itself; anything else needs to be seen.
+      if (!isTransientError(error) && !/merge lock timed out/.test(message)) {
+        noteAdoption(ctx, parent.id, child.id, cleanLine(message));
+      }
       all = false;
     }
   }

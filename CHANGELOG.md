@@ -19,6 +19,11 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - A verdict can no longer land between an accept's merge and its record, and a retry takes its workflow step over before the new task can report.
 - Generated runs that already had a branch of their own before this update hand it to the parent run with its merged work, and publishing a generated run publishes the parent's branch under the parent's gate.
 - Ending a run or resolving a join stops a task that was sent back and is running again, and leaves finished tasks reviewable.
+- A merge conflict no longer blocks publishing after its work is given up: rejecting, skipping, stopping or retrying the step, or moving it to a new task, drops the marker and closes its record.
+- Work accepted after a run's pull request was opened is pushed to it under a new approval (or the draft opt-in), or publishing says why it was not; it is no longer skipped.
+- A review whose process died is taken over after 90 seconds, and waiting behind a live one ends with an ordinary error.
+- After one fan-out branch is retried, the run view and later steps still see the whole fan-out, and a branch at its retry limit no longer blocks retrying the others.
+- A generated run whose code cannot be added to the run branch is shown in Needs you with the reason.
 
 ## [0.18.6] - 2026-11-26
 

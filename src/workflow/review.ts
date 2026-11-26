@@ -13,7 +13,7 @@ import { canContinue, TERMINAL_STATES, type TaskRecord } from "../tasks/types";
 import { isCodeStep, type WorkflowDef } from "./schema";
 import {
   attachStepTask, branchOwner, fanoutAttempt, getDefinition, getRun, replaceRunConflicts,
-  stepByTaskIfPresent, stepsOfRun, updateStep, workflowDatabase, type StepRow,
+  runsSharingBranch, stepByTaskIfPresent, stepsOfRun, updateStep, workflowDatabase, type RunRow, type StepRow,
 } from "./store";
 
 /** Whether the row's step is an agent or fan-out branch step that changes code. */
@@ -102,8 +102,9 @@ export function fanoutJoined(rows: StepRow[], row: StepRow): boolean {
  * before the new task can run. Only a running or parked step moves.
  */
 export function adoptRetriedStep(ctx: Ctx, taskId: string, successorId: string): boolean {
-  if (!stepByTaskIfPresent(ctx, taskId)) return false;
-  return workflowDatabase(ctx).transaction(() => {
+  const runId = stepByTaskIfPresent(ctx, taskId)?.runId;
+  if (!runId) return false;
+  const moved = workflowDatabase(ctx).transaction(() => {
     const row = stepByTaskIfPresent(ctx, taskId);
     if (!row || (row.status !== "running" && !awaitsReview(ctx, row))) return false;
     const run = getRun(ctx, row.runId);
@@ -119,6 +120,8 @@ export function adoptRetriedStep(ctx: Ctx, taskId: string, successorId: string):
     updateStep(ctx, key, { status: "running", result: null });
     return true;
   }).immediate();
+  if (moved) pruneAbandonedConflicts(ctx, runId);
+  return moved;
 }
 
 /**
@@ -135,6 +138,56 @@ export function clearTaskConflict(ctx: Ctx, taskId: string): void {
   if (mine.length === 0) return;
   replaceRunConflicts(ctx, owner.id, conflicts.filter(entry => entry.taskId !== taskId));
   for (const entry of mine) closeConflictRecord(ctx, entry.resolutionTaskId);
+}
+
+/** Whether a task was started for a workflow step (itself, or the task it retries). */
+function startedForStep(ctx: Ctx, taskId: string): boolean {
+  const seen = new Set<string>();
+  for (let id: string | undefined = taskId; id && !seen.has(id);) {
+    seen.add(id);
+    const task: TaskRecord | null = readTask(ctx, id);
+    if (task?.requestId?.startsWith("wf:")) return true;
+    id = task?.retryOf;
+  }
+  return false;
+}
+
+/** Whether the work of a conflicting task was given up: rejected, or its step
+ *  failed, skipped, stopped, or moved to another task. */
+function abandoned(ctx: Ctx, owner: RunRow, taskId: string): boolean {
+  if (/^(base|child):/.test(taskId)) return false;
+  const rows = runsSharingBranch(ctx, owner)
+    .flatMap(run => stepsOfRun(ctx, run.id))
+    .filter(row => row.taskId === taskId);
+  // A task no step holds any more was replaced; one that never was a step is a
+  // resolution record, whose marker goes with the one it resolves.
+  if (rows.length === 0) return startedForStep(ctx, taskId);
+  if (readTask(ctx, taskId)?.review?.accepted === false) return true;
+  return rows.every(row => row.status === "failed" || row.status === "stopped"
+    || (row.status === "done" && (row.result as { skipped?: unknown } | undefined)?.skipped === true));
+}
+
+/**
+ * Drops the conflict markers, and closes their records, of work that will never be
+ * accepted. A marker keeps publishing closed, so one that outlives its work would
+ * block the run for good. Safe to call at any point.
+ */
+export function pruneAbandonedConflicts(ctx: Ctx, runId: string): void {
+  const run = getRun(ctx, runId);
+  if (!run) return;
+  const owner = branchOwner(ctx, run);
+  let kept = owner.conflict ?? [];
+  const dropped: typeof kept = [];
+  for (;;) {
+    const gone = kept.filter(entry => abandoned(ctx, owner, entry.taskId)
+      || dropped.some(d => d.resolutionTaskId === entry.taskId));
+    if (gone.length === 0) break;
+    dropped.push(...gone);
+    kept = kept.filter(entry => !gone.includes(entry));
+  }
+  if (dropped.length === 0) return;
+  replaceRunConflicts(ctx, owner.id, kept);
+  for (const entry of dropped) closeConflictRecord(ctx, entry.resolutionTaskId);
 }
 
 /** Hides a conflict-resolution record nobody needs any more. */

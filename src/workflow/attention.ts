@@ -502,6 +502,28 @@ function branchConflictItems(ctx: Ctx, run: RunRow, letters: Map<string, string>
   }));
 }
 
+/** A generated run whose own branch could not be moved to the run branch. */
+function adoptionItems(ctx: Ctx, run: RunRow, letters: Map<string, string>): AttentionItem[] {
+  return stepsOfRun(ctx, run.id).flatMap(step => {
+    const result = step.result as { childRunId?: unknown; adoptError?: unknown } | undefined;
+    if (step.status !== "waiting" || typeof result?.adoptError !== "string") return [];
+    return [{
+      id: `run_review:adopt:${String(result.childRunId)}`,
+      kind: "orchestrator_failed" as const,
+      severity: "blocked" as const,
+      repo: null,
+      title: `Step "${step.stepId}" cannot add its code to the run branch`,
+      detail: `${runDetailSubject(run)}. ${clipCodePoints(collapseNewlines(result.adoptError), FULL_QUESTION_CLIP, true)}. pacer keeps trying; the run waits until it works.`,
+      raisedAt: step.startedAt,
+      since: step.startedAt,
+      notify: notifyLevelForRun("question", run, ctx.now, { since: step.startedAt, unblocks: "run" }),
+      actions: [stopRunAction(run)],
+      unblocks: "run" as const,
+      run: attentionRunRef(run, letters),
+    }];
+  });
+}
+
 /** Attention items for live runs: blocked orchestrator, budget thresholds, and person questions. */
 export function deriveWorkflowAttention(ctx: Ctx): AttentionItem[] {
   const items: AttentionItem[] = [];
@@ -514,7 +536,9 @@ export function deriveWorkflowAttention(ctx: Ctx): AttentionItem[] {
     items.push(runQuestionItem(ctx, q, run, letters));
   }
   for (const run of live) {
-    items.push(...reviewItems(ctx, run, letters), ...branchConflictItems(ctx, run, letters));
+    items.push(
+      ...reviewItems(ctx, run, letters), ...branchConflictItems(ctx, run, letters), ...adoptionItems(ctx, run, letters),
+    );
     // Child runs share the root's orchestrator/budget attention.
     if (run.parentRunId) continue;
     const budget = parseBudget(run.budget);

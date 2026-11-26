@@ -5,11 +5,12 @@ import type { Ctx } from "../types";
 import { CoreError } from "../core/errors";
 import { ghEnv } from "../core/issue-import";
 import {
-  branchOwner, getRun, listDecisions, setRunPrUrl, type RunRow,
+  branchOwner, getRun, listDecisions, recordDecision, setRunPrUrl, type RunRow,
 } from "./store";
 import {
   adoptGeneratedBranches, integrationWorktreeUnderLock, withMergeLock,
 } from "./branch";
+import { pruneAbandonedConflicts } from "./review";
 
 /** Extra names beyond ghEnv that publish children may need. */
 const PUBLISH_EXTRA = new Set([
@@ -119,6 +120,7 @@ export function approvedTipFromReason(reason: string): string | null {
 export async function assertPublishGate(ctx: Ctx, of: RunRow, draft: boolean): Promise<void> {
   const run = branchOwner(ctx, of);
   if (!run.branch) throw new CoreError("invalid_input", `run ${run.id} has no branch to publish`);
+  pruneAbandonedConflicts(ctx, run.id);
   if (hasUnresolvedConflictTask(ctx, run.id)) {
     throw new CoreError("not_allowed", "run has an unresolved conflict task");
   }
@@ -161,6 +163,36 @@ async function assertBranchHasCommits(ctx: Ctx, run: RunRow): Promise<void> {
   );
   if (count.code === 0 && count.stdout.trim() === "0") {
     throw new CoreError("not_allowed", "the run branch has no commits beyond its base: nothing to publish");
+  }
+}
+
+/** Whether the run branch tip is what the pull request already has: the tip the
+ *  last publish recorded, else (published before that was recorded) the remote
+ *  branch itself. Never assumed: later work is pushed or refused. */
+async function alreadyPushed(ctx: Ctx, run: RunRow): Promise<boolean> {
+  if (!run.branch) return true; // cleaned up after publishing: nothing left to push
+  const local = (await branchTipSha(ctx, run.repo, run.branch)).toLowerCase();
+  const published = listDecisions(ctx, run.id).filter(d => d.kind === "published").at(-1);
+  if (published) return approvedTipFromReason(published.reason) === local;
+  const remote = await ctx.run(
+    ["git", "-C", run.repo, "ls-remote", "origin", `refs/heads/${run.branch}`],
+    60_000, { env: publishChildEnv(ctx) },
+  );
+  if (remote.code !== 0) {
+    throw new CoreError("unavailable", `cannot confirm that ${run.prUrl} has the run branch's latest work: ${firstLine(remote.stderr) || `git ls-remote exit ${remote.code}`}`);
+  }
+  return remote.stdout.trim().split(/\s+/)[0]?.toLowerCase() === local;
+}
+
+/** The publish gate; on a run with a pull request, says that it lacks later work. */
+async function gateFor(ctx: Ctx, run: RunRow, draft: boolean): Promise<void> {
+  try {
+    await assertPublishGate(ctx, run, draft);
+  } catch (error) {
+    if (run.prUrl && error instanceof CoreError) {
+      throw new CoreError(error.code, `the run branch has work that was not pushed to ${run.prUrl}: ${error.message}`);
+    }
+    throw error;
   }
 }
 
@@ -220,17 +252,17 @@ export async function publishRun(ctx: Ctx, runId: string, input: PublishInput): 
   // A generated child publishes its owner's branch, under the owner's gate.
   const run = branchOwner(ctx, asked);
   const rev = run.rev;
-  if (run.prUrl) return { pr_url: run.prUrl, run };
+  if (run.prUrl && await alreadyPushed(ctx, run)) return { pr_url: run.prUrl, run };
 
-  await assertPublishGate(ctx, run, input.draft);
+  await gateFor(ctx, run, input.draft);
 
   return withMergeLock(ctx, run.id, async () => {
     const live = getRun(ctx, run.id) ?? run;
     if (live.rev !== rev) {
       throw new CoreError("conflict", `conflict: run ${runId} changed since rev ${input.expectRev}`);
     }
-    if (live.prUrl) return { pr_url: live.prUrl, run: live };
-    await assertPublishGate(ctx, live, input.draft);
+    if (live.prUrl && await alreadyPushed(ctx, live)) return { pr_url: live.prUrl, run: live };
+    await gateFor(ctx, live, input.draft);
     if (!live.branch || !live.baseRef) {
       throw new CoreError("invalid_input", `run ${runId} has no branch to publish`);
     }
@@ -253,7 +285,8 @@ export async function publishRun(ctx: Ctx, runId: string, input: PublishInput): 
       throw new CoreError("unavailable", cap(firstLine(pushed.stderr) || firstLine(pushed.stdout) || `git push exit ${pushed.code}`, STDERR_CAP));
     }
 
-    let prUrl = await existingPrUrl(ctx, wt, live.branch, pathEnv, ghBin, repoSlug);
+    // Later work goes to the branch of the pull request already opened.
+    let prUrl = live.prUrl ?? await existingPrUrl(ctx, wt, live.branch, pathEnv, ghBin, repoSlug);
     if (!prUrl) {
       const base = live.baseRef.startsWith("origin/") ? live.baseRef.slice("origin/".length) : live.baseRef;
       const argv = [
@@ -287,6 +320,10 @@ export async function publishRun(ctx: Ctx, runId: string, input: PublishInput): 
     prUrl = assertHttpsPrUrl(prUrl);
 
     setRunPrUrl(ctx, live.id, prUrl);
+    recordDecision(ctx, {
+      runId: live.id, stepId: "publish", attempt: 1, actor: "engine", kind: "published", choice: prUrl,
+      reason: `tip=${await branchTipSha(ctx, live.repo, live.branch)}`,
+    });
     const updated = getRun(ctx, live.id) ?? { ...live, prUrl };
     return { pr_url: prUrl, run: updated };
   });

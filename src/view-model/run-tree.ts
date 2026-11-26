@@ -1,5 +1,6 @@
 /** Run step tree from `run.get` (shared by the TUI run view and the app run view). Framework-free. */
 import type { RunDetail, RunQuestion, RunStepRow } from "../dashboard/screens/types";
+import { fanoutAttempt } from "../workflow/fanout";
 export interface TreeLine {
   id: string;
   stepId: string;
@@ -188,7 +189,7 @@ export function buildRunTree(detail: RunDetail, openQuestions: RunQuestion[] | S
   const pushFanout = (stepId: string, depth: number) => {
     const branches = branchesByFanout.get(stepId) ?? [];
     const join = joinByFanout.get(stepId);
-    const attempt = join?.attempt ?? Math.max(0, ...branches.map(b => b.attempt));
+    const attempt = join?.attempt ?? Math.max(0, ...branches.map(fanoutAttempt));
     const status = fanoutStatus(branches, join);
     const parentKey = `${stepId}\0`;
     const attempts = join

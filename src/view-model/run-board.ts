@@ -6,6 +6,7 @@
 import type { RunDecision, RunDetail, RunQuestion, RunStepRow } from "../dashboard/screens/types";
 import { buildRunTree, stepTypeOf, type TreeLine } from "./run-tree";
 import { stepMarkerFor, type StepMarker } from "./runs";
+import { fanoutAttempt, latestFanoutRows } from "../workflow/fanout";
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const str = (v: unknown): string | undefined => typeof v === "string" && v.trim() ? v : undefined;
@@ -82,7 +83,7 @@ export function actorLabel(actor: string): string {
 export function decisionKindLabel(kind: string): string {
   const labels: Record<string, string> = {
     choose: "Chose a path", answer: "Answered", approve_graph: "Approved the plan", revise_graph: "Asked for a revision",
-    publish_approved: "Approved publishing", decide: "Decided", skip: "Skipped a step", retry: "Retried a step",
+    publish_approved: "Approved publishing", published: "Published", decide: "Decided", skip: "Skipped a step", retry: "Retried a step",
   };
   return labels[kind] ?? (kind.replace(/_/g, " ") || "Decision");
 }
@@ -208,8 +209,9 @@ export function reviewerPanels(detail: RunDetail, decisions: unknown[] | undefin
   const allDecisions = decisionRows(decisions);
   const panels: ReviewerPanelData[] = [];
   for (const [stepId, rows] of byStep) {
-    const attempt = Math.max(...rows.map(r => r.attempt));
-    const current = rows.filter(r => r.attempt === attempt);
+    // A retried branch belongs to the fan-out attempt it replaces a branch of.
+    const current = latestFanoutRows(rows);
+    const attempt = Math.max(...current.map(fanoutAttempt));
     const lanes: ReviewerLane[] = current.filter(r => r.branch).sort((a, b) => (a.branch ?? "").localeCompare(b.branch ?? "")).map(r => {
       const res = isObj(r.result) ? r.result : undefined;
       return {

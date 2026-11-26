@@ -24,6 +24,7 @@ import {
   type TurnRow, type Wakeup,
 } from "./wakeups";
 import { reviewRef, type ReviewRef } from "./branch";
+import { speaksFor } from "./fanout";
 import { canSendBack, mergeConflictFor } from "./review";
 import { revokeOrphanRunGrants, revokeRunGrant, revokeRunGrantsForRun } from "./run-grant";
 import {
@@ -482,17 +483,15 @@ function patchRunBestEffort(ctx: Ctx, runId: string, patch: Parameters<typeof up
 
 function stepResultsMap(steps: StepRow[]): Record<string, { result?: unknown }> {
   // Keyed by bare stepId within one owning run (templates use {{steps.<id>.result}}).
-  // Prefer the highest attempt when several done rows share an id (N5-6).
-  const out: Record<string, { result?: unknown; attempt: number }> = {};
+  // When several done rows share an id, the latest one wins (N5-6), and a
+  // fan-out's join row over a retried branch.
+  const latest = new Map<string, StepRow>();
   for (const s of steps) {
     if (s.status !== "done") continue;
-    const prior = out[s.stepId];
-    if (prior && prior.attempt > s.attempt) continue;
-    out[s.stepId] = { result: s.result, attempt: s.attempt };
+    const prior = latest.get(s.stepId);
+    if (!prior || speaksFor(s, prior)) latest.set(s.stepId, s);
   }
-  const mapped: Record<string, { result?: unknown }> = {};
-  for (const [id, v] of Object.entries(out)) mapped[id] = { result: v.result };
-  return mapped;
+  return Object.fromEntries([...latest].map(([id, row]) => [id, { result: row.result }]));
 }
 
 /** Open orchestrator_step / choose_workflow text as instructions (N3), not data fences.

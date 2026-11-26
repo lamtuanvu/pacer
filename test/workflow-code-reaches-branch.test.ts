@@ -2,7 +2,7 @@
 // git, the real engine and tick, and the real review op: no step row is written by
 // hand and no verdict is recorded around the engine, so the ordering is covered.
 import { expect, test } from "bun:test";
-import { chmodSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fakeCtx, gitRepo, realRun, tmpDir } from "./helpers";
 import { callOp } from "../src/api/ops";
@@ -17,7 +17,9 @@ import type { DelegateInput } from "../src/tasks/api";
 import type { TaskRecord, TaskState } from "../src/tasks/types";
 import { deriveWorkflowAttention } from "../src/workflow/attention";
 import { evalCondition, parseCondition } from "../src/workflow/condition";
-import { mergeTaskOnAccept, reviewRef, runBranchName, syncBase } from "../src/workflow/branch";
+import { adoptGeneratedBranches, mergeTaskOnAccept, reviewRef, runBranchName, syncBase } from "../src/workflow/branch";
+import { reviewerPanels } from "../src/view-model/run-board";
+import type { RunDetail } from "../src/dashboard/screens/types";
 import { registerWork } from "../src/dispatch/work";
 import {
   answerGenerateApproval, answerHumanStep, awaitTerminalSettle, chooseWorkflow, failRun, recordStepResult,
@@ -27,7 +29,7 @@ import { submitGraph } from "../src/workflow/generate";
 import { parseWorkflow } from "../src/workflow/parse";
 import { publishRun } from "../src/workflow/publish";
 import type { WorkflowDef } from "../src/workflow/schema";
-import { addDefinition, clearRunBranch, getRun, setCursor, setRunBranch, stepsOfRun, workflowDatabase, type StepRow } from "../src/workflow/store";
+import { addDefinition, clearRunBranch, getRun, recordDecision, setCursor, setPublishOptIn, setRunConflict, setRunBranch, stepsOfRun, workflowDatabase, type StepRow } from "../src/workflow/store";
 import { taskChangesSince } from "../src/tasks/changes";
 import { settleTurn } from "../src/workflow/orchestrator";
 import { issueRunGrant } from "../src/workflow/run-grant";
@@ -963,3 +965,283 @@ for (const parentCode of [false, true]) {
     expect(getRun(w.ctx, run.id)!.prUrl).toContain("/pull/7");
   });
 }
+
+/** Two branches write the same file: x is accepted, y's accept conflicts. */
+async function conflicted(w: ReturnType<typeof world>, join: "all" | { quorum: number } = "all") {
+  const branches = join === "all" ? ["x", "y"] : ["x", "y", "z"];
+  const def: WorkflowDef = {
+    id: `t/pubfan-${branches.length}`, version: 1, entry: "build",
+    steps: {
+      build: { type: "fanout", branches, each: { type: "agent", kind: "feature", prompt: "Build" }, join },
+      ok: { type: "human", decision: "must", approves: "publish", question: { text: "ok?", kind: "approve_revise" } },
+      done: { type: "end" },
+    },
+    edges: [{ from: "build", to: "ok" }, { from: "ok", to: "done", when: "result.answer == 'approve'" }],
+  };
+  const run = await startChain(w, def);
+  const ids = branches.map(b => w.taskOf(run.id, "build", b));
+  for (const id of ids) await w.checkout(id);
+  await w.execute(ids[0]!, { file: "same.txt", body: "from x\n" });
+  await w.execute(ids[1]!, { file: "same.txt", body: "from y\n" });
+  if (ids[2]) await w.execute(ids[2], { file: "z.txt" });
+  await w.accept(ids[0]!);
+  const conflict = await w.accept(ids[1]!);
+  expect(conflict.merge).toBe("conflict");
+  expect(getRun(w.ctx, run.id)!.conflict).toHaveLength(1);
+  const y = ids[1]!, record = conflict.resolution_task!;
+  /** The person approves and publishes; nothing about the conflict is left. */
+  const publishes = async (files: string[]) => {
+    expect(getRun(w.ctx, run.id)!.conflict ?? []).toEqual([]);
+    expect(readTask(w.ctx, record)!.dismissed).toBe(true);
+    expect(deriveWorkflowAttention(w.ctx).filter(i => i.id.startsWith("run_review:"))).toEqual([]);
+    await answerHumanStep(w.ctx, run.id, "ok", "approve", getRun(w.ctx, run.id)!.rev, w.deps);
+    await publishRun(w.ctx, run.id, { draft: false, title: "t", body: "b", expectRev: getRun(w.ctx, run.id)!.rev });
+    const branch = getRun(w.ctx, run.id)!.branch!;
+    expect(w.git(w.remote, "diff", "--name-only", `main..${branch}`).split("\n").sort()).toEqual(files);
+  };
+  return { run, y, z: ids[2], record, publishes };
+}
+
+test("publish after a conflicted branch is rejected, retried and accepted", async () => {
+  const w = world();
+  const c = await conflicted(w);
+  await w.reject(c.y);
+  await retryFailedStep(w.ctx, { runId: c.run.id, stepId: "build" }, undefined, w.deps);
+  const again = w.taskOf(c.run.id, "build", "y");
+  await w.execute(again, { file: "again.txt" });
+  await w.accept(again);
+  await c.publishes(["again.txt", "same.txt"]);
+});
+
+test("publish after a conflicted branch is rejected and skipped", async () => {
+  const w = world();
+  const c = await conflicted(w);
+  await w.reject(c.y);
+  await skipFailedStep(w.ctx, { runId: c.run.id, stepId: "build" }, undefined, w.deps);
+  await w.tick();
+  await c.publishes(["same.txt"]);
+});
+
+test("publish after a conflicted branch moves to a new task that resolves it", async () => {
+  const w = world();
+  const c = await conflicted(w);
+  const sent = await tasks.review(w.ctx, c.y, { verdict: "send_back", note: "again" }, w.reviewDeps);
+  const next = sent.retry!.id;
+  expect(next).not.toBe(c.y);
+  expect(getRun(w.ctx, c.run.id)!.conflict ?? []).toEqual([]);
+  const tree = readTask(w.ctx, next)!.worktree!;
+  const branch = getRun(w.ctx, c.run.id)!.branch!;
+  Bun.spawnSync(["git", "-C", tree, "-c", "user.email=t@t", "-c", "user.name=t", "merge", "-q", branch]);
+  writeFileSync(join(tree, "same.txt"), "both\n");
+  w.git(tree, "commit", "-qam", "resolve");
+  recordStepResult(w.ctx, next, { summary: "resolved" });
+  w.finish(next);
+  await w.tick();
+  await w.accept(next);
+  await c.publishes(["same.txt"]);
+  expect(w.branchFile(branch, "same.txt")).toBe("both\n");
+});
+
+test("publish after a join stops a conflicted branch", async () => {
+  const w = world();
+  const c = await conflicted(w, { quorum: 2 });
+  await w.accept(c.z!);
+  // A quorum leaves the others parked; the person rejects the one that conflicts.
+  await w.reject(c.y);
+  await c.publishes(["same.txt", "z.txt"]);
+});
+
+test("publish after join any stops the conflicted branch itself", async () => {
+  const w = world();
+  const def: WorkflowDef = {
+    id: "t/pubany", version: 1, entry: "prep",
+    steps: {
+      prep: { type: "agent", kind: "feature", prompt: "Prep" },
+      build: { type: "fanout", branches: ["x", "y"], each: { type: "agent", kind: "feature", prompt: "Build" }, join: "any" },
+      done: { type: "end" },
+    },
+    edges: [{ from: "prep", to: "build" }, { from: "build", to: "done" }],
+  };
+  const run = await startRun(w.ctx, (w.install(def), { workflow: def.id, repo: w.repo, brief: "b", publish: "draft" }), undefined, w.deps);
+  const prep = w.taskOf(run.id, "prep");
+  await w.execute(prep, { file: "same.txt", body: "prep\n" });
+  await w.accept(prep);
+  const x = w.taskOf(run.id, "build", "x"), y = w.taskOf(run.id, "build", "y");
+  await w.checkout(x);
+  await w.checkout(y);
+  // y works from before prep, so its accept conflicts.
+  const tree = readTask(w.ctx, y)!.worktree!;
+  w.git(tree, "reset", "-q", "--hard", "main");
+  await w.execute(y, { file: "same.txt", body: "y\n" });
+  await w.execute(x, { file: "x.txt" });
+  expect((await w.accept(y)).merge).toBe("conflict");
+  await w.accept(x);
+  expect(getRun(w.ctx, run.id)!.status).toBe("done");
+  expect(w.step(run.id, "build", "y").status).toBe("stopped");
+  expect(getRun(w.ctx, run.id)!.conflict ?? []).toEqual([]);
+  await publishRun(w.ctx, run.id, { draft: true, title: "t", body: "b", expectRev: getRun(w.ctx, run.id)!.rev });
+});
+
+for (const end of ["stop", "fail"] as const) {
+  test(`publish after a ${end === "stop" ? "stopped" : "failed"} run leaves a conflicted step behind`, async () => {
+    const w = world();
+    const c = await conflicted(w);
+    if (end === "stop") await stopRun(w.ctx, c.run.id, getRun(w.ctx, c.run.id)!.rev, w.deps);
+    else await failRun(w.ctx, c.run.id, "boom", undefined, w.deps);
+    await awaitTerminalSettle(c.run.id);
+    expect(getRun(w.ctx, c.run.id)!.conflict ?? []).toEqual([]);
+    expect(readTask(w.ctx, c.record)!.dismissed).toBe(true);
+    setPublishOptIn(w.ctx, c.run.id, "draft");
+    await publishRun(w.ctx, c.run.id, { draft: true, title: "t", body: "b", expectRev: getRun(w.ctx, c.run.id)!.rev });
+  });
+}
+
+test("the publish gate drops a marker its step left behind", async () => {
+  const w = world();
+  const c = await conflicted(w);
+  await w.reject(c.y);
+  await skipFailedStep(w.ctx, { runId: c.run.id, stepId: "build" }, undefined, w.deps);
+  await w.tick();
+  // The state an earlier revision left: the marker survived its step.
+  setRunConflict(w.ctx, c.run.id, { taskId: c.y, branch: `pacer/${c.y}`, resolutionTaskId: c.record });
+  await answerHumanStep(w.ctx, c.run.id, "ok", "approve", getRun(w.ctx, c.run.id)!.rev, w.deps);
+  await publishRun(w.ctx, c.run.id, { draft: false, title: "t", body: "b", expectRev: getRun(w.ctx, c.run.id)!.rev });
+  expect(getRun(w.ctx, c.run.id)!.conflict ?? []).toEqual([]);
+});
+
+test("a live conflict keeps publishing closed", async () => {
+  const w = world();
+  const c = await conflicted(w);
+  await expect(assertPublishGate(w.ctx, getRun(w.ctx, c.run.id)!, false))
+    .rejects.toMatchObject({ code: "not_allowed", message: expect.stringMatching(/conflict/) });
+});
+
+test("a review lock left by a dead holder is taken over; a live one gives an ordinary error", async () => {
+  const w = world();
+  const run = await startChain(w);
+  const impl = w.taskOf(run.id, "impl");
+  await w.execute(impl, { file: "a.txt" });
+  const lock = join(w.ctx.pacerHome, "orca", `review-${impl}.lock`);
+  mkdirSync(join(w.ctx.pacerHome, "orca"), { recursive: true });
+  expect(tasks.REVIEW_LOCK.staleMs).toBeLessThan(tasks.REVIEW_LOCK.timeoutMs);
+  const saved = { ...tasks.REVIEW_LOCK };
+  Object.assign(tasks.REVIEW_LOCK, { timeoutMs: 300 });
+  try {
+    writeFileSync(lock, "held");
+    await expect(tasks.review(w.ctx, impl, { verdict: "accept" }))
+      .rejects.toMatchObject({ code: "unavailable", message: expect.stringMatching(/still in progress/) });
+    const old = new Date(Date.now() - saved.staleMs - 5_000);
+    utimesSync(lock, old, old);
+    await tasks.review(w.ctx, impl, { verdict: "accept" });
+  } finally { Object.assign(tasks.REVIEW_LOCK, saved); }
+  expect(readTask(w.ctx, impl)!.review).toMatchObject({ accepted: true });
+});
+
+test("after a branch retry the join, the reviewer panel and templates all show the whole fan-out", async () => {
+  const w = world();
+  const def: WorkflowDef = {
+    id: "t/after", version: 1, entry: "build",
+    steps: {
+      build: { type: "fanout", branches: ["x", "y"], each: { type: "agent", kind: "feature", prompt: "Build" }, join: "all" },
+      sum: { type: "agent", role: "orchestrator", prompt: "Joined: {{steps.build.result}}" },
+      look: { type: "agent", role: "reviewer", prompt: "Done branches: {{steps.build.result.done}}" },
+      done: { type: "end" },
+    },
+    edges: [{ from: "build", to: "sum" }, { from: "build", to: "look" }, { from: "sum", to: "done" }, { from: "look", to: "done" }],
+  };
+  const run = await startChain(w, def);
+  const x = w.taskOf(run.id, "build", "x"), y = w.taskOf(run.id, "build", "y");
+  await w.execute(x, { file: "x.txt" });
+  await w.execute(y, { file: "y.txt" });
+  await w.reject(y);
+  await retryFailedStep(w.ctx, { runId: run.id, stepId: "build" }, undefined, w.deps);
+  const again = w.taskOf(run.id, "build", "y");
+  const panel = async () => reviewerPanels(await callOp(w.ctx, "run.get", { id: run.id }) as RunDetail, [])
+    .find(p => p.stepId === "build")!;
+  // While the retry runs, the finished lane is still there.
+  expect((await panel()).lanes.map(l => [l.branch, l.status])).toEqual([["x", "waiting"], ["y", "running"]]);
+  await w.accept(x);
+  await w.execute(again, { file: "y2.txt" });
+  await w.accept(again);
+  const shown = await panel();
+  expect(shown.lanes.map(l => [l.branch, l.status])).toEqual([["x", "done"], ["y", "done"]]);
+  expect(shown.join).toMatchObject({ status: "done" });
+  expect(w.inputs.at(-1)!.brief.goal).toContain("Done branches: ");
+  expect(w.inputs.at(-1)!.brief.goal).toMatch(/\n2\n/);
+  const orch = readTask(w.ctx, getRun(w.ctx, run.id)!.orchestratorTaskId!)!.brief.goal;
+  expect(orch).toContain('"branches"');
+});
+
+test("a branch at the retry cap does not block retrying the others", async () => {
+  const w = world();
+  const { run, x, y } = await parkedFan(w, "all");
+  await w.reject(x);
+  for (let i = 0; i < 3; i++) {
+    await retryFailedStep(w.ctx, { runId: run.id, stepId: "build" }, undefined, w.deps);
+    const next = w.taskOf(run.id, "build", "x");
+    await w.execute(next, { file: `x${i}.txt` });
+    await w.reject(next);
+  }
+  await expect(retryFailedStep(w.ctx, { runId: run.id, stepId: "build" }, undefined, w.deps))
+    .rejects.toMatchObject({ code: "not_allowed" });
+  await w.reject(y);
+  await retryFailedStep(w.ctx, { runId: run.id, stepId: "build" }, undefined, w.deps);
+  expect(w.step(run.id, "build", "y").status).toBe("running");
+});
+
+test("work accepted after publishing is pushed with a new approval, never silently skipped", async () => {
+  const w = world();
+  const { run, childId } = await startPlanned(w, single, false);
+  const impl = w.taskOf(childId, "impl");
+  await w.execute(impl, { file: "first.txt" });
+  await w.accept(impl);
+  const publish = (id: string) => publishRun(w.ctx, id, { draft: false, title: "t", body: "b", expectRev: getRun(w.ctx, id)!.rev });
+  const approve = () => answerHumanStep(w.ctx, run.id, "ok", "approve", getRun(w.ctx, run.id)!.rev, w.deps);
+  await approve();
+  const first = await publish(childId);
+  const branch = getRun(w.ctx, run.id)!.branch!;
+  expect((await publish(childId)).pr_url).toBe(first.pr_url);
+  // Later accepted work on the same branch.
+  const tree = join(tmpDir(), "later");
+  w.git(w.repo, "worktree", "add", "-q", "--force", tree, branch);
+  writeFileSync(join(tree, "later.txt"), "later");
+  w.git(tree, "add", "later.txt");
+  w.git(tree, "commit", "-qm", "later");
+  await expect(publish(childId)).rejects.toMatchObject({ code: "not_allowed", message: expect.stringMatching(/not pushed to/) });
+  recordDecision(w.ctx, {
+    runId: run.id, stepId: "ok", attempt: 2, actor: "person", kind: "publish_approved", choice: "approve",
+    reason: `approves: publish tip=${w.git(w.repo, "rev-parse", branch)}`,
+  });
+  expect((await publish(childId)).pr_url).toBe(first.pr_url);
+  expect(w.git(w.remote, "show", `${branch}:later.txt`)).toBe("later");
+  expect(readFileSync(w.ghLog, "utf8").split("\n").filter(l => l.startsWith("pr create"))).toHaveLength(1);
+});
+
+test("a branch that cannot be adopted for a reason other than a conflict is shown", async () => {
+  const w = world();
+  const { run, childId } = await startPlanned(w, single, false);
+  w.git(w.repo, "branch", "-D", runBranchName(run.id));
+  clearRunBranch(w.ctx, run.id);
+  const own = runBranchName(childId);
+  w.git(w.repo, "branch", own, "main");
+  setRunBranch(w.ctx, childId, { branch: own, base_ref: "main", base_sha: w.git(w.repo, "rev-parse", "main") });
+  const impl = w.taskOf(childId, "impl");
+  updateTask(w.ctx, impl, t => { t.brief = { ...t.brief, base: own }; });
+  await w.execute(impl, { file: "old.txt" });
+  await w.accept(impl);
+  await awaitTerminalSettle(childId);
+  // Someone holds the child branch checked out elsewhere: the owner cannot take it
+  // while git refuses, and the person is told why.
+  const broken: Ctx = { ...w.ctx, run: async (argv, t, o) => argv.includes("rev-parse") && argv.includes(`refs/heads/${own}`)
+    ? { code: 128, stdout: "", stderr: "fatal: object store is broken" } : w.ctx.run(argv, t, o) };
+  setRunBranch(w.ctx, childId, { branch: own, base_ref: "main", base_sha: w.git(w.repo, "rev-parse", "main") });
+  workflowDatabase(w.ctx).query("UPDATE workflow_steps SET status = 'waiting', result = ? WHERE run_id = ? AND step_id = 'plan'")
+    .run(JSON.stringify({ childRunId: childId }), run.id);
+  workflowDatabase(w.ctx).query("UPDATE workflow_runs SET status = 'waiting', branch = NULL WHERE id = ?").run(run.id);
+  expect(await adoptGeneratedBranches(broken, getRun(w.ctx, run.id)!)).toBe(false);
+  const item = deriveWorkflowAttention(w.ctx).find(i => i.id === `run_review:adopt:${childId}`)!;
+  expect(item.detail).toContain("object store is broken");
+  expect(item.actions[0]!.op).toBe("run.stop");
+  expect(await adoptGeneratedBranches(w.ctx, getRun(w.ctx, run.id)!)).toBe(true);
+  expect(deriveWorkflowAttention(w.ctx).some(i => i.id === `run_review:adopt:${childId}`)).toBe(false);
+});

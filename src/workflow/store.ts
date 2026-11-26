@@ -4,6 +4,8 @@
 import type { Database, SQLQueryBindings } from "bun:sqlite";
 import { randomBytes } from "node:crypto";
 import { readTask, taskDatabase } from "../tasks/store";
+import { fanoutAttempt } from "./fanout";
+export { fanoutAttempt };
 import type { TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
 import { CoreError } from "../core/errors";
@@ -1499,13 +1501,6 @@ export function insertStep(ctx: Ctx, s: NewStep): StepRow {
   db.query("INSERT INTO workflow_steps(run_id, step_id, attempt, branch, task_id, status, result, error, started_at, ended_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
     .run(row.runId, row.stepId, row.attempt, row.branch ?? "", row.taskId ?? null, row.status, null, null, row.startedAt, null);
   return row;
-}
-
-/** The fan-out attempt a row belongs to: its own, or for a retried branch the
- *  attempt whose branch it replaces (recorded in its trigger). */
-export function fanoutAttempt(row: Pick<StepRow, "attempt" | "trigger">): number {
-  const retry = /^retry:(\d+):/.exec(row.trigger ?? "");
-  return retry ? Number(retry[1]) : row.attempt;
 }
 
 /** A new attempt of one fan-out branch, joined with the rest of its fan-out. */
