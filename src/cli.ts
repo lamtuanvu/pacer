@@ -491,7 +491,9 @@ function isStepReport(cmd: string, args: string[]): boolean {
     && !(cmd === "guard" && ctx.env.PACER_ENFORCEMENT_MODE === "strict" && !!ctx.env.PACER_ENFORCEMENT_TOKEN)
     && !(isStepReport(cmd, rest) && verifiedStepWorker(ctx)))
     return {code:2,out:"",err:"pacer: work grants only allow scoped dispatch commands"};
-  if (ctx.env.PACER_ASSISTANT_GRANT && cmd !== "mcp")
+  // `api` is the service/stdio door the native front door spawns as Core; op-level
+  // `authorizeWorkOperation` still refuses every non-`assistant.tool` call.
+  if (ctx.env.PACER_ASSISTANT_GRANT && cmd !== "mcp" && cmd !== "api")
     return {code:2,out:"",err:"pacer: an assistant grant only allows the MCP server"};
   // Orchestrator turns: review/stop/step result|skip|retry|artifact / run decide|choose|submit-graph|sync|publish,
   // plus structured question answer/escalate/ask (Phase 4). Never delegate or run.answer.

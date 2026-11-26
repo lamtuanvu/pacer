@@ -1,8 +1,7 @@
-//! Core hand-off for the `dispatch.*` lifecycle ops. Worker spawn, queue drain,
-//! runner supervision and the review, retry, answer and stop transactions stay
-//! in Core, so a request Rust would not refuse is forwarded unchanged rather
-//! than replayed over an internal bridge: Core sees the caller's own request
-//! and auth, and `dispatch.wait` may block past the 120 s bridge timeout.
+//! Core hand-off for the `dispatch.*` lifecycle ops. B2-9 serves submit/child
+//! and B2-10 serves wait/review/stop natively; `retry` and `answer` still go to
+//! Core unchanged. Bodies serde_json rejects are forwarded verbatim until the
+//! remaining lifecycle ops are ported.
 use pacer_dispatch_ops::lifecycle_ops;
 use pacer_foundation::Ctx;
 use serde_json::Value;
@@ -46,10 +45,16 @@ mod tests {
             ));
             assert!(!dispatch_lifecycle_stays_forwarded(&ctx, op, &json!("x")));
         }
-        assert!(dispatch_lifecycle_stays_forwarded(
+        // B2-10 answers wait, review and stop natively; retry/answer still go to Core.
+        assert!(!dispatch_lifecycle_stays_forwarded(
             &ctx,
             "dispatch.wait",
             &json!({"id": "t"})
+        ));
+        assert!(dispatch_lifecycle_stays_forwarded(
+            &ctx,
+            "dispatch.retry",
+            &json!({"id": "t", "expect_rev": 1, "requestId": "r"})
         ));
         assert!(!dispatch_lifecycle_stays_forwarded(
             &ctx,

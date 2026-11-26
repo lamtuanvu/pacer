@@ -20,16 +20,30 @@ fn message(op: &str, params: Value) -> String {
 }
 
 #[test]
-fn valid_requests_forward_to_core() {
+fn submit_child_wait_review_and_stop_stay_native_while_rest_forward() {
     let ctx = ctx(&[]);
+    // B2-9 owns `submit`/`child`, B2-10 adds `wait`/`review`/`stop`: a request
+    // Rust would not refuse still runs them natively rather than forwarding.
     for (op, params) in [
         ("dispatch.submit", json!({"goal": "g", "repo": "/r"})),
         ("dispatch.child", json!({"goal": "g", "requestId": "r1"})),
+        ("dispatch.submit", json!({"goal": "g", "repo": "/r", "options": {"allowDelegation": true}})),
+        ("dispatch.child", json!({"goal": "g", "requestId": "r1", "difficulty": "simple", "model": "x"})),
         ("dispatch.wait", json!({"id": "t", "timeout_s": 3000})),
         (
             "dispatch.review",
             json!({"id": "t", "accepted": false, "note": "n", "expect_rev": 2}),
         ),
+        ("dispatch.stop", json!({"id": "t"})),
+        (
+            "dispatch.stop",
+            json!({"id": "t", "expect_rev": 3, "extra": 1}),
+        ),
+    ] {
+        assert!(!lifecycle_stays_forwarded(&ctx, op, &params), "{op} {params}");
+    }
+    // `retry` and `answer` still act in Core until B2-11.
+    for (op, params) in [
         (
             "dispatch.retry",
             json!({"id": "t", "expect_rev": 1, "requestId": "r", "feedback": ""}),
@@ -37,11 +51,6 @@ fn valid_requests_forward_to_core() {
         (
             "dispatch.answer",
             json!({"id": "t", "expect_rev": 1, "requestId": "r", "text": "yes"}),
-        ),
-        ("dispatch.stop", json!({"id": "t"})),
-        (
-            "dispatch.stop",
-            json!({"id": "t", "expect_rev": 3, "extra": 1}),
         ),
     ] {
         assert!(lifecycle_stays_forwarded(&ctx, op, &params), "{op}");
@@ -54,18 +63,33 @@ fn valid_requests_forward_to_core() {
 }
 
 #[test]
-fn options_forward_whatever_the_other_fields_hold() {
+fn work_options_validate_natively_and_interleave_with_field_issues() {
     let ctx = ctx(&[]);
-    assert!(lifecycle_stays_forwarded(
+    // Unknown `workOptionsSchema` key is answered natively (not forwarded).
+    assert!(!lifecycle_stays_forwarded(
         &ctx,
         "dispatch.submit",
         &json!({"goal": 1, "options": {"bogus": true}})
     ));
-    assert!(lifecycle_stays_forwarded(
-        &ctx,
+    let text = message(
+        "dispatch.submit",
+        json!({"goal": "", "options": {"bogus": true}}),
+    );
+    assert!(
+        text.contains("options: Unrecognized key: \"bogus\"") && text.contains("goal: Too small"),
+        "{text}"
+    );
+    let child = message(
         "dispatch.child",
-        &json!({"options": null})
-    ));
+        json!({"goal": "g", "requestId": "r", "difficulty": "hard", "model": 7}),
+    );
+    assert!(
+        child.contains("difficulty: Invalid option: expected one of \"simple\"|\"standard\"|\"complex\"")
+            && child.contains("model: Invalid input: expected string"),
+        "{child}"
+    );
+    // `options` on the still-forwarded ops (wait) is an unknown key, not a
+    // work option, so those ops publish their own shape issue natively.
     assert!(!lifecycle_stays_forwarded(
         &ctx,
         "dispatch.wait",
@@ -77,6 +101,8 @@ fn options_forward_whatever_the_other_fields_hold() {
 fn numbers_serde_may_round_differently_forward() {
     let ctx = ctx(&[]);
     let parse = |text: &str| serde_json::from_str::<Value>(text).unwrap();
+    // B2-10 answers `dispatch.wait` natively, but a body whose number serde_json
+    // may round differently from JSON.parse still reaches Core byte for byte.
     for body in [
         r#"{"id": "t", "timeout_s": 1.5}"#,
         r#"{"id": "t", "timeout_s": 3000.0}"#,
@@ -199,3 +225,4 @@ async fn a_request_core_must_run_is_unavailable_natively() {
     let err = dispatch_wait(&ctx, Value::Null).await.unwrap_err();
     assert_eq!(err.code, Code::InvalidInput);
 }
+

@@ -13,6 +13,7 @@
 //! passed [`parse_observation`], and requests built from those.
 mod candidates;
 mod decision;
+pub mod guards;
 mod explain;
 mod hash;
 mod inventory;
@@ -24,6 +25,7 @@ mod readonly;
 mod reasons;
 mod status_adapter;
 mod tier_select;
+mod version_cache;
 
 pub use candidates::{Built, build_candidates, meets_requirements, tier_rank};
 pub use decision::run_ladder;
@@ -37,6 +39,7 @@ pub use observation::{METHODS, parse_observation, stored_observations};
 pub use readonly::{ReadOnlyStore, Reservation};
 pub use reasons::{exclusion_reason, reason};
 pub use status_adapter::{STATUS_SOURCE, status_observations};
+pub use version_cache::VersionCache;
 pub use tier_select::{
     SelectOptions, TierChoice, TierReason, Tiered, select_model, target_tier, tier_buckets,
 };

@@ -210,7 +210,7 @@ type Group<'a> = (String, Vec<Value>, Vec<&'a Map<String, Value>>);
 
 pub fn dispatch_analytics(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
-        authorize(ctx)?;
+        authorize(ctx, "dispatch.analytics", &params)?;
         let p = params_object(&params)?;
         let mut issues = Vec::new();
         optional_string(&p, "repo", None, &mut issues);
@@ -275,7 +275,7 @@ pub fn dispatch_analytics(ctx: &Ctx, params: Value) -> OpFuture<'_> {
 
 pub fn dispatch_learning_reset(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
-        authorize(ctx)?;
+        authorize(ctx, "dispatch.learning.reset", &params)?;
         let p = params_object(&params)?;
         let mut issues = Vec::new();
         string_issues("repo", p.get("repo"), None, &mut issues);
