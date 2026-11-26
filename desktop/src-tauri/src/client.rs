@@ -733,6 +733,37 @@ async fn perform_consent_takeover(app: &AppHandle, _cli: &Cli, first_run: &mut F
     crate::recovery(app, "starting");
 }
 
+/// Restart an owned older service onto the bundled binary outside any session
+/// `select!`, so the child is not killed mid-restart. Uses the bundled CLI's own
+/// `pacer service restart` with a generous timeout.
+async fn perform_owned_service_restart(app: &AppHandle, cli: &Cli) {
+    let Some(bundled) = bundled_binary() else {
+        desktop_log!("pacer lifecycle: owned service restart failed: bundled pacer CLI is missing");
+        return;
+    };
+    let restart_cli = Cli {
+        binary: bundled,
+        path: cli.path.clone(),
+        pacer_home: cli.pacer_home.clone(),
+    };
+    desktop_log!("pacer lifecycle: restarting older owned service onto app {}", env!("CARGO_PKG_VERSION"));
+    match restart_cli
+        .run_timeout(&["service", "restart"], Duration::from_secs(150))
+        .await
+    {
+        Ok(_) => {
+            desktop_log!("pacer lifecycle: older owned service restart succeeded; reconnecting");
+            crate::recovery(app, "starting");
+        }
+        Err(error) => {
+            desktop_log!(
+                "pacer lifecycle: older owned service restart failed: {error}; showing outdated service page"
+            );
+            crate::recovery(app, "starting");
+        }
+    }
+}
+
 fn missing_link(home: &Path, bundled: Option<&Path>, config: &Path) -> bool {
     let (consented, keep) = consent_choice(config);
     logic::relink_needed(
@@ -751,7 +782,6 @@ fn recreate_link(home: &Path, bundled: &Path, config: &Path) -> Result<(), Strin
 }
 
 // Inspect the loaded job, not a plist that may have changed since launchd loaded it.
-#[cfg(test)]
 fn loaded_job_matches(text: &str, binary: &Path, home: &Path, port: u16, default_home: &Path) -> bool {
     if logic::foreign_owner(
         &logic::launchd_environment(text),
@@ -1003,6 +1033,26 @@ impl Cli {
             command.env("PACER_BIN", binary);
         }
         let out = tokio::time::timeout(Duration::from_secs(45), command.output())
+            .await
+            .map_err(|_| "CLI timed out")?
+            .map_err(|_| "Unable to run pacer")?;
+        if !out.status.success() {
+            return Err(format!("pacer {} failed ({})", args.join(" "), out.status));
+        }
+        String::from_utf8(out.stdout).map_err(|_| "Invalid CLI output".into())
+    }
+    pub async fn run_timeout(&self, args: &[&str], timeout: Duration) -> Result<String, String> {
+        let mut command = Command::new(&self.binary);
+        let home = required_home(std::env::var_os("HOME").as_deref())?;
+        command
+            .args(args)
+            .env("PATH", &self.path)
+            .env("PACER_HOME", &self.pacer_home)
+            .kill_on_drop(true);
+        if let Some(binary) = install_binary(&home, bundled_binary().as_deref(), &self.binary) {
+            command.env("PACER_BIN", binary);
+        }
+        let out = tokio::time::timeout(timeout, command.output())
             .await
             .map_err(|_| "CLI timed out")?
             .map_err(|_| "Unable to run pacer")?;
@@ -1541,6 +1591,45 @@ fn record_native_update_error(shell: &Shell, error: pacer_desktop::ota::OtaError
     }
 }
 
+/// The service job runs this bundle's CLI and no update or maintenance journal is in flight
+/// on disk. macOS only: elsewhere the desktop cannot prove it owns the service unit.
+#[cfg(target_os = "macos")]
+async fn owned_service_restartable(pacer_home: &Path) -> bool {
+    let Some(trust) = pacer_desktop::ota::trust::ReleaseTrust::configured() else {
+        return false;
+    };
+    let Ok(home) = required_home(std::env::var_os("HOME").as_deref()) else {
+        return false;
+    };
+    owned_service_job(pacer_home).await
+        && pacer_desktop::ota::control::owned_service_restart_clear(&home, pacer_home, service_port(), &trust)
+}
+
+#[cfg(not(target_os = "macos"))]
+async fn owned_service_restartable(_pacer_home: &Path) -> bool {
+    false
+}
+
+#[cfg(target_os = "macos")]
+async fn owned_service_job(home: &Path) -> bool {
+    let args = match launchctl_args("print") {
+        Ok(args) => args,
+        Err(_) => return false,
+    };
+    let default_home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".pacer");
+    let Some(output) = manager_output("/bin/launchctl", &args).await.ok() else {
+        return false;
+    };
+    if !output.status.success() {
+        return false;
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let Some(binary) = bundled_binary() else {
+        return false;
+    };
+    loaded_job_matches(&text, &binary, home, service_port(), &default_home)
+}
+
 async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Result<(), String> {
     desktop_log!("pacer lifecycle: requesting desktop sign-in link");
     let web_auth = cli.auth().await?;
@@ -1763,6 +1852,42 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
                     .store(false, Ordering::SeqCst);
             }
         }
+    }
+    // Manual installs: an owned older service is restarted onto the bundled
+    // binary once per (service version, app version) pair per launch, so the
+    // existing step-0 handover/remember logic can run after reconnect.
+    let service_version = session.service_version().unwrap_or("").to_owned();
+    let app_version = env!("CARGO_PKG_VERSION").to_owned();
+    let already_attempted = app
+        .state::<Shell>()
+        .service_restart_attempted_pairs
+        .lock()
+        .unwrap()
+        .contains(&(service_version.clone(), app_version.clone()));
+    let owned_job = owned_service_restartable(&cli.pacer_home).await;
+    let restart_decision = logic::service_restart_decision(logic::ServiceRestartInput {
+        app: env!("CARGO_PKG_VERSION"),
+        live_service: session.service_version.as_deref(),
+        job_state,
+        owned: owned_job,
+        attached,
+        maintenance: app.state::<Shell>().maintenance.load(Ordering::SeqCst),
+        update_transaction,
+        adoption: app.state::<Shell>().adoption.lock().unwrap().is_some(),
+        already_attempted,
+    });
+    if restart_decision == logic::ServiceRestartDecision::Restart {
+        app.state::<Shell>()
+            .service_restart_attempted_pairs
+            .lock()
+            .unwrap()
+            .insert((service_version.clone(), app_version.clone()));
+        desktop_log!(
+            "pacer lifecycle: restarting older owned service {} onto app {}",
+            service_version,
+            app_version
+        );
+        return Err("owned-service-restart-ready".into());
     }
     let accepted = app.state::<Shell>().old_service_ack.lock().unwrap().clone();
     let gate = logic::service_gate(
@@ -3008,6 +3133,8 @@ pub async fn run(app: AppHandle) {
                             );
                             if error == "own-link-repair-ready" {
                                 perform_own_link_repair(&app, &cli).await;
+                            } else if error == "owned-service-restart-ready" {
+                                perform_owned_service_restart(&app, &cli).await;
                             } else {
                                 perform_consent_takeover(&app, &cli, &mut first_run).await;
                             }
