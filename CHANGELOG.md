@@ -14,6 +14,11 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 - Settings › Updates no longer keeps showing a failed update after you install that release another way, such as by hand; pacer drops the installed offer and checks again.
 
+### Fixed
+
+- Live validation: executors, certification probes and orchestrator turns launched by a sandbox keep their own identity when they call the guarded `pacer`, so certification and orchestrator answers work without a wrapper script. Sandboxes also turn the login-shell environment off unless asked, so the login profile no longer reorders an executor's `PATH`; an unseeded sandbox still resolves agent CLIs from the inherited `PATH` behind its own `bin`.
+- Live validation: the guarded `pacer` keeps the caller's directory inside the sandbox home or repository, so relative paths from a task worktree resolve correctly. It ignores `.env` and `bunfig.toml` there, rejects identity paths with `..`, and passes the assistant server only a home inside the sandbox.
+
 ## [0.18.6] - 2026-11-26
 
 ### Fixed

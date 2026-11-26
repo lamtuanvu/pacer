@@ -2,6 +2,7 @@ import { appendFileSync, cpSync, existsSync, lstatSync, mkdirSync, openSync, clo
 import { join, resolve, basename, dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:net";
+import { tmpdir } from "node:os";
 import { spawn } from "node:child_process";
 import { LOCAL_SERVERS } from "../../src/endpoints/detect";
 
@@ -32,6 +33,8 @@ export interface Session {
   waitingGroup?: OwnedProcessGroup;
   waitingFixture?: true;
   createdAt: string;
+  /** The temporary directory the sandbox service was launched with; certification canaries write under it. */
+  tmp?: string;
   seed?: "ui" | "plugin-remove";
   /** "rust": the Rust front door (target/debug/pacer) serves and dispatches, forwarding to the TypeScript core. */
   frontDoor?: "rust";
@@ -126,6 +129,11 @@ export function validateFrontDoor(frontDoor: string | undefined): void {
 }
 /** Inherited PACER_* settings that only change presentation or diagnostics, never identity or authority. */
 export const SANDBOX_PASSTHROUGH = ["PACER_THEME", "PACER_COLOR", "PACER_ASCII", "PACER_PLAIN", "PACER_NO_ANIM", "PACER_LOGIN_ENV", "PACER_TRACE_STATUS", "PACER_ASSISTANT_PACER_BIN"];
+/**
+ * Marks processes the sandbox launched, so the guard can tell their identity from an outer session's.
+ * env.sh never exports it: a shell that sources env.sh keeps its own identity, which stays outside.
+ */
+export const SANDBOX_MARK = "PACER_LIVE_SANDBOX";
 export function sandboxEnv(session: Session, inherited = process.env): NodeJS.ProcessEnv {
   // The sandbox sets every PACER_* value it needs. Other inherited ones, such as an executor's
   // PACER_ROLE, task id, work grant or tokens, would make the sandbox act as that session, so they
@@ -149,6 +157,10 @@ export function sandboxEnv(session: Session, inherited = process.env): NodeJS.Pr
     // Marks the sandbox service as the live harness so PACER_TEST_ENTRY_LEASE_S /
     // PACER_TEST_START_DELAY_MS (read once at serve boot onto Ctx) are honored.
     PACER_LIVE_HARNESS: "1",
+    [SANDBOX_MARK]: session.root,
+    // A login shell would put the user's own agent CLIs ahead of the sandbox's on an executor's PATH
+    // and could spend real quota, so it is off unless the caller chose a value.
+    PACER_LOGIN_ENV: inherited.PACER_LOGIN_ENV || "off",
     PACER_ORCA_USER_DATA: join(session.root, "orca-profile"),
     ...(session.seed ? {
       HOME: join(session.root, "home"),
@@ -165,7 +177,7 @@ export function shellQuote(value: string): string {
 }
 export function environmentScript(session: Session): string {
   const env = sandboxEnv(session);
-  return ["PATH", "PACER_BIN", "PACER_HOME", "PACER_PORT", "PACER_BACKEND", "PACER_NO_UPDATE_CHECK", "PACER_LIVE_HARNESS", "PACER_ORCA_USER_DATA", ...(session.frontDoor === "rust" ? ["PACER_CORE_ARGV"] : []),
+  return ["PATH", "PACER_BIN", "PACER_HOME", "PACER_PORT", "PACER_BACKEND", "PACER_NO_UPDATE_CHECK", "PACER_LIVE_HARNESS", "PACER_LOGIN_ENV", "PACER_ORCA_USER_DATA", ...(session.frontDoor === "rust" ? ["PACER_CORE_ARGV"] : []),
     ...(session.nativeForwardOps ? ["PACER_FORWARD_OPS"] : []), ...(session.nativePluginHost ? ["PACER_NATIVE_PLUGIN_HOST"] : []), ...(session.localModelPorts ? ["PACER_TEST_LOCAL_SERVER_PORTS"] : []), ...(session.seed ? ["HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME"] : [])]
     .map(key => `export ${key}=${shellQuote(env[key]!)}`).join("\n") + "\n";
 }
@@ -179,6 +191,19 @@ async function reservePort(): Promise<number> {
   const port = typeof address === "object" && address ? address.port : 0;
   await new Promise<void>((ok, fail) => server.close(error => error ? fail(error) : ok()));
   return port;
+}
+/**
+ * Bun reads `.env` files and `bunfig.toml` from the working directory. The guard runs in directories an executor
+ * can write to, where those files could forge the sandbox mark, set pacer variables or preload code.
+ */
+const BUN_ISOLATION = ["--no-env-file", "--config=/dev/null"];
+/** `argv` with the isolation flags when it runs Bun; a native binary is returned unchanged. */
+export function isolatedArgv(argv: string[]): string[] {
+  return argv[0] === process.execPath ? [argv[0], ...BUN_ISOLATION, ...argv.slice(1)] : argv;
+}
+/** The sandbox `bin/pacer`: the guard in front of the checkout CLI. */
+export function installShim(session: Pick<Session, "root">): void {
+  atomicWrite(join(session.root, "bin/pacer"), `#!/bin/sh\nexec ${isolatedArgv([process.execPath, join(checkout, "scripts/live/guard.ts"), join(session.root, "session.json")]).map(shellQuote).join(" ")} "$@"\n`, 0o700);
 }
 /** SSH aliases the sandbox fake answers for; `.invalid` never resolves (RFC 2606) should a real ssh ever run. */
 export const FAKE_SSH_ALIAS = "pacer-live-fake.invalid";
@@ -313,7 +338,7 @@ export async function up(id = `live-${Date.now()}`, template?: string, base = li
   while (innerPort === port) innerPort = await freePort();
   mkdirSync(base, { recursive: true, mode: 0o700 });
   mkdirSync(root, { mode: 0o700 }); // Refuse existing sessions, including stopped ones.
-  const session: Session = { serviceSource: sourceFingerprint(checkout), id, root, port, innerPort, seed, ...(frontDoor === "rust" ? { frontDoor } : {}), ...(nativeTestOps ? { nativeTestOps: true as const } : {}), ...(waitingFixture ? { waitingFixture: true as const } : {}), ...(nativeForwardEcho ? { nativeForwardEcho: true as const } : {}), ...(nativePluginHost ? { nativePluginHost: true as const } : {}), ...Object.fromEntries(Object.entries(fixtures).filter(([, value]) => value !== undefined)), ...(realKeychain ? { realKeychain: true as const } : {}), pid: 1, createdAt: new Date().toISOString() };
+  const session: Session = { serviceSource: sourceFingerprint(checkout), id, root, port, innerPort, seed, ...(frontDoor === "rust" ? { frontDoor } : {}), ...(nativeTestOps ? { nativeTestOps: true as const } : {}), ...(waitingFixture ? { waitingFixture: true as const } : {}), ...(nativeForwardEcho ? { nativeForwardEcho: true as const } : {}), ...(nativePluginHost ? { nativePluginHost: true as const } : {}), ...Object.fromEntries(Object.entries(fixtures).filter(([, value]) => value !== undefined)), ...(realKeychain ? { realKeychain: true as const } : {}), pid: 1, createdAt: new Date().toISOString(), tmp: realpathSync(tmpdir()) };
   try {
     for (const dir of ["home", "bin", "repo", "logs", "evidence", "orca-profile"]) mkdirSync(join(root, dir), { mode: 0o700 });
     if (nativeTestOps) cpSync(join(process.env.CARGO_TARGET_DIR ?? join(checkout, "target"), "debug/pacer"), join(root, "bin/native-pacer"));
@@ -322,7 +347,7 @@ export async function up(id = `live-${Date.now()}`, template?: string, base = li
       filter: (source) => ![".git", ".work", "node_modules"].includes(basename(source)),
       dereference: true,
     });
-    atomicWrite(join(root, "bin/pacer"), `#!/bin/sh\nexec ${shellQuote(process.execPath)} ${shellQuote(join(checkout, "scripts/live/guard.ts"))} ${shellQuote(join(root, "session.json"))} "$@"\n`, 0o700);
+    installShim(session);
     for (const manager of ["launchctl", "systemctl"]) atomicWrite(join(root, "bin", manager), "#!/bin/sh\necho 'Live validation D3: service manager refused' >&2\nexit 3\n", 0o700);
     // The machine identity lives in the login Keychain on macOS; sandboxes use a stub unless --real-keychain.
     prepareKeychain(session);
