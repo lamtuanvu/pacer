@@ -295,9 +295,10 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
         }
         if crate::native::msg_writes::uses_bridge(op.name) {
             crate::native::msg_write_sync::trace(op.name, None);
-            let mut bridge = crate::native::msg_write_sync::HttpBridge {
+            let mut inner = crate::native::msg_write_sync::HttpBridge {
                 target: state.core.target().await,
             };
+            let mut bridge = crate::native::msg_effects::NativeMsgEffects::with_read_model_schema(ctx.at_now(), &mut inner);
             return match crate::native::msg_writes::call(&ctx, op.name, params, &mut bridge).await {
                 Ok(result) => native_json(StatusCode::OK, serde_json::json!({"result":result})),
                 Err(error)

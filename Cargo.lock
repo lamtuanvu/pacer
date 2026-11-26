@@ -1562,6 +1562,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-delegation"
+version = "0.0.0"
+dependencies = [
+ "pacer-config",
+ "pacer-foundation",
+ "pacer-messaging-ops",
+ "pacer-store",
+ "rusqlite",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "pacer-desktop-protocol"
 version = "0.0.0"
 dependencies = [
@@ -2067,6 +2081,7 @@ dependencies = [
  "pacer-config",
  "pacer-config-ops",
  "pacer-core-bridge",
+ "pacer-delegation",
  "pacer-discovery-ops",
  "pacer-dispatch",
  "pacer-dispatch-ops",

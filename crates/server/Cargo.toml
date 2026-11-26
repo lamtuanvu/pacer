@@ -29,6 +29,7 @@ pacer-task-ops = { path = "../task-ops" }
 pacer-config-ops = { path = "../config-ops" }
 pacer-models = { path = "../models" }
 pacer-messaging-ops = { path = "../messaging-ops" }
+pacer-delegation = { path = "../delegation" }
 pacer-dispatch-ops = { path = "../dispatch-ops" }
 pacer-dispatch = { path = "../dispatch" }
 pacer-issues = { path = "../issues" }

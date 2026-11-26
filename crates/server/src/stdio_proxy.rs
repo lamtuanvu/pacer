@@ -508,12 +508,16 @@ async fn forward_input<
                         }
                         continue;
                     }
-                    let mut bridge = msg_write_sync::StdioBridge {
+                    let mut inner = msg_write_sync::StdioBridge {
                         core: &mut core,
                         prefix: sync.0,
                         key: sync.1,
                         replies: &mut *sync.2,
                     };
+                    let mut bridge = crate::native::msg_effects::NativeMsgEffects::new(
+                        request_ctx.at_now(),
+                        &mut inner,
+                    );
                     let result = msg_writes::call(&request_ctx, op.name, params, &mut bridge).await;
                     if matches!(&result, Err(error) if error.message == msg_writes::FORWARD_DUPLICATE_ANSWER)
                     {

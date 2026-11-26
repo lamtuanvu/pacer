@@ -60,6 +60,7 @@ pub(crate) use pacer_task_ops::session_lifecycle_ops;
 mod meta_ops;
 pub(crate) use pacer_config_ops::p8_bridge_ops;
 pub(crate) use pacer_core_bridge::msg_write_sync;
+pub(crate) mod msg_effects;
 pub(crate) use pacer_messaging_ops::msg_ops;
 pub(crate) use pacer_messaging_ops::msg_writes;
 pub mod plugins;
