@@ -21,6 +21,7 @@ pacer-models = { path = "../models" }
 pacer-js-json = { path = "../js-json" }
 pacer-read-model = { path = "../read-model" }
 rusqlite = { version = "0.41", features = ["bundled"] }
+sha2 = "0.10"
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true

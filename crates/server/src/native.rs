@@ -26,8 +26,8 @@ use pacer_dispatch_ops::planning_ops;
 pub(crate) use pacer_dispatch_ops::preview_ops;
 pub(crate) mod dispatch_preview;
 pub use dispatch_preview::dispatch_preview_stays_forwarded;
-pub(crate) mod dispatch_enforcement_sync;
-pub use dispatch_enforcement_sync::dispatch_enforcement_stays_forwarded;
+pub(crate) mod dispatch_refresh_effects;
+pub(crate) mod dispatch_probe_effects;
 pub(crate) use pacer_dispatch_ops::enforcement_ops;
 use pacer_dispatch_ops::tier_targets_ops;
 pub use pacer_task_ops::session_lifecycle_ops::session_lifecycle_stays_forwarded;
@@ -1036,7 +1036,7 @@ static OPS: &[NativeOp] = &[
     },
     NativeOp {
         name: "dispatch.refresh",
-        call: planning_ops::dispatch_refresh,
+        call: planning_ops::dispatch_refresh_stub,
     },
     NativeOp {
         name: "dispatch.enforcement.consent",
@@ -1048,7 +1048,7 @@ static OPS: &[NativeOp] = &[
     },
     NativeOp {
         name: "dispatch.enforcement.probe",
-        call: enforcement_ops::dispatch_enforcement_probe,
+        call: enforcement_ops::dispatch_enforcement_probe_stub,
     },
     NativeOp {
         name: "dispatch.enforcement.denied",

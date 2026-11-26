@@ -39,7 +39,7 @@ use sha2::{Digest, Sha256};
 
 use crate::dispatch_ops::{finish, params_object, string_issues};
 use crate::planning_ops::{now, read_schedule};
-use crate::policy::{internal, policy_error, policy_repo, repo_needs_core};
+use crate::policy::{internal, policy_error, policy_repo};
 
 type Object = Map<String, Value>;
 
@@ -523,11 +523,6 @@ fn schedule_for(
     }
 }
 
-/// `dispatch.enforcement` forwards when the repository or policy needs Core.
-fn enforcement_forwarded(ctx: &Ctx, repo: &str) -> bool {
-    repo_needs_core(ctx, repo, true)
-}
-
 /// A per-runner diagnostics row from the bridge: success carries the pieces
 /// TypeScript computed, failure an error message.
 #[allow(clippy::large_enum_variant)]
@@ -840,40 +835,26 @@ pub fn dispatch_enforcement<'a>(
     })
 }
 
-/// Whether `dispatch.enforcement` (or `dispatch.enforcement.denied`) should
-/// stay forwarded: the repository or policy needs Core.
-pub fn dispatch_enforcement_stays_forwarded(_ctx: &Ctx, op: &str, _params: &Value) -> bool {
-    match op {
-        // B2-5: dispatch parts are native, so the repository no longer needs Core.
-        "dispatch.enforcement" => false,
-        "dispatch.enforcement.denied" => false,
-        _ => false,
-    }
+/// Effects the probe needs but this layer cannot own: the delegation crate's
+/// canary and the B1 job runtime, both wired by `pacer-server` (G2).
+pub trait ProbeEffects: Send {
+    fn run<'a>(
+        &'a mut self,
+        ctx: &'a Ctx,
+        strategy: Value,
+        runner: &'a str,
+        repo: &'a str,
+    ) -> OpFuture<'a>;
 }
 
-/// The repository `dispatch.enforcement.probe` would certify.
-pub fn dispatch_enforcement_probe_stays_forwarded(ctx: &Ctx, params: &Value) -> bool {
-    probe_stays_forwarded(ctx, params)
-}
-
-fn probe_stays_forwarded(ctx: &Ctx, params: &Value) -> bool {
-    let Ok(p) = params_object(params) else {
-        return false;
-    };
-    let mut issues = Vec::new();
-    string_issues("repo", p.get("repo"), Some(4096), &mut issues);
-    string_issues("runner", p.get("runner"), Some(128), &mut issues);
-    if !issues.is_empty() {
-        return false;
-    }
-    !enforcement_forwarded(ctx, p["repo"].as_str().unwrap_or_default())
-}
-
-/// `dispatch.enforcement.probe` (`dispatch.enforcement.probe` in `src/api/ops.ts`):
-/// Rust owns the params validation, the caller refusals and the repo
-/// resolution; a valid probe would run the quota-using canary in Core, so it
-/// forwards by answering `unavailable`.
-pub fn dispatch_enforcement_probe(ctx: &Ctx, params: Value) -> OpFuture<'_> {
+/// `dispatch.enforcement.probe` (`src/api/ops.ts`): Rust owns the params, the
+/// caller refusals and the repo resolution, then starts a native job whose
+/// canary certifies the selected executor.
+pub fn dispatch_enforcement_probe<'a>(
+    ctx: &'a Ctx,
+    params: Value,
+    effects: &'a mut dyn ProbeEffects,
+) -> OpFuture<'a> {
     Box::pin(async move {
         authorize(ctx, &params)?;
         let p = params_object(&params)?;
@@ -886,10 +867,18 @@ pub fn dispatch_enforcement_probe(ctx: &Ctx, params: Value) -> OpFuture<'_> {
         // before loading the strategy, so an unregistered or non-absolute
         // repo is refused before a missing strategy file could fail.
         let projects = read_project_strategies(&ctx.pacer_home).map_err(policy_error)?;
-        let _repo = policy_repo(ctx, repo_input, &projects)?;
-        let _strategy = load_strategy(&ctx.pacer_home).map_err(internal)?;
-        Err(unavailable("core must start the probe job"))
+        let repo = policy_repo(ctx, repo_input, &projects)?;
+        let strategy = load_strategy(&ctx.pacer_home).map_err(internal)?;
+        let runner = p["runner"].as_str().unwrap_or_default();
+        let repo_path = repo["path"].as_str().unwrap_or_default().to_owned();
+        effects.run(ctx, strategy, runner, &repo_path).await
     })
+}
+
+/// Registry placeholder: both front doors dispatch the probe with its native
+/// effects before the generic registry.
+pub fn dispatch_enforcement_probe_stub(_: &Ctx, _: Value) -> OpFuture<'_> {
+    Box::pin(async { Err(unavailable("dispatch enforcement probe effects unavailable")) })
 }
 
 /// Registry placeholder for [`dispatch_enforcement`] and

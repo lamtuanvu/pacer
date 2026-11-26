@@ -5,6 +5,7 @@
 use crate::native::status_sync;
 use pacer_config_ops::strategy_load::native_load;
 use pacer_dispatch::VersionCache;
+use pacer_dispatch_ops::enforcement_ops::Bridge as EnforcementBridge;
 use pacer_dispatch_ops::preview_ops::Bridge;
 use pacer_foundation::{Ctx, api::OpFuture};
 use serde_json::{Value, json};
@@ -65,6 +66,21 @@ impl<W: tokio::io::AsyncWrite + Unpin + Send> Bridge for NativeStdioParts<'_, W>
             self.replies,
         ))
     }
+    fn parts(&mut self, params: Value) -> OpFuture<'_> {
+        native_parts(self.ctx, params, self.cache)
+    }
+}
+
+/// Native dispatch parts for `dispatch.enforcement` and
+/// `dispatch.enforcement.denied`. The board's former
+/// `dispatch_enforcement_sync.rs` owned this implementation; it lives beside
+/// the preview bridge because both answer `pacer_dispatch::guards` in-process.
+pub(crate) struct EnforcementParts<'a> {
+    pub(crate) ctx: &'a Ctx,
+    pub(crate) cache: &'a VersionCache,
+}
+
+impl EnforcementBridge for EnforcementParts<'_> {
     fn parts(&mut self, params: Value) -> OpFuture<'_> {
         native_parts(self.ctx, params, self.cache)
     }

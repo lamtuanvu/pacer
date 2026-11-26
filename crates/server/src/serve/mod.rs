@@ -228,7 +228,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             || crate::native::assistant_stays_forwarded(&ctx, op.name, &params)
             || crate::native::dependencies_waive_stays_forwarded(op.name, &params)
             || crate::native::insights_stays_forwarded(op.name, &params)
-            || crate::native::planning_stays_forwarded(&ctx, op.name, &params)
+            || crate::native::planning_stays_forwarded(&ctx, op.name)
             || crate::native::dispatch_lifecycle_stays_forwarded(&ctx, op.name, &params)
             || crate::native::job_strategy_setup_stays_forwarded(&ctx, op.name, &params)
             || crate::native::runner_attention_stays_forwarded(&ctx, op.name, &params)
@@ -237,7 +237,6 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             || crate::native::host_stays_forwarded(&ctx, op.name, &params)
             || crate::native::strategy_settings_stays_forwarded(&ctx, op.name, &params)
             || crate::native::dispatch_preview_stays_forwarded(&ctx, op.name, &params)
-            || crate::native::dispatch_enforcement_stays_forwarded(&ctx, op.name, &params)
             || crate::native::session_lifecycle_stays_forwarded(&ctx, op.name, &params)
             || crate::native::client_stays_forwarded(&ctx, op.name)
             || crate::native::terminal_stays_forwarded(&ctx, op.name, &params)
@@ -373,9 +372,54 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                 Err(error) => native_error(error),
             };
         }
+        if op.name == "dispatch.refresh" {
+            crate::native::trace(op.name, None);
+            let Some(core) = crate::native::plugins::http_link(&state.core).await else {
+                return proxy::unavailable(false);
+            };
+            let timeout = pacer_config::strategy::load_strategy(&ctx.pacer_home)
+                .ok()
+                .and_then(|strategy| strategy["dispatch"]["timeoutMs"].as_f64())
+                .unwrap_or(1000.0);
+            let mut effects = crate::native::dispatch_refresh_effects::NativeRefreshEffects::new(
+                crate::native::dispatch_refresh_effects::StatusSource::<tokio::io::Sink>::Http(
+                    state.core.target().await,
+                ),
+                &state.plugins,
+                core,
+                Vec::new(),
+                std::time::Duration::from_millis(timeout as u64),
+            );
+            let result =
+                pacer_dispatch_ops::planning_ops::dispatch_refresh(&ctx, params, &mut effects)
+                    .await;
+            return match result {
+                Ok(result) => native_json(StatusCode::OK, serde_json::json!({"result":result})),
+                Err(error) => native_error(error),
+            };
+        }
+        if op.name == "dispatch.enforcement.probe" {
+            crate::native::trace(op.name, None);
+            let Some(core) = crate::native::plugins::http_link(&state.core).await else {
+                return proxy::unavailable(false);
+            };
+            let mut effects = crate::native::dispatch_probe_effects::NativeProbeEffects::new(
+                &state.plugins,
+                core,
+                &state.versions,
+            );
+            let result = pacer_dispatch_ops::enforcement_ops::dispatch_enforcement_probe(
+                &ctx, params, &mut effects,
+            )
+            .await;
+            return match result {
+                Ok(result) => native_json(StatusCode::OK, serde_json::json!({"result":result})),
+                Err(error) => native_error(error),
+            };
+        }
         if crate::native::enforcement_ops::needs_dispatch_parts(op.name) {
             crate::native::trace(op.name, None);
-            let mut bridge = crate::native::dispatch_enforcement_sync::NativeParts {
+            let mut bridge = crate::native::dispatch_preview::EnforcementParts {
                 ctx: &ctx,
                 cache: &state.versions,
             };

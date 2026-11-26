@@ -417,7 +417,7 @@ async fn forward_input<
                 && !crate::native::assistant_stays_forwarded(&request_ctx, op.name, &params)
                 && !crate::native::dependencies_waive_stays_forwarded(op.name, &params)
                 && !crate::native::insights_stays_forwarded(op.name, &params)
-                && !crate::native::planning_stays_forwarded(&request_ctx, op.name, &params)
+                && !crate::native::planning_stays_forwarded(&request_ctx, op.name)
                 && !crate::native::dispatch_lifecycle_stays_forwarded(
                     &request_ctx,
                     op.name,
@@ -434,11 +434,6 @@ async fn forward_input<
                 && !crate::native::host_stays_forwarded(&request_ctx, op.name, &params)
                 && !crate::native::strategy_settings_stays_forwarded(&request_ctx, op.name, &params)
                 && !crate::native::dispatch_preview_stays_forwarded(&request_ctx, op.name, &params)
-                && !crate::native::dispatch_enforcement_stays_forwarded(
-                    &request_ctx,
-                    op.name,
-                    &params,
-                )
                 && !crate::native::session_lifecycle_stays_forwarded(&request_ctx, op.name, &params)
                 && !crate::native::client_stays_forwarded(&request_ctx, op.name)
                 && !crate::native::terminal_stays_forwarded(&request_ctx, op.name, &params)
@@ -608,9 +603,63 @@ async fn forward_input<
                     }
                     continue;
                 }
+                if op.name == "dispatch.refresh" {
+                    crate::native::trace(op.name, request.get("id"));
+                    let timeout = pacer_config::strategy::load_strategy(&request_ctx.pacer_home)
+                        .ok()
+                        .and_then(|strategy| strategy["dispatch"]["timeoutMs"].as_f64())
+                        .unwrap_or(1000.0);
+                    let ipc: std::sync::Arc<dyn pacer_plugin_ops::ipc::CoreIpc> =
+                        plugins.link.clone();
+                    let mut effects =
+                        crate::native::dispatch_refresh_effects::NativeRefreshEffects::new(
+                            crate::native::dispatch_refresh_effects::StatusSource::Stdio {
+                                core: &mut core,
+                                prefix: sync.0,
+                                key: sync.1,
+                                replies: &mut *sync.2,
+                            },
+                            &plugins.service,
+                            (ipc, "stdio".to_owned()),
+                            Vec::new(),
+                            std::time::Duration::from_millis(timeout as u64),
+                        );
+                    let result = pacer_dispatch_ops::planning_ops::dispatch_refresh(
+                        &request_ctx,
+                        params,
+                        &mut effects,
+                    )
+                    .await;
+                    if let Some(id) = request.get("id") {
+                        write_line(out, &rpc_line(id, result)?).await?;
+                    }
+                    continue;
+                }
+                if op.name == "dispatch.enforcement.probe" {
+                    crate::native::trace(op.name, request.get("id"));
+                    let ipc: std::sync::Arc<dyn pacer_plugin_ops::ipc::CoreIpc> =
+                        plugins.link.clone();
+                    let mut effects =
+                        crate::native::dispatch_probe_effects::NativeProbeEffects::new(
+                            &plugins.service,
+                            (ipc, "stdio".to_owned()),
+                            &versions,
+                        );
+                    let result =
+                        pacer_dispatch_ops::enforcement_ops::dispatch_enforcement_probe(
+                            &request_ctx,
+                            params,
+                            &mut effects,
+                        )
+                        .await;
+                    if let Some(id) = request.get("id") {
+                        write_line(out, &rpc_line(id, result)?).await?;
+                    }
+                    continue;
+                }
                 if crate::native::enforcement_ops::needs_dispatch_parts(op.name) {
                     crate::native::trace(op.name, request.get("id"));
-                    let mut bridge = crate::native::dispatch_enforcement_sync::NativeParts {
+                    let mut bridge = crate::native::dispatch_preview::EnforcementParts {
                         ctx: &request_ctx,
                         cache: &versions,
                     };

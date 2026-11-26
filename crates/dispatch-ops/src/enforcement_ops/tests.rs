@@ -21,6 +21,7 @@ fn ctx(home: &std::path::Path, env: &[(&str, &str)]) -> Ctx {
 }
 
 /// A writable absolute repo path (registers, so `repo_needs_core` is false).
+#[allow(dead_code)]
 fn repo_path(dir: &std::path::Path) -> String {
     let repo = dir.join("repo");
     std::fs::create_dir_all(&repo).unwrap();
@@ -288,61 +289,6 @@ fn authorize_token_accepts_a_live_strict_token_and_refuses_stale_ones() {
             .message,
         "Expired or revoked enforcement identity"
     );
-}
-
-#[test]
-fn enforcement_stays_forwarded_only_for_probe() {
-    let dir = tempfile::tempdir().unwrap();
-    let ctx = ctx(dir.path(), &[]);
-    let repo = repo_path(dir.path());
-    // B2-5: dispatch parts are native, so the enforcement read never needs Core.
-    assert!(!dispatch_enforcement_stays_forwarded(
-        &ctx,
-        "dispatch.enforcement",
-        &json!({"repo": repo})
-    ));
-    assert!(!dispatch_enforcement_stays_forwarded(
-        &ctx,
-        "dispatch.enforcement",
-        &json!({"repo": "not/registered"})
-    ));
-    // denied never stays forwarded.
-    assert!(!dispatch_enforcement_stays_forwarded(
-        &ctx,
-        "dispatch.enforcement.denied",
-        &json!({"repo": "not/registered"})
-    ));
-    assert!(!dispatch_enforcement_stays_forwarded(
-        &ctx,
-        "dispatch.other",
-        &json!({"repo": "not/registered"})
-    ));
-}
-
-#[test]
-fn probe_stays_forwarded_matches_repo_and_is_quiet_on_bad_params() {
-    let dir = tempfile::tempdir().unwrap();
-    let ctx = ctx(dir.path(), &[]);
-    let repo = repo_path(dir.path());
-    // A valid, resolvable repo: the canary job runs in Core, so the probe
-    // stays forwarded past the front door.
-    assert!(probe_stays_forwarded(
-        &ctx,
-        &json!({"repo": repo, "runner": "codex"})
-    ));
-    // A relative-unregistered repo: the requested repo needs Core to resolve
-    // it, so the probe does not stay forwarded as a native reply.
-    assert!(!probe_stays_forwarded(
-        &ctx,
-        &json!({"repo": "not/registered", "runner": "codex"})
-    ));
-    // Invalid params: refuse to judge, so it stays native (false).
-    assert!(!probe_stays_forwarded(
-        &ctx,
-        &json!({"repo": repo, "runner": "x".repeat(129)})
-    ));
-    assert!(!probe_stays_forwarded(&ctx, &json!({"runner": "codex"})));
-    assert!(!probe_stays_forwarded(&ctx, &json!([])));
 }
 
 #[test]

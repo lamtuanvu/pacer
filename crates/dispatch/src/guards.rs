@@ -1125,6 +1125,56 @@ fn launch_argv(
     }
 }
 
+/// The canary launch argv with real prompt/repo/run-directory/task-id
+/// placeholders (`launchFor` via `localTarget`, `src/dispatch/enforcement.ts:355-357`).
+pub fn enforcement_canary_argv(
+    ctx: &Ctx,
+    strategy: &Value,
+    runner: &str,
+    prompt: &str,
+    repo: &str,
+    run_dir: &str,
+    task_id: &str,
+) -> Result<Vec<String>, String> {
+    let target = local_target(ctx, strategy, runner, repo)?;
+    launch_argv(ctx, &launch_cfg(strategy, runner, &target.launch_mode), &target.launch_mode, prompt, repo, run_dir, task_id)
+}
+
+fn launch_cfg(strategy: &Value, runner: &str, mode: &str) -> Value {
+    let cfg = &strategy["providers"][runner];
+    let parsed_agent = parse_runner_id(runner).map(|id| id.agent).unwrap_or_else(|| runner.to_owned());
+    json!({"id": runner, "agent": parsed_agent,
+        "via": cfg.get("via").cloned().unwrap_or(Value::Null),
+        "session": mode, "model": cfg.get("model").cloned().unwrap_or(Value::Null)})
+}
+
+/// Everything a native canary needs after the `--version` check
+/// (`resolveEnforcementTarget` + `probeSupportReason` + `enforcementFingerprint`).
+pub async fn enforcement_probe_plan(
+    ctx: &Ctx,
+    strategy: &Value,
+    runner: &str,
+    repo: &str,
+    cache: &VersionCache,
+) -> Result<Value, String> {
+    let target = resolve_enforcement_target(ctx, strategy, runner, repo, cache, false).await?;
+    let unsupported = probe_support_reason(&target, repo);
+    Ok(json!({
+        "runner": target.runner,
+        "account": target.account,
+        "agent": target.agent,
+        "version": target.version,
+        "binary": target.binary,
+        "controlFiles": target.control_files,
+        "launchMode": target.launch_mode,
+        "launchArgs": target.launch_args,
+        "guardArgv": target.guard_argv,
+        "key": target_key(&target),
+        "fingerprint": enforcement_fingerprint(&target),
+        "unsupported": unsupported,
+    }))
+}
+
 /// `probeSupportReason` (`src/dispatch/enforcement.ts:154-161`).
 fn probe_support_reason(target: &EnforcementTarget, repo: &str) -> Option<String> {
     if target.launch_mode == "interactive" {

@@ -253,26 +253,10 @@ async fn main() -> io::Result<()> {
         if pacer_dispatch_ops::enforcement_ops::needs_dispatch_parts(name)
             || name == "dispatch.enforcement.probe"
         {
-            if pacer_server::native::dispatch_enforcement_stays_forwarded(
-                &ctx,
-                name,
-                &input["params"],
-            ) {
-                serde_json::to_writer(&mut stdout, &json!({"forwarded":true}))?;
-                stdout.write_all(b"\n")?;
-                continue;
-            }
             if name == "dispatch.enforcement.probe" {
-                let result = pacer_dispatch_ops::enforcement_ops::dispatch_enforcement_probe(
-                    &ctx,
-                    input["params"].clone(),
-                )
-                .await;
-                let output = match result {
-                    Ok(value) => json!({"result":value}),
-                    Err(error) => error.body(),
-                };
-                serde_json::to_writer(&mut stdout, &output)?;
+                // The probe now needs the door's plugin channel and job runtime;
+                // this offline diff driver has neither.
+                serde_json::to_writer(&mut stdout, &json!({"error":{"code":-32000,"message":"probe needs the native job effects"}}))?;
                 stdout.write_all(b"\n")?;
                 continue;
             }

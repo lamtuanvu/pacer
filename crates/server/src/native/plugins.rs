@@ -122,6 +122,30 @@ impl Service {
             ..Self::default()
         }
     }
+
+    /// Call an installed plugin's extension method with the same sealed Core
+    /// channel the public plugin operations use. Used by native dispatch
+    /// effects (`observation.observe`, `agentSession.delegationControl`); the
+    /// plugin id and method are host-chosen, never taken from a public request.
+    pub(crate) async fn call_method(
+        &self,
+        core: impl Future<Output = Option<CoreLink>>,
+        id: &str,
+        method: &str,
+        params: Value,
+    ) -> Result<Value, CoreError> {
+        let (ipc, _generation) = core
+            .await
+            .ok_or_else(|| CoreError::new(Code::Unavailable, "pacer core is restarting"))?;
+        let mut owner = Owner {
+            ipc,
+            entries: Vec::new(),
+            resets: HashSet::new(),
+            logs: Vec::new(),
+            rpc: self.rpc.clone(),
+        };
+        owner.call_native(id, method, params).await
+    }
 }
 
 /// Core's private plugin channel for one operation, and the Core generation
