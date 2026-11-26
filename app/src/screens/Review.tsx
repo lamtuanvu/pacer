@@ -1,3 +1,4 @@
+import { readableBrief } from "../../../src/view-model/brief";
 import { gateFor, isConflictGate } from "../../../src/view-model/run-gate";
 import { RunGatePanel, sendBackOnly } from "./review/RunGatePanel";
 import { SelectableRow, ApprovalCard, Skeleton, EmptyState } from "../ds/Patterns";
@@ -73,7 +74,7 @@ export function ReviewView({ snapshot, view, task, now, filePath, diff, loading,
           <section><SectionHeading>Why {executorLabel(task.executor)}</SectionHeading><p>{reasonCopy(task.routing?.why)}</p>{task.routing?.skipped.map((s, i) => <p className="muted" key={i}><code>{executorLabel(s.executor)}</code> · {reasonCopy(s.reason)}</p>)}{task.routing && <Disclosure className="pc-disclosure" summary={<>Technical routing details</>}><pre className="mono pc-code-scroll" tabIndex={0}>{JSON.stringify(task.routing, null, 2)}</pre></Disclosure>}</section>
           <CostCard cost={task.cost} /></div>
           <Disclosure className="pc-disclosure" summary={<>Brief</>}><dl className="facts pc-review-brief">
-            {([["Goal", task.brief.goal], ["Repository", task.repo.label], ["Scope", task.brief.scope], ["Done when", task.brief.acceptance], ["Constraints", task.brief.constraints], ["Context", task.brief.context], ["Feedback", task.brief.feedback], ["Base", task.brief.base]] as const).filter(([, value]) => value).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{label === "Done when" || label === "Base" ? <code className="pc-code-scroll" tabIndex={0}>{value}</code> : value}</dd></div>)}
+            {([["Goal", readableBrief(task.brief.goal)], ["Repository", task.repo.label], ["Scope", task.brief.scope], ["Done when", task.brief.acceptance], ["Constraints", task.brief.constraints], ["Context", task.brief.context], ["Feedback", task.brief.feedback], ["Base", task.brief.base]] as const).filter(([, value]) => value).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{label === "Done when" || label === "Base" ? <code className="pc-code-scroll" tabIndex={0}>{value}</code> : value}</dd></div>)}
             {task.brief.qa?.map((entry, i) => <div key={i}><dt>{entry.q}</dt><dd>{entry.a}</dd></div>)}
           </dl></Disclosure>
           <section><SectionHeading>Executor summary</SectionHeading><p className="report">{task.summary ?? "No summary provided"}</p></section>
