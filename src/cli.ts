@@ -46,6 +46,7 @@ import { assertCallerCanInvoke, executorMayReview, TASK_REVIEW_REFUSAL } from ".
 import type { RouteExplanation } from "./core/dispatch-explain";
 import { isExecutorSession, isOrchestratorSession } from "./install/role";
 import { authorizeWorkOperation } from "./core/work";
+import { verifiedStepWorker } from "./workflow/step-identity";
 import { executorCommand } from "./executors/command";
 import { use as switchStrategy } from "./strategy/service";
 import { hookInput, plannerPolicyApplies } from "./install/role";
@@ -456,6 +457,19 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
    } catch (e) { return {code: 2, out: "", err: `pacer: ${(e as Error).message}`}; }
  }
 
+const QUESTION_BLOCKS: readonly string[] = ["step", "branch", "nothing"];
+
+/** `pacer ask` with any structured flag goes to `question.ask`. */
+function isStructuredAsk(args: string[]): boolean {
+  return args.some(a => ["--type", "--option", "--recommend", "--blocks", "--artifact", "--step", "--attempt"]
+    .some(flag => a === flag || a.startsWith(`${flag}=`)));
+}
+
+/** The commands a workflow step worker may run under its work grant: its own step's reports. */
+function isStepReport(cmd: string, args: string[]): boolean {
+  return cmd === "step" && (args[0] === "result" || args[0] === "artifact") || cmd === "ask" && isStructuredAsk(args);
+}
+
  export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result> {
   // Only this Core may hold its secrets: no environment it passes on carries them.
   let secretsOnStdin: boolean;
@@ -474,7 +488,8 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
   if (secrets.ownerKey) holdOwnerKey(secrets.ownerKey);
   const [cmd = "status", ...rest] = argv;
   if (ctx.env.PACER_WORK_GRANT && !["dispatch", "mcp", "api", "review"].includes(cmd)
-    && !(cmd === "guard" && ctx.env.PACER_ENFORCEMENT_MODE === "strict" && !!ctx.env.PACER_ENFORCEMENT_TOKEN))
+    && !(cmd === "guard" && ctx.env.PACER_ENFORCEMENT_MODE === "strict" && !!ctx.env.PACER_ENFORCEMENT_TOKEN)
+    && !(isStepReport(cmd, rest) && verifiedStepWorker(ctx)))
     return {code:2,out:"",err:"pacer: work grants only allow scoped dispatch commands"};
   if (ctx.env.PACER_ASSISTANT_GRANT && cmd !== "mcp")
     return {code:2,out:"",err:"pacer: an assistant grant only allows the MCP server"};
@@ -577,14 +592,7 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
     }
     case "ask": {
       // Structured flags → question.ask; executors without flags use task.ask; else assistant.
-      const structured = rest.some(a => a === "--type" || a.startsWith("--type=")
-        || a === "--option" || a.startsWith("--option=")
-        || a === "--recommend" || a.startsWith("--recommend=")
-        || a === "--blocks" || a.startsWith("--blocks=")
-        || a === "--artifact" || a.startsWith("--artifact=")
-        || a === "--step" || a.startsWith("--step=")
-        || a === "--attempt" || a.startsWith("--attempt="));
-      if (structured) {
+      if (isStructuredAsk(rest)) {
         try {
           const options: { value: string }[] = [];
           let type: string | undefined, recommend: string | undefined, blocks = "step", text: string | undefined;
@@ -597,8 +605,10 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
               if (v) options.push({ value: v });
             } else if (a === "--recommend" || a.startsWith("--recommend=")) {
               recommend = a.includes("=") ? a.slice(12) : rest[++i];
-            } else if (a === "--blocks" || a.startsWith("--blocks=")) {
-              blocks = (a.includes("=") ? a.slice(9) : rest[++i]) ?? "step";
+            } else if (a.startsWith("--blocks=")) blocks = a.slice(9);
+            else if (a === "--blocks") {
+              // The prompts show a bare `--blocks`: it means "step" unless a value follows.
+              blocks = QUESTION_BLOCKS.includes(rest[i + 1] ?? "") ? rest[++i]! : "step";
             } else if (a === "--artifact" || a.startsWith("--artifact=")) {
               artifact = a.includes("=") ? a.slice(11) : rest[++i];
             } else if (a === "--step" || a.startsWith("--step=")) {

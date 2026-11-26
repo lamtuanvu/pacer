@@ -19,6 +19,11 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - Live validation: executors, certification probes and orchestrator turns launched by a sandbox keep their own identity when they call the guarded `pacer`, so certification and orchestrator answers work without a wrapper script. Sandboxes also turn the login-shell environment off unless asked, so the login profile no longer reorders an executor's `PATH`; an unseeded sandbox still resolves agent CLIs from the inherited `PATH` behind its own `bin`.
 - Live validation: the guarded `pacer` keeps the caller's directory inside the sandbox home or repository, so relative paths from a task worktree resolve correctly. It ignores `.env` and `bunfig.toml` there, rejects identity paths with `..`, and passes the assistant server only a home inside the sandbox.
 
+### Fixed
+
+- **Workflow step workers can report.** An executor holding an attempt credential can now run `step.result`, `step.artifact` and `question.ask` (`pacer step result`, `pacer step artifact`, `pacer ask --type …`, and MCP tools) for its own step only. The identity comes from the verified credential and `PACER_TASK_ID`, which must agree; a step whose attempt was issued a credential cannot be reported on without it. No HTTP bearer gains an operation, and tasks that are not workflow steps are unchanged.
+- `pacer ask --blocks` without a value means `step`, as the workflow prompts show it.
+
 ## [0.18.6] - 2026-11-26
 
 ### Fixed
