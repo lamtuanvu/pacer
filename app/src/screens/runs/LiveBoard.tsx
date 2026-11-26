@@ -5,9 +5,9 @@
  */
 import { useEffect, useId, useMemo, useRef, useState } from "preact/hooks";
 import styles from "./live-board.css" with { type: "text" };
-import { orchestratorBlock, runAge, runPriorityLabel, runStatus, waitsOnLabel, displayRunLetter, runLettersForList } from "../../../../src/view-model/runs";
-import { sentenceCase, orchestratorNeedsAttention, pausedReasonLabel } from "../../../../src/view-model/run-board";
-import { markRunSeen, mergeSnapshotRuns, type RunQuestionView } from "../../data/runs";
+import { orchestratorBlock, pausedReasonLabel, runAge, runPriorityLabel, runStatus, waitsOnLabel, RUN_SEEN_ERROR } from "../../../../src/view-model/runs";
+import { sentenceCase, orchestratorNeedsAttention } from "../../../../src/view-model/run-board";
+import type { RunQuestionView } from "../../data/runs";
 import { useActions } from "../../data/action-context";
 import { Alert } from "../../ds/Alert";
 import { Button, ButtonLink } from "../../ds/Button";
@@ -18,7 +18,7 @@ import { Pill } from "../../ds/Pill";
 import { SectionHeading } from "../../ds/SectionHeading";
 import { PageHead } from "../../shell/slots";
 import type { RouteQuery } from "../../router";
-import { RunQuestionCard } from "./run-shared";
+import { RunLoadAlerts, RunQuestionCard } from "./run-shared";
 import { AgentOutput } from "./AgentOutput";
 import { BoardCanvas, deskWords, plannerNoteFor, zoneSummary } from "./BoardCanvas";
 import { BoardViewport } from "./BoardViewport";
@@ -26,7 +26,7 @@ import { layoutLiveBoard } from "./live-board-layout";
 import { executorName, executorOf, layoutInputFromDetail, nodeLabel } from "./live-board-model";
 import { CHANNEL_HINTS, CHANNEL_LABELS, messageTargets, sendToTargets, summarizeSend, type MessageChannel } from "./live-board-messages";
 import { liveHref, runViewHref, sessionHref } from "./live-links";
-import { useRunDetail } from "./run-data";
+import { runIdentity, useRetryFocus, useRunDetail, useRunSeen } from "./run-data";
 
 const styled = new WeakSet<Document>();
 /** Adopt the board stylesheet once per document. A missing CSSStyleSheet (bare test DOM) is not an error. */
@@ -47,6 +47,7 @@ const isOpenForPerson = (q: RunQuestionView) => (q.status === undefined || q.sta
 
 export function LiveBoard({ runId, query, outputPollMs }: { runId: string; query: RouteQuery; outputPollMs?: number }) {
   useLiveStyles();
+  const seen = useRunSeen(runId);
   const { state, api, ops, store, detail, load } = useRunDetail(runId);
   const runner = useActions();
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -73,14 +74,6 @@ export function LiveBoard({ runId, query, outputPollMs }: { runId: string; query
   [detail]);
 
   useEffect(() => { setSelected(null); setSent(""); setSendError(""); setAnnounce(""); }, [runId]);
-  // Opening the board is looking at the run: the engine stamps "last seen" and the planner may write its summary.
-  const seen = useRef<string | null>(null);
-  useEffect(() => {
-    if (seen.current === runId) return;
-    seen.current = runId;
-    void markRunSeen(api, runId, ops);
-  }, [api, ops, runId]);
-
   const tasks = state.snapshot?.tasks as ReadonlyArray<{ id: string; executor?: string | null }> | undefined;
   const agents = useMemo(() => (layout?.agents ?? []).map(a => {
     const node = layout!.nodes.find(n => n.id === a.nodeId)!;
@@ -133,14 +126,14 @@ export function LiveBoard({ runId, query, outputPollMs }: { runId: string; query
 
   // Header facts
   const snapRun = state.snapshot?.runs?.find(r => r.id === runId);
-  const letter = runLettersForList(mergeSnapshotRuns(store.list, state.snapshot?.runs)).get(runId) ?? displayRunLetter({ id: runId, letter: snapRun?.letter });
+  const { letter, runName, title } = runIdentity(runId, run, store.list, state.snapshot?.runs);
   const pausedReason = typeof run?.pausedReason === "string" ? run.pausedReason : typeof snapRun?.paused_reason === "string" ? snapRun.paused_reason : undefined;
   const status = runStatus(pausedReason ? "paused" : String(run?.status ?? "running"));
-  const title = typeof run?.title === "string" && run.title ? run.title : typeof run?.workflow === "string" ? run.workflow : runId;
   const waits = snapRun?.waits_on ?? (questions.length ? "you" : status.label === "Waiting" ? "orchestrator" : "-");
   const createdAt = typeof run?.createdAt === "number" ? run.createdAt : 0;
   const orchLine = sentenceCase(orchestratorBlock(orch, now));
   const unavailable = !ops.has("run.get");
+  const retry = useRetryFocus(headingRef);
   const nodes = layout?.nodes ?? [];
   const agentByNode = new Map(agents.map(a => [a.nodeId, a]));
 
@@ -156,24 +149,18 @@ export function LiveBoard({ runId, query, outputPollMs }: { runId: string; query
       </header>
     </PageHead>
     <p className="sr-only" role="status" aria-live="polite">{announce}</p>
-    <Page width="full" className="lb" aria-label={`Live board for run ${letter}`}>
+    <Page width="full" className="lb" aria-label={letter ? `Live board for run ${letter}` : "Live board"}>
       {unavailable && <EmptyState title="Live board unavailable" description="This service does not offer run.get yet." />}
-      {detail?.error && !raw && (
-        <Alert tone="error" title="Couldn't load this run">
-          <p>{detail.error}</p>
-          <Button size="sm" onClick={() => { void load(); }}>Try again</Button>
+      <RunLoadAlerts error={detail?.error} loaded={!!raw} staleTitle="This board may be out of date" onRetry={e => { void retry(e.currentTarget, load); }} />
+      {seen.failed ? (
+        <Alert tone="error" title={RUN_SEEN_ERROR}>
+          <Button size="sm" onClick={e => { void retry(e.currentTarget, seen.markSeen); }}>Mark as seen</Button>
         </Alert>
-      )}
-      {detail?.error && raw && (
-        <Alert tone="warning" title="This board may be out of date">
-          <p>The last refresh failed, so you are seeing the version loaded earlier.</p>
-          <Button size="sm" onClick={() => { void load(); }}>Try again</Button>
-        </Alert>
-      )}
+      ) : null}
       {!unavailable && !raw && !detail?.error && <p className="lb-cap" role="status">Loading the board…</p>}
       {layout && run && <>
         <div className="lb-facts" role="group" aria-label="Run facts">
-          <span className="pc-run-letter" role="img" aria-label={`Run ${letter}`}>{letter}</span>
+          {letter ? <span className="pc-run-letter" role="img" aria-label={runName}>{letter}</span> : null}
           <Pill tone={status.tone}><span aria-hidden="true">{status.glyph} </span>{status.label}</Pill>
           <span>Priority: {runPriorityLabel(typeof run.priority === "string" ? run.priority : undefined)}</span>
           <span>Waits on: {waitsOnLabel(waits)}</span>

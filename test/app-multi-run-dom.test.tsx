@@ -215,7 +215,7 @@ test("a failed list load with nothing to show says so and offers Try again; with
   const first = await open({ "run.list": () => { if (fail) throw new ApiError("internal", "service down"); return fixture.list; } }, ALL_OPS, { runs: [], attention: [] });
   try {
     expect(domText(first.dom.container)).toContain("Couldn't load runs");
-    expect(domText(first.dom.container)).toContain("service down");
+    expect(domText(first.dom.container)).not.toContain("service down");
     fail = false;
     await act(async () => { (button(first.dom.container as Node, "Try again") as unknown as { click(): void }).click(); });
     await until(() => domText(first.dom.container).includes("Executor bench"), 2000);
@@ -259,5 +259,30 @@ test("overlapping loads: a slow older list never overwrites a newer one", async 
     await new Promise(resolve => setTimeout(resolve, 250));
     expect(domText(dom.container)).not.toContain("Stale zombie run");
     expect(n).toBeGreaterThanOrEqual(2);
+  } finally { await unmount(dom); dom.restore(); }
+});
+
+test("a row without a title is named by its letter, never by its run id; an unread summary says so", async () => {
+  const { dom } = await open({
+    "run.list": () => [{ id: "run_untitled_9c", workflow: "", status: "running", priority: "normal", createdAt: 999_000 }],
+    "run.get": () => { throw new ApiError("internal", "raw detail"); },
+  }, ALL_OPS, { runs: [], attention: [] });
+  try {
+    const line = text(row(dom.container, "data-run", "run_untitled_9c"));
+    expect(line).toMatch(/Run [A-Z]/);
+    expect(line).toContain("The summary couldn't be loaded.");
+    expect(domText(dom.container)).not.toContain("run_untitled_9c");
+    expect(domText(dom.container)).not.toContain("raw detail");
+  } finally { await done(dom); }
+});
+
+test("while the first list read is in flight the page says loading, not that there are no runs", async () => {
+  const dom = installDom();
+  const calls: Calls = { ops: [] };
+  const api = apiFor(fixture, calls, { "run.list": () => new Promise(() => {}) });
+  try {
+    await mount(dom, <TaskContext.Provider value={{ state: stateFor(fixture, ALL_OPS), api }}><MultiRun query={query} /></TaskContext.Provider>);
+    expect(domText(dom.container)).toContain("Loading runs…");
+    expect(domText(dom.container)).not.toContain("No runs yet");
   } finally { await unmount(dom); dom.restore(); }
 });

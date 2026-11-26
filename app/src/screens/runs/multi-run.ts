@@ -3,7 +3,7 @@ import type { AttentionItem } from "../../../../src/attention/types";
 import type { ExecutorRow } from "../../../../src/api/read-model/types";
 import type { SnapshotRun } from "../../../../src/api/read-model/runs";
 import { executorLabel, executorRowStatus } from "../../../../src/view-model/words";
-import { runPriorityLabel, runPriorityOf, type RunPriority } from "../../../../src/view-model/runs";
+import { runPriorityLabel, runPriorityOf, RUN_HEADING, type RunPriority } from "../../../../src/view-model/runs";
 import type { RunDetailState, RunListRow, RunQuestionView } from "../../data/runs";
 
 /** `--chart-1`..`--chart-5`: a run's colour follows its fixed letter, so it never changes while the run lives. */
@@ -92,6 +92,9 @@ export function buildMultiRun(input: {
 }): MultiRunModel {
   const snap = new Map((input.snapshotRuns ?? []).map(r => [r.id, r]));
   const letters = new Map(input.runs.map(r => [r.id, r.letter]));
+  // A row with no title carries its id; the page names the run by its letter instead (UI-12).
+  const named = (id: string, title: string | undefined, letter: string) => title && title !== id ? title : letter === "?" ? RUN_HEADING : `Run ${letter}`;
+  const titles = new Map(input.runs.map(r => [r.id, r.title]));
   const waiting = new Map<string, number>();
   for (const q of input.queue) waiting.set(q.question.runId, (waiting.get(q.question.runId) ?? 0) + 1);
 
@@ -99,7 +102,7 @@ export function buildMultiRun(input: {
     const letter = item.run?.letter ?? letters.get(question.runId) ?? "?";
     const unblocks = unblocksOf(item);
     return {
-      id: question.id, runId: question.runId, letter, tone: runTone(letter), runTitle: item.run?.title ?? question.runId,
+      id: question.id, runId: question.runId, letter, tone: runTone(letter), runTitle: named(question.runId, item.run?.title || titles.get(question.runId), letter),
       priority: runPriorityOf(item.run?.priority), unblocks, rank: UNBLOCKS_LABEL[unblocks], text: question.text || item.title,
       raisedAt: item.raisedAt, question,
     };
@@ -107,7 +110,7 @@ export function buildMultiRun(input: {
   const allLines: RunLineRow[] = input.runs.map(run => {
     const s = snap.get(run.id);
     return {
-      id: run.id, letter: run.letter, tone: runTone(run.letter), title: run.title, status: run.status, priority: runPriorityOf(run.priority),
+      id: run.id, letter: run.letter, tone: runTone(run.letter), title: named(run.id, run.title, run.letter), status: run.status, priority: runPriorityOf(run.priority),
       priorityLabel: runPriorityLabel(run.priority), waitsOn: run.waitsOn, age: run.age,
       ...(run.pausedReason ? { pausedReason: run.pausedReason } : {}),
       counts: s?.steps ?? countsFromSteps(input.details[run.id]?.steps),

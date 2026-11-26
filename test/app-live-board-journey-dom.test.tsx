@@ -246,3 +246,15 @@ test("a playback button that disables itself hands keyboard focus to Play instea
     expect(activeText(dom)).toBe("Play again");
   } finally { await done(dom); }
 });
+
+test("a replay that cannot be read keeps the run id out of the heading", async () => {
+  const dom = installDom();
+  const fixture = { ...journeyFixture(), id: "run_gone_7f3a", list: [] };
+  const api = apiFor(fixture, { ops: [] }, { "run.get": () => { throw new Error("boom"); } });
+  try {
+    await mount(dom, <TaskContext.Provider value={{ state: stateFor(fixture, ALL_OPS), api }}><JourneyPlayback runId={fixture.id} query={query} /></TaskContext.Provider>);
+    await until(() => domText(dom.container).includes("Couldn't load this run"), 3000);
+    expect(domText(dom.container)).not.toContain("run_gone_7f3a");
+    expect(domText(dom.container)).not.toContain("boom");
+  } finally { await unmount(dom); dom.restore(); }
+});

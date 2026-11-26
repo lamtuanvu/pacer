@@ -329,7 +329,8 @@ test("an output read that fails says so and Try again reads again", async () => 
   try {
     await act(async () => { clickEl(must(byAttr(dom.container, "data-agent", "t_a"), "agent")); });
     await until(() => domText(dom.container).includes("Couldn't read the output"), 2000);
-    expect(domText(dom.container)).toContain("disk gone");
+    expect(domText(dom.container)).toContain("The output could not be read.");
+    expect(domText(dom.container)).not.toContain("disk gone");
     fail = false;
     await act(async () => { clickEl(button(dom.container, "Try again")); });
     await until(() => domText(dom.container).includes("back"), 2000);
@@ -594,7 +595,8 @@ test("a run that cannot be read at all shows an error alert with Try again and n
   try {
     const alertEl = all(dom.container as Node).find(n => attr(n, "role") === "alert" && text(n).includes("Couldn't load this run"));
     expect(alertEl).toBeDefined();
-    expect(text(alertEl!)).toContain("service restarting");
+    expect(text(alertEl!)).toContain("Couldn't load this run's details.");
+    expect(domText(dom.container)).not.toContain("service restarting");
     expect(nodes(dom.container)).toEqual([]);
     expect(domText(dom.container)).not.toContain("Loading the board");
     fail = false;
@@ -615,4 +617,48 @@ test("closing the board stops following an agent's output: no further task.log r
   await new Promise(resolve => setTimeout(resolve, 150));
   dom.restore();
   expect(reads).toBe(atUnmount);
+});
+
+const h1Text = (root: unknown) => all(root as Node).filter(n => n.tagName === "h1").map(n => text(n));
+
+test("the heading never shows the raw run id, and no letter is guessed for a run nothing names", async () => {
+  const absent: Fixture = { ...liveFixture, id: "run_gone_7f3a", list: [] };
+  const { dom } = await open(absent, ALL_OPS, { "run.get": () => { throw new ApiError("internal", "boom"); } });
+  try {
+    expect(h1Text(dom.container)).toEqual(["Run"]);
+    expect(domText(dom.container)).not.toContain("run_gone_7f3a");
+  } finally { await done(dom); }
+});
+
+test("a failed run.seen is shown with a retry that clears it", async () => {
+  let fail = true;
+  const { dom, calls } = await open(liveFixture, ALL_OPS, { "run.seen": () => { if (fail) throw new ApiError("internal", "raw seen"); return {}; } });
+  try {
+    await until(() => domText(dom.container).includes("Couldn't mark this run as seen."), 2000);
+    expect(domText(dom.container)).not.toContain("raw seen");
+    fail = false;
+    await act(async () => { clickEl(button(dom.container, "Mark as seen")); });
+    await until(() => !domText(dom.container).includes("Couldn't mark this run as seen."), 2000);
+    expect(calls.ops.filter(c => c.op === "run.seen").length).toBe(2);
+  } finally { await done(dom); }
+});
+
+test("a successful retry moves focus to the run title, and to Close output on the agent panel", async () => {
+  let failRun = true, failLog = true;
+  const { dom } = await open(liveFixture, ALL_OPS, {
+    "run.get": () => { if (failRun) throw new ApiError("internal", "x"); return liveFixture.get; },
+    "task.log": () => { if (failLog) throw new ApiError("internal", "y"); return logChunk("back\n", { done: true }); },
+  });
+  const focused = () => { const a = (dom.doc as unknown as { activeElement: Node | null }).activeElement; return a ? text(a) : ""; };
+  try {
+    failRun = false;
+    await act(async () => { clickEl(button(dom.container, "Try again")); });
+    await until(() => focused().includes("Ship the board"), 2000);
+    await act(async () => { clickEl(must(byAttr(dom.container, "data-agent", "t_a"), "agent")); });
+    await until(() => domText(dom.container).includes("Couldn't read the output"), 2000);
+    failLog = false;
+    const again = button(dom.container, "Try again");
+    await act(async () => { (again as unknown as { focus(): void }).focus(); clickEl(again); });
+    await until(() => focused() === "Close output", 2000);
+  } finally { await done(dom); }
 });

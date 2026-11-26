@@ -4,7 +4,7 @@
  * A thin client: the queue's order, letters and priorities arrive from the service; nothing is ranked here.
  */
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
-import { buildRunsListState, initialRunsStore, mergeSnapshotRuns, refreshRunDetail, refreshRunsList, RUNS_UNAVAILABLE, type RunsStoreState } from "../../data/runs";
+import { buildRunsListState, initialRunsStore, mergeDetailRefresh, mergeListRefresh, mergeSnapshotRuns, refreshRunDetail, refreshRunsList, RUNS_UNAVAILABLE, type RunsStoreState } from "../../data/runs";
 import { runAge, runStatus } from "../../../../src/view-model/runs";
 import { Alert } from "../../ds/Alert";
 import { Button, ButtonLink } from "../../ds/Button";
@@ -16,7 +16,7 @@ import { SectionHeading } from "../../ds/SectionHeading";
 import { PageHead } from "../../shell/slots";
 import type { RouteQuery } from "../../router";
 import { useTaskContext } from "../task-shared";
-import { createLoadGuard } from "./run-data";
+import { useMounted, useRetryFocus } from "./run-data";
 import { RunQuestionCard } from "./run-shared";
 import { useLiveStyles } from "./LiveBoard";
 import { Creature } from "./MascotArt";
@@ -59,27 +59,48 @@ export function MultiRun({ query }: { query: RouteQuery }) {
   const [store, setStore] = useState<RunsStoreState>(() => initialRunsStore());
   const storeRef = useRef(store);
   storeRef.current = store;
-  const guard = useRef(createLoadGuard());
   const queueHeading = useRef<HTMLHeadingElement>(null);
   const [focusId, setFocusId] = useState<string | null>(null);
   const [quiet, setQuiet] = useState(false);
   const [answerId, setAnswerId] = useState<string | null>(null);
   const [announce, setAnnounce] = useState("");
-  useEffect(() => { guard.current.mount(); return () => guard.current.unmount(); }, []);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const retry = useRetryFocus(headingRef);
+  const mounted = useMounted();
+  const loadSeq = useRef(0);
+  const appliedList = useRef(0);
+  const appliedDetail = useRef(new Map<string, number>());
 
-  /** Latest load wins. The list first, then each live run's detail for its summary. */
+  /**
+   * The list first, then each live run's detail for its summary. As on the run view, a response is dropped after
+   * unmount or once a newer one has been applied; a merely superseded one still applies.
+   * Resolves true when everything was read without any error.
+   */
   const load = async () => {
-    const current = guard.current.begin();
+    const mine = ++loadSeq.current;
     let next = await refreshRunsList(api, storeRef.current, ops);
-    if (!current()) return;
-    setStore(next);
+    if (!mounted.current) return false;
+    const listed = next;
+    if (mine > appliedList.current) {
+      appliedList.current = mine;
+      setStore(current => mergeListRefresh(current, listed));
+    }
+    let ok = !listed.listError;
     const kids = childRunIds(next.list);
     const ids = summaryRunIds(mergeSnapshotRuns(next.list, state.snapshot?.runs).filter(r => !kids.has(r.id)));
     for (const id of ids) {
+      // A newer load already brought this run: no need to read it again.
+      if ((appliedDetail.current.get(id) ?? 0) > mine) continue;
       next = await refreshRunDetail(api, next, id, ops);
-      if (!current()) return;
-      setStore(next);
+      if (!mounted.current) return false;
+      if (next.details[id]?.error) ok = false;
+      if (mine > (appliedDetail.current.get(id) ?? 0)) {
+        appliedDetail.current.set(id, mine);
+        const read = next;
+        setStore(current => mergeDetailRefresh(current, read, id));
+      }
     }
+    return ok;
   };
   useEffect(() => {
     void load();
@@ -100,6 +121,8 @@ export function MultiRun({ query }: { query: RouteQuery }) {
   const answering = answerId ? model.queue.find(q => q.id === answerId) ?? null : null;
   const canAnswer = ops.has("question.answer");
   const unavailable = listState.unavailable;
+  // Until the first list read answers, an empty page is still loading.
+  const loading = !unavailable && !listState.error && !listState.runs.length && !listState.queue.length && !store.listStamp;
   const hiddenWords = [
     model.hidden.quietBackgroundItems ? `${model.hidden.quietBackgroundItems} ${model.hidden.quietBackgroundItems === 1 ? "question" : "questions"} from background runs` : "",
     model.hidden.quietItems ? `${model.hidden.quietItems} informational ${model.hidden.quietItems === 1 ? "item" : "items"}` : "",
@@ -109,7 +132,7 @@ export function MultiRun({ query }: { query: RouteQuery }) {
   return <>
     <PageHead>
       <header className="lb-header">
-        <div className="lb-heading"><h1>Several runs</h1></div>
+        <div className="lb-heading"><h1 ref={headingRef} tabIndex={-1}>Several runs</h1></div>
         <div className="lb-links"><ButtonLink typography="board" size="sm" href="#/runs">Runs list</ButtonLink></div>
       </header>
     </PageHead>
@@ -117,13 +140,13 @@ export function MultiRun({ query }: { query: RouteQuery }) {
     <Page width="full" className="lb" aria-label="Several runs at once">
       {unavailable && <EmptyState title={RUNS_UNAVAILABLE} description="This service does not offer run.list yet." />}
       {listState.error && !listState.runs.length && !listState.queue.length && (
-        <Alert tone="error" title="Couldn't load runs"><p>{listState.error}</p><Button size="sm" onClick={() => { void load(); }}>Try again</Button></Alert>
+        <Alert tone="error" title="Couldn't load runs"><p>{listState.error}</p><Button size="sm" onClick={e => { void retry(e.currentTarget, load); }}>Try again</Button></Alert>
       )}
       {listState.error && (listState.runs.length > 0 || listState.queue.length > 0) && (
-        <Alert tone="warning" title="These runs may be out of date"><p>The last refresh failed, so you are seeing the version loaded earlier.</p><Button size="sm" onClick={() => { void load(); }}>Try again</Button></Alert>
+        <Alert tone="warning" title="These runs may be out of date"><p>The last refresh failed, so you are seeing the version loaded earlier.</p><Button size="sm" onClick={e => { void retry(e.currentTarget, load); }}>Try again</Button></Alert>
       )}
-      {listState.loading && <p className="lb-cap" role="status">Loading runs…</p>}
-      {!unavailable && !listState.loading && !listState.error && listState.empty && <EmptyState title="No runs yet" description="Start one with `pacer run start`." />}
+      {loading && <p className="lb-cap" role="status">Loading runs…</p>}
+      {!unavailable && !loading && !listState.error && listState.empty && <EmptyState title="No runs yet" description="Start one with `pacer run start`." />}
       {!unavailable && (listState.runs.length > 0 || listState.queue.length > 0) && <>
         <div className="mr-controls" role="group" aria-label="View">
           <Switch label="Quiet mode" help="Hide informational questions and background runs." checked={quiet}
@@ -131,7 +154,7 @@ export function MultiRun({ query }: { query: RouteQuery }) {
           {focus ? <Button size="sm" onClick={() => { setFocusId(null); setAnnounce("Showing all runs"); }}>Show all runs</Button> : null}
         </div>
         {focus ? <p className="lb-cap">Focused on run {model.lines[0]?.letter ?? ""}. {model.hidden.focus} other {model.hidden.focus === 1 ? "run is" : "runs are"} hidden.</p> : null}
-        {quiet && hiddenWords.length ? <p className="lb-cap" role="status">Quiet mode is hiding {hiddenWords.join(", ")}.</p> : null}
+        {quiet && hiddenWords.length ? <p className="lb-cap">Quiet mode is hiding {hiddenWords.join(", ")}.</p> : null}
 
         <section className="lb-section" aria-labelledby="mr-queue">
           <h2 className="pc-section-heading" id="mr-queue" ref={queueHeading} tabIndex={-1}>Needs you</h2>
@@ -181,7 +204,7 @@ export function MultiRun({ query }: { query: RouteQuery }) {
                     <p className="lb-cap">{countWords(line.counts)}{line.questions ? ` · ${line.questions} ${line.questions === 1 ? "question" : "questions"} for you` : ""}</p>
                     <p className="mr-since"><strong>Since you last looked: </strong>{line.summary
                       ? <>{line.summary.text}{line.summary.at ? <span className="lb-cap"> · written {runAge(line.summary.at, now)}</span> : null}</>
-                      : "No summary yet."}</p>
+                      : store.details[line.id]?.error && !store.details[line.id]?.run ? "The summary couldn't be loaded." : "No summary yet."}</p>
                     <div className="lb-row">
                       <Button size="sm" variant={focus === line.id ? "secondary" : "quiet"} aria-pressed={focus === line.id}
                         onClick={() => { setFocusId(focus === line.id ? null : line.id); setAnnounce(focus === line.id ? "Showing all runs" : `Focused on run ${line.letter}`); }}>

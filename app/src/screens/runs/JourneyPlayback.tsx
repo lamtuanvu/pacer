@@ -2,7 +2,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from "preact/hooks";
 import { orchestratorBlock, runStatus } from "../../../../src/view-model/runs";
 import { useLiveStyles } from "./LiveBoard";
-import { Alert } from "../../ds/Alert";
 import { Button, ButtonLink } from "../../ds/Button";
 import { SectionHeading } from "../../ds/SectionHeading";
 import { Range } from "../../ds/Controls";
@@ -16,7 +15,8 @@ import { agentPlace, layoutLiveBoard } from "./live-board-layout";
 import { executorName, executorOf, layoutInputFromDetail, nodeLabel } from "./live-board-model";
 import { buildJourney, frameAt } from "./journey";
 import { liveHref, runViewHref } from "./live-links";
-import { useRunDetail } from "./run-data";
+import { runIdentity, useRetryFocus, useRunDetail } from "./run-data";
+import { RunLoadAlerts } from "./run-shared";
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 export const STEP_MS = 1200;
@@ -24,7 +24,9 @@ const SPEEDS = [{ value: "1", label: "1x" }, { value: "2", label: "2x" }, { valu
 
 export function JourneyPlayback({ runId, query, stepMs = STEP_MS }: { runId: string; query: RouteQuery; stepMs?: number }) {
   useLiveStyles();
-  const { state, api, ops, detail, load } = useRunDetail(runId);
+  const { state, ops, store, detail, load } = useRunDetail(runId);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const retry = useRetryFocus(headingRef);
   const markerId = useId();
   const [index, setIndex] = useState(-1);
   const [playing, setPlaying] = useState(false);
@@ -62,7 +64,7 @@ export function JourneyPlayback({ runId, query, stepMs = STEP_MS }: { runId: str
     return { taskId: w.taskId, nodeId: w.nodeId, executor: w.executor, name: executorName(w.executor), label: nodeLabel(node), ...agentPlace(node) };
   }), [frame, layout]);
 
-  const title = typeof run?.title === "string" && run.title ? run.title : typeof run?.workflow === "string" ? run.workflow : runId;
+  const { title } = runIdentity(runId, run, store.list, state.snapshot?.runs);
   const orch = isObj(run?.orchestrator) ? run!.orchestrator as { state?: string; planner?: string; reason?: string; next_wake_at?: number } : undefined;
   const humanAt = frame && layout
     ? layout.nodes.find(n => frame.visible.has(n.id) && ["waiting", "running"].includes(frame.status.get(n.id) ?? "") && isHumanStep(detail?.definition, n.stepId))?.id ?? null
@@ -82,7 +84,7 @@ export function JourneyPlayback({ runId, query, stepMs = STEP_MS }: { runId: str
   return <>
     <PageHead>
       <header className="lb-header">
-        <div className="lb-heading"><h1>{title}</h1></div>
+        <div className="lb-heading"><h1 ref={headingRef} tabIndex={-1}>{title}</h1></div>
         <div className="lb-links">
           <ButtonLink typography="board" size="sm" href={liveHref(runId, undefined, query)}>Live board</ButtonLink>
           <ButtonLink typography="board" size="sm" href={runViewHref(runId, query)}>Run view</ButtonLink>
@@ -91,12 +93,7 @@ export function JourneyPlayback({ runId, query, stepMs = STEP_MS }: { runId: str
     </PageHead>
     <Page width="full" className="lb" aria-label="Journey playback">
       {unavailable && <EmptyState title="Replay unavailable" description="This service does not offer run.get yet." />}
-      {detail?.error && !raw && (
-        <Alert tone="error" title="Couldn't load this run"><p>{detail.error}</p><Button size="sm" onClick={() => { void load(); }}>Try again</Button></Alert>
-      )}
-      {detail?.error && raw && (
-        <Alert tone="warning" title="This replay may be out of date"><p>The last refresh failed, so you are seeing the version loaded earlier.</p><Button size="sm" onClick={() => { void load(); }}>Try again</Button></Alert>
-      )}
+      <RunLoadAlerts error={detail?.error} loaded={!!raw} staleTitle="This replay may be out of date" onRetry={e => { void retry(e.currentTarget, load); }} />
       {!unavailable && !raw && !detail?.error && <p className="lb-cap" role="status">Loading the journey…</p>}
       {layout && journey && frame && run && <>
         {journey.events.length === 0 ? <EmptyState title="Nothing to replay yet" description="This run has recorded no steps or decisions." /> : <>

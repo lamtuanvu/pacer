@@ -99,17 +99,3 @@ test("summarizeSend says what became of the message, one recipient or several, i
   expect(summarizeSend([{ to: "a", delivery: "queued" }, { to: "b", delivery: "live" }])).toEqual({ text: "Delivered to 2 of 2 recipients.", problem: false, stored: true });
   expect(summarizeSend([{ to: "a", refusal: "x" }, { to: "b", refusal: "x" }]).stored).toBe(false);
 });
-
-test("createLoadGuard: only the newest load counts, and nothing counts after unmount", async () => {
-  const { createLoadGuard } = await import("../app/src/screens/runs/run-data");
-  const g = createLoadGuard();
-  const first = g.begin();
-  expect(first()).toBe(true);
-  const second = g.begin();
-  expect(first()).toBe(false);
-  expect(second()).toBe(true);
-  g.unmount();
-  expect(second()).toBe(false);
-  g.mount();
-  expect(second()).toBe(true);
-});

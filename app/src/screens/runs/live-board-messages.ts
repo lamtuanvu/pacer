@@ -50,7 +50,11 @@ export async function sendToTargets(send: (to: string, body: string) => Promise<
       const r = await send(target, body);
       const delivery = r && typeof r === "object" && typeof (r as { delivery?: unknown }).delivery === "string" ? (r as { delivery: string }).delivery : undefined;
       out.results.push({ to: target, ...(delivery ? { delivery } : {}) });
-    } catch (e) { out.results.push({ to: target, refusal: sendRefusal(e).text }); }
+    } catch (e) {
+      // The raw error stays in the console; the page shows plain words (UI-12).
+      console.warn("runs: message send failed", e);
+      out.results.push({ to: target, refusal: sendRefusal(e).text });
+    }
   }
   return out;
 }

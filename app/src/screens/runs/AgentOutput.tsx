@@ -4,12 +4,13 @@ import type { BrowserApi } from "../../data/api";
 import { Alert } from "../../ds/Alert";
 import { Button, ButtonLink } from "../../ds/Button";
 import { SectionHeading } from "../../ds/SectionHeading";
+import { RUN_OUTPUT_ERROR } from "../../../../src/view-model/runs";
 
 interface Chunk { stdout: string; stderr: string; next: { stdout: number; stderr: number }; done: boolean; source: string }
 export const OUTPUT_POLL_MS = 2500;
 const KEEP_CHARS = 24_000;
 
-type OutputState = { text: string; phase: "loading" | "live" | "done" | "error"; error?: string };
+type OutputState = { text: string; phase: "loading" | "live" | "done" | "error" };
 
 const tail = (text: string): string => text.length > KEEP_CHARS ? text.slice(text.length - KEEP_CHARS) : text;
 
@@ -19,6 +20,9 @@ export function AgentOutput({ api, taskId, executor, stepLabel, sessionHref, onC
   const [out, setOut] = useState<OutputState>({ text: "", phase: "loading" });
   const [attempt, retry] = useState(0);
   const panel = useRef<HTMLElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  /** The pressed retry button, until the read it started succeeds. */
+  const retried = useRef<EventTarget | null>(null);
   // The panel opens below the board; bring it into view without moving focus off the agent that opened it.
   useEffect(() => { panel.current?.scrollIntoView?.({ block: "nearest" }); }, [taskId]);
   useEffect(() => {
@@ -27,7 +31,8 @@ export function AgentOutput({ api, taskId, executor, stepLabel, sessionHref, onC
     let offsets = { stdout: 0, stderr: 0 };
     let source: string | undefined;
     let text = "";
-    setOut({ text: "", phase: "loading" });
+    // A retry keeps the failure and its button on screen until a read works, so focus is not dropped.
+    if (!retried.current) setOut({ text: "", phase: "loading" });
     const step = async () => {
       try {
         const chunk = await api.call<Chunk>("task.log", { id: taskId, ...offsets });
@@ -42,15 +47,22 @@ export function AgentOutput({ api, taskId, executor, stepLabel, sessionHref, onC
         const err = chunk.stderr ? chunk.stderr.split("\n").filter(Boolean).map(l => `stderr: ${l}`).join("\n") : "";
         text = tail(text + chunk.stdout + (err ? `${chunk.stdout && !chunk.stdout.endsWith("\n") ? "\n" : ""}${err}\n` : ""));
         offsets = chunk.next;
+        // The retry button leaves with the failure: move focus on, unless the person moved elsewhere.
+        const button = retried.current;
+        retried.current = null;
+        if (button && (document.activeElement === button || document.activeElement === document.body || !document.activeElement)) closeRef.current?.focus();
         setOut({ text, phase: chunk.done ? "done" : "live" });
         if (!chunk.done) timer = setTimeout(step, pollMs);
       } catch (e) {
-        if (active) setOut({ text, phase: "error", error: e instanceof Error ? e.message : "The output could not be read." });
+        // The raw error stays in the console; the page shows plain words (UI-12).
+        console.warn("runs: task output read failed", e);
+        if (active) setOut({ text, phase: "error" });
       }
     };
     void step();
     return () => { active = false; if (timer) clearTimeout(timer); };
   }, [api, taskId, pollMs, attempt]);
+  useEffect(() => () => { retried.current = null; }, [taskId]);
   const status = out.phase === "loading" ? "Reading output…" : out.phase === "live" ? "Following live output" : out.phase === "done" ? "Task finished; this is its full output" : "";
   return (
     <section ref={panel} className="lb-section" aria-label={`Live output: ${executor} on ${stepLabel}`}>
@@ -61,8 +73,8 @@ export function AgentOutput({ api, taskId, executor, stepLabel, sessionHref, onC
       <p className="lb-cap" role="status" aria-live="polite">{status}</p>
       {out.phase === "error" ? (
         <Alert tone="error" title="Couldn't read the output">
-          <p>{out.error}</p>
-          <Button size="sm" onClick={() => retry(n => n + 1)}>Try again</Button>
+          <p>{RUN_OUTPUT_ERROR}</p>
+          <Button size="sm" onClick={e => { retried.current = e.currentTarget; retry(n => n + 1); }}>Try again</Button>
         </Alert>
       ) : null}
       {out.text
@@ -70,7 +82,7 @@ export function AgentOutput({ api, taskId, executor, stepLabel, sessionHref, onC
         : out.phase === "live" || out.phase === "done" ? <p className="lb-cap">No output yet.</p> : null}
       <div className="lb-row">
         <ButtonLink size="sm" href={sessionHref}>Open session</ButtonLink>
-        <Button size="sm" variant="quiet" onClick={onClose}>Close output</Button>
+        <Button size="sm" variant="quiet" ref={closeRef} onClick={onClose}>Close output</Button>
       </div>
     </section>
   );
