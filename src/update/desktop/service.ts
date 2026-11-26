@@ -11,7 +11,7 @@ import { updateChannel } from "../channel";
 import * as admission from "./admission";
 import { ownProcessIdentity, sameProcess, type ProcessIdentity } from "./process-identity";
 import { AdapterError, runAdapterCommand, type AdapterFailure, type AdapterRequest, type PreparedFrame, type VerifiedPipeFactory } from "./adapter";
-import { cancelRestart, checkDue, checksEnabled, rememberRequest, replayRequest, requestRestart, updateStatus } from "./policy";
+import { cancelRestart, checkDue, checksEnabled, reconcileStaleCandidate, rememberRequest, replayRequest, requestRestart, updateStatus } from "./policy";
 import { readUpdate, writeUpdate } from "./store";
 import { assertIdentifier, type Installation, type UpdateRecord, type UpdateRequest, type RestartRequest, type UpdateStatus, type UpdateAction } from "./types";
 
@@ -171,6 +171,39 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
     }).catch(() => { deliveryErrors.add(id); });
   };
   const persist = (next: UpdateRecord) => { const saved = writeUpdate(ctx(), next, next.revision); emit(saved.installationId); return saved; };
+  /** A hand-installed release can move the registered installation up to the
+   * stored candidate's version. Clear the now-stale candidate/error, persist it
+   * with a revision bump and arm a fresh check so Settings stops reporting a
+   * failure that was already installed by another path. Settlement phases keep
+   * their candidate until their own durable work finishes. */
+  const refreshStaleCandidate = (id: string): UpdateRecord => {
+    const session = liveSession(id);
+    const installed = session?.installation ?? installation(id);
+    const value = record(id);
+    const reconciled = reconcileStaleCandidate(installed, value);
+    if (reconciled === value) return value;
+    // Arm the fresh check before writing: even a failed write must not leave a
+    // hand-installed target waiting for the normal daily check cadence.
+    nextCheck.set(id, clock.monotonicMs());
+    try {
+      return persist(reconciled);
+    } catch (error) {
+      let fallback = reconciled;
+      if (error instanceof CoreError && error.code === "conflict") {
+        // Another writer advanced the record. Retry once against its revision so
+        // a concurrent action cannot resurrect the stale candidate.
+        try {
+          const fresh = record(id);
+          const again = reconcileStaleCandidate(installed, fresh);
+          fallback = again;
+          return again === fresh ? fresh : persist(again);
+        } catch { /* Fall back to the masked view below. */ }
+      }
+      // Status stays readable even when a best-effort reconciliation cannot be
+      // persisted; updateStatus masks the stale candidate in the meantime.
+      return fallback;
+    }
+  };
   /** Back off after a failed/interrupted check, with a hard attempt budget. Never arms installs. */
   const armCheckRetry = (id: string, immediate = false) => {
     const prior = checkRetries.get(id);
@@ -240,7 +273,14 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
       if (resolve(session.installation.pacerHome) !== resolve(ctx().pacerHome)) throw unavailable();
       if (!known.has(session.installation.id)) known.set(session.installation.id, structuredClone(session.installation));
       if (watched.get(session.installation.id) !== session.sessionId) {
+        // A re-registered desktop can report a different installed version when
+        // a release was installed by hand. Refresh before reconciling the record.
+        known.set(session.installation.id, structuredClone(session.installation));
         watched.set(session.installation.id, session.sessionId);
+        // A corrupt or inaccessible record must poison only this installation,
+        // not abort the whole observation pass and pause every other desktop.
+        try { refreshStaleCandidate(session.installation.id); }
+        catch { failed(session.installation.id); }
         retryCheckOnReconnect(session.installation.id);
         void session.closed.then(() => {
           if (!stopped && watched.get(session.installation.id) === session.sessionId) {
@@ -495,7 +535,7 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
   const adoption=createAdoptionRuntime(ctx,{native,adapter:deps.adapter,admission:gate,bootId:clock.bootId,changed:value=>{if(known.has(value.installationId))emit(value.installationId);},completed:(_oldId,value)=>{known.set(value.id,structuredClone(value));}});
   const runtime: DesktopUpdateRuntime = {
     status(id) {
-      const value = record(id), status = updateStatus(installation(id), value);
+      const value = refreshStaleCandidate(id), status = updateStatus(installation(id), value);
       const adopted=readAdoption(ctx(),id),session=liveSession(id);
       let currentAdoption: ReturnType<NonNullable<AdoptionNative["inspectAdoption"]>> | undefined;
       if ((!adopted || !adoptionPending(adopted)) && session && adoption.capable() && session.installation.ownership === "attached") {

@@ -843,3 +843,29 @@ test("a committed update whose reservation release fails signals no handover",as
   await f.runtime.start();await f.runtime.settled();await Bun.sleep(0);
   expect(readUpdate(f.ctx,"desktop").phase).toBe("complete");expect(f.handovers).toEqual([]);
 });
+
+test("a hand-installed target clears the stale failed update, persists it and schedules a fresh check", async () => {
+  const f=fixture({autoDownload:false});
+  const initial=readUpdate(f.ctx,"desktop");
+  writeUpdate(f.ctx,{...initial,phase:"error",candidate,checkedAt:100,downloadedBytes:10,totalBytes:10,
+    error:{code:"update_failed",message:"The update couldn't be installed"}},initial.revision);
+  const before=readUpdate(f.ctx,"desktop");
+  // The desktop and service were installed by hand, so the next registration reports the target version.
+  f.session.installation.version=candidate.version;
+
+  await f.runtime.start();
+  expect(f.runtime.status("desktop")).toMatchObject({phase:"idle",target:null,error:null,current:candidate.version});
+  expect(readUpdate(f.ctx,"desktop")).toMatchObject({phase:"idle",candidate:null,error:null,revision:before.revision+1});
+  await f.runtime.tick();await f.runtime.settled();
+  expect(f.commands.map(command=>command.command)).toContain("check");
+});
+
+test("a candidate newer than the registered version survives status reads unchanged", async () => {
+  const f=fixture({autoDownload:false});
+  const initial=readUpdate(f.ctx,"desktop");
+  writeUpdate(f.ctx,{...initial,phase:"error",candidate,error:{code:"update_failed",message:"The update couldn't be installed"}},initial.revision);
+  const before=readUpdate(f.ctx,"desktop");
+  await f.runtime.start();
+  expect(f.runtime.status("desktop")).toMatchObject({phase:"error",target:candidate.version,current:"1.0.0"});
+  expect(readUpdate(f.ctx,"desktop")).toEqual(before);
+});
