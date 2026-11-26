@@ -60,7 +60,7 @@ async fn failed_endpoint_sync_keeps_saved_edit_but_does_not_publish_success() {
 }
 
 #[tokio::test]
-async fn host_account_add_missing_endpoint_bridge_refuses_before_write() {
+async fn host_account_add_does_not_sync_endpoints() {
     let dir = tempfile::tempdir().unwrap();
     write_fixture_strategy(&dir);
     let ctx = Ctx::with(
@@ -70,7 +70,9 @@ async fn host_account_add_missing_endpoint_bridge_refuses_before_write() {
         0.0,
     );
     let registry = crate::native::registry("");
-    let error = crate::native::call_native(
+    // `host.account.add` matches TS `finishNativeConfigEdit`, which never
+    // synchronizes endpoint configuration. No endpoint sync future is supplied.
+    let result = crate::native::call_native(
         &ctx,
         registry.get("host.account.add").unwrap(),
         json!({"alias":"devbox","account":"team","home":"~/.codex-team"}),
@@ -91,16 +93,17 @@ async fn host_account_add_missing_endpoint_bridge_refuses_before_write() {
         None,
     )
     .await
-    .unwrap_err();
-    assert_eq!(error.code, Code::Unavailable);
+    .unwrap();
+    assert!(result["command"].as_str().unwrap().contains("codex"));
     let text = std::fs::read_to_string(dir.path().join("strategy.yaml")).unwrap();
-    assert!(!text.contains("~/.codex-team"));
+    assert!(text.contains("~/.codex-team"));
+    assert!(!dir.path().join("opencode/opencode.json").exists());
 }
 
 fn write_fixture_strategy(dir: &tempfile::TempDir) {
     std::fs::write(
         dir.path().join("strategy.yaml"),
-        "planner: codex\nproviders: {codex: {}}\naccounts: {team: {kind: codex}}\nhosts:\n  devbox: {ssh: devbox, repos: {}}\n",
+        "planner: codex\naccounts: {team: {kind: codex}}\nhosts:\n  devbox: {ssh: devbox, repos: {}}\n",
     )
     .unwrap();
 }

@@ -104,7 +104,6 @@ pub fn syncs_endpoints(op: &str) -> bool {
             | "host.set"
             | "host.remove"
             | "host.repo.map"
-            | "host.account.add"
             | "runner.add"
             | "runner.set"
             | "runner.reorder"
