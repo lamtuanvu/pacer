@@ -1,6 +1,6 @@
 import { CONDITIONAL_OPS, refusedOp } from "./proxy";
 import { lstatSync, readFileSync, realpathSync } from "node:fs";
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { pacerArgv, SANDBOX_MARK, sandboxEnv, type Session } from "./core";
 import { runSessionStreamFaultProxy } from "./session-stream-fault";
 
@@ -165,6 +165,19 @@ function sandboxIdentity(session: Session, inherited: NodeJS.ProcessEnv): NodeJS
 }
 
 /**
+ * The guarded child's directory: the caller's when its real path is in the sandbox home (task worktrees live
+ * there) or repo, so its relative paths mean what it wrote; the sandbox repo for any other caller.
+ */
+export function guardedChildCwd(session: Session, cwd: string): string {
+  const repo = join(session.root, "repo");
+  try {
+    const real = realpathSync(cwd);
+    const inside = [join(session.root, "home"), repo].some(root => real === realTarget(root) || within(real, root));
+    return inside ? real : repo;
+  } catch { return repo; }
+}
+
+/**
  * Env for the guarded child. Normally the sandbox env alone. For `mcp --assistant`, Claude (or the host)
  * sets PACER_ASSISTANT_* and a turn PACER_HOME on this process via `--mcp-config` env expansion; those
  * must reach the MCP server or it registers no tools (ask-mode self-test / CONTROL init fail closed).
@@ -174,7 +187,9 @@ export function guardedChildEnv(
   args: string[],
   inherited: NodeJS.ProcessEnv = process.env,
 ): NodeJS.ProcessEnv {
-  const env = { ...sandboxEnv(session), ...sandboxIdentity(session, inherited) };
+  const env: NodeJS.ProcessEnv = { ...sandboxEnv(session), ...sandboxIdentity(session, inherited) };
+  // The sandbox sits inside the checkout, so git must not search above it from a folder with no repository.
+  env.GIT_CEILING_DIRECTORIES = [session.root, env.GIT_CEILING_DIRECTORIES].filter(Boolean).join(delimiter);
   if (args[0] !== "mcp" || args[1] !== "--assistant") return env;
   const pass = ["PACER_ASSISTANT_GRANT", "PACER_ASSISTANT_URL", "PACER_ASSISTANT_TURN", "PACER_HOME", "PACER_ASSISTANT_HOME"] as const;
   for (const key of pass) {
@@ -200,7 +215,7 @@ if (import.meta.main) {
       process.exit(await runSessionStreamFaultProxy(session, args));
     }
     const child = Bun.spawn([...pacerArgv(session), ...args], {
-      cwd: join(session.root, "repo"), env: guardedChildEnv(session, args), stdin: "inherit", stdout: "inherit", stderr: "inherit",
+      cwd: guardedChildCwd(session, process.cwd()), env: guardedChildEnv(session, args), stdin: "inherit", stdout: "inherit", stderr: "inherit",
     });
     // Forward shutdown to the guarded process, including nested task runners.
     for (const signal of ["SIGTERM", "SIGINT"] as const) process.on(signal, () => child.kill(signal));

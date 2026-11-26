@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { terminalEnv } from "../src/exec/login-env";
 import { environmentScript, launch, sandboxEnv, type Session } from "../scripts/live/core";
-import { executorRefusal, guardedChildEnv } from "../scripts/live/guard";
+import { executorRefusal, guardedChildCwd, guardedChildEnv } from "../scripts/live/guard";
 import { tmpDir } from "./helpers";
 
 function fixture(): Session {
@@ -149,4 +149,38 @@ describe("live sandbox: executors do not read the login shell", () => {
       if (previous !== undefined) process.env.PACER_LOGIN_ENV = previous;
     }
   }, 30000);
+});
+
+describe("live guard: working directory", () => {
+  test("a caller inside the sandbox home or repo keeps its directory; any other runs in the sandbox repo", () => {
+    const session = fixture(), repo = join(session.root, "repo"), outside = tmpDir();
+    const worktree = join(session.root, "home/worktrees/repo-1/t-1/sub");
+    mkdirSync(worktree, { recursive: true });
+    for (const inside of [worktree, join(session.root, "home"), repo]) expect(guardedChildCwd(session, inside)).toBe(realpathSync(inside));
+    symlinkSync(outside, join(session.root, "home/escape"));
+    mkdirSync(join(session.root, "home-other"));
+    for (const other of [outside, checkout, session.root, join(session.root, "logs"), join(session.root, "home-other"), join(session.root, "home/escape"), `${repo}/../..`, join(session.root, "home/missing")]) {
+      expect([other, guardedChildCwd(session, other)]).toEqual([other, repo]);
+    }
+  });
+  test("the executable guard resolves a task worktree's relative path from that worktree", () => {
+    const session = fixture(), file = join(session.root, "session.json");
+    writeFileSync(file, JSON.stringify(session));
+    const worktree = join(session.root, "home/worktrees/repo-1/t-1");
+    mkdirSync(worktree, { recursive: true });
+    // An array parses but is not a result object: reaching that refusal proves the file was read.
+    writeFileSync(join(worktree, "result.json"), "[]");
+    const child = Bun.spawnSync([process.execPath, join(checkout, "scripts/live/guard.ts"), file, "step", "result", "--file", "result.json"], {
+      cwd: worktree, env: sandboxChild(session, { PACER_ROLE: "executor", PACER_TASK_ID: "t-1" }),
+    });
+    const error = child.stderr.toString();
+    expect(error).toContain("must carry a JSON object");
+  }, 30000);
+  test("git does not climb from a sandbox folder into a repository outside the sandbox", () => {
+    const outer = tmpDir(), root = join(outer, "sandbox"), session: Session = { ...fixture(), root };
+    mkdirSync(join(root, "home/runs"), { recursive: true });
+    expect(Bun.spawnSync(["git", "init", "-q", outer]).exitCode).toBe(0);
+    const found = Bun.spawnSync(["git", "rev-parse", "--show-toplevel"], { cwd: join(root, "home/runs"), env: guardedChildEnv(session, ["status"], { PATH: process.env.PATH }) });
+    expect(found.exitCode).not.toBe(0);
+  });
 });
