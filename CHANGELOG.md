@@ -7,12 +7,12 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 ### Changed
 
 - **Desktop updates no longer wait for handover-capable work.** Runners that advertise the handover protocol, their executor sessions and session hosts started by this version are marked as survivors. When the installed app and the update both support it (0.18.7 or later), an in-app update installs while they run: the update helper checks each survivor's code signature against the release signer before installing, and the new service asks older runners to hand over once the update commits (never during the rollback window). Other work, such as queue drains, launches, Orca sessions, remote runs and work started on older versions, still makes the update wait. While an update can still roll back, `service.handover` signals nothing and returns `deferred: true` ([ADR 2026-11-25](docs/decisions/2026-11-25-desktop-update-with-running-work.md)).
+
 ### Fixed
 
 - `pacer service restart` and `pacer update` now hand running work to the new service instead of warning "running work was not handed over: pacer core is restarting".
-### Fixed
-
 - Settings › Updates no longer keeps showing a failed update after you install that release another way, such as by hand; pacer drops the installed offer and checks again.
+- After you install a newer pacer.app by hand, the app restarts its own older service onto the new version (handing running work over) instead of leaving the old service running with an "Older service" banner. It does this only on macOS, for the service it owns, with no update in progress.
 
 ## [0.18.6] - 2026-11-26
 

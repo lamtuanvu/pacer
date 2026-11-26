@@ -2750,6 +2750,57 @@ pub fn own_link_repair_is_busy(
     }
 }
 
+/// Fail-closed form of [`own_link_repair_is_busy`] for restarting an owned older service:
+/// true only when this verified desktop holds the OTA locks and no update or maintenance
+/// journal is in flight. Any uncertainty (unverified desktop, unreadable journal) is not clear.
+#[cfg(target_os = "macos")]
+pub fn owned_service_restart_clear(
+    user_home: &Path,
+    home: &Path,
+    port: u16,
+    trust: &ReleaseTrust,
+) -> bool {
+    use super::platform_fs::PrivateDir;
+    let (Ok(user_home), Ok(home)) = (user_home.canonicalize(), home.canonicalize()) else {
+        return false;
+    };
+    let Ok(Some(own)) = native::process_details(std::process::id()) else {
+        return false;
+    };
+    if trust.verify_process(&own.identity, CodeRole::Desktop).is_err() {
+        return false;
+    }
+    let Ok(executable) = own.executable.canonicalize() else {
+        return false;
+    };
+    let Some(app) = executable.parent().and_then(Path::parent).and_then(Path::parent) else {
+        return false;
+    };
+    if !app.to_string_lossy().ends_with(".app") || executable != app.join("Contents/MacOS/pacer") {
+        return false;
+    }
+    let locks = if let Some(policy) = trust.fixture_policy() {
+        if policy.validate_live().is_err()
+            || policy.home != home
+            || policy.home != user_home
+            || policy.port != port
+            || policy.current_app != app
+        {
+            return false;
+        }
+        policy.root.join("locks")
+    } else {
+        PathBuf::from(format!("/private/tmp/pacer-ota-{}", unsafe { libc::geteuid() }))
+    };
+    let Ok(lock_dir) = PrivateDir::create(&locks) else {
+        return false;
+    };
+    let Ok(_guard) = lock_dir.acquire_locks(app, &home) else {
+        return false;
+    };
+    ordinary_maintenance_clear(&home).is_ok()
+}
+
 /// Disk-only eligibility for the stuck own-link shape (loaded job optional).
 /// Used when Identity-on-install finds nothing loaded, and before scheduling repair.
 #[cfg(target_os = "macos")]
