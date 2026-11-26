@@ -59,7 +59,6 @@ use pacer_task_ops::session_context_ops;
 pub(crate) use pacer_task_ops::session_lifecycle_ops;
 mod meta_ops;
 pub(crate) use pacer_config_ops::p8_bridge_ops;
-pub(crate) use pacer_core_bridge::msg_write_sync;
 pub(crate) mod msg_effects;
 pub(crate) use pacer_messaging_ops::msg_ops;
 pub(crate) use pacer_messaging_ops::msg_writes;
@@ -111,7 +110,6 @@ pub(crate) use host_read_ops::{needs_host_read_bridge, needs_host_read_injection
 pub use insights_ops::insights_stays_forwarded;
 #[doc(hidden)]
 pub use machine_identity::set_identity_platform_for_tests;
-pub(crate) use msg_ops::msg_answer_stays_forwarded;
 #[doc(hidden)]
 pub use p8_bridge_ops::bridge_params as core_bridge_params;
 pub(crate) use p8_bridge_ops::needs_core_bridge;
@@ -121,6 +119,16 @@ use pacer_config_ops::{project_strategy_ops, repo_registry_ops, strategy_preview
 pub use pacer_discovery_ops::network::set_probe_outputs_for_tests;
 pub use planning_ops::planning_stays_forwarded;
 pub(crate) use repo_ops::repo_remove_stays_forwarded;
+
+/// Native-marker proof for parity suites (`PACER_DEBUG_NATIVE=1`).
+pub(crate) fn trace(name: &str, request_id: Option<&Value>) {
+    if std::env::var("PACER_DEBUG_NATIVE").as_deref() == Ok("1") {
+        match request_id {
+            Some(id) => eprintln!("native {name} {id}"),
+            None => eprintln!("native {name}"),
+        }
+    }
+}
 
 /// `terminal.*` inputs whose registry files only TypeScript reads faithfully.
 pub fn terminal_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {

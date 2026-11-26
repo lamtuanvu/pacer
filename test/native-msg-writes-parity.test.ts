@@ -153,9 +153,8 @@ test.skipIf(!front)("stdio msg.send, msg.confirm, msg.close and msg.wait match t
       expect(byId(native.lines).map(norm[0]!), scenario.name).toEqual(byId(forwarded.lines).map(norm[1]!));
       expect(state(nativeHome), scenario.name).toEqual(state(forwardHome));
       expect(forwarded.markers, scenario.name).toEqual([]);
-      expect(native.stderr, scenario.name).not.toContain("_internal.msg.effects");
       const ops = requests.map(request => JSON.parse(request)).filter(r => OPS.includes(r.method));
-      expect(native.markers, scenario.name).toEqual(ops.filter(r => !(r.method === "msg.send" && r.params?.kind === "answer" && typeof r.params?.reply_to === "string")).map(r => `native ${r.method} ${r.id}`));
+      expect(native.markers, scenario.name).toEqual(ops.map(r => `native ${r.method} ${r.id}`));
       // A blocking wait does not hold back the requests after it.
       const order = native.lines.map(line => JSON.parse(line).id);
       expect(order.indexOf(37), scenario.name).toBeLessThan(order.indexOf(36));
@@ -287,7 +286,6 @@ test.skipIf(!front)("message turns are native: idle send, held confirm and polic
     const norm = [normalizer(), normalizer()];
     expect(results[0]!.bodies.map(norm[0]!), "replies").toEqual(results[1]!.bodies.map(norm[1]!));
     expect(results[0]!.turns, "task turn state").toEqual(results[1]!.turns);
-    expect(results[0]!.stderr).not.toContain("_internal.msg.effects");
     expect(results[0]!.stderr).toContain("native msg-effects deliver");
     expect(results[1]!.stderr).not.toContain("native msg-effects deliver");
     const parse = (body: string) => JSON.parse(body.slice(4));
@@ -336,7 +334,6 @@ test.skipIf(!front)("HTTP message writes resolve bearer, cookie and TUI session 
     expect(native!.tasks).toEqual(forwarded!.tasks);
     expect(native!.schema).toEqual(forwarded!.schema);
     expect(results[1]!.markers).toEqual([]);
-    expect(results[0]!.stderr).not.toContain("_internal.msg.effects");
     expect(results[0]!.markers).toEqual(["msg.confirm", "msg.confirm", "msg.confirm", "msg.send", "msg.send", "msg.send",
       "msg.wait", "msg.wait", "msg.close", "msg.close", "msg.send"].map(op => `native ${op}`));
     const parse = (body: string) => JSON.parse(body.slice(4));

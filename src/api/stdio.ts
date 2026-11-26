@@ -215,15 +215,6 @@ export async function runStdio(
           result = await taskAutoCleanBridge(getCtx(), ids);
           break;
         }
-        case "_internal.msg.effects": {
-          const key = o.nativeConfigKey;
-          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key) {
-            throw new CoreError("unknown_op", "unknown operation");
-          }
-          const { msgEffectsBridge } = await import("./msg-bridge");
-          result = await msgEffectsBridge(getCtx(), (r.params as { request?: unknown }).request, o.opDeps?.spawnRunner);
-          break;
-        }
         case "_internal.host.effects": {
           const key = o.nativeConfigKey;
           if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key) {

@@ -1,10 +1,11 @@
-//! Native message effects: `deliver` and `notify` are served by
-//! `pacer_delegation::turns` instead of the TypeScript `_internal.msg.effects`
-//! route. `clean` still falls through to the existing Core bridge until B3-5
-//! lands its native auto-clean; `publish` is already native in `msg_writes`.
+//! Native message effects: `deliver`, `notify` and live `answer` are served by
+//! `pacer_delegation` instead of the retired TypeScript message-effects bridge.
+//! Only worktree auto-clean still falls through to the existing Core bridge until
+//! B3-5 lands its native auto-clean; `publish` is already native in `msg_writes`.
 #![allow(clippy::result_large_err)]
-use crate::native::msg_write_sync;
+use crate::native::trace;
 use pacer_delegation::{
+    answer,
     runtime::{PluginCalls, RunnerSpawn, Runtime, Supervisor},
     turns,
 };
@@ -150,17 +151,75 @@ impl<B: Bridge> Bridge for NativeMsgEffects<'_, B> {
         let kind = request["kind"].as_str().unwrap_or_default().to_owned();
         match kind.as_str() {
             "deliver" => {
-                msg_write_sync::trace("msg-effects deliver", None);
+                trace("msg-effects deliver", None);
                 let result = turns::deliver(&self.ctx, &self.rt, request["to"].as_str().unwrap_or_default());
                 Box::pin(async { result })
             }
             "notify" => {
-                msg_write_sync::trace("msg-effects notify", None);
+                trace("msg-effects notify", None);
                 let result = turns::notify_message(&self.ctx, &self.rt, request["id"].as_str().unwrap_or_default())
                     .map(|()| json!({"ok": true}));
                 Box::pin(async { result })
             }
+            "answer" => {
+                trace("msg-effects answer", None);
+                let ctx = self.ctx.clone();
+                let id = request["id"].as_str().unwrap_or_default().to_owned();
+                Box::pin(async move {
+                    match answer::deliver_live_answer(&ctx, &id).await {
+                        Ok(true) => Ok(json!({"delivery": "live"})),
+                        Ok(false) => Ok(json!({"delivery": "not_live"})),
+                        Err(error) => Err(error),
+                    }
+                })
+            }
             _ => self.inner.call(request),
         }
+    }
+}
+
+fn clean_ids(request: &Value) -> Option<Vec<String>> {
+    (request["kind"] == "clean").then(|| {
+        request["id"]
+            .as_str()
+            .into_iter()
+            .map(str::to_owned)
+            .collect()
+    })
+}
+
+/// The HTTP door's inner bridge: only worktree auto-clean still goes to Core.
+pub struct HttpEffects {
+    pub target: Option<(u16, String)>,
+}
+
+impl Bridge for HttpEffects {
+    fn call(&mut self, request: Value) -> OpFuture<'_> {
+        let Some(ids) = clean_ids(&request) else {
+            return Box::pin(async { Err(unavailable()) });
+        };
+        let target = self.target.clone();
+        Box::pin(async move { crate::native::task_clean_sync::http(target, &ids).await })
+    }
+}
+
+/// The stdio door's inner bridge: only worktree auto-clean still goes to Core.
+pub struct StdioEffects<'a, W> {
+    pub core: &'a mut W,
+    pub prefix: &'a str,
+    pub key: &'a str,
+    pub replies: &'a mut tokio::sync::mpsc::UnboundedReceiver<Value>,
+}
+
+impl<W: tokio::io::AsyncWrite + Unpin + Send> Bridge for StdioEffects<'_, W> {
+    fn call(&mut self, request: Value) -> OpFuture<'_> {
+        let Some(ids) = clean_ids(&request) else {
+            return Box::pin(async { Err(unavailable()) });
+        };
+        let prefix = self.prefix;
+        let key = self.key;
+        Box::pin(async move {
+            crate::native::task_clean_sync::stdio(self.core, prefix, key, &ids, self.replies).await
+        })
     }
 }

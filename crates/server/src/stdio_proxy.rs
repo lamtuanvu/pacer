@@ -337,7 +337,7 @@ async fn forward_input<
                     ),
                 };
                 if let Some(id) = request.as_ref().and_then(|r| r.get("id")) {
-                    crate::native::msg_write_sync::trace(name, Some(id));
+                    crate::native::trace(name, Some(id));
                     write_line(out, &rpc_line(id, Err(error))?).await?;
                 }
                 continue;
@@ -396,7 +396,7 @@ async fn forward_input<
                             "Operation is not allowed by this work grant",
                         ),
                     };
-                    crate::native::msg_write_sync::trace(op.name, request.get("id"));
+                    crate::native::trace(op.name, request.get("id"));
                     if let Some(id) = request.get("id") {
                         write_line(out, &rpc_line(id, Err(error))?).await?;
                     }
@@ -409,7 +409,6 @@ async fn forward_input<
                 && !crate::native::status_residue_stays_forwarded(&request_ctx, op.name, &params)
                 && !(op.name == "repo.remove"
                     && crate::native::repo_remove_stays_forwarded(&request_ctx, &params))
-                && !crate::native::msg_answer_stays_forwarded(op.name, &request_ctx, &params)
                 && !crate::native::repo_registry_stays_forwarded(&request_ctx, op.name, &params)
                 && !crate::native::discovery_stays_forwarded(&request_ctx, op.name, &params)
                 && !crate::native::desktop_reconcile_stays_forwarded(op.name)
@@ -453,7 +452,7 @@ async fn forward_input<
                         Ok(Admission::Native(reply)) => Ok(reply),
                         Err(error) => Err(error),
                     };
-                    crate::native::msg_write_sync::trace(op.name, request.get("id"));
+                    crate::native::trace(op.name, request.get("id"));
                     if let Some(id) = request.get("id") {
                         write_line(out, &rpc_line(id, result)?).await?;
                     }
@@ -461,7 +460,7 @@ async fn forward_input<
                 }
                 if crate::native::client_ops::is_client_op(op.name) {
                     use crate::native::{client_control_sync::StdioBridge, client_ops};
-                    crate::native::msg_write_sync::trace(op.name, request.get("id"));
+                    crate::native::trace(op.name, request.get("id"));
                     let mut bridge = StdioBridge {
                         core: &mut core,
                         prefix: sync.0,
@@ -481,8 +480,8 @@ async fn forward_input<
                     continue;
                 }
                 if crate::native::msg_writes::uses_bridge(op.name) {
-                    use crate::native::{msg_write_sync, msg_writes};
-                    msg_write_sync::trace(op.name, request.get("id"));
+                    use crate::native::msg_writes;
+                    crate::native::trace(op.name, request.get("id"));
                     let id = request.get("id").cloned();
                     if op.name == "msg.wait" {
                         if let Some(result) = msg_writes::wait_now(&request_ctx, &params) {
@@ -508,7 +507,7 @@ async fn forward_input<
                         }
                         continue;
                     }
-                    let mut inner = msg_write_sync::StdioBridge {
+                    let mut inner = crate::native::msg_effects::StdioEffects {
                         core: &mut core,
                         prefix: sync.0,
                         key: sync.1,
@@ -519,12 +518,6 @@ async fn forward_input<
                         &mut inner,
                     );
                     let result = msg_writes::call(&request_ctx, op.name, params, &mut bridge).await;
-                    if matches!(&result, Err(error) if error.message == msg_writes::FORWARD_DUPLICATE_ANSWER)
-                    {
-                        core.write_all(&line).await?;
-                        core.flush().await?;
-                        continue;
-                    }
                     if let Some(id) = id {
                         write_line(out, &rpc_line(&id, result)?).await?;
                     }
@@ -532,7 +525,7 @@ async fn forward_input<
                 }
                 if crate::native::session_lifecycle_ops::uses_admission(op.name) {
                     use crate::native::session_lifecycle_ops::{Admission, admit};
-                    crate::native::msg_write_sync::trace(op.name, request.get("id"));
+                    crate::native::trace(op.name, request.get("id"));
                     // An admitted request is forwarded unchanged: the Core child answers
                     // forwarded requests concurrently, and a session start can take minutes.
                     let result = match admit(&request_ctx, op.name, &params) {
@@ -550,7 +543,7 @@ async fn forward_input<
                     continue;
                 }
                 if crate::native::assistant_turn_sync::needs_bridge(op.name) {
-                    crate::native::msg_write_sync::trace(op.name, request.get("id"));
+                    crate::native::trace(op.name, request.get("id"));
                     let mut bridge = crate::native::assistant_turn_sync::StdioBridge {
                         core: &mut core,
                         prefix: sync.0,
@@ -570,7 +563,7 @@ async fn forward_input<
                     continue;
                 }
                 if crate::native::task_send_ops::needs_task_send_bridge(op.name) {
-                    crate::native::msg_write_sync::trace(op.name, request.get("id"));
+                    crate::native::trace(op.name, request.get("id"));
                     let by =
                         crate::native::task_send_ops::caller_identity(&request_ctx, None, None);
                     let mut bridge = crate::native::task_send_sync::StdioBridge {
@@ -592,7 +585,7 @@ async fn forward_input<
                     continue;
                 }
                 if crate::native::preview_ops::needs_dispatch_parts(op.name) {
-                    crate::native::msg_write_sync::trace(op.name, request.get("id"));
+                    crate::native::trace(op.name, request.get("id"));
                     let mut bridge = crate::native::dispatch_preview::NativeStdioParts {
                         core: &mut core,
                         prefix: sync.0,
@@ -614,7 +607,7 @@ async fn forward_input<
                     continue;
                 }
                 if crate::native::enforcement_ops::needs_dispatch_parts(op.name) {
-                    crate::native::msg_write_sync::trace(op.name, request.get("id"));
+                    crate::native::trace(op.name, request.get("id"));
                     let mut bridge = crate::native::dispatch_enforcement_sync::NativeParts {
                         ctx: &request_ctx,
                         cache: &versions,
@@ -643,7 +636,7 @@ async fn forward_input<
                     continue;
                 }
                 if crate::native::terminal_ops::uses_bridge(op.name) {
-                    crate::native::msg_write_sync::trace(op.name, request.get("id"));
+                    crate::native::trace(op.name, request.get("id"));
                     let mut bridge = crate::native::terminal_sync::StdioBridge {
                         core: &mut core,
                         prefix: sync.0,
@@ -663,7 +656,7 @@ async fn forward_input<
                     continue;
                 }
                 if pacer_config_ops::setup_effects::uses_effects(op.name) {
-                    crate::native::msg_write_sync::trace(op.name, request.get("id"));
+                    crate::native::trace(op.name, request.get("id"));
                     let mut effects = crate::native::setup_effects_sync::StdioEffects {
                         core: &mut core,
                         prefix: sync.0,
@@ -684,7 +677,7 @@ async fn forward_input<
                     continue;
                 }
                 if crate::native::install_apply_sync::uses_effects(op.name) {
-                    crate::native::msg_write_sync::trace(op.name, request.get("id"));
+                    crate::native::trace(op.name, request.get("id"));
                     match crate::native::install_apply_sync::admit(&request_ctx, op.name, &params) {
                         Ok(()) => {
                             core.write_all(&line).await?;
@@ -699,7 +692,7 @@ async fn forward_input<
                     continue;
                 }
                 if crate::native::handover_sync::uses_effects(op.name) {
-                    crate::native::msg_write_sync::trace(op.name, request.get("id"));
+                    crate::native::trace(op.name, request.get("id"));
                     match crate::native::handover_sync::admit(&request_ctx, op.name, &params) {
                         Ok(()) => {
                             core.write_all(&line).await?;
@@ -714,7 +707,7 @@ async fn forward_input<
                     continue;
                 }
                 if crate::native::onboarding_sync::uses_effects(op.name) {
-                    crate::native::msg_write_sync::trace(op.name, request.get("id"));
+                    crate::native::trace(op.name, request.get("id"));
                     match crate::native::onboarding_sync::admit(&request_ctx, op.name, &params) {
                         Ok(()) => {
                             core.write_all(&line).await?;
@@ -729,7 +722,7 @@ async fn forward_input<
                     continue;
                 }
                 if crate::native::agent_apply_sync::uses_effects(op.name) {
-                    crate::native::msg_write_sync::trace(op.name, request.get("id"));
+                    crate::native::trace(op.name, request.get("id"));
                     match crate::native::agent_apply_sync::admit(&request_ctx, op.name, &params) {
                         Ok(()) => {
                             core.write_all(&line).await?;
@@ -745,7 +738,7 @@ async fn forward_input<
                 }
                 if crate::native::needs_host_effects(op.name) {
                     use pacer_config_ops::host_check_clean_setup_ops::{Admission, admit};
-                    crate::native::msg_write_sync::trace(op.name, request.get("id"));
+                    crate::native::trace(op.name, request.get("id"));
                     let result = match admit(&request_ctx, op.name, &params) {
                         Ok(Admission::Core) => {
                             core.write_all(&line).await?;

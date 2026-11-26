@@ -221,7 +221,6 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             || crate::native::status_residue_stays_forwarded(&ctx, op.name, &params)
             || (op.name == "repo.remove"
                 && crate::native::repo_remove_stays_forwarded(&ctx, &params))
-            || crate::native::msg_answer_stays_forwarded(op.name, &ctx, &params)
             || crate::native::repo_registry_stays_forwarded(&ctx, op.name, &params)
             || crate::native::discovery_stays_forwarded(&ctx, op.name, &params)
             || crate::native::desktop_reconcile_stays_forwarded(op.name)
@@ -267,12 +266,12 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                 }
                 Err(error) => native_error(error),
             };
-            crate::native::msg_write_sync::trace(op.name, None);
+            crate::native::trace(op.name, None);
             return reply;
         }
         if crate::native::client_ops::is_client_op(op.name) {
             use crate::native::{client_control_sync::HttpBridge, client_ops};
-            crate::native::msg_write_sync::trace(op.name, None);
+            crate::native::trace(op.name, None);
             let target = state.core.target().await;
             if target.is_none() && client_ops::needs_core(op.name, &params) {
                 return proxy::unavailable(false);
@@ -294,28 +293,19 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             };
         }
         if crate::native::msg_writes::uses_bridge(op.name) {
-            crate::native::msg_write_sync::trace(op.name, None);
-            let mut inner = crate::native::msg_write_sync::HttpBridge {
+            crate::native::trace(op.name, None);
+            let mut inner = crate::native::msg_effects::HttpEffects {
                 target: state.core.target().await,
             };
             let mut bridge = crate::native::msg_effects::NativeMsgEffects::with_read_model_schema(ctx.at_now(), &mut inner);
             return match crate::native::msg_writes::call(&ctx, op.name, params, &mut bridge).await {
                 Ok(result) => native_json(StatusCode::OK, serde_json::json!({"result":result})),
-                Err(error)
-                    if error.message == crate::native::msg_writes::FORWARD_DUPLICATE_ANSWER =>
-                {
-                    let Some(target) = state.core.target().await else {
-                        return proxy::unavailable(false);
-                    };
-                    proxy::forward(Request::from_parts(parts, Body::from(bytes)), target, auth)
-                        .await
-                }
                 Err(error) => native_error(error),
             };
         }
         if crate::native::session_lifecycle_ops::uses_admission(op.name) {
             use crate::native::session_lifecycle_ops::{Admission, admit, bridge_request};
-            crate::native::msg_write_sync::trace(op.name, None);
+            crate::native::trace(op.name, None);
             let result = match admit(&ctx, op.name, &params) {
                 Ok(Admission::Native(reply)) => Ok(reply),
                 Ok(Admission::Core) => {
@@ -340,7 +330,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             };
         }
         if crate::native::assistant_turn_sync::needs_bridge(op.name) {
-            crate::native::msg_write_sync::trace(op.name, None);
+            crate::native::trace(op.name, None);
             let mut bridge = crate::native::assistant_turn_sync::HttpBridge {
                 target: state.core.target().await,
             };
@@ -352,7 +342,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             };
         }
         if crate::native::task_send_ops::needs_task_send_bridge(op.name) {
-            crate::native::msg_write_sync::trace(op.name, None);
+            crate::native::trace(op.name, None);
             let by = crate::native::task_send_ops::caller_identity(
                 &ctx,
                 header_value(&parts.headers, "x-pacer-client").as_deref(),
@@ -369,7 +359,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             };
         }
         if crate::native::preview_ops::needs_dispatch_parts(op.name) {
-            crate::native::msg_write_sync::trace(op.name, None);
+            crate::native::trace(op.name, None);
             let mut bridge = crate::native::dispatch_preview::NativeParts {
                 target: state.core.target().await,
                 ctx: &ctx,
@@ -383,7 +373,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             };
         }
         if crate::native::enforcement_ops::needs_dispatch_parts(op.name) {
-            crate::native::msg_write_sync::trace(op.name, None);
+            crate::native::trace(op.name, None);
             let mut bridge = crate::native::dispatch_enforcement_sync::NativeParts {
                 ctx: &ctx,
                 cache: &state.versions,
@@ -404,7 +394,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             };
         }
         if crate::native::terminal_ops::uses_bridge(op.name) {
-            crate::native::msg_write_sync::trace(op.name, None);
+            crate::native::trace(op.name, None);
             let mut bridge = crate::native::terminal_sync::HttpBridge {
                 target: state.core.target().await,
             };
@@ -415,7 +405,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             };
         }
         if pacer_config_ops::setup_effects::uses_effects(op.name) {
-            crate::native::msg_write_sync::trace(op.name, None);
+            crate::native::trace(op.name, None);
             let mut effects = crate::native::setup_effects_sync::HttpEffects {
                 target: state.core.target().await,
             };
@@ -428,7 +418,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             };
         }
         if crate::native::install_apply_sync::uses_effects(op.name) {
-            crate::native::msg_write_sync::trace(op.name, None);
+            crate::native::trace(op.name, None);
             let mut effects = crate::native::install_apply_sync::HttpEffects {
                 target: state.core.target().await,
             };
@@ -440,7 +430,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             };
         }
         if crate::native::handover_sync::uses_effects(op.name) {
-            crate::native::msg_write_sync::trace(op.name, None);
+            crate::native::trace(op.name, None);
             let mut effects = crate::native::handover_sync::HttpEffects {
                 target: state.core.target().await,
             };
@@ -451,7 +441,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             };
         }
         if crate::native::onboarding_sync::uses_effects(op.name) {
-            crate::native::msg_write_sync::trace(op.name, None);
+            crate::native::trace(op.name, None);
             let mut effects = crate::native::onboarding_sync::HttpEffects {
                 target: state.core.target().await,
             };
@@ -462,7 +452,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             };
         }
         if crate::native::agent_apply_sync::uses_effects(op.name) {
-            crate::native::msg_write_sync::trace(op.name, None);
+            crate::native::trace(op.name, None);
             let mut effects = crate::native::agent_apply_sync::HttpEffects {
                 target: state.core.target().await,
             };

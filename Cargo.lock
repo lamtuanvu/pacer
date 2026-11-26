@@ -1568,6 +1568,7 @@ dependencies = [
  "pacer-config",
  "pacer-foundation",
  "pacer-messaging-ops",
+ "pacer-sessions",
  "pacer-store",
  "rusqlite",
  "serde_json",
@@ -2133,6 +2134,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
+ "tokio",
 ]
 
 [[package]]

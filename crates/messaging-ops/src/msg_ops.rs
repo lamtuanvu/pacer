@@ -67,26 +67,6 @@ pub(crate) fn authorize(ctx: &Ctx, name: &str, params: &Value) -> Result<(), Cor
     pacer_work::authorize_work_operation(ctx, name, params, is_executor)
 }
 
-/// Live interactive answer delivery and retries depend on Core-owned session state.
-/// Forward before any native writes, including validation and request-id lookup.
-pub fn msg_answer_stays_forwarded(name: &str, ctx: &Ctx, params: &Value) -> bool {
-    if name != "msg.send" {
-        return false;
-    }
-    if params.get("kind").and_then(Value::as_str) == Some("answer")
-        && params.get("reply_to").and_then(Value::as_str).is_some()
-    {
-        return true;
-    }
-    let Some(request_id) = params.get("request_id").and_then(Value::as_str) else {
-        return false;
-    };
-    let Ok(me) = participant(ctx) else {
-        return true;
-    };
-    messages::prior_is_answer(&ctx.pacer_home, &me, request_id).unwrap_or(true)
-}
-
 pub fn current_dir() -> Option<String> {
     std::env::current_dir()
         .ok()

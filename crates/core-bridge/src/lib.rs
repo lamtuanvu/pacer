@@ -5,7 +5,6 @@ pub mod config_sync;
 pub mod core_bridge_sync;
 pub mod host_mut_sync;
 pub mod host_read_sync;
-pub mod msg_write_sync;
 pub mod session_sync;
 pub mod setup_effects_sync;
 pub mod snapshot_sync;

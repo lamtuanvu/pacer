@@ -285,13 +285,22 @@ fn undo_answer(ctx: &Ctx, store: &mut TaskStore, m: &Value) -> Result<(), CoreEr
     Ok(())
 }
 
-/// `deliverMessage`: an answer is recorded on the task's question before its turn starts.
+/// `deliverMessage`: an answer to a live question is typed into its session first;
+/// otherwise it is recorded on the task's question before its turn starts.
 async fn deliver_message(
     ctx: &Ctx,
     store: &mut TaskStore,
     m: &Value,
     bridge: &mut dyn Bridge,
 ) -> Result<Value, CoreError> {
+    if text(m, "kind") == Some("answer") && text(m, "replyTo").is_some() {
+        let live = bridge
+            .call(json!({"kind": "answer", "id": text(m, "id"), "replyTo": text(m, "replyTo")}))
+            .await?;
+        if text(&live, "delivery") == Some("live") {
+            return Ok(json!({"delivery": "live"}));
+        }
+    }
     let answered = record_answer(ctx, store, m)?;
     let result = match deliver(text(m, "to").unwrap_or_default(), bridge).await {
         Ok(result) => result,
@@ -336,9 +345,6 @@ fn merged(mut out: Map<String, Value>, delivery: Value) -> Value {
     Value::Object(out)
 }
 
-/// Internal signal: retry the original request in Core before any duplicate side effects.
-pub const FORWARD_DUPLICATE_ANSWER: &str = "forward duplicate answer to Core";
-
 /// `duplicate`: a retried request id returns what it stored before any check can refuse it.
 async fn duplicate(
     ctx: &Ctx,
@@ -356,9 +362,6 @@ async fn duplicate(
             "msg_request_mismatch",
         ));
     }
-    if text(&message, "kind") == Some("answer") && text(&message, "replyTo").is_some() {
-        return Err(CoreError::new(Code::Internal, FORWARD_DUPLICATE_ANSWER));
-    }
     let mut out = Map::new();
     out.insert("message".into(), message.clone());
     out.insert("duplicate".into(), json!(true));
@@ -371,20 +374,21 @@ async fn duplicate(
         _ => {}
     }
     if let (Some("answer"), Some(reply_to)) = (text(&message, "kind"), text(&message, "replyTo")) {
+        // A refused live answer stays read while its question stays open: retry it.
+        let live = bridge
+            .call(json!({"kind": "answer", "id": text(&message, "id"), "replyTo": reply_to}))
+            .await?;
+        if text(&live, "delivery") == Some("live") {
+            return Ok(merged(out, json!({"delivery": "live"})));
+        }
+        // Another turn already took the answer, so its question is read.
         let (from, to) = (
             text(&message, "from").unwrap_or_default(),
             text(&message, "to").unwrap_or_default(),
         );
         if let Some(q) = answered_question(store, from, to, reply_to)? {
             let id = text(&q, "id").unwrap_or_default();
-            read_messages(
-                ctx,
-                store,
-                text(&q, "to").unwrap_or_default(),
-                &[id],
-                ctx.now,
-            )
-            .await?;
+            read_messages(ctx, store, text(&q, "to").unwrap_or_default(), &[id], ctx.now).await?;
         }
     }
     Ok(merged(out, json!({"delivery": "queued"})))

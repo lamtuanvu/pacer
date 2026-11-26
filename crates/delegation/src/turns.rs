@@ -176,7 +176,17 @@ pub fn turn_blocked(
         return Ok(Some("closed"));
     }
     let state = text(t, "state");
-    if state == "running" && t.pointer("/run/interactive").is_some() {
+    // `liveRun` (src/messaging/turns.ts): a built-in PTY proves liveness from its
+    // interactive marker on disk, not only a recorded run.interactive field.
+    let live_run = state == "running"
+        && t.get("run").is_some()
+        && t.pointer("/run/host").map_or(true, Value::is_null)
+        && t.pointer("/run/takeover").is_none()
+        && text(t, "takeover") != "driving"
+        && t.pointer("/run/dir")
+            .and_then(Value::as_str)
+            .is_some_and(|dir| std::path::Path::new(dir).join("interactive.json").exists());
+    if live_run || (state == "running" && t.pointer("/run/interactive").is_some()) {
         return Ok(Some("live"));
     }
     if text(t, "interactionMode") == "conversation" {

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { createConnection, createServer } from "node:net";
 import { join } from "node:path";
 import { fakeCtx, tmpDir } from "./helpers";
@@ -73,7 +73,8 @@ async function exercise(forward: boolean, mode: "success" | "retry" | "ambiguous
     const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
     expect(code, stderr).toBe(0);
     const reply = JSON.parse(stdout.trim().split("\n").find(line => JSON.parse(line).id === 2)!);
-    return { delivery: reply.result?.delivery, error: reply.error?.message, duplicate: reply.result?.duplicate };
+    const markers = stderr.split("\n").filter(line => /^native msg\.\S+ \d+$/.test(line));
+    return { delivery: reply.result?.delivery, error: reply.error?.message, duplicate: reply.result?.duplicate, markers };
     };
     const first = await send();
     let second;
@@ -82,24 +83,38 @@ async function exercise(forward: boolean, mode: "success" | "retry" | "ambiguous
       await Bun.sleep(50);
       second = await send();
     }
-    return { first, second, answer: readTask(ctx, task.id)?.question?.answer,
-      typed: Buffer.concat(input).toString().split("main").length - 1, pending: store.pendingFor(ctx, `task:${task.id}`).length };
+    const { markers: firstMarkers, ...firstReply } = first;
+    const { markers: secondMarkers, ...secondReply } = second ?? { markers: [], delivery: undefined, error: undefined, duplicate: undefined };
+    return { first: firstReply, second: second === undefined ? undefined : secondReply,
+      answer: readTask(ctx, task.id)?.question?.answer,
+      typed: Buffer.concat(input).toString().split("main").length - 1, pending: store.pendingFor(ctx, `task:${task.id}`).length,
+      markers: [...firstMarkers, ...secondMarkers] };
   } finally { viewer?.destroy(); server.close(); killTree(proc.pid, "SIGKILL"); await proc.exited; }
 }
 
 /** The native and forwarded sides own separate homes, sessions and sockets, so they run side by side. */
 const bothSides = (mode?: Parameters<typeof exercise>[1]) => Promise.all([exercise(false, mode), exercise(true, mode)]);
+/** Native markers are asserted separately; the replies and store state are compared without them. */
+const behavior = (r: Awaited<ReturnType<typeof exercise>>) => {
+  const { markers, ...rest } = r;
+  return rest;
+};
 
 test.skipIf(!front)("native front door delivers an answer to a waiting live question like the forwarded core", async () => {
   const [native, forwarded] = await bothSides();
-  expect(forwarded).toEqual({ first: { delivery: "live", error: undefined, duplicate: false }, second: undefined, answer: "main", typed: 1, pending: 0 });
-  expect(native).toEqual(forwarded);
+  expect(behavior(forwarded)).toEqual({ first: { delivery: "live", error: undefined, duplicate: false }, second: undefined, answer: "main", typed: 1, pending: 0 });
+  expect(behavior(native)).toEqual(behavior(forwarded));
+  expect(native.markers).toEqual(["native msg.send 2"]);
+  expect(forwarded.markers).toEqual([]);
 }, 30000);
 
 for (const mode of ["retry", "ambiguous", "stale"] as const) {
   test.skipIf(!front)(`native front door matches forwarded ${mode} answer behavior`, async () => {
     const [native, forwarded] = await bothSides(mode);
-    expect(native).toEqual(forwarded);
+    expect(behavior(native)).toEqual(behavior(forwarded));
+    expect(native.markers.length).toBeGreaterThan(0);
+    expect(native.markers.every(marker => marker.startsWith("native msg.send "))).toBe(true);
+    expect(forwarded.markers).toEqual([]);
     if (mode === "retry") {
       expect(native.first.error).toContain("controlled from Pacer desktop");
       expect(native.second).toEqual({ delivery: "live", error: undefined, duplicate: true });
@@ -117,11 +132,48 @@ for (const mode of ["retry", "ambiguous", "stale"] as const) {
   }, 60000);
 }
 
+test.skipIf(!front)("native front door closes a resolved task with a worktree like the forwarded core", async () => {
+  const compare = async (forward: boolean) => {
+    const ctx = fakeCtx();
+    mkdirSync(ctx.pacerHome, { recursive: true });
+    writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders: {claude-code: {}}\n");
+    const worktree = join(ctx.home, "worktrees", "resolved");
+    mkdirSync(worktree, { recursive: true });
+    const task = createTask(ctx, { brief: { goal: "g", repo: ctx.home }, kind: "debug", requestedExecutor: "codex", timeoutS: 60 });
+    updateTask(ctx, task.id, t => { t.state = "done"; t.origin = "external:local"; t.worktree = worktree; });
+    const child = Bun.spawn([front!, "api", "--stdio"], { cwd: ctx.home, stdin: "pipe", stdout: "pipe", stderr: "pipe", env: {
+      HOME: ctx.home, PACER_HOME: ctx.pacerHome, PACER_PORT: process.env.PACER_PORT!, PATH: process.env.PATH!, PACER_CORE_ARGV: core,
+      PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off", PACER_DEBUG_NATIVE: "1",
+      ...(forward ? { PACER_FORWARD_OPS: "msg.close" } : {}),
+    } });
+    await child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "hello", params: { protocol: 3 } }) + "\n" +
+      JSON.stringify({ jsonrpc: "2.0", id: 2, method: "msg.close", params: { task: task.id } }) + "\n");
+    await child.stdin.end();
+    const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    expect(code, stderr).toBe(0);
+    const reply = JSON.parse(stdout.trim().split("\n").find(line => JSON.parse(line).id === 2)!);
+    return {
+      reply: JSON.parse(JSON.stringify(reply.result ?? reply.error).split(task.id).join("<task>")),
+      closed: readTask(ctx, task.id)?.msgClosed,
+      worktree: existsSync(worktree),
+      markers: stderr.split("\n").filter(line => /^native msg\.\S+ \d+$/.test(line)),
+    };
+  };
+  const native = await compare(false), forwarded = await compare(true);
+  expect(native.reply, "reply").toEqual(forwarded.reply);
+  expect(native.closed, "msgClosed").toBe(forwarded.closed);
+  expect(native.worktree, "worktree").toBe(forwarded.worktree);
+  expect(native.markers).toEqual(["native msg.close 2"]);
+  expect(forwarded.markers).toEqual([]);
+}, 30000);
+
 for (const mode of ["legacy", "legacy-read"] as const) test.skipIf(!front)(`${mode} duplicate answer redelivery matches Core`, async () => {
   const [native, forwarded] = await bothSides(mode);
-  expect(forwarded.first).toEqual({ delivery: "live", error: undefined, duplicate: true });
-  expect(forwarded.answer).toBe("main");
-  expect(forwarded.typed).toBe(1);
-  expect(forwarded.pending).toBe(0);
-  expect(native).toEqual(forwarded);
+  expect(behavior(forwarded).first).toEqual({ delivery: "live", error: undefined, duplicate: true });
+  expect(behavior(forwarded).answer).toBe("main");
+  expect(behavior(forwarded).typed).toBe(1);
+  expect(behavior(forwarded).pending).toBe(0);
+  expect(behavior(native)).toEqual(behavior(forwarded));
+  expect(native.markers).toEqual(["native msg.send 2"]);
+  expect(forwarded.markers).toEqual([]);
 }, 30000);
