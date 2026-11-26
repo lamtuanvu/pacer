@@ -8,7 +8,6 @@ pub mod mode_hold;
 pub mod pause;
 pub mod status;
 pub mod usage_broker;
-pub mod usage_refresh;
 pub mod words;
 
 /// Usage freshness thresholds from `src/usage/freshness.ts` (ADR 0030 decision 5):

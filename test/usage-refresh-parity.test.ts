@@ -8,11 +8,11 @@ const ROOT = join(import.meta.dir, "..");
 const TARGET = join(ROOT, "target");
 
 function probe(args: string[]) {
-  execFileSync("cargo", ["build", "-q", "-p", "pacer-engine", "--bin", "usage_refresh_probe"], {
+  execFileSync("cargo", ["build", "-q", "-p", "pacer-status", "--example", "usage_refresh_probe"], {
     cwd: ROOT,
     env: { ...process.env, CARGO_TARGET_DIR: TARGET },
   });
-  const bin = join(TARGET, "debug", "usage_refresh_probe");
+  const bin = join(TARGET, "debug", "examples", "usage_refresh_probe");
   return execFileSync(bin, args, { encoding: "utf8" }).trim();
 }
 

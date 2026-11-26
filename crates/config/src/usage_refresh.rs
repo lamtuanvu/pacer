@@ -1,6 +1,7 @@
-//! P5b usage-refresh library seam. Live plugin reads and the in-process refresh
-//! coordinator stay in TypeScript (`src/usage/refresh.ts`); this module mirrors the
-//! pure capability and outcome rules for cross-runtime parity.
+//! Pure usage-refresh rules, shared by the lower-layer account and limits ops
+//! and re-exported as `pacer_status::refresh::rules`. Moved unchanged from
+//! `pacer_engine::usage_refresh` (B12-4): the Rust layer rule keeps a layer-6
+//! crate from owning code that layer-6 `pacer-account-ops` must also call.
 
 use serde_json::Value;
 
@@ -74,53 +75,4 @@ pub fn automatic_refresh_suppressed(
     automatic: bool,
 ) -> bool {
     automatic && now - last_automatic_at.unwrap_or(f64::NEG_INFINITY) < AUTOMATIC_INTERVAL_S
-}
-
-#[cfg(test)]
-mod tests {
-    #![allow(clippy::unwrap_used)]
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn capability_matches_adapter_matrix() {
-        assert_eq!(
-            refresh_capability(&json!({"kind":"claude","usage":"quota"})),
-            "passive-log"
-        );
-        assert_eq!(
-            refresh_capability(&json!({"kind":"codex","usage":"quota"})),
-            "provider-command"
-        );
-        assert_eq!(
-            refresh_capability(
-                &json!({"kind":"endpoint","name":"plan","usage":"quota","quotaSource":"arkcli"})
-            ),
-            "provider-command"
-        );
-        assert_eq!(
-            refresh_capability(&json!({"kind":"cursor","usage":"reactive"})),
-            "unavailable"
-        );
-    }
-
-    #[test]
-    fn outcome_updated_when_captured_at_advances() {
-        let prior = json!({"capturedAt": 100.0, "stale": false});
-        let current = json!({"capturedAt": 200.0, "stale": false});
-        assert_eq!(
-            refresh_outcome("provider-command", &prior, &current),
-            "updated"
-        );
-    }
-
-    #[test]
-    fn passive_log_error_stays_unchanged() {
-        let prior = json!({"capturedAt": null, "stale": false});
-        let current = json!({"capturedAt": null, "stale": false, "error": "boom"});
-        assert_eq!(
-            refresh_outcome("passive-log", &prior, &current),
-            "unchanged"
-        );
-    }
 }
