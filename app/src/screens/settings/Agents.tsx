@@ -67,7 +67,9 @@ export function AgentsTab({ agent: requested, initialAccounts, initialConfig }: 
   const models = useModelDrafts(runnerIds, targets);
   const plannerRow = rows?.find(row => row.rank === "planner");
   const plannerId = plannerRow?.id ?? state.snapshot?.planner?.runner ?? null;
-  const executorRows = (settings.draft?.order ?? rows?.filter(row => row.rank !== "planner").map(row => row.id) ?? [])
+  // Priority order first (the page draft), then any agent the snapshot knows that the settings do not list yet.
+  const ordered = settings.draft?.order ?? [];
+  const executorRows = [...ordered, ...(rows ?? []).filter(row => row.rank !== "planner" && !ordered.includes(row.id)).map(row => row.id)]
     .map(id => rows?.find(row => row.id === id) ?? known.current.get(id)).filter((row): row is ExecutorRow => !!row && row.id !== plannerId);
   const all = [...(plannerRow ? [plannerRow] : []), ...executorRows];
   const selected = all.find(row => row.id === requested) ?? all[0];
@@ -212,12 +214,16 @@ function AgentDetail({ executor, planner, position, count, settings, models, acc
   const readiness = executorReadiness(executor, snapshot);
   const blocked = executor.state === "blocked" || executor.eligibility?.reasons.some(reason => reason.code === "blocked");
   const signIn = readiness.reason.includes("Sign-in");
+  // A problem the user can act on gets its own card; the reason is then stated there only (UI-15).
+  const attention = (readiness.tone === "bad" || readiness.tone === "warn") && (!!blocked || signIn);
   const account = accounts?.find(a => a.name === executor.account);
   // The agent's own usage record (ADR 0030), else its account's: one record, quoted through usageView.
   const summary = snapshot.accounts?.find(a => a.name === executor.account);
   const record = executor.usageState ?? (account ? accountRecord(account, summary) : summary?.usageState);
   const view = usageView(record, snapshot.at ?? Date.now() / 1000);
   const stale = record?.freshness === "historical";
+  // A historical reading states its age instead of a reset it may already have passed.
+  const usageWords = [view.summary, stale ? "" : captionReset(view.reset), view.freshness].filter(Boolean).join(" · ");
   const accountRecordNow = account ? accountRecord(account, summary) : summary?.usageState;
   const spend = spendCopy(record?.spend?.usdWeek ?? accountRecordNow?.spend?.usdWeek ?? null, record?.spend?.capUsdWeek ?? accountRecordNow?.spend?.capUsdWeek ?? null);
   const signedIn = summary?.signedIn ?? account?.signedIn;
@@ -241,6 +247,10 @@ function AgentDetail({ executor, planner, position, count, settings, models, acc
       setRefreshNote([!fresh ? "Couldn't list models" : fresh.models ? `Listed just now${listing?.models && added ? ` · ${added} new ${added === 1 ? "model" : "models"}` : ""}` : fresh.note ?? "No model list for this agent", usage ? "" : "couldn't refresh usage"].filter(Boolean).join(" · "));
     } finally { setRefreshing(false); }
   };
+  // Planner connection facts are only those the service observed.
+  const console_ = snapshot.console, reserve = config?.keys?.["pacing.planner_reserve"]?.value;
+  const connected = !!console_ && (snapshot.at ?? 0) - console_.heartbeatAt <= 30;
+  const plannerFacts = ["Plans and reviews", `Hooks ${console_ ? "observed" : "not observed"}`, reserve != null ? `${Math.round(Number(reserve))}% reserve` : "", console_ ? `connection seen ${ago(console_.heartbeatAt, snapshot.at ?? console_.heartbeatAt)}` : ""].filter(Boolean).join(" · ");
   const [moveTo, setMoveTo] = useState(String(position + 1));
   useEffect(() => setMoveTo(String(position + 1)), [position]);
   const move = (text: string) => {
@@ -254,7 +264,7 @@ function AgentDetail({ executor, planner, position, count, settings, models, acc
       <AgentMark agent={markAgent(executor.id, executor.account)} size={40} />
       <div className="pc-agent-detail__title">
         <SectionHeading as="h2" variant="headline">{name} {planner && <Pill tone="info">Planner</Pill>} <span onKeyDown={containTooltipEscape}><Tooltip text={readiness.tooltip}><span tabIndex={0}><StatusPill status={readiness} /></span></Tooltip></span></SectionHeading>
-        <span className="pc-agent-card__caption"><code>{executor.id}</code>{readiness.reason ? ` · ${readiness.reason}` : ""}</span>
+        <span className="pc-agent-card__caption"><code>{executor.id}</code>{readiness.reason && !attention ? ` · ${readiness.reason}` : ""}</span>
       </div>
       <div className="pc-agent-detail__refresh">
         <span className="pc-agent-card__caption" role="status">{refreshNote ?? (listing && listing.fetchedAt > 0 ? `Models checked ${ago(listing.fetchedAt, Math.max(snapshot.at ?? 0, listing.fetchedAt))}` : "")}</span>
@@ -262,26 +272,24 @@ function AgentDetail({ executor, planner, position, count, settings, models, acc
       </div>
     </header>
     {dialogs.dialog}
-    {(readiness.tone === "bad" || readiness.tone === "warn") && (blocked || signIn) && <Card tone={readiness.tone === "bad" ? "bad" : "warn"}><strong>{readiness.label}</strong><span className="u3-muted">{readiness.reason}</span><div className="u3-actions">
+    {attention && <Card tone={readiness.tone === "bad" ? "bad" : "warn"}><strong>{readiness.label}</strong><span className="u3-muted">{readiness.reason}</span><div className="u3-actions">
       {blocked && <Button size="sm" disabled={!!action.unavailable || action.busy || disabled} onClick={() => void independent(async () => { await action.run("runner.unblock", { id: executor.id }); })}>Unblock {name}</Button>}
       {signIn && <span className="u3-muted">Fix sign-in under Account below.</span>}
     </div></Card>}
     <div className="pc-agent-cards">
       <FactCard title="Usage">
         {usageStatus && <span><StatusPill status={usageStatus} /></span>}
-        {view.meter !== null ? <>
-          <strong className="pc-agent-card__figure">{view.figure}</strong>
-          <UsageMeter used={view.meter} pace={stale ? null : executor.pacePct ?? null} tone={executor.tone === "muted" ? "neutral" : executor.tone} size="slim" text="none" label={`${name} usage`} stale={stale} />
-          <span className="pc-agent-card__caption">{(stale ? [view.summaryUsed, view.freshness] : [view.summaryUsed, captionReset(view.reset)]).filter(Boolean).join(" · ")}</span>
-        </> : <strong>{view.summary}</strong>}
+        <strong className="pc-agent-card__figure">{view.figure}</strong>
+        {view.meter !== null && <UsageMeter used={view.meter} pace={stale ? null : executor.pacePct ?? summary?.pacePct ?? null} tone={stale ? "neutral" : view.tone} size="slim" text="none" label={`${name} usage`} stale={stale} />}
+        {usageWords !== view.figure && <span className="pc-agent-card__caption">{usageWords}</span>}
+        <span className="pc-agent-card__caption">{view.source}</span>
         {spend && <span className="pc-agent-card__caption">{spend}</span>}
-        {view.meter === null && stale && view.freshness && <span className="pc-agent-card__caption">{view.freshness}</span>}
         {account && <AccountUsage account={account} reload={reloadAccounts} sourceError={account.usageState?.error?.message} />}
       </FactCard>
       <FactCard title="Account"><AgentAccount executor={executor} accounts={accounts} config={config} reload={reloadAccounts} /></FactCard>
       <FactCard title="Runs on">
         <strong>{executor.host ? <TextAction href={scoped(`#/settings/hosts/${encodeURIComponent(executor.host)}`)}>{executor.host}</TextAction> : "This machine"}</strong>
-        <span className="pc-agent-card__caption">{[!planner && `Up to ${value?.maxTasks ?? executor.slots.max} ${(value?.maxTasks ?? String(executor.slots.max)) === "1" ? "task" : "tasks"} at once`, executor.lastCheck ? `test task ${executor.lastCheck.passed ? "passed" : "failed"} ${time(executor.lastCheck.at)}` : "Test task not run yet"].filter(Boolean).join(" · ")}</span>
+        <span className="pc-agent-card__caption">{[!planner && `Up to ${value?.maxTasks ?? executor.slots.max} ${(value?.maxTasks ?? String(executor.slots.max)) === "1" ? "task" : "tasks"} at once`, !planner && cap !== null && `machine limit ${cap}`, executor.lastCheck ? `test task ${executor.lastCheck.passed ? "passed" : "failed"} ${time(executor.lastCheck.at)}` : "Test task not run yet"].filter(Boolean).join(" · ")}</span>
         <div><Button size="sm" variant="quiet" disabled={!!check.unavailable || check.busy} onClick={() => void check.run("runner.check", { id: executor.id })}>Run test task<span className="sr-only"> for {name}</span></Button></div>
         <Feedback action={check} />
       </FactCard>
@@ -299,11 +307,11 @@ function AgentDetail({ executor, planner, position, count, settings, models, acc
       <SectionHeading as="h3" id="agent-limits-h">{planner ? "Role" : "Limits"}</SectionHeading>
       <div className="pc-agent-limits">
         {planner ? <div className="pc-agent-limits__row">
-          <span className="pc-agent-limits__text"><strong>Planner</strong><span className="pc-agent-card__caption">The planner organizes the work. Only one agent can be the planner.</span></span>
+          <span className="pc-agent-limits__text"><strong>Planner {connected && <Pill tone="good">Connected</Pill>}</strong><span className="pc-agent-card__caption">The planner organizes the work. Only one agent can be the planner.</span><span className="pc-agent-card__caption">{plannerFacts}</span></span>
           <ButtonLink size="sm" variant="secondary" href={scoped("#/settings/planner")}>Change planner</ButtonLink>
         </div> : <>
           <div className="pc-agent-limits__row">
-            <span className="pc-agent-limits__text"><strong id="takes-work-label">Takes work</strong><span className="pc-agent-card__caption">Applies now. Turn off to keep it out of every task without removing it.</span></span>
+            <span className="pc-agent-limits__text"><strong id="takes-work-label">Takes work</strong><span className="pc-agent-card__caption">Applies now. Turn off to keep it out of every task without removing it. Agents marked Skipped, Cannot take work or Off receive no new work.</span></span>
             <ImmediateSave value={settings.saved?.runners.find(runner => runner.id === executor.id)?.enabled ?? executor.enabled} save={async enabled => { await settings.saveEnabled(executor.id, enabled); models.reload(); }}>{(on, change, saving) =>
               <Switch size="sm" aria-label={`${name} takes work`} checked={on} disabled={disabled || saving || !state.connected} onChange={event => change(event.currentTarget.checked)} />}</ImmediateSave>
           </div>

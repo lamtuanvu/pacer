@@ -26,6 +26,7 @@ import { createActionRunner } from "../app/src/data/actions";
 import { TaskContext } from "../app/src/screens/task-shared";
 import { initialState } from "../app/src/data/store";
 import { settings } from "./fixtures/ui/settings";
+import { AgentsPage } from "./fixtures/ui/agents";
 import type { Route } from "../app/src/router";
 import type { ClientSnapshot } from "../src/view-model/snapshot";
 import type { Account } from "../app/src/model/accounts";
@@ -156,30 +157,27 @@ for (const state of states) {
     expect(["popover reset", popoverSection.match(/resets [^<"]*|reset due|reset unknown/)?.[0] ?? ""]).toEqual(["popover reset", expected.reset]);
     expect(["popover freshness", popoverSection.match(/Updated \S+ ago|Reading \S+ old · refresh|Reading of unknown age · refresh/)?.[0] ?? null]).toEqual(["popover freshness", expected.freshness || null]);
 
-    const executorsHtml = draw(<SettingsGeneral section="executors" initialData={settings}/>);
-    const executorsRows = executorsHtml.split("<tr").slice(1);
-    const cellHtml = (id: string) => executorsRows.find(r => r.includes(`<strong>${executorLabel(id)}</strong>`)) ?? "";
-    // Target the specific row: the row quotes its own record — a live record states figure and
-    // window, a historical one states the reading's age instead of a live figure.
+    // Dispatcher › Agents: each agent's Usage card quotes its own record — a live record states figure, window
+    // and reset, a historical one states the reading's age instead of a reset (UI-10).
+    const usageCard = (html: string) => strip(html.slice(html.indexOf('aria-label="Usage"'), html.indexOf('aria-label="Account"')));
+    const agentWords = (view: ReturnType<typeof usageView>, historical: boolean) => [view.summary, historical ? "" : captionReset(view.reset), view.freshness].filter(Boolean).join(" · ");
     for (const row of executorRows) {
       const view = usageView(row.usageState, ctx.now);
-      const cellText = strip(cellHtml(row.id));
-      // Every non-planner executor row must exist; the planner is not listed on the Agents table.
-      if (row.rank === "planner") continue;
-      expect([`executors row ${row.id} rendered`, cellText.length > 0]).toEqual([`executors row ${row.id} rendered`, true]);
-      // A historical row keeps its figure next to the reading's age, like the popover and Accounts (UI-10).
-      const words = row.usageState?.freshness === "historical" ? [view.summary, view.freshness].filter(Boolean).join(" · ")
-        : [view.summary, captionReset(view.reset)].filter(Boolean).join(" · ");
-      expect([`executors row ${row.id}`, cellText.includes(words)]).toEqual([`executors row ${row.id}`, true]);
+      const card = usageCard(draw(<AgentsPage agent={row.id} initialAccounts={listRows as never}/>));
+      expect([`agent ${row.id} figure`, card.includes(view.figure)]).toEqual([`agent ${row.id} figure`, true]);
+      const words = agentWords(view, row.usageState?.freshness === "historical");
+      if (words !== view.figure) expect([`agent ${row.id}`, card.includes(words)]).toEqual([`agent ${row.id}`, true]);
     }
-
-    const accountsHtml = draw(<SettingsGeneral section="accounts" initialData={{...settings, accounts: listRows}}/>);
-    const accountHtml = accountsHtml.split("<tr").slice(1).find(r => r.includes(`<strong>${accountLabel({...listRow, agent: summaryRow.agent})}</strong>`)) ?? "";
-    const accountWords = [record.summary, captionReset(record.reset), record.freshness].filter(Boolean).join(" · ");
-    expect(strip(accountHtml)).toContain(accountWords);
-    // The account row quotes the account record; it never borrows the planner runner's figure.
-    if (plannerRow?.usageState && usageView(plannerRow.usageState, ctx.now).figure !== record.figure) {
-      expect(strip(accountHtml)).not.toContain(usageView(plannerRow.usageState, ctx.now).summary);
+    // An agent without its own record quotes its account's record; it never borrows the planner runner's figure.
+    const bare = executorRows.find(row => row.account === state.account && row.rank !== "planner") ?? executorRows.find(row => row.account === state.account);
+    if (bare) {
+      const bareSnapshot = { ...snapshot, executors: snapshot.executors?.map(row => row.id === bare.id ? { ...row, usageState: undefined } : row) } as ClientSnapshot;
+      const card = usageCard(renderToString(<TaskContext.Provider value={{ state: { ...initialState(), snapshot: bareSnapshot, connected: true }, api: api as never }}><AgentsPage agent={bare.id} initialAccounts={listRows as never}/></TaskContext.Provider>));
+      const accountWords = agentWords(record, listRow.usageState?.freshness === "historical");
+      expect(card).toContain(accountWords === record.figure ? record.figure : accountWords);
+      if (plannerRow?.usageState && bare.id !== plannerRow.id && usageView(plannerRow.usageState, ctx.now).figure !== record.figure) {
+        expect(card).not.toContain(usageView(plannerRow.usageState, ctx.now).summary);
+      }
     }
 
     // Budget windows: a limit window quotes the view ("Out of quota"), never a bare percent.

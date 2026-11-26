@@ -16,6 +16,7 @@ import { machineNow } from '../app/src/screens/settings/Machines';
 import { SettingsGeneral, AddExecutor, MachineSection, HostDetail, JobProgress, executorId, executorReady, performOperation } from '../app/src/screens/settings/index';
 import { settings, host, executor, job } from './fixtures/ui/settings';
 import { usageStateFor } from './usage-fixtures';
+import { renderAgents } from './fixtures/ui/agents';
 const state = {...initialState(),snapshot:{executors:[executor],accounts:[],hosts:[{...host,executors:[executor.id],repos:1}],planner:{agent:'codex',runner:'codex#team',advice:'Keep planning'},repos:[]} as any};
 const api = {call:async()=>({}),hello:async()=>({}),snapshot:async()=>({})} as any;
 const render = (child:any,s=state) => renderToString(<TaskContext.Provider value={{state:s,api}}>{child}</TaskContext.Provider>);
@@ -54,9 +55,12 @@ test('the update checkbox keeps its label inline', () => {
 test('all General sections provide loading and empty states',()=>{
  expect(render(<SettingsGeneral section="planner"/>)).not.toContain('Loading');
  const empty={...state,snapshot:{...state.snapshot,executors:[],hosts:[]}};
- const html=["accounts","executors","dispatcher"].map(section=>render(<SettingsGeneral section={section} initialData={{...settings,accounts:[],strategies:[],routing:{rules:[],available:[]}}}/>,empty)).join("")+render(<SettingsGeneral section="machine" initialData={settings}/>,empty)+render(<SavedSetups initialData={[]}/>,empty);
- for(const word of ['No accounts','No executors','No saved setups'])expect(html).toContain(word);
+ const html=render(<SettingsGeneral section="dispatcher" initialData={{...settings,accounts:[],strategies:[],routing:{rules:[],available:[]}}}/>,empty)+renderAgents(empty,{initialAccounts:[]})+render(<SettingsGeneral section="machine" initialData={settings}/>,empty)+render(<SavedSetups initialData={[]}/>,empty);
+ for(const word of ['No agents yet','No saved setups'])expect(html).toContain(word);
+ // Before the snapshot arrives the agent list says it is loading rather than empty.
+ expect(renderAgents({...state,snapshot:{...state.snapshot,executors:undefined}})).toContain('Loading agents…');
 });
+
 test('wizard has four board steps and never claims ready before a passed check',()=>{
  const html=render(<AddExecutor/>);for(const word of ['Agent','Account','Where it runs','Model and test'])expect(html).toContain(word);
  expect(html).not.toContain('is ready');
@@ -130,42 +134,48 @@ test('a passed host connection check cannot make an executor Ready',()=>{
  expect(executorReady({...job,kind:'host.check',state:'passed'})).toBe(false);
 });
 
-test('Accounts show usage words, sign-in pills, used-by and sign-in commands only in a disclosure',()=>{
- const accounts=[{name:'team',kind:'codex',signedIn:true,runners:[executor.id],usageState:usageStateFor({usedPct:17,window:'week',resetsAt:Date.UTC(2026,9,19)/1000,verdict:'ON_PACE',capturedAt:Date.UTC(2026,9,20)/1000},Date.UTC(2026,9,20)/1000)},{name:'empty',kind:'codex',signedIn:false,state:'no_subscription'},{name:'unknown',kind:'codex'},
-  {name:'out',kind:'codex',signedIn:false,signin_command:'CODEX_HOME=$HOME/.codex-out codex login'},{name:'local',kind:'endpoint',signedIn:null,state:'ready'},{name:'nokey',kind:'endpoint',signedIn:null,state:'key_missing'}];
- const s={...state,snapshot:{...state.snapshot,at:Date.UTC(2026,9,20)/1000,accounts:[{name:'team',agent:'codex',usedPct:17,window:'week',resetsAt:Date.UTC(2026,9,19)/1000,verdict:'ON_PACE',signedIn:true,executors:[executor.id]}]}};
- const html=render(<SettingsGeneral section="accounts" initialData={{...settings,accounts}}/>,s);
- expect(html).toContain(`17% of week · reset due`);expect(html).not.toContain('ON_PACE');
- for(const label of ['No subscription','Unknown','Signed out','Ready','Key missing'])expect(html).toMatch(new RegExp(`pc-pill[^"]*"[^>]*>(?:<span[^>]*>[^<]*</span>)?${label}</span>`));
- expect(html).toContain('<th scope="col">Status</th>');expect(html).toContain('<th scope="col">Sign-in</th>');
- expect(html).toContain('<th scope="col">Used by</th>');expect(html).toContain(executorLabel(executor.id));
- expect(html).not.toContain(executor.id);
+test('Agents show account usage words, sign-in pills and sign-in commands only in a disclosure',()=>{
+ const now=Date.UTC(2026,9,20)/1000;
+ const accounts=[{name:'team',kind:'codex',signedIn:true,runners:[executor.id],usageState:usageStateFor({usedPct:17,window:'week',resetsAt:Date.UTC(2026,9,19)/1000,verdict:'ON_PACE',capturedAt:now},now)},{name:'empty',kind:'codex',signedIn:false,state:'no_subscription'},{name:'unknown',kind:'codex'},
+  {name:'out',kind:'codex',signedIn:false,signin_command:'CODEX_HOME=$HOME/.codex-out codex login'},{name:'local',kind:'endpoint',signedIn:null,state:'ready'},{name:'nokey',kind:'endpoint',signedIn:null,state:'key_missing'}] as any;
+ const row=(id:string,agent:string,account:string)=>({...executor,id,agent,account,host:null});
+ const executors=[{...executor},row('codex#empty','codex','empty'),row('codex#unknown','codex','unknown'),row('codex#out','codex','out'),row('opencode#local','opencode','local'),row('opencode#nokey','opencode','nokey')];
+ const s={...state,snapshot:{...state.snapshot,at:now,executors,accounts:[{name:'team',agent:'codex',usedPct:17,window:'week',resetsAt:Date.UTC(2026,9,19)/1000,verdict:'ON_PACE',signedIn:true,executors:[executor.id]}]}};
+ const page=(agent:string)=>renderAgents(s,{agent,initialAccounts:accounts});
+ const team=page(executor.id);
+ expect(team).toContain('17% of week · reset due');expect(team).not.toContain('ON_PACE');
+ expect(team).toMatch(/pc-pill[^"]*"[^>]*>(?:<span[^>]*>[^<]*<\/span>)?Signed in<\/span>/);
+ for(const [agent,label] of [['codex#empty','No subscription'],['codex#unknown','Unknown'],['codex#out','Signed out'],['opencode#local','Ready'],['opencode#nokey','Key missing']])expect(page(agent!)).toMatch(new RegExp(`pc-pill[^"]*"[^>]*>(?:<span[^>]*>[^<]*</span>)?${label}</span>`));
  // Sign-in help only for native accounts known to be signed out (here: empty and out), never for endpoints.
- expect(html.match(/<summary>Fix sign-in<span class="sr-only"> for [^<]+<\/span><\/summary>/g)).toHaveLength(2);
- expect(html).toContain('<summary>Fix sign-in<span class="sr-only"> for Codex · empty</span></summary>');
- expect(html).toContain('Use the agent’s own sign-in to reconnect this account.');
- expect(html).not.toContain('CODEX_HOME=');expect(html).not.toContain('<details open');
+ const help=(html:string)=>html.match(/<summary>Fix sign-in<span class="sr-only"> for [^<]+<\/span><\/summary>/g)??[];
+ expect(executors.map(e=>help(page(e.id)).length)).toEqual([0,1,0,1,0,0]);
+ expect(page('codex#empty')).toContain('<summary>Fix sign-in<span class="sr-only"> for Codex · empty</span></summary>');
+ expect(page('codex#out')).toContain('Use the agent’s own sign-in to reconnect this account.');
+ for(const e of executors){const html=page(e.id);expect(html).not.toContain('CODEX_HOME=');expect(html).not.toContain('<details open');}
+ // The agent's other accounts of the same kind are named in its Account card.
+ expect(team).toContain('3 other Codex accounts: empty (not used), unknown (not used), out (not used)');
 });
 
-test('Accounts never present stale measured usage as current pace', () => {
+test('Agents never present stale measured account usage as current pace', () => {
  const now = 1_800_000_000;
  const accounts = [{name:'team',kind:'codex',signedIn:true}];
  for (const [overrides, label] of [
   [{}, 'On pace'],
   [{freshness:'historical' as const}, 'Historical usage'],
  ] as const) {
-  // The record owns freshness; the status pill quotes the record's verdict and the quota column states the age.
+  // The record owns freshness; the status pill quotes the record's verdict and the usage card states the age.
   const record = { ...usageStateFor({usedPct:17,window:'week',resetsAt:now+3600,verdict:'ON_PACE',capturedAt:now}, now), ...(overrides.freshness ? {freshness:overrides.freshness,observedAt:now-86401} : {}) };
-  const html = render(<SettingsGeneral section="accounts" initialData={{...settings,accounts}}/>, {...state,snapshot:{...state.snapshot,at:now,accounts:[{name:'team',agent:'codex',signedIn:true,usageState:record}]}});
-  expect(html).toMatch(new RegExp(`data-label="Status"><span class="pc-pill[^>]*>(?:<span[^>]*>[^<]*</span>)?${label}</span>`));
+  const html = renderAgents({...state,snapshot:{...state.snapshot,at:now,accounts:[{name:'team',agent:'codex',signedIn:true,usageState:record}]}}, {initialAccounts:accounts as any});
+  expect(html).toMatch(new RegExp(`aria-label="Usage" class="pc-agent-card"><span class="pc-agent-card__caption">Usage</span><span><span class="pc-pill[^>]*>(?:<span[^>]*>[^<]*</span>)?${label}</span>`));
   expect(html).toContain('17% of week');
   if (overrides.freshness) expect(html).toContain('Reading 24h old · refresh');
  }
 });
 
-test('Ark CLI quota authentication errors show recovery in the affected account',()=>{
+test('Ark CLI quota authentication errors show recovery in the affected agent',()=>{
  const accounts=[{name:'coding-plan',kind:'endpoint',quotaSource:'arkcli',state:'not_tested',usageCheck:{action:'refresh' as const,consentRequired:false,description:'Reads provider usage.'},diagnostics:{readings:[{windows:[],error:'Ark CLI sign-in required. Run arkcli auth login.',availability:{state:'unknown',reason:'authentication_failed'}}]}}];
- const html=render(<SettingsGeneral section="accounts" initialData={{...settings,accounts}}/>);
+ const row={...executor,id:'opencode#coding-plan',agent:'opencode',account:'coding-plan',host:null};
+ const html=renderAgents({...state,snapshot:{...state.snapshot,executors:[row]}},{initialAccounts:accounts as any});
  expect(html).toContain('Fix Ark CLI sign-in');
  expect(html).toContain('arkcli auth login');
  expect(html).toContain('Check usage');
@@ -193,19 +203,19 @@ test('settings feedback explains automatic migration in plain language',async()=
  expect(result.message).toBe('Saved.');
  expect(result.hint).toBe('Updated your settings file to the current format. A backup was saved.');
 });
-test('General exposes named parallel tasks controls and shared capacity notes',()=>{
+test('Agents state each executor\'s parallel limit and the machine limit; Machines owns the shared cap',()=>{
  const limited={...executor,rank:1,slots:{used:0,max:4},limitedBy:'machine'};
- const html=render(<SettingsGeneral section="executors" initialData={settings}/>,{...state,snapshot:{...state.snapshot,machine:{used:0,max:2},executors:[limited]}});
- expect(html).toContain('data-label="Parallel"><strong>4</strong>');
- expect(html).toContain(' of 2</span>');
+ const html=renderAgents({...state,snapshot:{...state.snapshot,machine:{used:0,max:2},executors:[limited]}});
+ expect(html).toContain('Up to 4 tasks at once · machine limit 2');
  const machine=render(<SettingsGeneral section="machine" initialData={settings}/>);
  expect(machine).toContain('Parallel tasks');
  expect(machine).toContain('Shared by every executor on this Mac');
- expect(html).not.toContain('type="number"');
  expect(html).not.toContain('>Slots<');
- const planner=render(<SettingsGeneral section="executors" initialData={settings}/>,{...state,snapshot:{...state.snapshot,executors:[{...limited,rank:'planner'}]}});
- expect(planner).not.toContain('Parallel tasks for '+executor.id);
+ const planner=renderAgents({...state,snapshot:{...state.snapshot,executors:[{...limited,rank:'planner'}]}});
+ expect(planner).not.toContain('tasks at once');
+ expect(planner).not.toContain('Tasks at once');
 });
+
 test('This machine shows the guard state now and no limit by default',()=>{
  const machine={used:3,max:Number.MAX_SAFE_INTEGER,hardCap:null,unlimited:true,memoryPressure:'critical' as const,memoryPressureLimit:'critical' as const,loadPerCore:4.92,loadLimit:null,open:false,reason:'machine_memory_pressure' as const,detail:'memory pressure critical'};
  const html=render(<SettingsGeneral section="machine" initialData={settings}/>,{...state,snapshot:{...state.snapshot,machine}});
@@ -229,8 +239,6 @@ test('This machine shows the guard state now and no limit by default',()=>{
 test('board pages render their headline and other editors retain shell titles', () => {
  expect(render(<SettingsGeneral section="planner" initialData={settings}/>)).toContain('<h1>Budget &amp; pacing</h1>');
  for (const [child, title, caption] of [
-  [<SettingsGeneral section="executors" initialData={settings}/>, 'Agents', 'Who plans, who executes, and what each one is allowed to use.'],
-  [<SettingsGeneral section="accounts" initialData={settings}/>, 'Agents', 'Who plans, who executes, and what each one is allowed to use.'],
   [<SettingsGeneral section="machine" initialData={settings}/>, 'Machines', 'Where tasks run. pacer drives remote hosts over your own SSH config and installs nothing on them.'],
   [<AddExecutor/>, 'Add an agent', 'pacer finds the agent CLIs on this machine. Four short steps, and the agent is checked with a real test task before it gets work.'],
  ] as const) {
@@ -239,6 +247,15 @@ test('board pages render their headline and other editors retain shell titles', 
   expect(html).toContain(`<p>${caption}</p>`);
   expect(html.match(/<h1>/g)).toHaveLength(1);
   expect(html).toContain('pc-settings-board__header');
+ }
+ // Every Dispatcher tab, including the retired Agents/Accounts sections, shares the one Dispatcher heading and tab strip.
+ for (const section of ['dispatcher', 'agents', 'rules', 'profiles', 'executors', 'accounts', 'models']) {
+  const html = render(<SettingsGeneral section={section} initialData={settings}/>);
+  expect(html.match(/<h1>/g)).toHaveLength(1);
+  expect(html).toContain('<h1>Dispatcher</h1>');
+  expect(html.match(/aria-current="page"/g)).toHaveLength(1);
+  const current = section === 'executors' || section === 'accounts' || section === 'models' ? 'agents' : section;
+  expect(html).toMatch(new RegExp(`<a href="#/settings/${current}" aria-current="page"`));
  }
  expect(render(<HostDetail alias="devbox" initialData={host}/>)).not.toContain('<h1');
  const emptyState = {...state,snapshot:{...state.snapshot,hosts:[]}};
@@ -249,9 +266,8 @@ test('Settings and host executors share uncertainty; retained account usage is h
  const decision={state:'uncertain',reasons:[{code:'budget_expired_or_unknown',evidenceIds:[]}],evaluatedAt:1000,validUntil:null,evidenceAgeS:null,availability:'unknown',budget:'unknown',spendingRisk:'unknown'} as const;
  const uncertain={...executor,eligibility:decision};
  const snapshot={...state.snapshot,at:1000,executors:[uncertain],accounts:[{name:settings.accounts![0]!.name,agent:'codex',signedIn:true,usageState:usageStateFor({usedPct:61,window:'5h',stale:true,capturedAt:null},1000)}]};
- const general=render(<SettingsGeneral section="accounts" initialData={settings}/>,{...state,snapshot});
- const executors=render(<SettingsGeneral section="executors" initialData={settings}/>,{...state,snapshot});
- expect(executors).toContain('Skipped');expect(general).toContain('Reading of unknown age · refresh');
+ const agents=renderAgents({...state,snapshot},{initialAccounts:settings.accounts as any});
+ expect(agents).toContain('Skipped');expect(agents).toContain('Reading of unknown age · refresh');
  const remote=render(<HostDetail alias="devbox" initialData={{...host,executors:[uncertain] as any}}/>);
  expect(remote).toContain('Uncertain fallback');
  const known={...uncertain,eligibility:{...decision,evaluatedAt:state.snapshot.at??Date.now()/1000,evidenceAgeS:10800}};
@@ -259,33 +275,38 @@ test('Settings and host executors share uncertainty; retained account usage is h
 });
 
 test('Agents copy matches routing: a failed check does not skip an executor',()=>{
- const html=render(<SettingsGeneral section="executors" initialData={settings}/>);
+ const html=renderAgents(state);
  expect(html).not.toContain('skipped until it passes again');
  expect(html).toContain('Agents marked Skipped, Cannot take work or Off receive no new work.');
 });
 
 test('a not-tested endpoint executor reads Not tested, not Ready, in Agents',()=>{
  const row={...executor,id:'opencode#lab',agent:'opencode',account:'lab',host:null,state:'ready',untested:true,reason:'not tested — run a check',lastCheck:null} as any;
- const html=render(<SettingsGeneral section="executors" initialData={settings}/>,{...state,snapshot:{...state.snapshot,executors:[row]}});
+ const html=renderAgents({...state,snapshot:{...state.snapshot,executors:[row]}});
  expect(html).toMatch(/pc-pill[^"]*"[^>]*>(?:<span[^>]*>[^<]*<\/span>)?Skipped<\/span>/);
  expect(html).not.toMatch(/pc-pill[^"]*"[^>]*>(?:<span[^>]*>[^<]*<\/span>)?Ready<\/span>/);
 });
+
 test('an untested endpoint keeps its eligibility decision and its unchecked status',()=>{
  const eligibility={state:'uncertain',reasons:[{code:'budget_missing',evidenceIds:[]}],evaluatedAt:1000,validUntil:null,evidenceAgeS:null,availability:'unknown',budget:'unknown',spendingRisk:'unknown'} as const;
  const row={...executor,id:'opencode#lab',agent:'opencode',account:'lab',host:null,state:'ready',untested:true,eligibility,lastCheck:null} as any;
- const html=render(<SettingsGeneral section="executors" initialData={settings}/>,{...state,snapshot:{...state.snapshot,at:1000,executors:[row]}});
+ const html=renderAgents({...state,snapshot:{...state.snapshot,at:1000,executors:[row]}});
  expect(html).toContain('Uncertain fallback');
  expect(html).toContain('No budget observation is available · Not tested');
  expect(html).not.toMatch(/pc-pill[^"]*"[^>]*>(?:<span[^>]*>[^<]*<\/span>)?Ready<\/span>/);
 });
-test('an executor row states its reason once, not again under Last check',()=>{
+
+test('an agent states its reason once, not again under Last check',()=>{
  const detail='Sign in to account cwork (signed out — run claude and log in)';
  const row={...executor,state:'down',reason:'signed out — run claude and log in',lastCheck:{at:100,passed:false,detail}} as any;
  const failing={...executor,id:'claude-code#main',state:'failing',reason:'test task failed: Not logged in',lastCheck:{at:100,passed:false,detail:'test task failed: Not logged in'}} as any;
- const html=render(<SettingsGeneral section="executors" initialData={settings}/>,{...state,snapshot:{...state.snapshot,executors:[row,failing]}});
- expect(html.split('signed out — run claude and log in').length-1).toBe(1);
- expect(html.split('test task failed: Not logged in').length-1).toBe(1);
+ const s={...state,snapshot:{...state.snapshot,executors:[row,failing]}};
+ for(const [agent,reason] of [[row.id,'signed out — run claude and log in'],[failing.id,'test task failed: Not logged in']]){
+  const html=renderAgents(s,{agent});
+  expect(html.split(reason!).length-1).toBe(1);
+ }
 });
+
 test('Add executor offers sign-in only for a signed-out native account',()=>{
  const accounts=[{name:'work',kind:'endpoint',signedIn:null,state:'not_tested'},{name:'in',kind:'claude',signedIn:true},{name:'out',kind:'claude',signedIn:false}] as any;
  const html=(agent:string,account:string)=>render(<AddExecutor initialDraft={{step:'2',agent,account}} initialAccounts={accounts}/>);
@@ -293,17 +314,18 @@ test('Add executor offers sign-in only for a signed-out native account',()=>{
  expect(html('claude-code','in')).not.toContain('Sign in to in');
  expect(html('claude-code','out')).toContain('Sign in to out');
 });
-test('Accounts show an endpoint account\'s weekly dollar spend against its cap', () => {
+test('Agents show an endpoint account\'s weekly dollar spend against its cap', () => {
  const name = settings.accounts[0]!.name;
  // The one record carries the spend; the legacy row fields are not read (ADR 0030).
  const record = { ...usageStateFor({usedPct:64, window:'weekly', verdict:'OK'}, Date.now()/1000), spend:{usdWeek:3.2, capUsdWeek:5} };
- const html = render(<SettingsGeneral section="accounts" initialData={settings}/>, {...state, snapshot: {...state.snapshot, accounts: [{name, agent: 'opencode', signedIn: true, usageState: record}]}});
+ const html = renderAgents({...state, snapshot: {...state.snapshot, accounts: [{name, agent: 'opencode', signedIn: true, usageState: record}]}}, {initialAccounts: settings.accounts as any});
  expect(html).toContain('$3.20 of $5 this week');
 });
+
 test('historical endpoint usage keeps its weekly spend and cap', () => {
  const name = settings.accounts[0]!.name;
  const record = { ...usageStateFor({usedPct:64, window:'weekly', verdict:'OK', stale:true}, Date.now()/1000), spend:{usdWeek:3.2, capUsdWeek:5} };
- const html = render(<SettingsGeneral section="accounts" initialData={settings}/>, {...state, snapshot: {...state.snapshot, accounts: [{name, agent: 'opencode', signedIn: true, usageState: record}]}});
+ const html = renderAgents({...state, snapshot: {...state.snapshot, accounts: [{name, agent: 'opencode', signedIn: true, usageState: record}]}}, {initialAccounts: settings.accounts as any});
  expect(html).toContain('$3.20 of $5 this week');
  expect(html).toContain('Reading 26h old · refresh');
 });
@@ -332,12 +354,13 @@ test('Updates identifies the service and preserves failed-check status', () => {
 test('eligible executors retain recent task failures separately from their passed check',()=>{
  const eligibility={state:'eligible',reasons:[],evaluatedAt:1000,validUntil:null,evidenceAgeS:0,availability:'available',budget:'available',spendingRisk:'none'} as const;
  const row={...executor,state:'failing',recentFailures:2,reason:'2 recent failures',eligibility,lastCheck:{at:1000,passed:true,detail:'Ready'}} as any;
- const html=render(<SettingsGeneral section="executors" initialData={settings}/>,{...state,snapshot:{...state.snapshot,at:1000,executors:[row]}}).split('<tbody>')[1]!.split('</tbody>')[0]!;
+ const head=(html:string)=>html.split('<header class="pc-agent-detail__head">')[1]!.split('</header>')[0]!;
+ const html=head(renderAgents({...state,snapshot:{...state.snapshot,at:1000,executors:[row]}}));
  expect(html).toContain('Ready');
  expect(html).toContain('Recent task failures');
  expect(html).toContain('2 recent failures');
  expect(html).not.toContain('Failing');
- const failedCheck=render(<SettingsGeneral section="executors" initialData={settings}/>,{...state,snapshot:{...state.snapshot,at:1000,executors:[{...row,lastCheck:{at:1000,passed:false,detail:'test task failed'}}]}}).split('<tbody>')[1]!.split('</tbody>')[0]!;
+ const failedCheck=head(renderAgents({...state,snapshot:{...state.snapshot,at:1000,executors:[{...row,lastCheck:{at:1000,passed:false,detail:'test task failed'}}]}}));
  expect(failedCheck).toContain('Failing');
  expect(failedCheck).not.toContain('Recent task failures');
 });
@@ -413,7 +436,7 @@ test('OK clears completed executor state before returning to the executor list',
  try {
   render(<AddExecutor/>,{...state,jobs:{[job.id]:{...job,state:'passed'}}});
   expect(finish).toBeDefined();
-  expect(href).toBe('#/settings/executors');
+  expect(href).toMatch(/^#\/settings\/agents(\?agent=|$)/);
   finish!();
   expect(workspaceManager.has(scope,`draft:${key}`)).toBe(false);
   const html=render(<AddExecutor/>);

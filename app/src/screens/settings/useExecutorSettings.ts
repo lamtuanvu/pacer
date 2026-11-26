@@ -36,6 +36,8 @@ export function useExecutorSettings() {
   const save = async (expectedRevision?: string): Promise<boolean> => {
     if (!saved || !draft || !dirty || pending.current || !state.connected || Object.keys(errors).length || (conflict && !expectedRevision)) return false;
     const base = expectedRevision ? { ...saved, revision: expectedRevision } : saved;
+    // Settings observed before this save; only a reading that arrives during it can be another client's commit.
+    const seen = observed.current?.revision;
     pending.current = true; setBusy(true); setError(undefined);
     try {
       let result: SaveResult;
@@ -50,7 +52,7 @@ export function useExecutorSettings() {
       // The response describes our write, not necessarily the latest settings:
       // another client can commit before that response reaches this window.
       const latest = await api.call<ExecutorSettings>("runner.settings.get", {}), event = observed.current;
-      const confirmed = event && event.revision !== base.revision && event.revision !== result.revision && event.revision !== latest.revision && event.revision !== saved.revision ? event : latest;
+      const confirmed = event && event.revision !== seen && event.revision !== base.revision && event.revision !== result.revision && event.revision !== latest.revision ? event : latest;
       if (!matchesExecutorDraft(draft, confirmed)) {
         query.setData(confirmed);
         throw new Error("Settings changed after this save. Your draft is preserved. Reload saved settings before retrying.");
