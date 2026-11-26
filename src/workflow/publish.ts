@@ -5,10 +5,10 @@ import type { Ctx } from "../types";
 import { CoreError } from "../core/errors";
 import { ghEnv } from "../core/issue-import";
 import {
-  getRun, listDecisions, setRunPrUrl, type RunRow,
+  branchOwner, getRun, listDecisions, setRunPrUrl, type RunRow,
 } from "./store";
 import {
-  integrationWorktreeUnderLock, withMergeLock,
+  adoptGeneratedBranches, integrationWorktreeUnderLock, withMergeLock,
 } from "./branch";
 
 /** Extra names beyond ghEnv that publish children may need. */
@@ -114,8 +114,10 @@ export function approvedTipFromReason(reason: string): string | null {
   return m?.[1]?.toLowerCase() ?? null;
 }
 
-/** Gate check (D5): draft opt-in, or a person publish_approved for the current tip. */
-export async function assertPublishGate(ctx: Ctx, run: RunRow, draft: boolean): Promise<void> {
+/** Gate check (D5): draft opt-in, or a person publish_approved for the current tip.
+ *  A generated child is checked as the run that owns its branch. */
+export async function assertPublishGate(ctx: Ctx, of: RunRow, draft: boolean): Promise<void> {
+  const run = branchOwner(ctx, of);
   if (!run.branch) throw new CoreError("invalid_input", `run ${run.id} has no branch to publish`);
   if (hasUnresolvedConflictTask(ctx, run.id)) {
     throw new CoreError("not_allowed", "run has an unresolved conflict task");
@@ -209,18 +211,22 @@ async function existingPrUrl(
  */
 export async function publishRun(ctx: Ctx, runId: string, input: PublishInput): Promise<PublishResult> {
   validatePublishInput(input);
-  const run = getRun(ctx, runId);
-  if (!run) throw new CoreError("not_found", `unknown run ${runId}`);
-  if (run.rev !== input.expectRev) {
+  const asked = getRun(ctx, runId);
+  if (!asked) throw new CoreError("not_found", `unknown run ${runId}`);
+  if (asked.rev !== input.expectRev) {
     throw new CoreError("conflict", `conflict: run ${runId} changed since rev ${input.expectRev}`);
   }
+  await adoptGeneratedBranches(ctx, asked);
+  // A generated child publishes its owner's branch, under the owner's gate.
+  const run = branchOwner(ctx, asked);
+  const rev = run.rev;
   if (run.prUrl) return { pr_url: run.prUrl, run };
 
   await assertPublishGate(ctx, run, input.draft);
 
   return withMergeLock(ctx, run.id, async () => {
-    const live = getRun(ctx, runId) ?? run;
-    if (live.rev !== input.expectRev) {
+    const live = getRun(ctx, run.id) ?? run;
+    if (live.rev !== rev) {
       throw new CoreError("conflict", `conflict: run ${runId} changed since rev ${input.expectRev}`);
     }
     if (live.prUrl) return { pr_url: live.prUrl, run: live };

@@ -1,3 +1,4 @@
+import type { Ctx } from "../types";
 import type { RepoRef } from "../api/read-model/types";
 import { realpathSafe } from "../core/git";
 import type { Progress } from "../supervisor/progress";
@@ -390,4 +391,9 @@ export function awaitsAnswer(task: {
   dismissed?: boolean;
 }): boolean {
   return task.state === "needs_input" && !!task.question && task.question.answer === undefined && !task.retriedBy && !task.dismissed;
+}
+
+/** Whether a follow-up message can resume this task's own session. */
+export function canContinue(_ctx: Ctx, t: TaskRecord): boolean {
+  return t.interactionMode !== "conversation" && !!t.run && (!!t.run.agentSession || /opencode/.test(t.run.executor));
 }

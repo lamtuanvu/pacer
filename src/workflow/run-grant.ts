@@ -7,6 +7,7 @@ import { CoreError } from "../core/errors";
 import { dispatchDatabase } from "../dispatch/store";
 import { getQuestion, getRun, rootRunId, stepByTask, workflowDatabase } from "./store";
 import { getTurn } from "./wakeups";
+import { awaitsReview } from "./review";
 
 export const RUN_GRANT_KIND = "run";
 
@@ -185,17 +186,18 @@ export function assertRunGrantTarget(ctx: Ctx, grant: RunGrant, name: string, pa
   if (name === "task.review" || name === "task.stop") {
     const id = p.id;
     if (typeof id !== "string" || !id) throw new CoreError("invalid_input", "Task id is required");
-    // Orchestrator never delegates (API-5b / M2): refuse send_back and retry.
-    if (name === "task.review") {
-      const verdict = p.verdict;
-      if (verdict === "send_back" || verdict === "retry") {
-        throw new CoreError("not_allowed", "PACER_ROLE=orchestrator: never delegate via send_back or retry");
-      }
+    // Orchestrator never delegates (API-5b / M2): retry starts a new task.
+    if (name === "task.review" && p.verdict === "retry") {
+      throw new CoreError("not_allowed", "PACER_ROLE=orchestrator: never delegate via retry");
     }
     const step = stepByTask(ctx, id);
-    if (!step || !runInGrant(ctx, grant, step.runId)) {
-      throw new CoreError("not_allowed", "Operation is outside this run grant");
+    const mine = !!step && runInGrant(ctx, grant, step.runId);
+    // send_back continues the same task and worktree (core review refuses the new
+    // attempt it would otherwise fall back to), and only for a step under review.
+    if (name === "task.review" && p.verdict === "send_back" && !(mine && awaitsReview(ctx, step!))) {
+      throw new CoreError("not_allowed", "PACER_ROLE=orchestrator: send_back only continues a step task of this run that waits for review");
     }
+    if (!mine) throw new CoreError("not_allowed", "Operation is outside this run grant");
     return;
   }
   throw new CoreError("not_allowed", "Operation is not allowed by this run grant");

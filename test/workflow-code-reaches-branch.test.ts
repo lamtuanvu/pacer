@@ -2,7 +2,7 @@
 // git, the real engine and tick, and the real review op: no step row is written by
 // hand and no verdict is recorded around the engine, so the ordering is covered.
 import { expect, test } from "bun:test";
-import { chmodSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fakeCtx, gitRepo, realRun, tmpDir } from "./helpers";
 import { callOp } from "../src/api/ops";
@@ -17,18 +17,23 @@ import type { DelegateInput } from "../src/tasks/api";
 import type { TaskRecord, TaskState } from "../src/tasks/types";
 import { deriveWorkflowAttention } from "../src/workflow/attention";
 import { evalCondition, parseCondition } from "../src/workflow/condition";
-import { mergeTaskOnAccept } from "../src/workflow/branch";
+import { reviewRef, runBranchName, syncBase } from "../src/workflow/branch";
 import {
-  answerGenerateApproval, answerHumanStep, awaitTerminalSettle, chooseWorkflow, recordStepResult,
-  retryFailedStep, startRun, stopRun, type EngineDeps,
+  answerGenerateApproval, answerHumanStep, awaitTerminalSettle, chooseWorkflow, failRun, recordStepResult,
+  retryFailedStep, skipFailedStep, startRun, stopRun, type EngineDeps,
 } from "../src/workflow/engine";
 import { submitGraph } from "../src/workflow/generate";
 import { parseWorkflow } from "../src/workflow/parse";
 import { publishRun } from "../src/workflow/publish";
 import type { WorkflowDef } from "../src/workflow/schema";
-import { addDefinition, getRun, stepsOfRun, workflowDatabase, type StepRow } from "../src/workflow/store";
+import { addDefinition, clearRunBranch, getRun, setCursor, setRunBranch, stepsOfRun, workflowDatabase, type StepRow } from "../src/workflow/store";
+import { taskChangesSince } from "../src/tasks/changes";
+import { settleTurn } from "../src/workflow/orchestrator";
+import { issueRunGrant } from "../src/workflow/run-grant";
+import { authorizeWorkOperation } from "../src/core/work";
+import { assertPublishGate } from "../src/workflow/publish";
 import { advanceRuns } from "../src/workflow/tick";
-import { wakeCauseStillOpen, stepWakeRef } from "../src/workflow/wakeups";
+import { liveTurn, wakeCauseStillOpen, stepWakeRef } from "../src/workflow/wakeups";
 import type { Ctx } from "../src/types";
 
 const WORKFLOWS = join(import.meta.dir, "..", "plugins", "pacer-dev");
@@ -45,6 +50,8 @@ if [ "$1 $2" = "pr list" ]; then echo '[]'; else cat >/dev/null; echo "https://g
   chmodSync(gh, 0o755);
   const ctx = fakeCtx({ run: realRun, home, pacerHome: join(home, ".pacer"), now: Math.floor(Date.now() / 1000), which: name => name === "gh" ? gh : "/usr/bin/fake" });
   workflowDatabase(ctx);
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders:\n  codex: {}\n");
   const repo = gitRepo();
   const git = (cwd: string, ...args: string[]) => {
     const r = Bun.spawnSync(["git", "-C", cwd, "-c", "user.email=t@t", "-c", "user.name=t", ...args]);
@@ -136,7 +143,42 @@ if [ "$1 $2" = "pr list" ]; then echo '[]'; else cat >/dev/null; echo "https://g
     addDefinition(ctx, def!, source, { prompts });
     return def!;
   };
-  return { ctx, repo, remote, ghLog, git, inputs, deps, tick, checkout, commit, finish, execute, step, accept, branchFile, install, bundled };
+  /** The attempt record a runner leaves, with a session a send-back can resume. */
+  const resumable = (taskId: string) => updateTask(ctx, taskId, t => {
+    const workdir = t.worktree!;
+    t.executor = "codex";
+    t.run = { mode: "new", workdir, dir: tmpDir(), logFile: join(bin, "log"), startedAt: ctx.now, executor: "codex", attempt: 1, agentSession: { id: "session-1", source: "assigned" } };
+  });
+  const spawned: { id: string; env: Ctx["env"] }[] = [];
+  const spawnRunner = (c: Ctx, id: string) => { spawned.push({ id, env: c.env }); return 4242; };
+  /** Dependencies of the review op: a delegate that honours the retry's commit. */
+  const reviewDeps = {
+    spawnRunner,
+    delegate: async (c: Ctx, input: DelegateInput) => {
+      const commitTask = () => {
+        const next = createTask(c, { brief: input.brief, kind: input.kind ?? null, requestedExecutor: null, timeoutS: 600 });
+        return updateTask(c, next.id, t => {
+          t.retryOf = input.retryOf;
+          if (input.reuseWorktree) { t.worktree = input.reuseWorktree; t.baseSha = input.baseSha; }
+        });
+      };
+      return input.commitWith ? input.commitWith(commitTask) : commitTask();
+    },
+  };
+  /** A real send-back that continues the task's session; the runner then takes it up. */
+  const sendBack = async (taskId: string, c: Ctx = ctx) => {
+    const sent = await tasks.review(c, taskId, { verdict: "send_back", note: "again" }, reviewDeps);
+    updateTask(ctx, taskId, t => { t.state = "running"; });
+    return sent;
+  };
+  const taskOf = (runId: string, stepId: string, branch?: string) => step(runId, stepId, branch).taskId!;
+  const reject = async (taskId: string) => { await tasks.review(ctx, taskId, { verdict: "reject" }); await tick(); };
+  const wakes = (cause: string) => workflowDatabase(ctx)
+    .query<{ ref: string }, [string]>("SELECT ref FROM workflow_wakeups WHERE cause = ? AND done_at IS NULL").all(cause).map(r => r.ref);
+  return {
+    ctx, repo, remote, ghLog, git, inputs, deps, tick, checkout, commit, finish, execute, step, accept, branchFile,
+    install, bundled, resumable, spawned, reviewDeps, sendBack, taskOf, reject, wakes,
+  };
 }
 
 const chain: WorkflowDef = {
@@ -242,15 +284,18 @@ test("a verdict that lands before the engine saw the settlement advances once", 
   expect(w.inputs).toHaveLength(2);
 });
 
-test("an accept recorded without a merge is merged before the edges fire", async () => {
+test("a verdict the change log no longer holds is picked up by the next tick", async () => {
   const w = world();
   const run = await startChain(w);
-  const impl = w.step(run.id, "impl").taskId!;
+  const impl = w.taskOf(run.id, "impl");
   await w.execute(impl, { file: "a.txt" });
-  updateTask(w.ctx, impl, t => { t.review = { accepted: true, kind: null, note: null, at: w.ctx.now }; });
+  await tasks.review(w.ctx, impl, { verdict: "accept" });
+  // The cursor is already past the verdict's change.
+  setCursor(w.ctx, taskChangesSince(w.ctx, 0).head);
+  expect(w.step(run.id, "impl").status).toBe("waiting");
   await w.tick();
   expect(w.step(run.id, "impl").status).toBe("done");
-  expect(w.branchFile(getRun(w.ctx, run.id)!.branch!, "a.txt")).toBe("a.txt");
+  expect(w.inputs).toHaveLength(2);
 });
 
 test("reject fails the step; the retry starts from the run branch tip and does not see rejected code", async () => {
@@ -289,7 +334,12 @@ test("uncommitted work is refused at step.result and at accept, never dropped", 
   expect(w.step(run.id, "impl").result).toBeUndefined();
   w.git(tree, "commit", "-qam", "edit");
   writeFileSync(join(tree, "forgotten.txt"), "never added");
+  await expect(callOp(executor, "step.result", { result: { summary: "ok" } }))
+    .rejects.toMatchObject({ code: "invalid_input", message: expect.stringMatching(/uncommitted changes/) });
+  Bun.spawnSync(["mv", join(tree, "forgotten.txt"), join(tree, "..", `${impl}.aside`)]);
   await callOp(executor, "step.result", { result: { summary: "ok" } });
+  // Written after the report: accepting still refuses it.
+  Bun.spawnSync(["mv", join(tree, "..", `${impl}.aside`), join(tree, "forgotten.txt")]);
   w.finish(impl);
   await w.tick();
 
@@ -354,7 +404,9 @@ test("a merge conflict keeps the branch waiting; resolving it lets the accept an
   expect(readTask(w.ctx, y)!.review).toBeUndefined();
   expect(wakeCauseStillOpen(w.ctx, run.id, "review_due", stepWakeRef(run.id, "build", 1, "y"))).toBe(false);
   const item = deriveWorkflowAttention(w.ctx).find(i => i.id === `run_review:${y}`)!;
-  expect(item.detail).toContain(conflict.resolution_task!);
+  expect(item.detail).toContain("merge conflict");
+  // No session to continue: the person resolves it, so no turn is woken.
+  expect(item.actions.map(a => a.label)).toEqual(["Accept", "Reject"]);
 
   const resolution = conflict.resolution_task!;
   const tree = await w.checkout(resolution);
@@ -368,61 +420,72 @@ test("a merge conflict keeps the branch waiting; resolving it lets the accept an
   expect(w.branchFile(getRun(w.ctx, run.id)!.branch!, "same.txt")).toBe("both\n");
 });
 
+test("the real delegate's retry commit moves the step to the new task", async () => {
+  const w = world();
+  const run = await startChain(w);
+  const impl = w.taskOf(run.id, "impl");
+  await w.execute(impl, { file: "a.txt" });
+  const spawn = () => 4242;
+  const sent = await tasks.review(w.ctx, impl, { verdict: "retry", executor: "codex" }, {
+    delegate: (c, input) => tasks.delegate(c, input, spawn), spawnRunner: spawn,
+  });
+  expect(w.step(run.id, "impl")).toMatchObject({ status: "running", taskId: sent.retry!.id });
+  expect(readTask(w.ctx, sent.retry!.id)!.brief).toMatchObject({ commitWork: true, base: getRun(w.ctx, run.id)!.branch });
+});
+
 test("a send-back resumes the parked task, which may report again", async () => {
   const w = world();
   const run = await startChain(w);
-  const impl = w.step(run.id, "impl").taskId!;
+  const impl = w.taskOf(run.id, "impl");
   await w.execute(impl, { file: "a.txt" });
-  updateTask(w.ctx, impl, t => { t.state = "running"; });
+  w.resumable(impl);
+  await w.sendBack(impl);
+  expect(w.spawned.map(s => s.id)).toEqual([impl]);
   recordStepResult(w.ctx, impl, { summary: "second" });
   await w.tick();
   expect(w.step(run.id, "impl").status).toBe("waiting");
   await w.commit(impl, "b.txt");
   w.finish(impl);
   await w.tick();
-  expect(w.step(run.id, "impl")).toMatchObject({ status: "waiting", result: { summary: "second" } });
+  expect(w.step(run.id, "impl")).toMatchObject({ status: "waiting", taskId: impl, result: { summary: "second" } });
+  expect(w.wakes("review_due")).toEqual([stepWakeRef(run.id, "impl", 1)]);
   await w.accept(impl);
   expect(w.branchFile(getRun(w.ctx, run.id)!.branch!, "b.txt")).toBe("b.txt");
 });
 
-test("a retry successor takes the step over, even in the reused worktree, and its work is merged", async () => {
+test("a retry takes the step over before it can report, and the reused worktree's work is merged and diffed", async () => {
   const w = world();
   const run = await startChain(w);
-  const impl = w.step(run.id, "impl").taskId!;
+  const impl = w.taskOf(run.id, "impl");
   await w.execute(impl, { file: "a.txt" });
-  const parent = readTask(w.ctx, impl)!;
-  // The shape a send-back retry leaves: same worktree and branch, linked tasks.
-  const next: TaskRecord = createTask(w.ctx, { brief: parent.brief, kind: parent.kind, requestedExecutor: null, timeoutS: 600 });
-  updateTask(w.ctx, next.id, t => { t.state = "running"; t.retryOf = impl; t.worktree = parent.worktree; t.baseSha = w.git(parent.worktree!, "rev-parse", "HEAD"); });
-  updateTask(w.ctx, impl, t => { t.retriedBy = next.id; t.review = { accepted: false, kind: null, note: "again", at: w.ctx.now }; });
-  await w.tick();
-  expect(w.step(run.id, "impl")).toMatchObject({ status: "running", taskId: next.id });
+  // No resumable session: the real send-back falls back to a retry in the same worktree.
+  const sent = await tasks.review(w.ctx, impl, { verdict: "send_back", note: "again" }, w.reviewDeps);
+  const next = sent.retry!.id;
+  expect(next).not.toBe(impl);
+  // No tick yet: the successor already owns the step, so its report is accepted.
+  expect(w.step(run.id, "impl")).toMatchObject({ status: "running", taskId: next });
   expect(w.step(run.id, "impl").result).toBeUndefined();
-  writeFileSync(join(parent.worktree!, "b.txt"), "b");
-  w.git(parent.worktree!, "add", "b.txt");
-  w.git(parent.worktree!, "commit", "-qm", "fix");
-  recordStepResult(w.ctx, next.id, { summary: "fixed" });
-  w.finish(next.id);
+  const tree = readTask(w.ctx, next)!.worktree!;
+  writeFileSync(join(tree, "b.txt"), "b");
+  w.git(tree, "add", "b.txt");
+  w.git(tree, "commit", "-qm", "fix");
+  recordStepResult(w.ctx, next, { summary: "fixed" });
+  w.finish(next);
   await w.tick();
-  await w.accept(next.id);
+  const ref = await reviewRef(w.ctx, next);
+  expect(ref).toMatchObject({ branch: `pacer/${impl}`, runBranch: getRun(w.ctx, run.id)!.branch });
+  // The planner's next turn is told to diff the branch that holds the work.
+  const turn = liveTurn(w.ctx, run.id);
+  if (turn) await settleTurn(w.ctx, turn.id, { outcome: "done" });
+  w.ctx.now += 600;
+  await w.tick();
+  const prompt = readTask(w.ctx, getRun(w.ctx, run.id)!.orchestratorTaskId!)!.brief.goal;
+  expect(prompt).toContain(`"branch": "pacer/${impl}"`);
+  await w.accept(next);
   expect(w.step(run.id, "impl").status).toBe("done");
   const branch = getRun(w.ctx, run.id)!.branch!;
   expect(w.branchFile(branch, "a.txt")).toBe("a.txt");
   expect(w.branchFile(branch, "b.txt")).toBe("b");
-});
-
-test("a successor accepted before the engine adopts it is still merged", async () => {
-  const w = world();
-  const run = await startChain(w);
-  const impl = w.step(run.id, "impl").taskId!;
-  await w.execute(impl);
-  const next = createTask(w.ctx, { brief: readTask(w.ctx, impl)!.brief, kind: "feature", requestedExecutor: null, timeoutS: 600 });
-  updateTask(w.ctx, next.id, t => { t.retryOf = impl; });
-  await w.commit(next.id, "late.txt");
-  w.finish(next.id);
-  updateTask(w.ctx, impl, t => { t.retriedBy = next.id; });
-  await mergeTaskOnAccept(w.ctx, next.id);
-  expect(w.branchFile(getRun(w.ctx, run.id)!.branch!, "late.txt")).toBe("late.txt");
 });
 
 test("stopping a run keeps the parked task's branch", async () => {
@@ -588,3 +651,296 @@ test("only workflow code steps are told to commit; ordinary briefs are unchanged
   expect(renderTurnPrompt(w.ctx, ordinary, [])).toContain("Do not commit.");
   expect(renderTurnPrompt(w.ctx, { ...ordinary, brief: { ...brief, commitWork: true } }, [])).toContain("Commit your work");
 });
+
+const fan3 = (join: "all" | "any" | { quorum: number }): WorkflowDef => ({
+  id: `t/fan3-${typeof join === "string" ? join : "quorum"}`, version: 1, entry: "build",
+  steps: {
+    build: { type: "fanout", branches: ["x", "y", "z"], each: { type: "agent", kind: "feature", prompt: "Build" }, join },
+    done: { type: "end" },
+  },
+  edges: [{ from: "build", to: "done" }],
+});
+
+async function parkedFan(w: ReturnType<typeof world>, join: "all" | "any" | { quorum: number }) {
+  const run = await startChain(w, fan3(join));
+  const [x, y, z] = ["x", "y", "z"].map(b => w.taskOf(run.id, "build", b)) as [string, string, string];
+  for (const id of [x, y, z]) await w.checkout(id);
+  for (const [id, file] of [[x, "x.txt"], [y, "y.txt"], [z, "z.txt"]] as const) await w.execute(id, { file });
+  return { run, x, y, z };
+}
+
+test("rejecting one fan-out branch asks for a decision; a retry of only that branch finishes the join", async () => {
+  const w = world();
+  const { run, x, y, z } = await parkedFan(w, "all");
+  await w.reject(y);
+  expect(getRun(w.ctx, run.id)!.status).toBe("waiting");
+  expect(w.wakes("step_failed")).toEqual([stepWakeRef(run.id, "build", 1, "y")]);
+  await w.accept(x);
+  await w.accept(z);
+  // Every other branch is in, and the rejected one still holds the join.
+  expect(getRun(w.ctx, run.id)!.status).toBe("waiting");
+  expect(stepsOfRun(w.ctx, run.id).filter(s => s.branch === undefined)).toEqual([]);
+  const before = w.inputs.length;
+  await retryFailedStep(w.ctx, { runId: run.id, stepId: "build" }, undefined, w.deps);
+  expect(w.inputs).toHaveLength(before + 1);
+  expect(w.wakes("step_failed")).toEqual([]);
+  const again = w.step(run.id, "build", "y");
+  expect(again).toMatchObject({ attempt: 2, status: "running" });
+  await w.execute(again.taskId!, { file: "y2.txt" });
+  await w.accept(again.taskId!);
+  expect(getRun(w.ctx, run.id)!.status).toBe("done");
+  const branch = getRun(w.ctx, run.id)!.branch!;
+  expect(["x.txt", "y2.txt", "z.txt", "y.txt"].map(f => w.branchFile(branch, f) !== null)).toEqual([true, true, true, false]);
+});
+
+test("skipping a rejected fan-out branch finishes the join without its code", async () => {
+  const w = world();
+  const { run, x, y, z } = await parkedFan(w, "all");
+  await w.accept(x);
+  await w.accept(z);
+  await w.reject(y);
+  await skipFailedStep(w.ctx, { runId: run.id, stepId: "build" }, undefined, w.deps);
+  expect(getRun(w.ctx, run.id)!.status).toBe("done");
+  expect(w.branchFile(getRun(w.ctx, run.id)!.branch!, "y.txt")).toBeNull();
+});
+
+test("join any: a reject does not fail the run; an accept ends parked rows and stops a resumed one", async () => {
+  const w = world();
+  const { run, x, y, z } = await parkedFan(w, "any");
+  await w.reject(x);
+  expect(getRun(w.ctx, run.id)!.status).toBe("waiting");
+  w.resumable(z);
+  await w.sendBack(z);
+  await w.accept(y);
+  expect(getRun(w.ctx, run.id)!.status).toBe("done");
+  expect(readTask(w.ctx, z)!.state).toBe("stopped");
+  expect(w.step(run.id, "build", "z").status).toBe("stopped");
+  expect(w.wakes("step_failed")).toEqual([]);
+  expect(w.wakes("review_due")).toEqual([]);
+});
+
+test("join any leaves a parked task as it is", async () => {
+  const w = world();
+  const { run, x, y } = await parkedFan(w, "any");
+  await w.accept(x);
+  expect(getRun(w.ctx, run.id)!.status).toBe("done");
+  expect(readTask(w.ctx, y)!.state).toBe("done");
+  expect(w.step(run.id, "build", "y").status).toBe("stopped");
+});
+
+test("quorum: two accepts satisfy it despite a rejected branch", async () => {
+  const w = world();
+  const { run, x, y, z } = await parkedFan(w, { quorum: 2 });
+  await w.reject(z);
+  await w.accept(x);
+  expect(getRun(w.ctx, run.id)!.status).toBe("waiting");
+  await w.accept(y);
+  expect(getRun(w.ctx, run.id)!.status).toBe("done");
+  expect(w.wakes("step_failed")).toEqual([]);
+});
+
+test("failRun leaves finished parked tasks reviewable and stops resumed ones", async () => {
+  const w = world();
+  const { run, x, y } = await parkedFan(w, "all");
+  w.resumable(y);
+  await w.sendBack(y);
+  await failRun(w.ctx, run.id, "boom", undefined, w.deps);
+  expect(readTask(w.ctx, x)!.state).toBe("done");
+  expect(readTask(w.ctx, y)!.state).toBe("stopped");
+  expect(["x", "y", "z"].map(b => w.step(run.id, "build", b).status)).toEqual(["stopped", "stopped", "stopped"]);
+  expect(w.branchFile(`pacer/${x}`, "x.txt")).toBe("x.txt");
+});
+
+test("a verdict cannot land between an accept's merge and its record", async () => {
+  const w = world();
+  const run = await startChain(w);
+  const impl = w.taskOf(run.id, "impl");
+  await w.execute(impl, { file: "a.txt" });
+  let rejecting: Promise<unknown> | undefined;
+  const slow: Ctx = {
+    ...w.ctx,
+    run: async (argv, timeout, o) => {
+      const result = await w.ctx.run(argv, timeout, o);
+      if (!rejecting && argv.includes("merge") && argv.includes("--no-ff")) {
+        // The merge has landed, the verdict is not recorded yet.
+        rejecting = tasks.review(w.ctx, impl, { verdict: "reject" }).then(() => "rejected", e => (e as CoreError).code);
+        await Bun.sleep(150);
+      }
+      return result;
+    },
+  };
+  await tasks.review(slow, impl, { verdict: "accept" });
+  expect(await rejecting).toBe("conflict");
+  expect(readTask(w.ctx, impl)!.review).toMatchObject({ accepted: true });
+});
+
+test("the run grant continues a parked task to commit its work, and never starts a new one", async () => {
+  const w = world();
+  const run = await startChain(w);
+  const impl = w.taskOf(run.id, "impl");
+  await w.execute(impl, { file: "a.txt" });
+  const token = issueRunGrant(w.ctx, { runId: run.id, turnId: "turn_t", deadline: w.ctx.now + 600 });
+  const orch: Ctx = { ...w.ctx, env: { ...w.ctx.env, PACER_ROLE: "orchestrator", PACER_RUN_GRANT: token, PACER_TASK_ID: "t-orch" } };
+  const verdict = (v: string) => () => authorizeWorkOperation(orch, "task.review", { id: impl, verdict: v, expect_rev: 1 });
+  expect(verdict("send_back")).not.toThrow();
+  expect(verdict("retry")).toThrow(/never delegate/);
+  // No session to resume: the fallback would be a new task, which the grant may not start.
+  await expect(tasks.review(orch, impl, { verdict: "send_back", note: "commit" }, w.reviewDeps)).rejects.toMatchObject({ code: "not_allowed" });
+  expect(readTask(w.ctx, impl)!.retriedBy).toBeUndefined();
+  w.resumable(impl);
+  await w.sendBack(impl, orch);
+  expect(w.spawned.map(s => s.id)).toEqual([impl]);
+  expect(w.spawned[0]!.env.PACER_RUN_GRANT).toBeUndefined();
+  expect(w.spawned[0]!.env.PACER_TASK_ID).toBeUndefined();
+  // Not under review any more (it is running): the grant refuses another send_back.
+  w.finish(impl);
+  await w.tick();
+  expect(w.step(run.id, "impl")).toMatchObject({ status: "waiting", taskId: impl });
+});
+
+test("a conflicting branch is sent back to merge the run branch, then accepted; the record closes", async () => {
+  const w = world();
+  const run = await startChain(w, fan);
+  const x = w.taskOf(run.id, "build", "x"), y = w.taskOf(run.id, "build", "y");
+  await w.checkout(x);
+  await w.checkout(y);
+  await w.execute(x, { file: "same.txt", body: "from x\n" });
+  await w.execute(y, { file: "same.txt", body: "from y\n" });
+  await w.accept(x);
+  w.resumable(y);
+  const conflict = await w.accept(y);
+  expect(conflict).toMatchObject({ accepted: false, merge: "conflict" });
+  // The planner is woken and can act on it.
+  expect(w.wakes("review_due")).toEqual([stepWakeRef(run.id, "build", 1, "y")]);
+  expect(wakeCauseStillOpen(w.ctx, run.id, "review_due", stepWakeRef(run.id, "build", 1, "y"))).toBe(true);
+  const record = readTask(w.ctx, conflict.resolution_task!)!;
+  expect(record.question).toBeUndefined();
+  expect(record.brief.goal).toContain(`pacer review ${y} --send-back`);
+  const item = deriveWorkflowAttention(w.ctx).find(i => i.id === `run_review:${y}`)!;
+  expect(item.actions.map(a => a.label)).toEqual(["Send back to resolve", "Accept", "Reject"]);
+  await callOp(w.ctx, item.actions[0]!.op, item.actions[0]!.params, { spawnRunner: () => 4242 });
+  updateTask(w.ctx, y, t => { t.state = "running"; });
+  expect(readTask(w.ctx, record.id)!.dismissed).toBe(true);
+  const tree = readTask(w.ctx, y)!.worktree!;
+  const branch = getRun(w.ctx, run.id)!.branch!;
+  Bun.spawnSync(["git", "-C", tree, "-c", "user.email=t@t", "-c", "user.name=t", "merge", "-q", branch]);
+  writeFileSync(join(tree, "same.txt"), "both\n");
+  w.git(tree, "commit", "-qam", "resolve");
+  w.finish(y);
+  await w.tick();
+  await w.accept(y);
+  expect(getRun(w.ctx, run.id)!.status).toBe("done");
+  expect(w.branchFile(branch, "same.txt")).toBe("both\n");
+});
+
+test("a base update conflict can be resolved by the commands its record gives", async () => {
+  const w = world();
+  const run = await startChain(w);
+  const impl = w.taskOf(run.id, "impl");
+  await w.execute(impl, { file: "same.txt", body: "run\n" });
+  await w.accept(impl);
+  writeFileSync(join(w.repo, "same.txt"), "base\n");
+  w.git(w.repo, "add", "same.txt");
+  w.git(w.repo, "commit", "-qm", "base moves");
+  const synced = await syncBase(w.ctx, run.id, getRun(w.ctx, run.id)!.rev);
+  expect(synced.ok).toBe(false);
+  if (synced.ok) return;
+  const id = synced.resolution_task, branch = getRun(w.ctx, run.id)!.branch!;
+  const goal = readTask(w.ctx, id)!.brief.goal;
+  expect(goal).toContain(`git worktree add <dir> -b pacer/${id} ${branch}`);
+  const source = getRun(w.ctx, run.id)!.conflict![0]!.branch;
+  const dir = join(tmpDir(), "resolve");
+  w.git(w.repo, "worktree", "add", "-q", dir, "-b", `pacer/${id}`, branch);
+  Bun.spawnSync(["git", "-C", dir, "-c", "user.email=t@t", "-c", "user.name=t", "merge", "-q", source]);
+  writeFileSync(join(dir, "same.txt"), "both\n");
+  w.git(dir, "commit", "-qam", "resolve");
+  const item = deriveWorkflowAttention(w.ctx).find(i => i.id === `run_review:${id}`)!;
+  expect(item.actions[0]!.op).toBe("run.sync_base");
+  await tasks.review(w.ctx, id, { verdict: "accept" });
+  expect(getRun(w.ctx, run.id)!.conflict ?? []).toEqual([]);
+  expect(w.branchFile(branch, "same.txt")).toBe("both\n");
+});
+
+const planned: WorkflowDef = {
+  id: "t/planned", version: 1, entry: "prep", policy: { replan: { auto: 1, then: "ask" } },
+  steps: {
+    prep: { type: "agent", kind: "docs", prompt: "Prep" },
+    plan: { type: "generate", role: "orchestrator", prompt: "Plan", limits: { step_types: ["agent", "fanout"], max_steps: 5, max_depth: 2, kinds: ["feature", "tests"] } },
+    ok: { type: "human", decision: "must", approves: "publish", question: { text: "ok?", kind: "approve_revise" } },
+    done: { type: "end" },
+  },
+  edges: [{ from: "prep", to: "plan" }, { from: "plan", to: "ok", when: "result.status == 'done'" }, { from: "ok", to: "done", when: "result.answer == 'approve'" }],
+};
+
+async function startPlanned(w: ReturnType<typeof world>, graph: WorkflowDef, parentCode: boolean) {
+  const def: WorkflowDef = parentCode ? planned : {
+    ...planned, id: "t/planned-bare", entry: "plan",
+    steps: { plan: planned.steps.plan!, ok: planned.steps.ok!, done: planned.steps.done! },
+    edges: planned.edges.slice(1),
+  };
+  const run = await startChain(w, def);
+  if (parentCode) {
+    const prep = w.taskOf(run.id, "prep");
+    await w.execute(prep, { file: "prep.txt" });
+    await w.accept(prep);
+  }
+  const submitted = await submitGraph(w.ctx, { runId: run.id, stepId: "plan", source: graph }, w.deps);
+  expect(submitted.errors).toEqual([]);
+  return { run, childId: (w.step(run.id, "plan").result as { childRunId: string }).childRunId };
+}
+
+const single: WorkflowDef = {
+  id: "gen/one", version: 1, entry: "impl",
+  steps: { impl: { type: "agent", kind: "feature", prompt: "I" }, done: { type: "end" } },
+  edges: [{ from: "impl", to: "done" }],
+};
+
+test("a rejected fan-out branch in a generated child goes to the re-plan policy, not to a failed run", async () => {
+  const w = world();
+  const graph: WorkflowDef = {
+    id: "gen/fan", version: 1, entry: "build",
+    steps: { build: { type: "fanout", branches: ["x", "y"], each: { type: "agent", kind: "feature", prompt: "B" }, join: "all" }, done: { type: "end" } },
+    edges: [{ from: "build", to: "done" }],
+  };
+  const { run, childId } = await startPlanned(w, graph, false);
+  const x = w.taskOf(childId, "build", "x");
+  await w.execute(x, { file: "x.txt" });
+  await w.reject(x);
+  expect(getRun(w.ctx, run.id)!.status).not.toBe("failed");
+  expect(w.wakes("replan")).toHaveLength(1);
+});
+
+for (const parentCode of [false, true]) {
+  test(`upgrade: a generated child that kept its own branch hands it to the parent (${parentCode ? "parent has one" : "parent has none"})`, async () => {
+    const w = world();
+    const { run, childId } = await startPlanned(w, single, parentCode);
+    // The state an earlier service version left: the branch belongs to the child.
+    if (!parentCode) {
+      w.git(w.repo, "branch", "-D", runBranchName(run.id));
+      clearRunBranch(w.ctx, run.id);
+    }
+    const own = runBranchName(childId);
+    w.git(w.repo, "branch", own, "main");
+    setRunBranch(w.ctx, childId, { branch: own, base_ref: "main", base_sha: w.git(w.repo, "rev-parse", "main") });
+    // Its code step was already delegated against the parent in the new code; redo it from the child's branch.
+    const impl = w.taskOf(childId, "impl");
+    updateTask(w.ctx, impl, t => { t.brief = { ...t.brief, base: own }; });
+    await w.execute(impl, { file: "old.txt" });
+    await w.accept(impl);
+    await awaitTerminalSettle(childId);
+    await w.tick();
+    expect(getRun(w.ctx, childId)!.status).toBe("done");
+    expect(getRun(w.ctx, childId)!.branch ?? undefined).toBeUndefined();
+    expect(w.step(run.id, "plan").status).toBe("done");
+    const branch = getRun(w.ctx, run.id)!.branch!;
+    expect(branch).toBe(parentCode ? runBranchName(run.id) : own);
+    expect(w.branchFile(branch, "old.txt")).toBe("old.txt");
+    if (parentCode) expect(w.branchFile(branch, "prep.txt")).toBe("prep.txt");
+    await answerHumanStep(w.ctx, run.id, "ok", "approve", getRun(w.ctx, run.id)!.rev, w.deps);
+    // The child's id publishes the same branch under the same gate.
+    await assertPublishGate(w.ctx, getRun(w.ctx, childId)!, false);
+    await publishRun(w.ctx, childId, { draft: false, title: "t", body: "b", expectRev: getRun(w.ctx, childId)!.rev });
+    expect(w.git(w.remote, "diff", "--name-only", `main..${branch}`)).toContain("old.txt");
+    expect(getRun(w.ctx, run.id)!.prUrl).toContain("/pull/7");
+  });
+}

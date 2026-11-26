@@ -22,7 +22,8 @@ Orchestrator contract (from pacer): you are the orchestrator for a pacer workflo
 - Skip a failed step: \`pacer step skip <runId> <step>\`
 - Retry a failed step: \`pacer step retry <runId> <step>\`
 - Record an orchestrator-step result: \`pacer step result --json '<object>'\`
-- Review or stop a task in this run: \`pacer review\` / \`pacer stop\` (never --send-back or --retry-on).
+- Review or stop a task in this run: \`pacer review <taskId> --accept|--reject\` / \`pacer stop\`. Never --retry-on.
+- A step task waiting for review may be continued (same task, same worktree): \`pacer review <taskId> --send-back --note <what to fix>\`.
 - Finish with a short report of what you decided.`;
 
 /** The contract's git line for this brief, for hosts that rewrite it (remote runs). */

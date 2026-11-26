@@ -675,11 +675,11 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
         if(cmd==="review") {
           if([opts.accept,opts.reject,opts["send-back"],opts["retry-on"]].filter(Boolean).length!==1)throw new Error("give exactly one of --accept, --reject, --send-back or --retry-on <executor>");
           if(opts["retry-on"]===true)throw new Error("--retry-on requires an executor");
-          // Orchestrator turns never delegate (round-2 B2).
-          if((opts["send-back"]||opts["retry-on"])&&(isExecutorSession(ctx)||isOrchestratorSession(ctx)||!!ctx.env.PACER_RUN_GRANT))
-            throw new DelegateError(isOrchestratorSession(ctx)||ctx.env.PACER_RUN_GRANT
-              ? "pacer: orchestrator cannot delegate via --send-back or --retry-on"
-              : EXECUTOR_DELEGATE_ERROR);
+          // Orchestrator turns never delegate (round-2 B2). --send-back under a run
+          // grant only continues the same task; the grant and core review enforce it.
+          if(opts["retry-on"]&&(isOrchestratorSession(ctx)||!!ctx.env.PACER_RUN_GRANT))
+            throw new DelegateError("pacer: orchestrator cannot delegate via --retry-on");
+          if((opts["send-back"]||opts["retry-on"])&&isExecutorSession(ctx))throw new DelegateError(EXECUTOR_DELEGATE_ERROR);
           if(isExecutorSession(ctx)&&!executorMayReview(ctx,{id:pos[0]}))throw new DelegateError(TASK_REVIEW_REFUSAL);
           const verdict=opts.accept?"accept":opts.reject?"reject":opts["send-back"]?"send_back":"retry";
           // Run-grant sessions must pass authorizeWorkOperation (same as task.review over HTTP).

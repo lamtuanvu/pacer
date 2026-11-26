@@ -25,8 +25,8 @@ test("taskReviewProbe forwards accept for a step task whose run has a branch", a
     forward: true,
     reason: "run branch",
   });
-  // Reject stays native (no merge on reject).
-  expect(taskReviewProbe(ctx, task.id, { verdict: "reject" })).toEqual({ forward: false });
+  // Reject goes the same way: it takes the review lock an accept's merge holds.
+  expect(taskReviewProbe(ctx, task.id, { verdict: "reject" })).toEqual({ forward: true, reason: "run branch" });
 });
 
 test("taskReviewProbe accept stays native for an ordinary task without creating workflow tables", () => {

@@ -13,6 +13,12 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - A workflow chosen by the router keeps the `publish: draft` choice made at `run.start`.
 - `pacer run publish` refuses a run branch with no commits beyond its base.
 - A step delegation that races another task change (the planner's turn is live while a review advances the run) is made again instead of failing the run.
+- Rejecting one branch of a fan-out no longer fails the run: the branch is a decision like any failed step (retry only that branch, skip it, or re-plan a generated sub-workflow), and `join: any` or a quorum still finishes when enough branches are accepted.
+- The planner may send a step task under review back to commit or fix its work. It continues the same task and worktree and never starts a new one. Reporting a step result now also refuses untracked files, as accepting does.
+- A merge conflict can be resolved in the product: send the task back to merge the run branch, or commit the merge in its worktree, then accept. The conflict record closes by itself and no longer raises a question nothing can answer.
+- A verdict can no longer land between an accept's merge and its record, and a retry takes its workflow step over before the new task can report.
+- Generated runs that already had a branch of their own before this update hand it to the parent run with its merged work, and publishing a generated run publishes the parent's branch under the parent's gate.
+- Ending a run or resolving a join stops a task that was sent back and is running again, and leaves finished tasks reviewable.
 
 ## [0.18.6] - 2026-11-26
 

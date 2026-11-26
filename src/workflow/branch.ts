@@ -9,16 +9,18 @@ import type { Ctx } from "../types";
 import { CoreError } from "../core/errors";
 import { withLock } from "../core/lock";
 import { gitInfo, realpathSafe } from "../core/git";
-import { resolveWorktreeBase, taskWorktreesDir, worktreeDirty } from "../supervisor/worktree";
+import { removeTaskWorktree, resolveWorktreeBase, taskWorktreesDir, worktreeDirty } from "../supervisor/worktree";
 import { createTask, readTask, updateTask } from "../tasks/store";
 import type { TaskRecord } from "../tasks/types";
 import { isCodeStep } from "./schema";
 import {
-  branchOwner, getDefinition, getRun, replaceRunConflicts, setRunBranch, setRunConflict,
+  branchOwner, clearRunBranch, clearRunConflict, generatedChildren, getDefinition, getRun, replaceRunConflicts,
+  setRunBranch, setRunConflict,
   stepByTask, stepByTaskLineage, taskByRequestId, workflowDatabase, type RunConflict, type RunRow,
 } from "./store";
 import { enqueueWakeup, stepWakeRef } from "./wakeups";
 import { dataPreamble } from "./template";
+import { awaitsReview, closeConflictRecord } from "./review";
 
 export { isCodeStep };
 
@@ -176,7 +178,10 @@ async function clearResolvedConflicts(
       continue;
     }
     // Only clear when the conflicting work is actually on the run branch.
-    if (await isAncestorOfRun(ctx, top, entry.branch, live.branch)) continue;
+    if (await isAncestorOfRun(ctx, top, entry.branch, live.branch)) {
+      if (entry.resolutionTaskId !== taskId) closeConflictRecord(ctx, entry.resolutionTaskId);
+      continue;
+    }
     remaining.push(entry);
   }
   if (remaining.length !== live.conflict.length) {
@@ -385,6 +390,116 @@ export async function taskWorkMerged(ctx: Ctx, taskId: string): Promise<boolean>
   return await commitsAhead(ctx, top, run.branch, work) === 0;
 }
 
+/** What a reviewer of a step task compares: the branch holding its work, the
+ *  commit it started from and the run branch an accept would merge it into. */
+export type ReviewRef = { branch: string; base: string | null; runBranch: string };
+
+export async function reviewRef(ctx: Ctx, taskId: string): Promise<ReviewRef | null> {
+  const step = stepByTaskLineage(ctx, taskId);
+  const stepRun = step ? getRun(ctx, step.runId) : null;
+  const run = stepRun ? branchOwner(ctx, stepRun) : null;
+  const task = readTask(ctx, taskId);
+  if (!run?.branch || !task) return null;
+  try {
+    const top = await resolveRepoTop(ctx, run.repo);
+    const work = await taskWorkBranch(ctx, top, task, run.branch, isCodeTask(ctx, taskId));
+    return {
+      branch: work?.branch ?? `pacer/${task.id}`,
+      base: work?.baseSha ?? task.baseSha ?? null,
+      runBranch: run.branch,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Hands one ended child's own branch to `ownerId`, under the owner's merge lock. */
+function adoptBranch(ctx: Ctx, ownerId: string, childId: string): Promise<boolean> {
+  return withMergeLock(ctx, ownerId, async () => {
+    const owner = getRun(ctx, ownerId), child = getRun(ctx, childId);
+    if (!owner || !child?.branch || !child.baseRef || !child.baseSha) return true;
+    const top = await resolveRepoTop(ctx, child.repo);
+    if (await localBranchExists(ctx, top, child.branch)) {
+      if (owner.branch && owner.branch !== child.branch && !await isAncestorOfRun(ctx, top, child.branch, owner.branch)) {
+        const merged = await mergeIntoRunBranch(
+          ctx, owner, top, child.branch, `Adopt ${child.branch} into ${owner.branch}`,
+        );
+        if (!merged.ok) {
+          createConflictResolutionTask(ctx, owner, { id: `child:${child.id}`, rev: 0 }, child.branch, merged.files);
+          return false;
+        }
+        await clearResolvedConflicts(ctx, owner, top, `child:${child.id}`);
+      }
+      // Its integration worktree holds the branch checked out: the owner needs it.
+      const held = integrationPath(ctx, top, child.id);
+      if (existsSync(held)) {
+        const removed = await removeTaskWorktree(ctx, top, held, { force: true });
+        if ("error" in removed) throw new CoreError("unavailable", cleanLine(removed.error));
+      }
+      if (!owner.branch) {
+        setRunBranch(ctx, owner.id, { branch: child.branch, base_ref: child.baseRef, base_sha: child.baseSha });
+      }
+      for (const entry of child.conflict ?? []) setRunConflict(ctx, owner.id, entry);
+    }
+    clearRunBranch(ctx, child.id);
+    clearRunConflict(ctx, child.id);
+    return true;
+  });
+}
+
+/**
+ * Moves the branches that ended generated children of `parent` still own (runs
+ * started before a generated child shared its parent's branch) to the owner,
+ * keeping their merged work. False while one of them does not merge.
+ */
+export async function adoptGeneratedBranches(ctx: Ctx, parent: RunRow): Promise<boolean> {
+  let all = true;
+  for (const child of generatedChildren(ctx, parent)) {
+    if (!child.branch || !RUN_TERMINAL.includes(child.status)) continue;
+    const owner = branchOwner(ctx, parent);
+    if (RUN_TERMINAL.includes(owner.status)) continue;
+    try {
+      if (!await adoptBranch(ctx, owner.id, child.id)) all = false;
+    } catch (error) {
+      console.warn(`pacer: run ${child.id} branch is not on run ${owner.id} yet: ${error instanceof Error ? error.message : String(error)}`);
+      all = false;
+    }
+  }
+  return all;
+}
+
+/** `--no-ff` merge of `source` into the run branch; a conflict is aborted and
+ *  reported with its files. Call under the run's merge lock. */
+async function mergeIntoRunBranch(
+  ctx: Ctx, run: RunRow, top: string, source: string, message: string,
+): Promise<{ ok: true } | { ok: false; files: string }> {
+  const wt = await integrationWorktreeUnlocked(ctx, run);
+  // Crash leftover: clear an interrupted merge before starting another.
+  if ((await ctx.run(["git", "-C", wt, "rev-parse", "--verify", "MERGE_HEAD"], 5_000)).code === 0) {
+    await ctx.run(["git", "-C", wt, "merge", "--abort"], 30_000);
+  }
+  const signoff = mergeSignoffEnabled(top);
+  const argv = [
+    "git", "-C", wt,
+    "-c", "user.email=pacer@localhost", "-c", "user.name=pacer",
+    "-c", "core.hooksPath=/dev/null",
+    "merge", "--no-ff", "--no-edit",
+    ...(signoff ? ["--signoff"] : []),
+    "-m", message,
+    source,
+  ];
+  const merged = await ctx.run(argv, 60_000, { env: gitQuietEnv(ctx) });
+  if (merged.code === 0) return { ok: true };
+  const conflicted = /CONFLICT/i.test(merged.stdout + merged.stderr)
+    || (await ctx.run(["git", "-C", wt, "rev-parse", "--verify", "MERGE_HEAD"], 5_000)).code === 0;
+  if (!conflicted) {
+    throw new CoreError("unavailable", `merge failed: ${cleanLine(merged.stderr) || cleanLine(merged.stdout) || `exit ${merged.code}`}`);
+  }
+  const files = (await ctx.run(["git", "-C", wt, "diff", "--name-only", "--diff-filter=U"], 15_000)).stdout.trim();
+  await ctx.run(["git", "-C", wt, "merge", "--abort"], 30_000);
+  return { ok: false, files };
+}
+
 /**
  * When `taskId` belongs to a run that has a branch, merge its work branch into the
  * run branch under the merge lock. Returns null when the task is not a run-branch
@@ -460,37 +575,13 @@ export async function mergeTaskOnAccept(ctx: Ctx, taskId: string): Promise<Accep
       }
     }
 
-    const wt = await integrationWorktreeUnlocked(ctx, live);
-    // Crash leftover: clear an interrupted merge before starting another.
-    if ((await ctx.run(["git", "-C", wt, "rev-parse", "--verify", "MERGE_HEAD"], 5_000)).code === 0) {
-      await ctx.run(["git", "-C", wt, "merge", "--abort"], 30_000);
-    }
-    const signoff = mergeSignoffEnabled(top);
-    const argv = [
-      "git", "-C", wt,
-      "-c", "user.email=pacer@localhost", "-c", "user.name=pacer",
-      "-c", "core.hooksPath=/dev/null",
-      "merge", "--no-ff", "--no-edit",
-      ...(signoff ? ["--signoff"] : []),
-      "-m", `Accept ${taskId} into ${live.branch}`,
-      taskBranch,
-    ];
-    const quiet = gitQuietEnv(ctx);
-    const merged = await ctx.run(argv, 60_000, { env: quiet });
-    if (merged.code === 0) {
+    const merged = await mergeIntoRunBranch(ctx, live, top, taskBranch, `Accept ${taskId} into ${live.branch}`);
+    if (merged.ok) {
       await clearResolvedConflicts(ctx, live, top, taskId);
       return { merged: true };
     }
-
-    const conflicted = /CONFLICT/i.test(merged.stdout + merged.stderr)
-      || (await ctx.run(["git", "-C", wt, "rev-parse", "--verify", "MERGE_HEAD"], 5_000)).code === 0;
-    if (conflicted) {
-      const files = (await ctx.run(["git", "-C", wt, "diff", "--name-only", "--diff-filter=U"], 15_000)).stdout.trim();
-      await ctx.run(["git", "-C", wt, "merge", "--abort"], 30_000);
-      const resolution = createConflictResolutionTask(ctx, live, task, taskBranch, files);
-      return { merged: false, merge: "conflict", resolution_task: resolution.id };
-    }
-    throw new CoreError("unavailable", `merge failed: ${cleanLine(merged.stderr) || cleanLine(merged.stdout) || `exit ${merged.code}`}`);
+    const resolution = createConflictResolutionTask(ctx, live, task, taskBranch, merged.files);
+    return { merged: false, merge: "conflict", resolution_task: resolution.id };
   });
 }
 
@@ -532,30 +623,31 @@ function createConflictResolutionTask(
     ? `${rawFiles.slice(0, CONFLICT_FILES_CAP)}\n…(truncated)`
     : rawFiles;
   const nonce = randomBytes(4).toString("hex");
-  const goal = [
-    `Manual conflict resolution for run ${run.id} (person or orchestrator; not auto-started).`,
-    `Run branch: ${run.branch}. Conflicting task branch: ${taskBranch}.`,
+  const ofTask = !/^(base|child):/.test(task.id);
+  const goal = (own: string) => [
+    `Manual conflict resolution record for run ${run.id} (person or orchestrator; no executor runs this task).`,
+    `Run branch: ${run.branch}. Conflicting branch: ${taskBranch}.`,
     dataPreamble(nonce),
     `--- data ${nonce} conflicting-paths ---`,
     capped,
     `--- end data ${nonce} ---`,
-    `Merge the fix into ${run.branch} on a pacer/<this-task> branch, then accept this task.`,
+    ofTask
+      ? `Resolve it on task ${task.id}: send it back (pacer review ${task.id} --send-back --note "merge ${run.branch} into your branch, resolve and commit"), or merge ${run.branch} into ${taskBranch} in its worktree and commit; then accept ${task.id}. This record closes by itself.`
+      : `Resolve it by hand: git worktree add <dir> -b pacer/${own} ${run.branch}, merge ${taskBranch} there, resolve and commit, then run: pacer review ${own} --accept.`,
   ].join("\n");
   const resolution = createTask(ctx, {
-    brief: { goal, repo: run.repo, base: run.branch },
+    brief: { goal: goal("<this task>"), repo: run.repo, base: run.branch },
     kind: "debug",
     requestedExecutor: null,
     timeoutS: 3600,
     title: `Conflict · ${task.id}`.slice(0, 60),
     requestId,
   });
-  // Manual task: needs_input so the 600s never-started sweep cannot mark it failed.
+  // A record, not work: needs_input so the 600s never-started sweep cannot mark it
+  // failed, and no question, since nothing could answer it.
   updateTask(ctx, resolution.id, t => {
     t.state = "needs_input";
-    t.question = {
-      text: `Resolve merge conflict for ${task.id} into ${run.branch}, then accept this task.`,
-      at: ctx.now,
-    };
+    t.brief = { ...t.brief, goal: goal(resolution.id) };
   });
   setRunConflict(ctx, run.id, {
     taskId: task.id,
@@ -563,15 +655,16 @@ function createConflictResolutionTask(
     resolutionTaskId: resolution.id,
   });
 
-  // Wake the orchestrator on the real conflicting step when known; else the run id.
+  // Wake the orchestrator: on the parked step's review when it waits for one (it
+  // can send the task back), else on the conflicting step or the run.
   const owning = stepByTask(ctx, task.id);
   if (run.orchestratorTaskId || run.planner) {
     try {
       enqueueWakeup(ctx, {
         runId: run.id,
-        cause: "step_failed",
+        cause: owning && awaitsReview(ctx, owning) ? "review_due" : "step_failed",
         ref: owning
-          ? stepWakeRef(run.id, owning.stepId, owning.attempt, owning.branch)
+          ? stepWakeRef(owning.runId, owning.stepId, owning.attempt, owning.branch)
           : stepWakeRef(run.id, "conflict", 1),
         createdAt: ctx.now,
       });

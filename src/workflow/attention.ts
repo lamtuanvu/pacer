@@ -9,6 +9,7 @@ import { notifyLevelForRun, runExternalCaller, sortItems } from "../attention/ru
 import { PLANNERS } from "../config/strategy";
 import { agentInfo } from "../view-model/agents";
 import {
+  branchOwner,
   getRun,
   rootRunId,
   listOpenPersonQuestions,
@@ -24,6 +25,7 @@ import { taskDatabase } from "../tasks/store";
 import { isBudgetBlocked, parseBudget, parseSpent } from "./budget";
 import { resolveRunLetters } from "./letters";
 import { mergeConflictFor, reviewDueTask } from "./review";
+import { canContinue } from "../tasks/types";
 
 /** Person-facing cue so human-step / planner / executor questions differ on Dispatch. */
 function askerCue(kind: QuestionAskerKind): string {
@@ -445,9 +447,12 @@ function reviewItems(ctx: Ctx, run: RunRow, letters: Map<string, string>): Atten
     const root = run.parentRunId ? getRun(ctx, rootRunId(ctx, run.id)) ?? run : run;
     const stuck = !!conflict || root.orchestratorState === "blocked";
     const waitingOn = runExternalCaller(root);
-    const verdict = (label: string, value: "accept" | "reject"): Action => ({
-      label, op: "task.review", params: { id: task.id, verdict: value, expect_rev: task.rev },
+    const verdict = (label: string, value: "accept" | "reject" | "send_back", note?: string): Action => ({
+      label, op: "task.review",
+      params: { id: task.id, verdict: value, expect_rev: task.rev, ...(note ? { note } : {}) },
     });
+    const sendable = !!conflict && canContinue(ctx, task);
+    const branch = branchOwner(ctx, run).branch;
     items.push({
       id: `run_review:${task.id}`,
       kind: "review",
@@ -456,20 +461,46 @@ function reviewItems(ctx: Ctx, run: RunRow, letters: Map<string, string>): Atten
       taskId: task.id,
       title: clipCodePoints(`Review the changes from step "${name}"`, QUESTION_TITLE_CLIP, true),
       detail: conflict
-        ? `${runDetailSubject(root)}. Accepting hit a merge conflict. Resolve it in task ${conflict}, accept that task, then accept this one.`
+        ? `${runDetailSubject(root)}. Accepting hit a merge conflict. ${sendable ? "Send it back to merge the run branch and commit, or do that in the task's worktree" : "Merge the run branch in the task's worktree and commit"}, then accept.`
         : `${runDetailSubject(root)}. Accepting merges the changes into the run branch and the run continues. Uncommitted work is refused.`,
       raisedAt: at,
       since: at,
       notify: notifyLevelForRun("question", root, ctx.now, { since: at, unblocks: stuck ? "run" : "nothing" }),
       ...(waitingOn ? { waitingOn } : {}),
-      actions: conflict
-        ? [{ ...verdict("Reject", "reject"), style: "danger" }]
-        : [{ ...verdict("Accept", "accept"), style: "primary" }, { ...verdict("Reject", "reject"), style: "danger" }],
+      actions: [
+        ...(sendable
+          ? [{ ...verdict("Send back to resolve", "send_back", `Merge ${branch} into your branch, resolve the conflicts and commit.`), style: "primary" as const }]
+          : []),
+        { ...verdict("Accept", "accept"), ...(sendable ? {} : { style: "primary" as const }) },
+        { ...verdict("Reject", "reject"), style: "danger" },
+      ],
       unblocks: "run",
       run: attentionRunRef(root, letters),
     });
   }
   return items;
+}
+
+/** A conflict with no step task behind it (base update, adopted branch): the
+ *  record names the way to resolve it. */
+function branchConflictItems(ctx: Ctx, run: RunRow, letters: Map<string, string>): AttentionItem[] {
+  return (run.conflict ?? []).filter(entry => /^(base|child):/.test(entry.taskId)).map(entry => ({
+    id: `run_review:${entry.resolutionTaskId}`,
+    kind: "review" as const,
+    severity: "blocked" as const,
+    repo: null,
+    taskId: entry.resolutionTaskId,
+    title: "Resolve a merge conflict on the run branch",
+    detail: `${runDetailSubject(run)}. Task ${entry.resolutionTaskId} lists the conflicting files and the commands to resolve them. Publishing waits until then.`,
+    raisedAt: run.updatedAt,
+    since: run.updatedAt,
+    notify: notifyLevelForRun("question", run, ctx.now, { since: run.updatedAt, unblocks: "run" }),
+    actions: entry.taskId.startsWith("base:")
+      ? [{ label: "Try the update again", op: "run.sync_base", params: { id: run.id, expect_rev: run.rev } }]
+      : [],
+    unblocks: "run" as const,
+    run: attentionRunRef(run, letters),
+  }));
 }
 
 /** Attention items for live runs: blocked orchestrator, budget thresholds, and person questions. */
@@ -484,7 +515,7 @@ export function deriveWorkflowAttention(ctx: Ctx): AttentionItem[] {
     items.push(runQuestionItem(ctx, q, run, letters));
   }
   for (const run of live) {
-    items.push(...reviewItems(ctx, run, letters));
+    items.push(...reviewItems(ctx, run, letters), ...branchConflictItems(ctx, run, letters));
     // Child runs share the root's orchestrator/budget attention.
     if (run.parentRunId) continue;
     const budget = parseBudget(run.budget);

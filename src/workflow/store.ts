@@ -1164,10 +1164,12 @@ function isGeneratedChild(ctx: Ctx, run: RunRow, parent: RunRow): boolean {
 
 /** The run that owns `run`'s run branch. A generated child works on its parent's
  *  branch, so the parent's publish steps see the code; a top-level or
- *  `choose_workflow` run owns its own (it has its own publish steps). */
+ *  `choose_workflow` run owns its own (it has its own publish steps). A generated
+ *  child that already has a branch (started before this rule) keeps it until the
+ *  branch is handed to the owner (`adoptGeneratedBranches`). */
 export function branchOwner(ctx: Ctx, run: RunRow): RunRow {
   let current = getRun(ctx, run.id) ?? run;
-  while (current.parentRunId) {
+  while (current.parentRunId && !current.branch) {
     const parent = getRun(ctx, current.parentRunId);
     if (!parent || !isGeneratedChild(ctx, current, parent)) break;
     current = parent;
@@ -1175,18 +1177,19 @@ export function branchOwner(ctx: Ctx, run: RunRow): RunRow {
   return current;
 }
 
+/** The runs a `generate` step of `parent` started, oldest first. */
+export function generatedChildren(ctx: Ctx, parent: RunRow): RunRow[] {
+  return workflowDatabase(ctx).query<{ id: string }, [string]>(
+    "SELECT id FROM workflow_runs WHERE parent_run_id = ? ORDER BY created_at, id",
+  ).all(parent.id)
+    .map(({ id }) => getRun(ctx, id))
+    .filter((child): child is RunRow => !!child && isGeneratedChild(ctx, child, parent));
+}
+
 /** `owner` plus every generated descendant: all runs whose steps share its branch. */
 export function runsSharingBranch(ctx: Ctx, owner: RunRow): RunRow[] {
   const out: RunRow[] = [owner];
-  for (let i = 0; i < out.length; i++) {
-    const children = workflowDatabase(ctx).query<{ id: string }, [string]>(
-      "SELECT id FROM workflow_runs WHERE parent_run_id = ? ORDER BY created_at, id",
-    ).all(out[i]!.id);
-    for (const { id } of children) {
-      const child = getRun(ctx, id);
-      if (child && isGeneratedChild(ctx, child, out[i]!)) out.push(child);
-    }
-  }
+  for (let i = 0; i < out.length; i++) out.push(...generatedChildren(ctx, out[i]!));
   return out;
 }
 
@@ -1496,6 +1499,25 @@ export function insertStep(ctx: Ctx, s: NewStep): StepRow {
   db.query("INSERT INTO workflow_steps(run_id, step_id, attempt, branch, task_id, status, result, error, started_at, ended_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
     .run(row.runId, row.stepId, row.attempt, row.branch ?? "", row.taskId ?? null, row.status, null, null, row.startedAt, null);
   return row;
+}
+
+/** The fan-out attempt a row belongs to: its own, or for a retried branch the
+ *  attempt whose branch it replaces (recorded in its trigger). */
+export function fanoutAttempt(row: Pick<StepRow, "attempt" | "trigger">): number {
+  const retry = /^retry:(\d+):/.exec(row.trigger ?? "");
+  return retry ? Number(retry[1]) : row.attempt;
+}
+
+/** A new attempt of one fan-out branch, joined with the rest of its fan-out. */
+export function insertBranchRetry(
+  ctx: Ctx, failed: StepRow & { branch: string }, attempt: number,
+): StepRow {
+  const trigger = `retry:${fanoutAttempt(failed)}:${failed.runId}/${failed.stepId}/${failed.branch}#${attempt}`;
+  workflowDatabase(ctx).query(
+    `INSERT INTO workflow_steps(run_id, step_id, attempt, branch, task_id, status, result, error, started_at, ended_at, "trigger")
+     VALUES (?, ?, ?, ?, NULL, 'running', NULL, NULL, ?, NULL, ?)`,
+  ).run(failed.runId, failed.stepId, attempt, failed.branch, ctx.now, trigger);
+  return { runId: failed.runId, stepId: failed.stepId, attempt, branch: failed.branch, status: "running", startedAt: ctx.now, trigger };
 }
 
 /** Inserts every branch row of one fan-out attempt in ONE transaction (the fireEdge

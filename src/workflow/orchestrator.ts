@@ -14,7 +14,7 @@ import { loadStrategy } from "../config/strategy";
 import { withoutPlannerSession } from "../exec/process";
 import { dataPreamble, renderPrompt, STEP_RESULT_INSTRUCTION } from "./template";
 import {
-  branchOwner, getDefinition, getQuestion, getRun, listDecisions, liveRuns, resolveWorkflowPrompt, rootRunId, stepsOfRun, updateRun, workflowDatabase,
+  getDefinition, getQuestion, getRun, listDecisions, liveRuns, resolveWorkflowPrompt, rootRunId, stepsOfRun, updateRun, workflowDatabase,
   type RunRow, type StepRow,
 } from "./store";
 import {
@@ -23,6 +23,8 @@ import {
   releaseWakeups, stepsOfRootTree, stepWakeRef, updateTurn, wakeCauseStillOpen,
   type TurnRow, type Wakeup,
 } from "./wakeups";
+import { reviewRef, type ReviewRef } from "./branch";
+import { mergeConflictFor } from "./review";
 import { revokeOrphanRunGrants, revokeRunGrant, revokeRunGrantsForRun } from "./run-grant";
 import {
   budgetAllowsTurn as defaultBudgetAllowsTurn,
@@ -694,6 +696,24 @@ function openOrchestratorBlocks(
   return blocks;
 }
 
+/** The step row a review wake-up names. */
+function reviewRow(w: Wakeup, steps: StepRow[]): StepRow | undefined {
+  return w.cause === "review_due"
+    ? steps.find(s => stepWakeRef(s.runId, s.stepId, s.attempt, s.branch) === w.ref)
+    : undefined;
+}
+
+/** What the turn needs to give a verdict: the task, what to diff, and a conflict. */
+function reviewPayload(
+  ctx: Ctx, w: Wakeup, steps: StepRow[], reviews: ReadonlyMap<string, ReviewRef>,
+): Record<string, unknown> | undefined {
+  const taskId = reviewRow(w, steps)?.taskId;
+  const ref = taskId ? reviews.get(taskId) : undefined;
+  if (!taskId || !ref) return undefined;
+  const conflict = mergeConflictFor(ctx, reviewRow(w, steps)!.runId, taskId);
+  return { taskId, ...ref, ...(conflict ? { mergeConflict: conflict } : {}) };
+}
+
 /** Standard orchestrator turn prompt: wake-ups first, then summary; each block capped. */
 export function buildTurnPrompt(
   ctx: Ctx,
@@ -701,6 +721,7 @@ export function buildTurnPrompt(
   wakeups: Wakeup[],
   def: WorkflowDef | null,
   steps: StepRow[],
+  reviews: ReadonlyMap<string, ReviewRef> = new Map(),
 ): string {
   const nonce = newPromptNonce();
   // Open/failed first so the 8 KB run-state cap keeps error=/task=/run= (S-NEW-4).
@@ -728,19 +749,8 @@ export function buildTurnPrompt(
       createdAt: w.createdAt,
       byPerson: w.byPerson,
     };
-    if (w.cause === "review_due") {
-      const row = steps.find(s => stepWakeRef(s.runId, s.stepId, s.attempt, s.branch) === w.ref);
-      const task = row?.taskId ? readTask(ctx, row.taskId) : null;
-      const owning = row ? getRun(ctx, row.runId) : null;
-      if (task && owning) {
-        payload.review = {
-          taskId: task.id,
-          branch: `pacer/${task.id}`,
-          base: task.baseSha ?? null,
-          runBranch: branchOwner(ctx, owning).branch ?? null,
-        };
-      }
-    }
+    const review = reviewPayload(ctx, w, steps, reviews);
+    if (review) payload.review = review;
     // Answered (or open) question wakes carry the record as DATA so the turn can act.
     if (w.cause === "question" && w.ref.startsWith("q_")) {
       const q = getQuestion(ctx, w.ref);
@@ -807,7 +817,7 @@ export function buildTurnPrompt(
       ? ["A returned wake-up means the person opened this run: write a short since-you-last-looked summary with `pacer run decide` kind summary (stored on the run, ≤ 4 KiB)."]
       : []),
     ...(wakeups.some(w => w.cause === "review_due")
-      ? ["A review_due wake-up: a code step waits for your verdict. Read its changes with `git diff <base>...<branch>`, then `pacer review <taskId> --accept` (merges into the run branch) or `--reject`. The run waits until then."]
+      ? ["A review_due wake-up: a code step waits for your verdict. Read its changes with `git diff <runBranch>...<branch>`, then `pacer review <taskId> --accept` (merges into the run branch), `--reject`, or `--send-back --note <what to fix>` to continue the same task (uncommitted work, or a conflict: ask it to merge <runBranch>, resolve and commit). The run waits until then."]
       : []),
     "Commands (replace <owningRunId> with the run id from each step line / open block):",
     "  pacer run decide <owningRunId> <step> <choice> --reason <text>",
@@ -852,6 +862,7 @@ export function buildHandoverPrompt(
   wakeups: Wakeup[],
   def: WorkflowDef | null,
   steps: StepRow[],
+  reviews: ReadonlyMap<string, ReviewRef> = new Map(),
 ): string {
   const nonce = newPromptNonce();
   const decisions = listDecisions(ctx, run.id).map(d =>
@@ -872,9 +883,13 @@ export function buildHandoverPrompt(
   const openBlocks = openOrchestratorBlocks(ctx, nonce, run, wakeups, steps);
   // Run summary early (with wake-ups) so the UTF-8 cap cannot drop it (H3).
   const blocks = [
-    ...wakeups.map(w => fenceBlock(nonce, `wake-up ${w.cause} ${w.ref}`, JSON.stringify({
-      cause: w.cause, ref: w.ref, createdAt: w.createdAt, byPerson: w.byPerson,
-    }, null, 2))),
+    ...wakeups.map(w => {
+      const review = reviewPayload(ctx, w, steps, reviews);
+      return fenceBlock(nonce, `wake-up ${w.cause} ${w.ref}`, JSON.stringify({
+        cause: w.cause, ref: w.ref, createdAt: w.createdAt, byPerson: w.byPerson,
+        ...(review ? { review } : {}),
+      }, null, 2));
+    }),
     fenceBlock(nonce, "run summary", [
       `run: ${run.id}`,
       `workflow: ${run.workflow}@${run.version}`,
@@ -993,9 +1008,15 @@ export async function startTurn(ctx: Ctx, runId: string, opts: OrchestratorDeps 
     const switching = !!run.pendingPlanner && run.pendingPlanner !== run.planner;
     // Include choose_workflow child steps so the turn can name their owning runId (N4).
     const steps = stepsOfRootTree(ctx, runId);
+    const reviews = new Map<string, ReviewRef>();
+    for (const w of wakeups) {
+      const taskId = reviewRow(w, steps)?.taskId;
+      const ref = taskId ? await reviewRef(ctx, taskId) : null;
+      if (taskId && ref) reviews.set(taskId, ref);
+    }
     const prompt = switching
-      ? buildHandoverPrompt(ctx, run, wakeups, def, steps)
-      : buildTurnPrompt(ctx, run, wakeups, def, steps);
+      ? buildHandoverPrompt(ctx, run, wakeups, def, steps, reviews)
+      : buildTurnPrompt(ctx, run, wakeups, def, steps, reviews);
     // The prg_ bearer is issued in the runner for the agent env only (mirrors work
     // grants). Putting it on the launch ctx makes `pacer _run` hit the orchestrator
     // CLI allow-list and die before the turn starts (round-2 B1).

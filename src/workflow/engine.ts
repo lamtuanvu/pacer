@@ -29,7 +29,7 @@ import { evalCondition, parseCondition } from "./condition";
 import { renderPrompt } from "./template";
 import {
   attachStepTask, branchOwner, bumpEntryStartAttempts, claimEntryLease,
-  claimStepAnswer, claimStepReview, claimStepSettlement, clearEntryLease,
+  claimStepAnswer, claimStepReview, claimStepSettlement, fanoutAttempt, insertBranchRetry, clearEntryLease,
   clearEntrySeed, ENTRY_START_TRANSIENT_MAX, ENTRY_START_TRANSIENT_MIN_S,
   entryLeaseSeconds, fireEdge, getDefinition,
   getRun, insertFanoutBranches, insertJoinStep,
@@ -56,8 +56,10 @@ import { questionEntityValue, raiseHumanStepQuestion, resolveHumanStepQuestion }
 import { settleOrchestratorTaskForEndedRun, settleTurn, stopLiveTurnsForRun } from "./orchestrator";
 import { ensureRootWorkNode, isWorkNodeRun, startStepTask } from "./worknode";
 import { installGeneratedDefinition } from "./generate";
-import { ensureRunBranch, mergeTaskOnAccept, taskWorkMerged } from "./branch";
-import { awaitsReview, needsReview, resumedForFollowUp } from "./review";
+import { adoptGeneratedBranches, ensureRunBranch, mergeTaskOnAccept, taskWorkMerged } from "./branch";
+import {
+  adoptRetriedStep, awaitsReview, fanoutJoined, isHeldBranch, needsReview, resumedForFollowUp, REVIEW_REJECTED,
+} from "./review";
 import { branchReportFor, settleRunGitOnTerminal } from "./cleanup";
 import { isCodeStep, isPlainObject, type AgentStep, type ChooseWorkflowStep, type FanoutStep, type GenerateStep, type HumanStep, type JsonSchemaLite, type StepResultSchema, type WorkflowDef } from "./schema";
 import { loadStrategy, StrategyError, workflowRouterId } from "../config/strategy";
@@ -380,6 +382,14 @@ async function patchRun(ctx: Ctx, runId: string, patch: RunPatch, o?: EngineOpti
 /** Runs whose failRun cascade is in progress — settleParentChooseStep skips wakes. */
 const failingRuns = new Set<string>();
 
+/** Stops a step row's task, unless it finished and only waits for a verdict:
+ *  that task stays as it is, still reviewable. A resumed one is stopped. */
+function stopStepTask(ctx: Ctx, row: StepRow, deps: EngineDeps): void {
+  if (!row.taskId) return;
+  if (awaitsReview(ctx, row) && ["done", "partial"].includes(readTask(ctx, row.taskId)?.state ?? "done")) return;
+  try { deps.stopTask(ctx, row.taskId); } catch { /* ending a step must not depend on one task */ }
+}
+
 /** Fails a run with a reason (and optionally the loop counters that led there) and
  *  stops its in-flight step tasks; those rows are marked stopped too. Terminal runs
  *  stay terminal. */
@@ -398,15 +408,8 @@ export async function failRun(ctx: Ctx, runId: string, reason: string, loops?: R
     }
     await patchRun(ctx, runId, { status: "failed", reason, ...(loops ? { loops } : {}) }, { deps, spawn: undefined });
     for (const row of stepsOfRun(ctx, runId)) {
-      if (awaitsReview(ctx, row)) {
-        // The task already ended; its branch and verdict stay as they are.
-        try { updateStep(ctx, keyOf(row), { status: "stopped", error: "run failed", endedAt: ctx.now }); } catch { /* */ }
-        continue;
-      }
-      if (row.status !== "running") continue;
-      if (row.taskId) {
-        try { deps.stopTask(ctx, row.taskId); } catch { /* failing the run must not depend on one task */ }
-      }
+      if (row.status !== "running" && !awaitsReview(ctx, row)) continue;
+      stopStepTask(ctx, row, deps);
       try { updateStep(ctx, keyOf(row), { status: "stopped", error: "run failed", endedAt: ctx.now }); } catch { /* the row may have settled meanwhile */ }
     }
   } finally {
@@ -1514,7 +1517,7 @@ function childStepResults(ctx: Ctx, childId: string): Record<string, unknown> {
 }
 
 /** When a child run of choose_workflow/generate ends, finish the parent step with the child's result. */
-async function settleParentChooseStep(
+export async function settleParentChooseStep(
   ctx: Ctx,
   child: RunRow,
   deps: EngineDeps,
@@ -1525,6 +1528,9 @@ async function settleParentChooseStep(
   if (!parent || RUN_TERMINAL.includes(parent.status)) return;
   const def = loadDefinition(ctx, parent);
   if (!def) return;
+  // A child that kept a branch of its own hands it over before anything depends on
+  // it. Until that merges, the generate step keeps waiting (the tick tries again).
+  if (def.steps[child.parentStep]?.type === "generate" && !await adoptGeneratedBranches(ctx, parent)) return;
   const waiting = stepsOfRun(ctx, parent.id).filter(s => s.stepId === child.parentStep && s.status === "waiting");
   const row = waiting[waiting.length - 1];
   if (!row) return;
@@ -1797,8 +1803,8 @@ async function settleReview(ctx: Ctx, run: RunRow, def: WorkflowDef, row: StepRo
   let error: string | undefined;
   if (!task.review) {
     if (task.state === "done") return;
-    error = task.state;
-  } else if (!task.review.accepted) error = "review rejected";
+    error = `review: task ${task.state}`;
+  } else if (!task.review.accepted) error = REVIEW_REJECTED;
   else {
     // Edges fire only after a clean merge. An accept merges before it is recorded;
     // this covers a verdict recorded any other way. A refused merge keeps waiting.
@@ -1819,28 +1825,27 @@ async function settleReview(ctx: Ctx, run: RunRow, def: WorkflowDef, row: StepRo
   completeWakeupRef(ctx, run.id, "review_due", ref);
   await publishRunChange(ctx, getRun(ctx, run.id) ?? run);
   const stepDef = def.steps[row.stepId];
-  if (stepDef?.type === "fanout") {
-    await joinFanout(ctx, getRun(ctx, run.id)!, def, claimed, stepDef, e);
+  if (claimed.status === "failed") {
+    // A rejected fan-out branch is a decision like any failed step; its join
+    // waits for the retry or the skip.
+    if (claimed.branch !== undefined && fanoutJoined(stepsOfRun(ctx, run.id), claimed)) {
+      closeHeldBranch(ctx, claimed);
+      return;
+    }
+    await handleStepFailure(ctx, getRun(ctx, run.id)!, claimed, e.deps);
     return;
   }
-  if (claimed.status === "failed") {
-    await handleStepFailure(ctx, getRun(ctx, run.id)!, claimed, e.deps);
+  if (stepDef?.type === "fanout") {
+    await joinFanout(ctx, getRun(ctx, run.id)!, def, claimed, stepDef, e);
     return;
   }
   await advanceFrom(ctx, run.id, def, claimed, claimed.result, e);
 }
 
-/** A retry of a parked step's task takes over the step, so its work is reviewed and
- *  merged like the first attempt's. It reports its own result. */
+/** A parked step whose task was retried without the commit moving it (a retry
+ *  made before this service version): the successor takes it over now. */
 async function adoptStepRetry(ctx: Ctx, row: StepRow, successorId: string, e: EngineOptions): Promise<void> {
-  if (!readTask(ctx, successorId)) return;
-  const key = keyOf(row);
-  workflowDatabase(ctx).transaction(() => {
-    const current = stepByTask(ctx, row.taskId!);
-    if (!current || current.status !== "waiting") return;
-    attachStepTask(ctx, key, successorId);
-    updateStep(ctx, key, { status: "running", result: null });
-  }).immediate();
+  if (!readTask(ctx, successorId) || !adoptRetriedStep(ctx, row.taskId!, successorId)) return;
   completeWakeupRef(ctx, row.runId, "review_due", stepWakeRef(row.runId, row.stepId, row.attempt, row.branch));
   const run = getRun(ctx, row.runId);
   if (!run) return;
@@ -1859,10 +1864,13 @@ async function adoptStepRetry(ctx: Ctx, row: StepRow, successorId: string, e: En
  *  a fast-settling first branch never joins — or stops a join:'any' branch — while
  *  a later branch of the attempt has not even started (round 4 review). */
 export async function joinFanout(ctx: Ctx, run: RunRow, def: WorkflowDef, settled: StepRow, stepDef: FanoutStep, e: EngineOptions): Promise<void> {
-  const rows = stepsOfRun(ctx, run.id).filter(s => s.stepId === settled.stepId && s.attempt === settled.attempt);
+  const attempt = fanoutAttempt(settled);
+  const rows = stepsOfRun(ctx, run.id).filter(s => s.stepId === settled.stepId && fanoutAttempt(s) === attempt);
   const join = rows.find(s => s.branch === undefined);
   if (join && (join.status === "done" || join.status === "failed")) return;
-  const byBranch = new Map(rows.filter(s => s.branch !== undefined).map(s => [s.branch!, s]));
+  // The latest row of each branch speaks for it (a retry replaces the failed one).
+  const byBranch = new Map([...rows].sort((a, b) => a.attempt - b.attempt)
+    .filter(s => s.branch !== undefined).map(s => [s.branch!, s]));
   const done: StepRow[] = [];
   const failed: StepRow[] = [];
   const running: StepRow[] = [];
@@ -1871,6 +1879,9 @@ export async function joinFanout(ctx: Ctx, run: RunRow, def: WorkflowDef, settle
     const row = byBranch.get(branch);
     if (!row) { branchless.push(branch); continue; }
     if (row.status === "done") done.push(row);
+    // A branch the review rejected still owes a retry or a skip: it neither
+    // satisfies nor fails the join.
+    else if (isHeldBranch(row)) running.push(row);
     else if (row.status === "failed") failed.push(row);
     else if (row.status === "running" || row.status === "waiting") running.push(row);
     // stopped rows are already out of the attempt (a concurrent failRun stopped them)
@@ -1886,14 +1897,14 @@ export async function joinFanout(ctx: Ctx, run: RunRow, def: WorkflowDef, settle
   if (!outcome) return;
   if (stepDef.join === "any" && outcome === "done") {
     for (const b of running) {
-      if (!b.taskId) continue;
-      if (awaitsReview(ctx, b, def)) {
-        // Its task already ended: the join no longer waits for a verdict.
+      if (!b.taskId || isHeldBranch(b)) continue;
+      const parked = awaitsReview(ctx, b, def);
+      stopStepTask(ctx, b, e.deps);
+      if (parked) {
+        // The join no longer waits for its verdict.
         updateStep(ctx, keyOf(b), { status: "stopped", error: "join resolved", endedAt: ctx.now });
         completeWakeupRef(ctx, run.id, "review_due", stepWakeRef(b.runId, b.stepId, b.attempt, b.branch));
-        continue;
       }
-      try { e.deps.stopTask(ctx, b.taskId); } catch { /* the join must not depend on one stop */ }
     }
   }
   const branches = Object.fromEntries(stepDef.branches.map(b => [b, byBranch.get(b)?.result ?? null]));
@@ -1930,14 +1941,21 @@ export async function joinFanout(ctx: Ctx, run: RunRow, def: WorkflowDef, settle
   // INSERT OR IGNORE below — not the luck of synchronous execution — decides which
   // caller advances the run (round 4 review).
   await Promise.resolve();
-  const joinRow = insertJoinStep(ctx, run.id, settled.stepId, settled.attempt, outcome, result);
+  const joinRow = insertJoinStep(ctx, run.id, settled.stepId, attempt, outcome, result);
   if (!joinRow) return; // the concurrent join inserted the row and owns the advancement
+  // A rejected branch the join no longer needs owes no decision.
+  for (const held of running.filter(isHeldBranch)) closeHeldBranch(ctx, held);
   await publishRunChange(ctx, getRun(ctx, run.id) ?? run); // the join publishes the run
   if (outcome === "failed") {
     await failRun(ctx, run.id, `step ${settled.stepId} ${failed[0]?.error ?? "failed"}`, undefined, e.deps);
     return;
   }
   await advanceFrom(ctx, run.id, def, joinRow, result, e);
+}
+
+function closeHeldBranch(ctx: Ctx, row: StepRow): void {
+  updateStep(ctx, keyOf(row), { advancedAt: ctx.now });
+  clearStepFailureWakeups(ctx, row);
 }
 
 /** Follows a finished step's outgoing edges: every edge whose `when` holds (an edge
@@ -2095,9 +2113,9 @@ async function advanceFrom(ctx: Ctx, runId: string, def: WorkflowDef, settled: S
       const same = s.runId === settled.runId && s.stepId === settled.stepId && s.attempt === settled.attempt
         && (s.branch ?? undefined) === (settled.branch ?? undefined);
       if (same) return false; // the row currently being advanced: its own end is being decided here
-      if (s.status === "running" || s.status === "waiting") {
+      if (s.status === "running" || s.status === "waiting" || (isHeldBranch(s) && s.advancedAt === undefined)) {
         if (s.branch === undefined) return true;
-        return !rows.some(j => j.branch === undefined && j.stepId === s.stepId && j.attempt === s.attempt);
+        return !fanoutJoined(rows, s);
       }
       // A done row whose advancement never landed (advanced_at unset) may still
       // fire its successors — or fail the run — so the end waits until its own
@@ -2107,7 +2125,7 @@ async function advanceFrom(ctx: Ctx, runId: string, def: WorkflowDef, settled: S
       // let two rows defer on each other and stall the run, so the end applies —
       // the row's own end decision reaches the same outcome.
       if (s.status !== "done" || s.advancedAt !== undefined) return false;
-      if (s.branch !== undefined) return !rows.some(j => j.branch === undefined && j.stepId === s.stepId && j.attempt === s.attempt);
+      if (s.branch !== undefined) return !fanoutJoined(rows, s);
       const sibling = matchedEdges(def, run!, s.stepId, s.result);
       return sibling.length === 0 || sibling.some(({ edge }) => {
         const to = def.steps[edge.to];
@@ -2177,6 +2195,12 @@ export async function skipFailedStep(
   if (!row) throw new CoreError("conflict", `conflict: step ${input.stepId} of ${input.runId} is not failed`);
   const def = loadDefinition(ctx, run);
   if (!def) throw new CoreError("not_found", `missing definition for run ${input.runId}`);
+  const stepDef = def.steps[input.stepId];
+  const joined = fanoutJoined(stepsOfRun(ctx, run.id), row);
+  // A rejected branch its join no longer needed owes nothing.
+  if (stepDef?.type === "fanout" && joined && isHeldBranch(row)) {
+    throw new CoreError("conflict", `conflict: step ${input.stepId} already joined`);
+  }
   const result = { skipped: true };
   const done = updateStep(ctx, keyOf(row), { status: "done", result, endedAt: ctx.now });
   clearStepFailureWakeups(ctx, row);
@@ -2187,7 +2211,12 @@ export async function skipFailedStep(
   } catch (err) {
     if (!(err instanceof CoreError) || err.code !== "conflict") throw err;
   }
-  await advanceFrom(ctx, run.id, def, done, result, { deps, spawn });
+  // Skipping a branch the review rejected lets its waiting join finish.
+  if (stepDef?.type === "fanout" && !joined && isHeldBranch(row)) {
+    await joinFanout(ctx, getRun(ctx, run.id)!, def, done, stepDef, withDefaults({ deps, spawn }));
+  } else {
+    await advanceFrom(ctx, run.id, def, done, result, { deps, spawn });
+  }
   return getRun(ctx, run.id)!;
 }
 
@@ -2216,7 +2245,13 @@ export async function retryFailedStep(
     throw new CoreError("not_allowed", `step ${input.stepId} has reached the retry limit (${MAX_STEP_RETRIES})`);
   }
   const def = loadDefinition(ctx, run);
-  if (!def?.steps[input.stepId]) throw new CoreError("not_found", `unknown step ${input.stepId}`);
+  const stepDef = def?.steps[input.stepId];
+  if (!def || !stepDef) throw new CoreError("not_found", `unknown step ${input.stepId}`);
+  const joined = row.branch !== undefined && fanoutJoined(stepsOfRun(ctx, input.runId), row);
+  if (joined && isHeldBranch(row)) {
+    throw new CoreError("conflict", `conflict: step ${input.stepId} already joined`);
+  }
+  const branchOnly = stepDef.type === "fanout" && !joined && isHeldBranch(row);
   // Mark the failed attempt advanced so the tick does not keep recreating its wake-up.
   try { updateStep(ctx, keyOf(row), { advancedAt: ctx.now }); } catch { /* */ }
   clearStepFailureWakeups(ctx, row);
@@ -2227,7 +2262,15 @@ export async function retryFailedStep(
   } catch (err) {
     if (!(err instanceof CoreError) || err.code !== "conflict") throw err;
   }
-  await startStep(ctx, getRun(ctx, run.id)!, def, input.stepId, row.branch, { deps, spawn });
+  if (branchOnly) {
+    // Only this branch starts again; the rest of the fan-out stays as it is.
+    const live = getRun(ctx, run.id)!;
+    if (isRunStepPaused(live)) throw new CoreError("not_allowed", `run ${live.id} is paused (${live.pausedReason})`);
+    const retried = insertBranchRetry(ctx, { ...row, branch: row.branch! }, nextAttempt(ctx, run.id, input.stepId));
+    await delegateFanoutBranch(ctx, live, retried, stepDef as FanoutStep, withDefaults({ deps, spawn }));
+  } else {
+    await startStep(ctx, getRun(ctx, run.id)!, def, input.stepId, row.branch, { deps, spawn });
+  }
   return getRun(ctx, run.id)!;
 }
 
@@ -2290,6 +2333,7 @@ export async function answerHumanStep(
     if (ctx.env.PACER_RUN_GRANT) {
       throw new CoreError("not_allowed", "publish approval requires a person");
     }
+    await adoptGeneratedBranches(ctx, run);
     const branch = branchOwner(ctx, run).branch;
     if (!branch) {
       throw new CoreError("unavailable", "cannot read branch tip for publish approval");
@@ -2462,6 +2506,9 @@ export async function startGeneratedChild(
   }
   let child: RunRow;
   try {
+    if (!await adoptGeneratedBranches(ctx, getRun(ctx, run.id)!)) {
+      throw new CoreError("unavailable", "merge the previous generated run's branch into the run branch first");
+    }
     child = await startRun(ctx, {
       workflow: childDef.id,
       repo: run.repo,
@@ -2678,11 +2725,7 @@ export async function stopRun(ctx: Ctx, runId: string, expectRev: number, deps: 
   }
   for (const row of stepsOfRun(ctx, runId)) {
     if (row.status !== "running" && row.status !== "waiting") continue;
-    // A step waiting for review has a finished task: leave it reviewable.
-    const parked = awaitsReview(ctx, row) && ["done", "partial"].includes(readTask(ctx, row.taskId!)?.state ?? "done");
-    if (row.taskId && !parked) {
-      try { deps.stopTask(ctx, row.taskId); } catch { /* stopping the run must not depend on one task */ }
-    }
+    stopStepTask(ctx, row, deps);
     try { updateStep(ctx, keyOf(row), { status: "stopped", endedAt: ctx.now }); } catch { /* the row may have settled meanwhile */ }
   }
   const stopped = await patchRun(ctx, runId, { status: "stopped" }, { deps, spawn: undefined });

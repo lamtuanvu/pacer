@@ -4,7 +4,7 @@
 import type { Database } from "bun:sqlite";
 import type { Ctx } from "../types";
 import { canAutoApproveGenerate, canAutoDecide } from "./auto";
-import { mergeConflictFor, reviewDueTask } from "./review";
+import { reviewDueTask, waitsOnPerson } from "./review";
 import {
   getDefinition, getRun, liveRuns, rootRunId, stepsOfRun, updateStep, workflowDatabase,
   type StepRow,
@@ -275,8 +275,7 @@ export function wakeCauseStillOpen(ctx: Ctx, runId: string, cause: WakeCause, re
     }
     if (cause === "review_due") {
       const task = reviewDueTask(ctx, step);
-      // A conflicting merge waits on its resolution task, not on another turn.
-      return !!task && !mergeConflictFor(ctx, id, task.id);
+      return !!task && !waitsOnPerson(ctx, id, task);
     }
     if (cause === "replan") {
       if (step.status !== "waiting") return false;
@@ -659,7 +658,7 @@ export function needsOrchestrator(ctx: Ctx): NeedsOrchestrator[] {
       }
       const due = reviewDueTask(ctx, step, def);
       if (due) {
-        if (mergeConflictFor(ctx, run.id, due.id)) continue;
+        if (waitsOnPerson(ctx, run.id, due)) continue;
         const ref = stepWakeRef(run.id, step.stepId, step.attempt, step.branch);
         if (hasOpenWakeup(ctx, root, "review_due", ref)) continue;
         push(root, "review_due", ref, step.startedAt);
