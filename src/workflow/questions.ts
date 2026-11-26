@@ -227,8 +227,12 @@ export async function askQuestion(ctx: Ctx, raw: AskQuestionInput): Promise<Ques
       throw new CoreError("invalid_input", "stepId is required when the orchestrator asks");
     }
     // The question holds the step instance it names; unnamed means the current one.
-    const attempt = raw.attempt ?? Math.max(1, ...stepsOfRun(ctx, runId)
-      .filter(s => s.stepId === stepId && s.branch === raw.branch).map(s => s.attempt));
+    const rows = stepsOfRun(ctx, runId)
+      .filter(s => s.stepId === stepId && (raw.branch === undefined || s.branch === raw.branch));
+    const attempt = raw.attempt ?? Math.max(1, ...rows.map(s => s.attempt));
+    if (!rows.some(s => s.attempt === attempt)) {
+      throw new CoreError("not_found", `run ${runId} has no step ${stepId}${raw.branch ? `/${raw.branch}` : ""} attempt ${attempt}`);
+    }
     assertOpenQuestionCaps(ctx, runId, typeof orchTask === "string" ? orchTask : undefined);
     const q = insertQuestion(ctx, {
       runId,

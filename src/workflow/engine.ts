@@ -2270,6 +2270,8 @@ export async function retryFailedStep(
   const def = loadDefinition(ctx, run);
   const stepDef = def?.steps[input.stepId];
   if (!def || !stepDef) throw new CoreError("not_found", `unknown step ${input.stepId}`);
+  // A paused run starts nothing: refuse before the failed attempt is touched.
+  if (isRunStepPaused(run)) throw new CoreError("not_allowed", `run ${run.id} is paused (${run.pausedReason})`);
   const joined = row.branch !== undefined && fanoutJoined(stepsOfRun(ctx, input.runId), row);
   if (joined && isHeldBranch(row)) {
     throw new CoreError("conflict", `conflict: step ${input.stepId} already joined`);
@@ -2289,7 +2291,6 @@ export async function retryFailedStep(
   if (branchOnly) {
     // Only this branch starts again; the rest of the fan-out stays as it is.
     const live = getRun(ctx, run.id)!;
-    if (isRunStepPaused(live)) throw new CoreError("not_allowed", `run ${live.id} is paused (${live.pausedReason})`);
     const retried = insertBranchRetry(ctx, { ...row, branch: row.branch! }, nextAttempt(ctx, run.id, input.stepId));
     await delegateFanoutBranch(ctx, live, retried, stepDef as FanoutStep, withDefaults({ deps, spawn }));
   } else {
@@ -2300,19 +2301,24 @@ export async function retryFailedStep(
   return getRun(ctx, run.id)!;
 }
 
+function yesNoSpelling(answer: string): string {
+  const word = answer.trim().toLowerCase();
+  return word === "yes" || word === "no" ? word : answer;
+}
+
 /** Answers a waiting human step: the answer becomes the step's result
  *  (`{ answer }` or `{ answer, note }`) and the run advances from it. */
 export async function answerHumanStep(
   ctx: Ctx,
   runId: string,
   stepId: string,
-  answer: string,
+  given: string,
   expectRev: number,
   deps: EngineDeps = defaultEngineDeps,
   spawn?: SpawnRunner,
   note?: string,
 ): Promise<RunRow> {
-  if (typeof answer !== "string" || answer.length < 1) throw new CoreError("invalid_input", "answer must be a non-empty string");
+  if (typeof given !== "string" || given.length < 1) throw new CoreError("invalid_input", "answer must be a non-empty string");
   const run = getRun(ctx, runId);
   if (!run) throw new CoreError("not_found", `unknown run ${runId}`);
   if (RUN_TERMINAL.includes(run.status)) throw new CoreError("conflict", `conflict: run ${runId} is ${run.status}`);
@@ -2321,7 +2327,11 @@ export async function answerHumanStep(
   const row = waiting[waiting.length - 1];
   if (!row) throw new CoreError("conflict", `conflict: step ${stepId} of ${runId} is not waiting for an answer`);
   const def = loadDefinition(ctx, run);
-  if (def?.steps[stepId]?.type !== "human") throw new CoreError("conflict", `conflict: step ${stepId} is not a human step`);
+  const answered = def?.steps[stepId];
+  if (!def || answered?.type !== "human") throw new CoreError("conflict", `conflict: step ${stepId} is not a human step`);
+  // Edge conditions and the publish gate compare the engine's spelling; buttons and
+  // people may send "Yes".
+  const answer = answered.question.kind === "yes_no" ? yesNoSpelling(given) : given;
   // Defence: a run-grant caller may only answer auto-effective steps (run.decide path).
   // must / strict / auto-off steps stay person-only via run.answer.
   // Escalated (or sync-flipped) human_step questions stay person-owned even when canAutoDecide (I-2).

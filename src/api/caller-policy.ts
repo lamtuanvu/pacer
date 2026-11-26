@@ -52,6 +52,9 @@ export function assertCallerCanInvoke(ctx: Ctx, name: string, params: Record<str
   if (name.startsWith('session.agent.')) throw new ApiError('not_allowed', 'Executor sessions cannot manage interactive agents.');
   if (name.startsWith('assistant.')) throw new ApiError('not_allowed', 'PACER_ROLE=executor: executors cannot use the assistant or read its history.');
   if (isWorkflowManagementOp(name)) throw new ApiError('not_allowed', WORKFLOW_OPS_REFUSAL);
+  // The person's workflow decisions. The service answers a forwarded call as the person,
+  // so an executor shell (role or task worktree) is refused here, before it is sent.
+  if (name === 'step.retry' || name === 'step.skip' || name === 'question.answer') throw new ApiError('not_allowed', 'PACER_ROLE=executor: answering workflow questions and retrying or skipping steps are for the person and the planner.');
   if (name.startsWith('plugin.ui.') || name.startsWith('plugin.settings.')) throw new ApiError('not_allowed', 'PACER_ROLE=executor: plugin UI and settings are for the app and the operator, not executor sessions.');
   if (name === 'plugin.enable' && params.grant === true) throw new ApiError('not_allowed', 'PACER_ROLE=executor: executor sessions cannot grant plugin access.');
   if (name === 'dispatch.explain') throw new ApiError('not_allowed', 'PACER_ROLE=executor: route explanations are for planners and people; executors do not choose where work goes.');

@@ -133,6 +133,17 @@ test("the answer resumes the held step in a new turn that carries it as data", a
   expect(getRun(w.ctx, run.id)!.status).toBe("done");
 });
 
+test("the person's note reaches the resumed turn and any later turn", async () => {
+  const w = world();
+  const { run, first, q } = await asked(w);
+  w.finish(first.taskId!);
+  await w.tick();
+  await w.person("question.answer", { id: q.id, answer: "sqlite", note: "keep it in one file", expect_rev: q.rev });
+  const second = await w.turn(run.id);
+  const answers = () => /--- data \w+ answers [^\n]*---\n([\s\S]*?)\n--- end data/.exec(readTask(w.ctx, second.taskId!)!.brief.goal)?.[1];
+  expect(answers()).toContain("keep it in one file");
+});
+
 test("an answer given before the asking turn settles still resumes the step", async () => {
   const w = world();
   const { run, first, q } = await asked(w);
@@ -344,6 +355,77 @@ test("a person retries a rejected fan-out branch without restarting the others",
   expect(branch("a")).toMatchObject({ attempt: a.attempt + 1, status: "running" });
   expect(w.rows(run.id, "review").filter(s => s.branch === "b")).toHaveLength(1);
   expect(getRun(w.ctx, run.id)!.rev).toBeGreaterThan(live.rev);
+});
+
+test("a one-click yes on a human step takes the edge and approves publishing in the engine's spelling", async () => {
+  for (const spelling of ["Yes", "YES ", "yes"]) {
+    const w = world();
+    const def = w.install({
+      id: "t/yes", version: 1, entry: "ok",
+      steps: { ok: { type: "human", decision: "must", question: { kind: "yes_no", text: "Go on?" } }, done: { type: "end" } },
+      edges: [{ from: "ok", to: "done", when: "result.answer == 'yes'" }],
+    });
+    const run = await w.start(def);
+    const [item] = deriveWorkflowAttention(w.ctx);
+    expect(item!.actions[0]!.params.answer).toBe("Yes");
+    const [q] = listQuestions(w.ctx, run.id, "open");
+    await w.person("question.answer", { id: q!.id, answer: spelling.trim(), expect_rev: q!.rev });
+    expect(getRun(w.ctx, run.id)!.status).toBe("done");
+    expect(w.row(run.id, "ok").result).toEqual({ answer: "yes" });
+    expect(listQuestions(w.ctx, run.id, "answered")[0]!.answer).toBe("yes");
+    const other = await w.start(def);
+    await w.person("run.answer", { id: other.id, step: "ok", answer: spelling, expect_rev: getRun(w.ctx, other.id)!.rev });
+    expect(getRun(w.ctx, other.id)!.status).toBe("done");
+  }
+});
+
+test("the planner cannot ask about a step or attempt that does not exist", async () => {
+  const w = world();
+  w.install(brainstorm);
+  const run = await w.start(brainstorm);
+  await w.turn(run.id);
+  const caller = w.grantCtx(run.id);
+  for (const target of [{ stepId: "nope" }, { stepId: "brainstorm", attempt: 7 }, { stepId: "brainstorm", branch: "x" }, { stepId: "done" }]) {
+    await expect(askQuestion(caller, { ...question, ...target })).rejects.toMatchObject({ code: "not_found" });
+  }
+  expect(listQuestions(w.ctx, run.id)).toEqual([]);
+});
+
+test("the planner may ask about a fan-out step without naming a branch", async () => {
+  const w = world();
+  const def = w.install({
+    id: "t/fan-ask", version: 1, entry: "review",
+    steps: {
+      review: { type: "fanout", branches: ["a", "b"], each: { type: "agent", kind: "research", prompt: "R" }, join: "all" },
+      think: { type: "agent", role: "orchestrator", prompt: "T" },
+      done: { type: "end" },
+    },
+    edges: [{ from: "review", to: "think" }, { from: "think", to: "done" }],
+  });
+  const run = await w.start(def);
+  for (const row of w.rows(run.id, "review")) w.finish(row.taskId!, "failed");
+  await w.tick(1);
+  if (getRun(w.ctx, run.id)!.status === "failed") return;
+  await w.turn(run.id);
+  await expect(askQuestion(w.grantCtx(run.id), { ...question, stepId: "review" })).resolves.toMatchObject({ stepId: "review", attempt: 1 });
+});
+
+test("a paused run refuses a retry before anything changes", async () => {
+  for (const by of ["person", "planner"] as const) {
+    const w = world();
+    const run = await failedStep(w);
+    let caller: Ctx = w.ctx;
+    if (by === "planner") {
+      await w.turn(run.id);
+      caller = w.grantCtx(run.id);
+    }
+    await w.person("run.pause", { id: run.id, expect_rev: getRun(w.ctx, run.id)!.rev });
+    const before = { run: getRun(w.ctx, run.id), rows: stepsOfRun(w.ctx, run.id), wakes: openWakeups(w.ctx, run.id) };
+    await expect(w.agent(caller, "step.retry", {
+      id: run.id, step: "work", ...(by === "person" ? { expect_rev: before.run!.rev } : {}),
+    })).rejects.toMatchObject({ code: "not_allowed", message: expect.stringContaining("paused") });
+    expect({ run: getRun(w.ctx, run.id), rows: stepsOfRun(w.ctx, run.id), wakes: openWakeups(w.ctx, run.id) }).toEqual(before);
+  }
 });
 
 const planned: WorkflowDef = {
