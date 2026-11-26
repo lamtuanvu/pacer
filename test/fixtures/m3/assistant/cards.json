@@ -1,0 +1,24 @@
+[
+  {
+    "op": "assistant.card.refresh",
+    "params": {
+      "turnId": "turn-1",
+      "cardId": "card-1"
+    },
+    "setup": {
+      "sql": [
+        "INSERT INTO assistant_conversations(id,title,created_at,updated_at) VALUES('c-a','Alpha',1699990000,1699999000.5)",
+        "INSERT INTO assistant_turns(id,conversation_id,seq,at,question,answer,state,error,account,scope,cards,citations) VALUES('turn-1','c-a',1,1699999000.5,'How?','Like it.','done',NULL,'ep','{\"kind\":\"dispatch\",\"days\":7}','[{\"id\":\"card-1\",\"op\":\"dispatch.retry\",\"params\":{\"id\":\"t-20231114-010203-abcd\",\"expect_rev\":1},\"title\":\"Retry\",\"summary\":\"s\",\"editable\":[],\"why\":\"because\",\"state\":\"stale\",\"result\":\"old\"}]','[]')",
+        "INSERT INTO tasks(id,rev,state,created_at,updated_at,record,archived) VALUES('t-20231114-010203-abcd',3,'done',1,1,'{\"id\":\"t-20231114-010203-abcd\",\"rev\":3,\"state\":\"done\"}',0)"
+      ]
+    },
+    "env": {},
+    "expected": {
+      "error": {
+        "code": "internal",
+        "message": "task t-20231114-010203-abcd has no title or goal"
+      }
+    },
+    "codeOnly": true
+  }
+]

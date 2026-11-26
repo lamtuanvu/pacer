@@ -61,7 +61,7 @@ fn orca_account_home(ctx: &Ctx, kind: &str, id: &str) -> Option<PathBuf> {
 }
 
 /// `accountFolder`.
-pub(crate) fn account_folder(ctx: &Ctx, account: &Value) -> Option<PathBuf> {
+pub fn account_folder(ctx: &Ctx, account: &Value) -> Option<PathBuf> {
     let kind = text(&account["kind"]);
     if account["source"] == "orca" && matches!(kind, "claude" | "codex") {
         return orca_account_home(ctx, kind, text(&account["orcaAccount"]));
@@ -70,6 +70,27 @@ pub(crate) fn account_folder(ctx: &Ctx, account: &Value) -> Option<PathBuf> {
         .as_str()
         .filter(|home| !home.is_empty())
         .map(|home| expand_home(home, &ctx.home))
+}
+
+/// `defaultAccountFolder` (`src/exec/account-folder.ts`): the folder recorded for a default
+/// account in `state/default-account-folders.json`, or the home default. An unreadable or
+/// non-object file reads as `{}`; only absolute string entries are honoured.
+pub fn default_account_folder(ctx: &Ctx, kind: &str) -> PathBuf {
+    let fallback = || {
+        ctx.home
+            .join(if kind == "codex" { ".codex" } else { ".claude" })
+    };
+    let Ok(text) = fs::read_to_string(ctx.pacer_home.join("state/default-account-folders.json"))
+    else {
+        return fallback();
+    };
+    let Ok(Value::Object(record)) = serde_json::from_str::<Value>(&text) else {
+        return fallback();
+    };
+    match record.get(kind) {
+        Some(Value::String(path)) if path.starts_with('/') => PathBuf::from(path),
+        _ => fallback(),
+    }
 }
 
 fn pick(source: &Value, keys: &[&str], always: bool) -> Map<String, Value> {

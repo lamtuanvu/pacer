@@ -11,6 +11,24 @@ use serde_json::{Map, Value, json};
 
 type Result<T> = std::result::Result<T, StoreError>;
 
+/// Why stored assistant settings could not be read. `Unreadable` carries the detail an op
+/// reports as an `internal` error; a plain store failure stays a `StoreError`.
+#[derive(Debug, thiserror::Error)]
+pub enum SettingsError {
+    #[error(transparent)]
+    Store(#[from] StoreError),
+    #[error("{0}")]
+    Unreadable(String),
+}
+
+impl From<rusqlite::Error> for SettingsError {
+    fn from(error: rusqlite::Error) -> Self {
+        Self::Store(error.into())
+    }
+}
+
+type SettingsResult<T> = std::result::Result<T, SettingsError>;
+
 const SCHEMA: &str = "
     CREATE TABLE IF NOT EXISTS assistant_settings(id INTEGER PRIMARY KEY CHECK(id=1), runner TEXT, account TEXT, backend TEXT, limits TEXT NOT NULL, retention TEXT NOT NULL, rev INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS assistant_conversations(id TEXT PRIMARY KEY, title TEXT NOT NULL, created_at REAL NOT NULL, updated_at REAL NOT NULL);
@@ -107,17 +125,28 @@ fn fields_json(fields: &[Field], values: &[i64]) -> Value {
     )
 }
 
-/// `schema.parse(JSON.parse(text))`; `None` where TypeScript throws.
-fn stored_fields(text: &str, fields: &[Field]) -> Option<Vec<i64>> {
-    let value: Value = serde_json::from_str(text).ok()?;
-    let map = value.as_object()?;
+/// `schema.parse(JSON.parse(text))`; the detail of the first schema failure, or the fields.
+fn stored_fields(text: &str, fields: &[Field], label: &str) -> SettingsResult<Vec<i64>> {
+    let value: Value = serde_json::from_str(text)
+        .map_err(|_| SettingsError::Unreadable(format!("{label} is not valid JSON")))?;
+    let map = value
+        .as_object()
+        .ok_or_else(|| SettingsError::Unreadable(format!("{label} is not an object")))?;
     fields
         .iter()
         .map(|f| match map.get(f.name) {
-            None => Some(f.default),
+            None => Ok(f.default),
             Some(v) => {
-                let n = v.as_f64()?;
-                (n.fract() == 0.0 && n >= f.min as f64 && n <= f.max as f64).then_some(n as i64)
+                let n = v.as_f64().ok_or_else(|| {
+                    SettingsError::Unreadable(format!("{label}.{} is not a number", f.name))
+                })?;
+                if n.fract() != 0.0 || n < f.min as f64 || n > f.max as f64 {
+                    return Err(SettingsError::Unreadable(format!(
+                        "{label}.{} is outside {}..={}",
+                        f.name, f.min, f.max
+                    )));
+                }
+                Ok(n as i64)
             }
         })
         .collect()
@@ -193,8 +222,9 @@ pub fn database(store: &mut TaskStore) -> Result<&Connection> {
     Ok(db)
 }
 
-/// `readSettings`; `None` when the stored row fails the TypeScript schemas.
-pub fn read_settings(db: &Connection) -> Result<Option<Settings>> {
+/// `readSettings`; `Unreadable` with the schema detail when the stored row fails the TypeScript
+/// schemas. A missing row reads as defaults, as it does in TypeScript.
+pub fn read_settings(db: &Connection) -> SettingsResult<Option<Settings>> {
     let row = db
         .query_row(
             "SELECT runner,account,backend,limits,retention,rev FROM assistant_settings WHERE id=1",
@@ -219,24 +249,26 @@ pub fn read_settings(db: &Connection) -> Result<Option<Settings>> {
         SqlValue::Text(s) => Some(Some(s)),
         _ => None,
     };
-    let fields = |v: SqlValue, fields: &[Field]| match v {
-        SqlValue::Text(s) => stored_fields(&s, fields),
-        _ => None,
+    let fields = |v: SqlValue, fields: &[Field], label: &'static str| match v {
+        SqlValue::Text(s) => stored_fields(&s, fields, label),
+        _ => Err(SettingsError::Unreadable(format!(
+            "{label} is not JSON text"
+        ))),
     };
     let rev = match rev {
         SqlValue::Integer(n) => Some(n),
         _ => None,
     };
-    Ok((|| {
-        Some(Settings {
-            runner: text(runner)?,
-            account: text(account)?,
-            backend: backend_name(backend),
-            limits: fields(limits, &LIMITS)?,
-            retention: fields(retention, &RETENTION)?,
-            rev: rev?,
-        })
-    })())
+    Ok(Some(Settings {
+        runner: text(runner)
+            .ok_or_else(|| SettingsError::Unreadable("runner is not text".into()))?,
+        account: text(account)
+            .ok_or_else(|| SettingsError::Unreadable("account is not text".into()))?,
+        backend: backend_name(backend),
+        limits: fields(limits, &LIMITS, "limits")?,
+        retention: fields(retention, &RETENTION, "retention")?,
+        rev: rev.ok_or_else(|| SettingsError::Unreadable("rev is not an integer".into()))?,
+    }))
 }
 
 /// `row.backend === "executor" ? "executor" : "pacer"`.
@@ -266,8 +298,10 @@ pub fn write_settings(
     expect_rev: i64,
 ) -> Result<SettingsWrite> {
     let tx = Transaction::new_unchecked(db, TransactionBehavior::Immediate)?;
-    let Some(current) = read_settings(&tx)? else {
-        return Ok(SettingsWrite::Unusable);
+    let current = match read_settings(&tx) {
+        Ok(Some(settings)) => settings,
+        Ok(None) | Err(SettingsError::Unreadable(_)) => return Ok(SettingsWrite::Unusable),
+        Err(SettingsError::Store(error)) => return Err(error),
     };
     if current.rev != expect_rev {
         return Ok(SettingsWrite::Conflict(current.rev));

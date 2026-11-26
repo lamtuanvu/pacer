@@ -1,23 +1,23 @@
 //! Native assistant settings and history ops (`src/api/ops-assistant.ts`) over the
 //! assistant tables in `state/tasks.db`. `assistant.ask` and `assistant.cancel`
 //! are decided here and run over the Core bridge in [`turn`]: the turn itself, its
-//! plugin call and its stream live in the TypeScript process. Inputs only
-//! TypeScript reproduces stay forwarded: work grants, Orca
-//! worktree callers, stored settings that fail the Zod schemas, strategies the
-//! Rust loader cannot read, and a configured `assistant.status` whose admission
-//! needs the cached usage status.
+//! plugin call and its stream live in the TypeScript process. Work-grant callers still
+//! forward; everything else here is native, including unusable stored settings and
+//! the executor backend's account check.
 #![allow(clippy::result_large_err)]
 use chrono::{Duration, LocalResult, TimeZone};
+use pacer_account_ops::model::{account_folder, default_account_folder};
 use pacer_config::strategy::load_strategy;
 use pacer_foundation::{
     Ctx,
     api::{Code, CoreError, OpFuture},
 };
-use pacer_messaging_ops::msg_ops::{current_dir, orca_worktree, own_worktree};
+use pacer_messaging_ops::msg_ops::{current_dir, own_worktree};
 use pacer_read_model::js::{stringify, truth};
 use pacer_store::{
     StoreError, TaskStore,
-    assistant::{self, CardUpdate, Connection, Settings, SettingsWrite},
+    assistant::{self, CardUpdate, Connection, Settings, SettingsError, SettingsWrite},
+    is_task_id,
 };
 use serde_json::{Map, Value, json};
 
@@ -49,6 +49,92 @@ fn unavailable(message: &str) -> CoreError {
     CoreError::new(Code::Unavailable, message)
 }
 
+/// Collapse runs of one separator, as the second and third Orca name steps do.
+fn collapse(value: &str, separator: char) -> String {
+    let mut out = String::new();
+    let mut previous = false;
+    for c in value.chars() {
+        if c == separator {
+            if !previous {
+                out.push(c);
+            }
+            previous = true;
+        } else {
+            out.push(c);
+            previous = false;
+        }
+    }
+    out
+}
+
+/// `orcaWorktreeName` (`src/exec/orca/names.ts`), used to match a strategy provider.
+fn orca_worktree_name(name: &str) -> String {
+    let replaced: String = name
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || matches!(c, '.' | '_' | '-') {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    collapse(&collapse(&replaced, '-'), '.')
+        .trim_matches(|c| c == '.' || c == '-')
+        .to_owned()
+}
+
+/// The task id and provider of an Orca workspace directory, as `isExecutorSession` reads it.
+fn orca_session(cwd: &str) -> Option<(String, String)> {
+    const MARK: &str = "/orca/workspaces/";
+    let at = cwd.find(MARK)?;
+    let (workspace, rest) = cwd[at + MARK.len()..].split_once('/')?;
+    let rest = rest.strip_prefix("pacer-")?;
+    let (id, provider) = (rest.get(..22)?, rest.get(23..)?);
+    // The task id and provider are separated by exactly one '-'; the provider ends at the next '/'.
+    let separator = rest.as_bytes().get(22);
+    let provider = provider.split('/').next().unwrap_or("");
+    (separator == Some(&b'-') && !workspace.is_empty() && !provider.is_empty() && is_task_id(id))
+        .then(|| (id.to_owned(), provider.to_owned()))
+}
+
+/// `Object.keys(loadStrategy(ctx).providers)`, empty when the strategy cannot load.
+fn strategy_providers(ctx: &Ctx) -> Vec<String> {
+    load_strategy(&ctx.pacer_home)
+        .ok()
+        .and_then(|strategy| {
+            strategy
+                .get("providers")?
+                .as_object()
+                .map(|map| map.keys().cloned().collect())
+        })
+        .unwrap_or_default()
+}
+
+/// Local port of `isExecutorSession(ctx)` (S1's `process_executor_session` is not on this
+/// stack): the role, an own task worktree, or an Orca workspace with a matching provider.
+fn process_executor_session(ctx: &Ctx) -> bool {
+    // `isOrchestratorSession` short-circuits before the executor-role check in TypeScript.
+    if env(ctx, "PACER_ROLE") == Some("orchestrator") {
+        return false;
+    }
+    if env(ctx, "PACER_ROLE") == Some("executor") {
+        return true;
+    }
+    let Some(cwd) = current_dir() else {
+        return false;
+    };
+    if own_worktree(ctx, &cwd) {
+        return true;
+    }
+    match orca_session(&cwd) {
+        Some((_, provider)) => strategy_providers(ctx)
+            .iter()
+            .any(|p| orca_worktree_name(p) == provider),
+        None => false,
+    }
+}
+
 /// `authorizeWorkOperation` and `isExecutorSession`, ahead of the params.
 fn refuse(ctx: &Ctx) -> Result<(), CoreError> {
     if env(ctx, "PACER_ENFORCEMENT_TOKEN").is_some() {
@@ -60,16 +146,8 @@ fn refuse(ctx: &Ctx) -> Result<(), CoreError> {
     if env(ctx, "PACER_WORK_GRANT").is_some() {
         return Err(unavailable("work grants require the TypeScript core"));
     }
-    let cwd = current_dir();
-    if ctx.env.get("PACER_ROLE").map(String::as_str) == Some("executor")
-        || cwd.as_deref().is_some_and(|cwd| own_worktree(ctx, cwd))
-    {
+    if process_executor_session(ctx) {
         return Err(CoreError::new(Code::NotAllowed, EXECUTOR));
-    }
-    if cwd.as_deref().is_some_and(orca_worktree) {
-        return Err(unavailable(
-            "Orca worktree callers require the TypeScript core",
-        ));
     }
     Ok(())
 }
@@ -93,23 +171,12 @@ pub fn assistant_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
     if parse(op, params.clone()).is_err() {
         return false;
     }
-    let usable = || with_db(ctx, |db| Ok(assistant::read_settings(db)?.is_some())) == Ok(true);
-    match op {
-        "assistant.settings.get" | "assistant.conversations" => !usable(),
-        "assistant.settings.set" => {
-            let account = params
-                .get("account")
-                .and_then(Value::as_str)
-                .is_some_and(|a| !a.is_empty());
-            !usable() || (account && strategy(ctx).is_none())
-        }
-        // An executor backend's admission needs its ask-mode check, which the core keeps.
-        "assistant.status" => executor_backend(ctx) || !matches!(status(ctx), Ok(Some(_))),
-        "assistant.card.refresh" => {
-            refresh_task(ctx, params).is_ok_and(|task| task.is_some_and(|t| !titled(&t)))
-        }
-        _ => false,
+    // B4-2 finishes native admission; until then a configured status still needs the core's
+    // cached usage status and plugin-based pacer backend check.
+    if op == "assistant.status" {
+        return executor_backend(ctx) || !matches!(status(ctx), Ok(Some(_)));
     }
+    false
 }
 
 /// `taskTitle` (run by the card lookup) throws unless the record has a title or a goal.
@@ -121,44 +188,39 @@ fn titled(task: &Value) -> bool {
     }
 }
 
-/// The task an action card's `params.id` names, as `refreshCard` reads it.
-fn refresh_task(ctx: &Ctx, params: &Value) -> Result<Option<Value>, CoreError> {
-    let (Some(turn_id), Some(card_id)) = (
-        params.get("turnId").and_then(Value::as_str),
-        params.get("cardId").and_then(Value::as_str),
-    ) else {
-        return Ok(None);
-    };
-    let mut store = TaskStore::open(&ctx.pacer_home).map_err(store_error)?;
-    let db = assistant::database(&mut store).map_err(store_error)?;
-    let id = assistant::turn(db, turn_id)
-        .map_err(store_error)?
-        .and_then(|turn| {
-            let cards = turn["cards"].as_array()?;
-            let card = cards.iter().find(|c| c["id"] == card_id)?;
-            card["params"]["id"].as_str().map(str::to_owned)
-        });
-    match id {
-        Some(id) => store.read(&id).map_err(store_error),
-        None => Ok(None),
-    }
-}
-
 fn store_error(error: StoreError) -> CoreError {
     CoreError::new(Code::Internal, error.to_string())
+}
+
+fn with_db_core<T>(
+    ctx: &Ctx,
+    read: impl FnOnce(&Connection) -> Result<T, CoreError>,
+) -> Result<T, CoreError> {
+    let mut store = TaskStore::open(&ctx.pacer_home).map_err(store_error)?;
+    read(assistant::database(&mut store).map_err(store_error)?)
 }
 
 fn with_db<T>(
     ctx: &Ctx,
     read: impl FnOnce(&Connection) -> Result<T, StoreError>,
 ) -> Result<T, CoreError> {
-    let mut store = TaskStore::open(&ctx.pacer_home).map_err(store_error)?;
-    read(assistant::database(&mut store).map_err(store_error)?).map_err(store_error)
+    with_db_core(ctx, |db| read(db).map_err(store_error))
 }
 
+fn settings_error(error: SettingsError) -> CoreError {
+    match error {
+        SettingsError::Store(error) => store_error(error),
+        SettingsError::Unreadable(detail) => CoreError::new(
+            Code::Internal,
+            format!("assistant settings are unreadable: {detail}"),
+        ),
+    }
+}
+
+/// `readSettings`: an unusable row is now an `internal` error with the schema detail.
 fn settings(db: &Connection) -> Result<Settings, CoreError> {
     assistant::read_settings(db)
-        .map_err(store_error)?
+        .map_err(settings_error)?
         .ok_or_else(|| unavailable("stored assistant settings require the TypeScript schema"))
 }
 
@@ -183,15 +245,45 @@ fn nullish(value: Option<&Value>) -> bool {
     value.is_none_or(Value::is_null)
 }
 
+/// `claudeAskConfigDir`/`codexAskConfigDir` (`ask-mode.ts`): a default account uses the recorded
+/// default folder; a named account must have a folder of its own (never a fallback).
+fn ask_config_dir(ctx: &Ctx, account: &Value, kind: &str) -> Option<std::path::PathBuf> {
+    if account.get("kind").and_then(Value::as_str) != Some(kind) {
+        return None;
+    }
+    if account.get("source").and_then(Value::as_str) == Some("default") {
+        Some(default_account_folder(ctx, kind))
+    } else {
+        account_folder(ctx, account)
+    }
+}
+
+/// `askAdapterFor` (`ask-mode.ts:269`): which agent CLI drives an account on the executor
+/// backend. Config folders are checked without reading any credentials (SEC-1).
+fn ask_adapter(ctx: &Ctx, account: &Value) -> Option<&'static str> {
+    match account.get("kind").and_then(Value::as_str)? {
+        "endpoint" => Some("opencode"),
+        "claude" => ask_config_dir(ctx, account, "claude").map(|_| "claude-code"),
+        "codex" => ask_config_dir(ctx, account, "codex").map(|_| "codex"),
+        _ => None,
+    }
+}
+
 /// `endpointFor(...) !== null`.
-fn endpoint_ok(strategy: &Value, account: &str, runner: Option<&str>, executor: bool) -> bool {
+fn endpoint_ok(
+    ctx: &Ctx,
+    strategy: &Value,
+    account: &str,
+    runner: Option<&str>,
+    executor: bool,
+) -> bool {
     let Some(entry) = strategy["accounts"].get(account) else {
         return false;
     };
     // The executor backend runs the account through its agent CLI, which holds the connection and
-    // picks the model, so any endpoint account qualifies (`endpointFor` in TypeScript).
+    // picks the model (`endpointFor` in TypeScript: any account with an ask-mode adapter).
     if executor {
-        return entry.get("kind").and_then(Value::as_str) == Some("endpoint");
+        return ask_adapter(ctx, entry).is_some();
     }
     if entry.get("kind").and_then(Value::as_str) != Some("endpoint")
         || !entry.get("connection").is_some_and(truth)
@@ -295,11 +387,12 @@ fn local_midnight(now: f64, zone: chrono_tz::Tz) -> Option<f64> {
     None
 }
 
-/// `assistantStatus` where admission needs no cached usage status; `None` otherwise.
 /// Whether the stored settings choose the executor backend.
 fn executor_backend(ctx: &Ctx) -> bool {
-    with_db(ctx, |db| {
-        Ok(assistant::read_settings(db)?.is_some_and(|s| s.backend == "executor"))
+    with_db_core(ctx, |db| {
+        Ok(assistant::read_settings(db)
+            .map_err(settings_error)?
+            .is_some_and(|s| s.backend == "executor"))
     })
     .unwrap_or(true)
 }
@@ -311,11 +404,13 @@ fn status(ctx: &Ctx) -> Result<Option<Value>, CoreError> {
     let Some(midnight) = local_midnight(ctx.now, zone) else {
         return Ok(None);
     };
-    let read = with_db(ctx, |db| {
-        let Some(settings) = assistant::read_settings(db)? else {
+    let read = with_db_core(ctx, |db| {
+        let settings = assistant::read_settings(db).map_err(settings_error)?;
+        let Some(settings) = settings else {
             return Ok(None);
         };
-        Ok(Some((settings, assistant::usage_since(db, midnight)?)))
+        let today = assistant::usage_since(db, midnight).map_err(store_error)?;
+        Ok(Some((settings, today)))
     })?;
     let Some((settings, today)) = read else {
         return Ok(None);
@@ -330,7 +425,7 @@ fn status(ctx: &Ctx) -> Result<Option<Value>, CoreError> {
             let Some(strategy) = strategy(ctx) else {
                 return Ok(None);
             };
-            let pacer_ok = endpoint_ok(&strategy, account, settings.runner.as_deref(), false);
+            let pacer_ok = endpoint_ok(ctx, &strategy, account, settings.runner.as_deref(), false);
             live_tools = pacer_ok;
             if !pacer_ok {
                 (
@@ -399,7 +494,7 @@ pub fn assistant_settings_get(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
         refuse(ctx)?;
         parse("assistant.settings.get", params)?;
-        let settings = with_db(ctx, |db| Ok(settings(db)))??;
+        let settings = with_db_core(ctx, |db| Ok(settings(db)))??;
         Ok(settings.to_json())
     })
 }
@@ -413,15 +508,19 @@ pub fn assistant_settings_set(ctx: &Ctx, params: Value) -> OpFuture<'_> {
         if let Some(account) = p.account.as_deref() {
             let strategy = strategy(ctx)
                 .ok_or_else(|| unavailable("the strategy requires the TypeScript loader"))?;
-            let stored = with_db(ctx, |db| Ok(settings(db)))??;
+            let stored = with_db_core(ctx, |db| Ok(settings(db)))??;
             // The backend being saved decides the check; absent keeps the stored one.
             let executor = p.backend.as_deref().unwrap_or(stored.backend.as_str()) == "executor";
-            if !endpoint_ok(&strategy, account, p.runner.as_deref(), executor) {
-                return Err(CoreError::new(
-                    Code::InvalidInput,
-                    "Choose an endpoint account with a model.",
-                )
-                .hint("Add one in Settings › Accounts."));
+            if !endpoint_ok(ctx, &strategy, account, p.runner.as_deref(), executor) {
+                let want = if executor {
+                    "an opencode, Claude Code or Codex account"
+                } else {
+                    "an endpoint account with a model"
+                };
+                return Err(
+                    CoreError::new(Code::InvalidInput, format!("Choose {want}."))
+                        .hint("Add one in Settings › Accounts."),
+                );
             }
         }
         let write = with_db(ctx, |db| {
@@ -471,8 +570,8 @@ pub fn assistant_conversations(ctx: &Ctx, params: Value) -> OpFuture<'_> {
             unreachable!("page params")
         };
         let now = (ctx.now * 1000.0).floor() / 1000.0;
-        let page = with_db(ctx, |db| {
-            let Some(settings) = assistant::read_settings(db)? else {
+        let page = with_db_core(ctx, |db| {
+            let Some(settings) = assistant::read_settings(db).map_err(settings_error)? else {
                 return Ok(None);
             };
             let deleted = assistant::enforce_retention(
@@ -480,12 +579,14 @@ pub fn assistant_conversations(ctx: &Ctx, params: Value) -> OpFuture<'_> {
                 now,
                 settings.retention("days"),
                 settings.retention("conversations"),
-            )?;
+            )
+            .map_err(store_error)?;
             if deleted > 0 {
                 assistant::checkpoint(db);
             }
             assistant::conversations(db, before.unwrap_or(MAX_SAFE), limit.unwrap_or(30).min(100))
                 .map(Some)
+                .map_err(store_error)
         })?
         .ok_or_else(|| unavailable("stored assistant settings require the TypeScript schema"))?;
         Ok(json!({"conversations":page}))
@@ -593,14 +694,17 @@ pub fn assistant_card_refresh(ctx: &Ctx, params: Value) -> OpFuture<'_> {
                     .cloned()
             })
             .ok_or_else(|| not_found("Unknown action card."))?;
-        let task = match card["params"]["id"].as_str() {
+        let id = card["params"]["id"].as_str();
+        let task = match id {
             Some(id) => store.read(id).map_err(store_error)?,
             None => None,
         };
         let task = task.ok_or_else(|| not_found("That task no longer exists."))?;
         if !titled(&task) {
-            return Err(unavailable(
-                "the task record requires the TypeScript title reader",
+            // `taskTitle` throws; TypeScript surfaces it as an internal error.
+            return Err(CoreError::new(
+                Code::Internal,
+                format!("task {} has no title or goal", id.unwrap_or("")),
             ));
         }
         let rev = task["rev"].clone();

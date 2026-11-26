@@ -15,7 +15,7 @@ pub mod account_list_ops;
 mod endpoint;
 mod evidence;
 mod js;
-mod model;
+pub mod model;
 mod params;
 mod refusals;
 mod remove;
