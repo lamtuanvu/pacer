@@ -67,7 +67,7 @@ export function snapshotItems(snapshot: ClientSnapshot | null, now: number): Men
     items.push({
       id: `agent:${row.id}`, scope: "agents", group: "Agents", title: executorLabel(row.id, snapshot.accounts), icon: "executors", agent: row.agent,
       pill: { label: status.label, tone: status.tone }, sub: row.sub, hidden: `${agentInfo(row.agent).name} ${row.account} ${row.model ?? ""} agent executor`,
-      target: routes.settings("executors"),
+      target: routes.agents(row.id),
     });
   }
   for (const host of snapshot.hosts ?? []) {

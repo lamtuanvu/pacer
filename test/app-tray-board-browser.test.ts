@@ -132,7 +132,7 @@ browserTest("built tray.html matches board geometry and styles at 340px in all f
     const overflow = page.locator("[data-overflow]");
     await overflow.waitFor({ state: "visible" });
     expect(await overflow.textContent()).toMatch(/^\+\d+$/);
-    expect(await overflow.getAttribute("href")).toBe("/app/#/settings/executors");
+    expect(await overflow.getAttribute("href")).toBe("/app/#/settings/agents");
     expect(await overflow.getAttribute("title")).toContain("parallel tasks");
     const strip = page.locator(".tray-executors");
     expect(await strip.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);

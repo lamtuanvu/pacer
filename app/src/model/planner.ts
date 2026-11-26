@@ -1,8 +1,8 @@
 import type { ModelRecord } from "../../../src/dispatch/types";
 
 // The planner is the executor that drives Pacer, so its models are not
-// dispatch targets. Both the Model choice preview and the Model matrix share
-// one way of finding it: the dispatch.models record whose account matches the
+// dispatch targets. The Model choice preview finds it
+// as the dispatch.models record whose account matches the
 // config's plannerAccount and whose executor is the planner agent, with no
 // host in the runner id.
 

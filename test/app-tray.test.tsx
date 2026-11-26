@@ -248,10 +248,10 @@ test("tray action destinations use mounted screens and preserve settings section
   const route = (params: Record<string, unknown>) => actionRoute({ label: "Open", op: "ui.open", params });
   expect(route({view:"task",id:"running 1"})).toBe("/sessions/running%201");
   expect(route({view:"review",id:"done 1"})).toBe("/sessions/done%201");
-  expect(route({view:"settings",section:"executors"})).toBe("/settings/executors");
+  expect(route({view:"settings",section:"executors"})).toBe("/settings/agents");
   expect(route({view:"settings",section:"routing"})).toBe("/settings/dispatcher");
   expect(route({view:"settings",section:"strategies"})).toBe("/settings/dispatcher");
-  for (const [view, to] of Object.entries({executors:"/settings/executors",accounts:"/settings/accounts",hosts:"/settings/hosts",strategy:"/settings/dispatcher",setup:"/",tasks:"/sessions"})) expect(route({view})).toBe(to);
+  for (const [view, to] of Object.entries({executors:"/settings/agents",accounts:"/settings/agents",hosts:"/settings/hosts",strategy:"/settings/dispatcher",setup:"/",tasks:"/sessions"})) expect(route({view})).toBe(to);
 });
 
 test("long settings actions shorten to Settings and labels ellipsize instead of overflowing", async () => {

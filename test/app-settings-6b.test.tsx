@@ -9,6 +9,7 @@ import { AGENT_KINDS, agentStepProblem, blankAgentDraft, furthestAgentStep } fro
 import { TaskContext } from '../app/src/screens/task-shared';
 import { initialState } from '../app/src/data/store';
 import { settings, executor, job } from './fixtures/ui/settings';
+import { renderAgents } from './fixtures/ui/agents';
 
 const api = { call: async () => ({}) } as any;
 const withState = (snapshot: object) => ({ ...initialState(), connected: true, snapshot: { at: 1000, executors: [], accounts: [], hosts: [], repos: [], ...snapshot } as any });
@@ -78,46 +79,61 @@ const summary = (over: object) => {
   return { ...base, usageState: usageStateFor(base, 1000) };
 };
 
-test('Accounts: status pill with a fix link only where the fix can work', () => {
-  const html = render(<SettingsGeneral section="accounts" initialData={{ ...settings, accounts }} />, withState({ accounts: [
-    summary({ name: 'team', executors: [executor.id], stale: false, capturedAt: 1000 }), summary({ name: 'stale', stale: true, capturedAt: 1, eligibility: { evaluatedAt: 1000, budget: 'unknown', reasons: [] } })] }));
-  for (const label of ['On pace', 'Signed out']) expect(html).toMatch(new RegExp(`pc-pill[^"]*"[^>]*>(?:<span[^>]*>[^<]*</span>)?${label}</span>`));
+test('Agents: account status pill with a fix only where the fix can work', () => {
+  const row = (id: string, account: string, agent = 'codex') => ({ ...executor, id, agent, account, host: null });
+  const rows = [executor, row('codex#out', 'out'), row('opencode#ark', 'ark', 'opencode'), row('codex#stale', 'stale')];
+  const s = withState({ executors: rows, accounts: [
+    summary({ name: 'team', executors: [executor.id], stale: false, capturedAt: 1000 }), summary({ name: 'stale', stale: true, capturedAt: 1, eligibility: { evaluatedAt: 1000, budget: 'unknown', reasons: [] } })] });
+  const page = (agent: string) => renderAgents(s, { agent, initialAccounts: accounts });
+  const pill = (label: string) => new RegExp(`pc-pill[^"]*"[^>]*>(?:<span[^>]*>[^<]*</span>)?${label}</span>`);
+  expect(page(executor.id)).toMatch(pill('On pace'));
+  expect(page('codex#out')).toMatch(pill('Signed out'));
   // Sign-in help remains available for the signed-out native account and Ark CLI endpoint.
-  // Other fixture rows deliberately omit usageCheck: they offer no usage action, while reconnect guidance stays available.
-  expect(html.match(/<summary>Fix sign-in<span class="sr-only"> for Codex · out<\/span><\/summary>/g)).toHaveLength(1);
-  expect(html).toContain('Use the agent’s own sign-in to reconnect this account.');
-  expect(html).not.toContain('<code>codex login</code>');
-  expect(html).toContain('Fix Ark CLI sign-in');
-  expect(html.match(/Check usage<span class="sr-only"> for [^<]+<\/span>/g)).toEqual(['Check usage<span class="sr-only"> for ark</span>']);
-  expect(html.match(/Reconnect to load account usage controls\./g)).toHaveLength(4);
-  expect(html).not.toContain('Fix sign-in<span class="sr-only"> for team');
-  expect(html).toContain('<a href="#/settings/accounts" aria-current="page"');
-  expect(html).toContain('href="#/settings/executors"');
+  expect(page('codex#out').match(/<summary>Fix sign-in<span class="sr-only"> for Codex · out<\/span><\/summary>/g)).toHaveLength(1);
+  expect(page('codex#out')).toContain('Use the agent’s own sign-in to reconnect this account.');
+  expect(page('codex#out')).not.toContain('<code>codex login</code>');
+  expect(page('opencode#ark')).toContain('Fix Ark CLI sign-in');
+  // Only accounts with a usage capability offer Check usage; the others say how to get the controls back.
+  expect(page('opencode#ark').match(/Check usage<span class="sr-only"> for [^<]+<\/span>/g)).toEqual(['Check usage<span class="sr-only"> for ark</span>']);
+  for (const agent of [executor.id, 'codex#out', 'codex#stale']) expect(page(agent)).toContain('Reconnect to load account usage controls.');
+  expect(page(executor.id)).not.toContain('Fix sign-in<span class="sr-only"> for');
+  // The Dispatcher tabs and the agent list both link with aria-current on the open entry only.
+  expect(page('codex#out')).toContain('<a href="#/settings/agents?agent=codex%23out" aria-current="page"');
+  expect(page('codex#out').match(/aria-current="page"/g)).toHaveLength(1);
 });
 
 test('unknown data is omitted, never shown as zero or a measured value', () => {
-  const html = render(<SettingsGeneral section="accounts" initialData={{ ...settings, accounts }} />, withState({ accounts: [summary({ name: 'team', usedPct: null, pacePct: null }), summary({ name: 'stale', usedPct: 0, pacePct: null })] }));
   // team: no reading at all -> no meter. stale: a real 0% reading is a measured fact and keeps its meter.
   expect(usageView(undefined, 1000).figure).toBe('Usage unknown');
   expect(usageView(usageStateFor({ usedPct: null }, 1000), 1000).figure).toBe('No usage figure');
   expect(usageView(usageStateFor({ usedPct: 0, window: 'week' }, 1000), 1000).figure).toBe('0%');
-  expect((html.match(/role="meter"/g) ?? []).length).toBe(1);
-  expect(html).not.toContain('0% of week · resets');
-  const none = render(<SettingsGeneral section="executors" initialData={settings} />, withState({ executors: [{ ...executor, usedPct: null, pacePct: null }] }));
+  const zero = renderAgents(withState({ executors: [{ ...executor, account: 'stale' }], accounts: [summary({ name: 'stale', usedPct: 0, pacePct: null })] }), { initialAccounts: accounts });
+  expect((zero.match(/role="meter"/g) ?? []).length).toBe(1);
+  expect(zero).toContain('0% of week');
+  const none = renderAgents(withState({ executors: [{ ...executor, usedPct: null, pacePct: null }] }));
   expect(none).toContain('Usage unknown');
   expect(none).not.toContain('role="meter"');
   expect(none).not.toMatch(/>0%</);
 });
 
-test('Agents: Add agent is the one primary action; the planner card and tabs come from the snapshot only', () => {
-  const html = render(<SettingsGeneral section="executors" initialData={settings} />, withState({ executors: [executor], accounts: [summary({ name: 'team' })], planner: { agent: 'claude-code', runner: 'claude-code', advice: 'Keep planning' } }));
-  expect((html.match(/pc-btn--primary/g) ?? []).length).toBe(1); // The idle save bar is absent.
-  expect(html).toContain('Plans and reviews');
-  expect(html).toContain('Executors · 1');
-  expect(html).toContain('Accounts · 1');
+test('Agents: no primary action while idle; the planner leads the list and offers Change planner', () => {
+  const planner = { ...executor, id: 'claude-code', agent: 'claude-code', account: 'claude-code', host: null, rank: 'planner' as const };
+  const html = renderAgents(withState({ executors: [planner, executor], accounts: [summary({ name: 'team' })], planner: { agent: 'claude-code', runner: 'claude-code', advice: 'Keep planning' } }));
+  expect((html.match(/pc-btn--primary/g) ?? []).length).toBe(0); // The idle save bar has no actions.
   expect(html).toContain('href="#/settings/add-executor"');
-  const bare = render(<SettingsGeneral section="executors" initialData={settings} />, withState({ planner: null }));
+  expect(html.indexOf('>Planner</span>')).toBeLessThan(html.indexOf('>Executors</span>'));
+  // The planner is selected first, marked as planner, and changed from Budget & pacing, never removed here.
+  expect(html).toContain('<a href="#/settings/agents?agent=claude-code" aria-current="page"');
+  expect(html).toContain('href="#/settings/planner"');
+  expect(html).toContain('Change planner');
+  expect(html).not.toContain('Remove Claude Code');
+  const executorPage = renderAgents(withState({ executors: [planner, executor] }), { agent: executor.id });
+  expect(executorPage).not.toContain('Change planner');
+  expect(executorPage).toContain('Remove Codex · team on devbox');
+  expect(executorPage).toContain('Removing keeps its task history.');
+  const bare = renderAgents(withState({ executors: [executor], planner: null }));
   expect(bare).not.toContain('Change planner');
+  expect(bare).not.toContain('>Planner</span>');
 });
 
 test('host names: suggested from the alias, validated, and "local" is reserved', () => {
@@ -164,46 +180,44 @@ test('route plumbing: Add agent receives the host link and host detail receives 
   expect(render(<SettingsGeneral section="hosts" initialData={settings} />, state)).toContain('Add a remote host');
 });
 
-test('Agents: Executors and Accounts have a planner card; Accounts has the factual banner and sign-in column',()=>{
- const snapshot=withState({planner:{agent:'codex',runner:'codex',advice:'Planner advice'},accounts:[summary({name:'team',signedIn:false,source:'Observed source'})]});
- const executors=render(<SettingsGeneral section="executors" initialData={settings}/>,snapshot);
- expect(executors).toContain('aria-label="Planner"');
- expect(executors).not.toContain('>Connected<');
- expect(executors).not.toContain('class="u3-save-bar"');
- const html=render(<SettingsGeneral section="accounts" initialData={{...settings,accounts}}/>,snapshot);
- expect(html).toContain('aria-label="Planner"');
- expect(html).toContain('Change planner');
- expect(html).toContain('An account is where quota comes from.');
- expect(html).toContain('pacer never reads or copies an agent\'s own sign-in.');
- expect(html).toContain('Endpoint keys stay in your keychain and are used by reference.');
- expect(html).toContain('scope="col">Sign-in</th>');
- expect(html).toMatch(/data-label="Sign-in"><span>Signed out<\/span><div class="u3-muted">Codex’s own sign-in/);
- expect(html).toContain('data-label="Sign-in"><span>Unknown</span>');
+test('Agents: the planner tier fallback card binds the existing config key; executors have none', () => {
+  const planner = { ...executor, id: 'claude-code', agent: 'claude-code', account: 'claude-code', host: null, rank: 'planner' as const };
+  const config = (value?: string) => ({ keys: { ...(value ? { 'pacing.planner_tier_fallback': { value } } : {}) }, planners: [] }) as any;
+  const page = (value?: string, agent?: string) => renderAgents(withState({ executors: [planner, executor] }), { agent, initialConfig: config(value) });
+  expect(page('on')).toContain('Take complex tasks when no executor can');
+  expect(page('on')).toMatch(/<input[^>]*aria-labelledby="planner-fallback-label"[^>]*checked/);
+  expect(page('on')).toContain('Right now that is the case.');
+  expect(page('off')).toContain('Off: Pacer sends the planner no delegated tasks.');
+  // An older service without the key gets no switch that cannot work (UI-13).
+  expect(page()).not.toContain('Take complex tasks when no executor can');
+  expect(page('on', executor.id)).not.toContain('Take complex tasks when no executor can');
 });
 
-test('Agents table shows count and known machine maximum, failing tint, and 24px identity',()=>{
- const html=render(<SettingsGeneral section="executors" initialData={settings}/>,withState({machine:{used:0,max:8},executors:[{...executor,state:'failing',slots:{used:0,max:3}}]}));
- expect(html).toContain('u3-row--bad');
- expect(html).toContain('data-label="Parallel"><strong>3</strong><span class="u3-muted"> of 8</span>');
- expect(html).toContain('--agent-size:24px');
- expect(html).not.toContain('type="number"');
- const unknown=render(<SettingsGeneral section="executors" initialData={settings}/>,withState({executors:[executor]}));
- expect(unknown).not.toContain(' of undefined');
+test('Agents show the parallel limit with the known machine maximum, the agent mark and readiness tone', () => {
+  const html = renderAgents(withState({ machine: { used: 0, max: 8 }, executors: [{ ...executor, state: 'failing', slots: { used: 0, max: 3 } }] }));
+  expect(html).toContain('Up to 3 tasks at once · machine limit 8');
+  expect(html).toContain('--agent-size:24px'); // list entry
+  expect(html).toContain('--agent-size:40px'); // detail header
+  const unknown = renderAgents(withState({ executors: [executor] }));
+  expect(unknown).not.toContain('machine limit');
+  expect(unknown).not.toContain(' of undefined');
 });
 
-test('Accounts policy uses the existing config values and shows the threshold only for fill',()=>{
- const policy=(mode:string)=>render(<SettingsGeneral section="accounts" initialData={{...settings,accounts,config:{keys:{'pacing.accounts':{value:mode},'pacing.fill_threshold':{value:85}},planners:[]}}}/>);
- expect(policy('spread')).toContain('role="group" aria-label="Multiple accounts"');
- expect(policy('spread')).toContain('Spread evenly');
- expect(policy('spread')).not.toContain('Account fill threshold');
- expect(policy('fill')).toContain('aria-label="Account fill threshold"');
- expect(policy('fill')).toContain('value="85"');
+test('Account policy appears for an agent with several accounts, uses the existing config values and shows the threshold only for fill', () => {
+  const policy = (mode: string, list = accounts) => renderAgents(withState({ executors: [executor] }), { initialAccounts: list, initialConfig: { keys: { 'pacing.accounts': { value: mode }, 'pacing.fill_threshold': { value: 85 } }, planners: [] } as any });
+  expect(policy('spread')).toContain('role="group" aria-label="Multiple accounts"');
+  expect(policy('spread')).toContain('Spread evenly');
+  expect(policy('spread')).not.toContain('Account fill threshold');
+  expect(policy('fill')).toContain('aria-label="Account fill threshold"');
+  expect(policy('fill')).toContain('value="85"');
+  // One account: no policy to choose.
+  expect(policy('spread', [accounts[0]])).not.toContain('Multiple accounts');
 });
 
-test('Accounts policy explains disconnected controls',()=>{
- const html=render(<SettingsGeneral section="accounts" initialData={{...settings,accounts,config:{keys:{'pacing.accounts':{value:'spread'}},planners:[]}}}/>,{...withState({}),connected:false});
- expect(html).toContain('Reconnecting. Account policy changes will be available when the service reconnects.');
- expect(html).toMatch(/<button[^>]*disabled/);
+test('Account policy explains disconnected controls', () => {
+  const html = renderAgents({ ...withState({ executors: [executor] }), connected: false }, { initialAccounts: accounts, initialConfig: { keys: { 'pacing.accounts': { value: 'spread' } }, planners: [] } as any });
+  expect(html).toContain('Reconnecting. Account policy changes will be available when the service reconnects.');
+  expect(html).toMatch(/<button[^>]*disabled/);
 });
 
 test('Machines uses the board cards and only reports known local facts and executor caps', () => {
@@ -288,4 +302,42 @@ test('Add agent model picker uses only reported models and nests test status and
 test('Machines renders the measured local OS and architecture when the service reports them', () => {
   const html = render(<SettingsGeneral section="machine" initialData={settings}/>,withState({service:{version:'0.11.0'},machine:{used:0,max:4,os:'macOS 27.0',arch:'arm64'}}));
   expect(html).toContain('macOS 27.0 · arm64 · pacer 0.11.0');
+});
+
+test('S5: accounts no agent uses get their own group and an account-only page with usage, sign-in and Add as agent', () => {
+  const list = [{ name: 'team', kind: 'codex', signedIn: true, runners: [executor.id] }, { name: 'spare', kind: 'codex', signedIn: false, usageCheck: { action: 'refresh', consentRequired: false, description: 'Read usage' } }] as any;
+  const s = withState({ executors: [executor], accounts: [summary({ name: 'spare', signedIn: false })] });
+  const page = renderAgents(s, { initialAccounts: list });
+  expect(page).toContain('>Accounts without an agent</span>');
+  expect(page).toContain('href="#/settings/agents?account=spare"');
+  const spare = renderAgents(s, { account: 'spare', initialAccounts: list });
+  expect(spare).toContain('<a href="#/settings/agents?account=spare" aria-current="page"');
+  expect(spare.match(/aria-current="page"/g)).toHaveLength(1);
+  expect(spare).toContain('No agent</span>');
+  expect(spare).toContain('aria-label="Usage"');
+  expect(spare).toContain('Check usage<span class="sr-only"> for spare</span>');
+  expect(spare).toContain('<summary>Fix sign-in<span class="sr-only"> for Codex · spare</span></summary>');
+  expect(spare).toMatch(/<a href="#\/settings\/add-executor"[^>]*>Add as agent<\/a>/);
+  expect(spare).not.toContain('aria-label="Size of');
+  // A used account is not listed again.
+  expect(page).not.toContain('href="#/settings/agents?account=team"');
+});
+
+test('UI-6: in page (no side panel) the agent list and its Find field come before the detail', () => {
+  const html = renderAgents(withState({ executors: [executor] }));
+  expect(html).toMatch(/<div class="pc-agent-stack"><nav [^>]*aria-label="Agents"/);
+  expect(html.indexOf('aria-label="Agents"')).toBeLessThan(html.indexOf('class="pc-agent-detail"'));
+  expect(html).toContain('placeholder="Find an agent"');
+  expect(html).toContain('<span class="sr-only">Find an agent</span>');
+  expect(html).not.toContain('pc-page-columns');
+});
+
+test('?account= naming an account an agent uses opens that agent; nothing is "without an agent" before the agents load', () => {
+  const list = [{ name: 'team', kind: 'codex', signedIn: true, runners: [executor.id] }, { name: 'spare', kind: 'codex' }] as any;
+  const other = { ...executor, id: 'claude-code', agent: 'claude-code', account: 'claude-code', host: null };
+  const html = renderAgents(withState({ executors: [other, executor] }), { account: 'team', initialAccounts: list });
+  expect(html).toContain('<a href="#/settings/agents?agent=codex%23team%40devbox" aria-current="page"');
+  const loading = renderAgents({ ...withState({}), snapshot: { at: 1000, accounts: [], hosts: [], repos: [] } } as any, { initialAccounts: list });
+  expect(loading).toContain('Loading agents…');
+  expect(loading).not.toContain('Accounts without an agent');
 });

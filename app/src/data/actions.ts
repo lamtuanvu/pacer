@@ -29,7 +29,11 @@ export function uiHref(params: Record<string, unknown>): string {
     // The thread lives in the workspace's Messages panel.
     case "task": return id ? params.tab === "messages" ? `#/workspace?task=${id}&panel=messages` : `#/tasks/${id}${params.tab === "answer" ? "?tab=answer" : ""}` : "#/tasks";
     case "session": return id ? `#/workspace?task=${id}${params.tab === "messages" ? "&panel=messages" : ""}` : "#/tasks";
-    case "settings": return `#${settingsPath(params.section)}`;
+    case "settings": {
+      const path = settingsPath(params.section);
+      // An item about one agent opens that agent in Dispatcher › Agents.
+      return path === "/settings/agents" && typeof params.agent === "string" ? `#${path}?${new URLSearchParams({ agent: params.agent })}` : `#${path}`;
+    }
     default: return "#/";
   }
 }
