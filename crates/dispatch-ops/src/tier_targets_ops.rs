@@ -38,8 +38,18 @@ fn load_error(error: StrategyError) -> CoreError {
     internal(error.to_string())
 }
 
+/// `readFileSync(path, "utf8")` reports Node's errno text, not Rust's.
 fn read(path: &Path) -> Result<String, CoreError> {
-    fs::read_to_string(path).map_err(|e| internal(e.to_string()))
+    fs::read_to_string(path).map_err(|error| {
+        let shown = path.display();
+        let message = match error.raw_os_error() {
+            Some(2) => format!("ENOENT: no such file or directory, open '{shown}'"),
+            Some(13) => format!("EACCES: permission denied, open '{shown}'"),
+            Some(21) => format!("EISDIR: illegal operation on a directory, read '{shown}'"),
+            _ => error.to_string(),
+        };
+        internal(message)
+    })
 }
 
 fn defaults() -> Value {

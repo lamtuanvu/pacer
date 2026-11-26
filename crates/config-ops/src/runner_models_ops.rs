@@ -17,7 +17,7 @@ use pacer_foundation::{
 use pacer_models::{
     AvailableModels, Listing, Refusal,
     declarations::{array_bounds, at, issue, model_declarations, received, string},
-    listing, listing_needs_core, model_declaration_warnings, provider_name, validate_runner_models,
+    listing, model_declaration_warnings, provider_name, validate_runner_models,
 };
 use serde_json::{Map, Value, json};
 use std::{
@@ -60,8 +60,18 @@ fn load_error(error: StrategyError) -> CoreError {
     internal(error.to_string())
 }
 
+/// `readFileSync(path, "utf8")` reports Node's errno text, not Rust's.
 fn read(path: &Path) -> Result<String, CoreError> {
-    fs::read_to_string(path).map_err(|e| internal(e.to_string()))
+    fs::read_to_string(path).map_err(|error| {
+        let shown = path.display();
+        let message = match error.raw_os_error() {
+            Some(2) => format!("ENOENT: no such file or directory, open '{shown}'"),
+            Some(13) => format!("EACCES: permission denied, open '{shown}'"),
+            Some(21) => format!("EISDIR: illegal operation on a directory, read '{shown}'"),
+            _ => error.to_string(),
+        };
+        internal(message)
+    })
 }
 
 fn refused(Refusal { message, hint }: Refusal) -> CoreError {
@@ -197,6 +207,7 @@ fn editable(strategy: &Value, reference: &str) -> Result<String, CoreError> {
 async fn list(ctx: &Ctx, strategy: &Value, id: &str) -> Result<AvailableModels, CoreError> {
     match listing(&ctx.pacer_home, ctx.now, strategy, id).await {
         Listing::Known(list) => Ok(list),
+        Listing::Failed(message) => Err(CoreError::new(Code::Internal, message)),
         _ => Err(CoreError::new(Code::Unavailable, FORWARDED)),
     }
 }
@@ -426,29 +437,6 @@ pub fn runner_models_set(ctx: &Ctx, params: Value) -> OpFuture<'_> {
 }
 pub fn runner_models_set_many(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     run(ctx, "runner.models.set_many", params)
-}
-
-/// A save whose runners only TypeScript can list (discovery the front door
-/// cannot run as Core does, or a cache or catalog shape only TypeScript
-/// serves) forwards whole, before the lock: TypeScript lists every runner first.
-pub fn runner_models_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
-    if !matches!(op, "runner.models.set" | "runner.models.set_many") {
-        return false;
-    }
-    let Ok(p) = parse(op, params.clone()) else {
-        return false;
-    };
-    let Ok(strategy) = load_strategy(&ctx.pacer_home) else {
-        return true;
-    };
-    p.entries.iter().any(|entry| {
-        resolve(&strategy, &entry.id).is_some_and(|runner| {
-            let id = runner["id"].as_str().unwrap_or(&entry.id);
-            listing_needs_core(&ctx.pacer_home, ctx.now, &strategy, id)
-                || resets_endpoint_state(&strategy, runner, &entry.default)
-                    && !pacer_account_ops::endpoint_states_writable(ctx)
-        })
-    })
 }
 
 /// A new default for an OpenCode or connection account's runner makes its saved

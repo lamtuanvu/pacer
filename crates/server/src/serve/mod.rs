@@ -81,7 +81,8 @@ struct Listener {
     token: String,
     registry: Registry<'static>,
     scoped_work: bool,
-    plugins: crate::native::plugins::Service,
+    plugins: Arc<crate::native::plugins::Service>,
+    delegation: Arc<pacer_delegation::Runtime>,
     forward_log_follow: bool,
     forward_events: bool,
 }
@@ -204,7 +205,6 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             || crate::native::service_agent_stays_forwarded(&ctx, op.name, &params)
             || crate::native::account_stays_forwarded(&ctx, op.name, &params)
             || crate::native::host_stays_forwarded(&ctx, op.name, &params)
-            || crate::native::strategy_settings_stays_forwarded(&ctx, op.name, &params)
             || crate::native::dispatch_preview_stays_forwarded(&ctx, op.name, &params)
             || crate::native::dispatch_enforcement_stays_forwarded(&ctx, op.name, &params)
             || crate::native::session_lifecycle_stays_forwarded(&ctx, op.name, &params)
@@ -264,8 +264,13 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
         }
         if crate::native::msg_writes::uses_bridge(op.name) {
             crate::native::msg_write_sync::trace(op.name, None);
-            let mut bridge = crate::native::msg_write_sync::HttpBridge {
+            let mut core_bridge = crate::native::msg_write_sync::HttpBridge {
                 target: state.core.target().await,
+            };
+            let mut bridge = crate::native::runtime::MsgBridge {
+                inner: &mut core_bridge,
+                ctx: &ctx,
+                delegation: &state.delegation,
             };
             return match crate::native::msg_writes::call(&ctx, op.name, params, &mut bridge).await {
                 Ok(result) => native_json(StatusCode::OK, serde_json::json!({"result":result})),
@@ -605,13 +610,15 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             } else {
                 None
             };
-            let task_clean_sync = if crate::native::needs_task_clean_bridge(op.name) {
+            let auto_clean = if crate::native::uses_native_clean(op.name) {
                 match crate::native::task_dismiss_ops::ids_from_params(&params) {
-                    Ok(ids) => state.core.target().await.map(|target| {
-                        Box::pin(async move {
-                            crate::native::task_clean_sync::http(Some(target), &ids).await
-                        }) as pacer_foundation::api::OpFuture<'_>
-                    }),
+                    Ok(ids) => {
+                        let runtime = Arc::clone(&state.delegation);
+                        let clean_ctx = request_ctx.clone();
+                        Some(Box::pin(async move {
+                            crate::native::task_dismiss_ops::auto_clean(&clean_ctx, &runtime, &ids).await
+                        }) as pacer_foundation::api::OpFuture<'_>)
+                    }
                     Err(error) => return native_error(error),
                 }
             } else {
@@ -753,7 +760,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                 task_read_sync,
                 config_host_sync,
                 snapshot_sync,
-                task_clean_sync,
+                auto_clean,
                 host_read_sync,
                 core_bridge_sync,
                 task_stop_probe_cache,
@@ -874,7 +881,9 @@ fn plugin_json(status: StatusCode, body: Value) -> Response {
     json_headers((status, pacer_plugin_ops::settings::js_json(&body)).into_response())
 }
 fn native_json(status: StatusCode, body: Value) -> Response {
-    json_headers((status, axum::Json(body)).into_response())
+    // Native op results carry `pacer-js-json` quoted values; the JS codec
+    // writes lone surrogates and JS number text as TypeScript does.
+    json_headers((status, pacer_plugin_ops::settings::js_json(&body)).into_response())
 }
 fn json_headers(mut response: Response) -> Response {
     response.headers_mut().insert(
@@ -901,6 +910,7 @@ pub async fn run_serve(
     _version: &str,
     _argv: Vec<String>,
 ) -> io::Result<()> {
+    crate::core_process::record_startup();
     let mut ctx = Ctx::from_env();
     let scoped_work = env.contains_key("PACER_WORK_GRANT");
     let forward = env
@@ -927,10 +937,10 @@ pub async fn run_serve(
     // spawn so the child inherits PACER_HOST_SOCKET and HTTP plugin RPC can use
     // the same owner. Default (flags unset) is a no-op.
     let native_host = native_host::maybe_start(&ctx.pacer_home, &mut env).await?;
-    let plugins = match &native_host {
+    let plugins = Arc::new(match &native_host {
         Some(host) => crate::native::plugins::Service::with_native_owner(host.owner()),
         None => crate::native::plugins::Service::default(),
-    };
+    });
     // Native operations and the core must observe the same configuration environment.
     ctx.env = env.clone();
     // Runtime environment cannot turn a generic front door into a native owner.
@@ -977,6 +987,7 @@ pub async fn run_serve(
             disabled: std::env::var("PACER_DISCOVERY").as_deref() == Ok("off"),
         },
     );
+    let delegation = crate::native::runtime::runtime(Arc::clone(&plugins), core.clone());
     let state = Arc::new(Listener {
         core,
         heartbeat: beats,
@@ -986,6 +997,7 @@ pub async fn run_serve(
         registry,
         scoped_work,
         plugins,
+        delegation,
         forward_log_follow,
         forward_events,
     });

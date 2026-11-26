@@ -40,7 +40,8 @@ async fn listener_with_core(
         token: "test-token".into(),
         registry: service_registry("*"),
         scoped_work: false,
-        plugins: crate::native::plugins::Service::default(),
+        plugins: Arc::new(crate::native::plugins::Service::default()),
+        delegation: Arc::new(pacer_delegation::Runtime::default()),
         forward_log_follow: forwarded,
         forward_events: false,
     });

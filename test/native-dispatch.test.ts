@@ -1,8 +1,12 @@
 import { request as httpRequest } from "node:http";
 import { expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { closedPort, pinnedEnv as pinnedPort, spawnPinned } from "./pinned-port";
+import { gitInfo } from "../src/core/git";
+import { createTaskWorktree } from "../src/supervisor/worktree";
+import { createTask, updateTask } from "../src/tasks/store";
+import { fakeCtx, gitRepo, realRun } from "./helpers";
 
 import golden from "./fixtures/config-writes-goldens.json";
 import { pinnedEnv } from "./pinned-port";
@@ -19,6 +23,26 @@ function setup() {
   return { home, env, cleanup: () => rmSync(home, { recursive: true, force: true }) };
 }
 const rpc = (id: number, method: string, params: unknown = {}) => JSON.stringify({ jsonrpc: "2.0", id, method, params });
+
+/** An accepted task with a real worktree and disposable run files, in the front door's home. */
+async function acceptedWorktree(home: string) {
+  const ctx = fakeCtx({ home, pacerHome: join(home, ".pacer"), run: realRun, which: () => null });
+  mkdirSync(ctx.pacerHome, { recursive: true, mode: 0o700 });
+  const repo = gitRepo();
+  const t = createTask(ctx, { brief: { goal: "g", repo }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  const info = await gitInfo(realRun, repo); if ("error" in info) throw new Error(info.error);
+  const w = await createTaskWorktree(ctx, info, t.id, "main"); if ("error" in w) throw new Error(w.error);
+  const runDir = join(ctx.pacerHome, "runs", t.id, "1");
+  mkdirSync(runDir, { recursive: true });
+  writeFileSync(join(runDir, "stdout"), "disposable");
+  updateTask(ctx, t.id, x => {
+    x.state = "done";
+    x.worktree = w.workdir;
+    x.run = { dir: runDir, attempt: 1, executor: "codex", startedAt: 1, mode: "new", workdir: w.workdir, logFile: "" };
+    x.review = { accepted: true, kind: null, note: null, at: 1 };
+  });
+  return { id: t.id, worktree: w.path, runDir: join(ctx.pacerHome, "runs", t.id) };
+}
 
 test.skipIf(!productionFront)("release front door rejects test-only native operations", async () => {
   const fixture = setup();
@@ -231,3 +255,21 @@ test.skipIf(!productionFront)("HTTP config environment matches the forwarded cor
     expect(outputs[0]).toEqual(outputs[1]);
   }
 }, 120_000);
+
+test.skipIf(!front)("task.dismiss removes an accepted worktree without the old bridge", async () => {
+  const fixture = setup();
+  const seed = await acceptedWorktree(fixture.home);
+  const child = spawnPinned([front!, "api", "--stdio"], { env: fixture.env, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+  try {
+    await child.stdin.write([rpc(1, "task.dismiss", { ids: [seed.id] })].join("\n") + "\n");
+    await child.stdin.end();
+    const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    expect(exit, stderr).toBe(0);
+    const reply = stdout.trim().split("\n").map(line => JSON.parse(line)).find(r => r.id === 1);
+    expect(reply?.error).toBeUndefined();
+    expect(existsSync(seed.worktree)).toBe(false);
+    expect(existsSync(seed.runDir)).toBe(false);
+    expect(stderr).toContain("native task.dismiss 1");
+    expect(stderr).not.toContain("task-auto-clean");
+  } finally { if (child.exitCode === null) { child.kill("SIGTERM"); await child.exited; } fixture.cleanup(); }
+}, 30_000);

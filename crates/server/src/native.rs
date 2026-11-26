@@ -77,7 +77,7 @@ pub(crate) mod setup_doctor_sync;
 use pacer_config_ops::setup_ops;
 pub(crate) use pacer_core_bridge::snapshot_sync;
 pub(crate) use pacer_core_bridge::status_sync;
-pub(crate) use pacer_core_bridge::task_clean_sync;
+pub(crate) mod runtime;
 pub(crate) use pacer_core_bridge::task_read_sync;
 pub(crate) use pacer_core_bridge::task_review_sync;
 use pacer_task_ops::snapshot_get_ops;
@@ -172,22 +172,6 @@ pub fn runner_attention_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> 
         || attention_ops::attention_stays_forwarded(ctx, op, params)
 }
 
-/// `runner.models.*`, `dispatch.tierTargets.*` and `executor.models.available`
-/// requests whose strategy only TypeScript loads, or whose runners only
-/// TypeScript can list.
-pub fn strategy_settings_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
-    matches!(
-        op,
-        "runner.models.get"
-            | "runner.models.set"
-            | "runner.models.set_many"
-            | "dispatch.tierTargets.get"
-            | "dispatch.tierTargets.set"
-            | "executor.models.available"
-    ) && (pacer_config_ops::active_strategy_needs_core(&ctx.pacer_home)
-        || runner_models_ops::runner_models_stays_forwarded(ctx, op, params)
-        || available_ops::executor_models_available_stays_forwarded(ctx, op, params))
-}
 pub(crate) use session_ops::needs_session_probe;
 pub(crate) use snapshot_get_ops::needs_snapshot_bridge;
 pub(crate) use status_ops::needs_usage_broker;
@@ -209,7 +193,7 @@ pub fn status_residue_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bo
         _ => false,
     }
 }
-pub(crate) use task_dismiss_ops::needs_task_clean_bridge;
+pub(crate) use task_dismiss_ops::uses_native_clean;
 pub(crate) use task_get_ops::needs_task_read_bridge;
 pub(crate) use task_review_ops::needs_task_review_bridge;
 pub(crate) use task_stop_ops::needs_task_stop_bridge;
@@ -1187,7 +1171,7 @@ pub async fn call_native(
     task_read_sync: Option<pacer_foundation::api::OpFuture<'_>>,
     config_host_sync: Option<pacer_foundation::api::OpFuture<'_>>,
     snapshot_sync: Option<pacer_foundation::api::OpFuture<'_>>,
-    task_clean_sync: Option<pacer_foundation::api::OpFuture<'_>>,
+    auto_clean: Option<pacer_foundation::api::OpFuture<'_>>,
     host_read_sync: Option<pacer_foundation::api::OpFuture<'_>>,
     core_bridge_sync: Option<pacer_foundation::api::OpFuture<'_>>,
     task_stop_probe: Option<Value>,
@@ -1213,10 +1197,10 @@ pub async fn call_native(
             "endpoint synchronization bridge unavailable",
         ));
     }
-    if needs_task_clean_bridge(op.name) && task_clean_sync.is_none() {
+    if uses_native_clean(op.name) && auto_clean.is_none() {
         return Err(CoreError::new(
             pacer_foundation::api::Code::Unavailable,
-            "task clean bridge unavailable",
+            "task delegation runtime unavailable",
         ));
     }
     if needs_task_stop_bridge(op.name) && (task_stop_probe.is_none() || task_stop_effects.is_none())
@@ -1320,16 +1304,16 @@ pub async fn call_native(
             "host.get" => host_read_ops::host_get(ctx, params, parts).await?,
             _ => unreachable!("needs_host_read_bridge"),
         }
-    } else if needs_task_clean_bridge(op.name) {
-        let clean = task_clean_sync.ok_or_else(|| {
+    } else if uses_native_clean(op.name) {
+        let clean = auto_clean.ok_or_else(|| {
             CoreError::new(
                 pacer_foundation::api::Code::Unavailable,
-                "task clean bridge unavailable",
+                "task delegation runtime unavailable",
             )
         })?;
         match op.name {
             "task.dismiss" => task_dismiss_ops::task_dismiss(ctx, params, clean).await?,
-            _ => unreachable!("needs_task_clean_bridge"),
+            _ => unreachable!("uses_native_clean"),
         }
     } else if needs_task_stop_bridge(op.name) {
         let probe = task_stop_probe.ok_or_else(|| {

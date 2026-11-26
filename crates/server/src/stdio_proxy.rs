@@ -124,7 +124,10 @@ fn rpc_line(id: &Value, result: Result<Value, CoreError>) -> io::Result<Vec<u8>>
         Ok(value) => json!({"jsonrpc":"2.0", "id":id, "result":value}),
         Err(error) => json!({"jsonrpc":"2.0", "id":id, "error":error.rpc()}),
     };
-    let mut bytes = serde_json::to_vec(&response)?;
+    // Native op results carry `pacer-js-json` quoted values; writing them with
+    // the JS codec preserves lone surrogates and JS number text as TypeScript
+    // sends them.
+    let mut bytes = pacer_plugin_ops::settings::js_json(&response).into_bytes();
     bytes.push(b'\n');
     Ok(bytes)
 }
@@ -157,6 +160,7 @@ async fn wait_done<O: AsyncWrite + Unpin>(
 /// The plugin operations of one connection: their service, Core channel and running tasks.
 struct Plugins {
     service: std::sync::Arc<crate::native::plugins::Service>,
+    delegation: std::sync::Arc<pacer_delegation::Runtime>,
     link: std::sync::Arc<PluginLink>,
     frames: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>,
     tasks: tokio::task::JoinSet<Done>,
@@ -285,7 +289,7 @@ async fn forward_input<
                         };
                         let response =
                             json!({"jsonrpc":"2.0", "id":id, "result":hello_body(version, build)?});
-                        let mut bytes = serde_json::to_vec(&response)?;
+                        let mut bytes = pacer_plugin_ops::settings::js_json(&response).into_bytes();
                         bytes.push(b'\n');
                         write_line(out, &bytes).await?;
                     }
@@ -293,7 +297,7 @@ async fn forward_input<
                 Err(message) => {
                     if let Some(id) = request.get("id") {
                         let response = json!({"jsonrpc":"2.0", "id":id, "error":CoreError::new(Code::InvalidInput, message).rpc()});
-                        let mut bytes = serde_json::to_vec(&response)?;
+                        let mut bytes = pacer_plugin_ops::settings::js_json(&response).into_bytes();
                         bytes.push(b'\n');
                         write_line(out, &bytes).await?;
                     }
@@ -365,11 +369,6 @@ async fn forward_input<
                 && !crate::native::service_agent_stays_forwarded(&ctx.at_now(), op.name, &params)
                 && !crate::native::account_stays_forwarded(&ctx.at_now(), op.name, &params)
                 && !crate::native::host_stays_forwarded(&ctx.at_now(), op.name, &params)
-                && !crate::native::strategy_settings_stays_forwarded(
-                    &ctx.at_now(),
-                    op.name,
-                    &params,
-                )
                 && !crate::native::dispatch_preview_stays_forwarded(&ctx.at_now(), op.name, &params)
                 && !crate::native::dispatch_enforcement_stays_forwarded(
                     &ctx.at_now(),
@@ -451,11 +450,16 @@ async fn forward_input<
                         }
                         continue;
                     }
-                    let mut bridge = msg_write_sync::StdioBridge {
+                    let mut core_bridge = msg_write_sync::StdioBridge {
                         core: &mut core,
                         prefix: sync.0,
                         key: sync.1,
                         replies: &mut *sync.2,
+                    };
+                    let mut bridge = crate::native::runtime::MsgBridge {
+                        inner: &mut core_bridge,
+                        ctx: &request_ctx,
+                        delegation: &plugins.delegation,
                     };
                     let result = msg_writes::call(&request_ctx, op.name, params, &mut bridge).await;
                     if matches!(&result, Err(error) if error.message == msg_writes::FORWARD_DUPLICATE_ANSWER)
@@ -712,7 +716,7 @@ async fn forward_input<
                                 "id: Invalid input: expected string, received undefined",
                             );
                             let response = json!({"jsonrpc":"2.0", "id":id, "error":error.rpc()});
-                            let mut bytes = serde_json::to_vec(&response)?;
+                            let mut bytes = pacer_plugin_ops::settings::js_json(&response).into_bytes();
                             bytes.push(b'\n');
                             write_line(out, &bytes).await?;
                         }
@@ -735,7 +739,7 @@ async fn forward_input<
                             if let Some(id) = request.get("id") {
                                 let response =
                                     json!({"jsonrpc":"2.0", "id":id, "error":error.rpc()});
-                                let mut bytes = serde_json::to_vec(&response)?;
+                                let mut bytes = pacer_plugin_ops::settings::js_json(&response).into_bytes();
                                 bytes.push(b'\n');
                                 write_line(out, &bytes).await?;
                             }
@@ -756,7 +760,7 @@ async fn forward_input<
                                 "id: Invalid input: expected string, received undefined",
                             );
                             let response = json!({"jsonrpc":"2.0", "id":id, "error":error.rpc()});
-                            let mut bytes = serde_json::to_vec(&response)?;
+                            let mut bytes = pacer_plugin_ops::settings::js_json(&response).into_bytes();
                             bytes.push(b'\n');
                             write_line(out, &bytes).await?;
                         }
@@ -831,7 +835,7 @@ async fn forward_input<
                                         json!({"jsonrpc":"2.0", "id":id, "error":error.rpc()})
                                     }
                                 };
-                                let mut bytes = serde_json::to_vec(&response)?;
+                                let mut bytes = pacer_plugin_ops::settings::js_json(&response).into_bytes();
                                 bytes.push(b'\n');
                                 write_line(out, &bytes).await?;
                             }
@@ -841,7 +845,7 @@ async fn forward_input<
                             if let Some(id) = request.get("id") {
                                 let response =
                                     json!({"jsonrpc":"2.0", "id":id, "error":error.rpc()});
-                                let mut bytes = serde_json::to_vec(&response)?;
+                                let mut bytes = pacer_plugin_ops::settings::js_json(&response).into_bytes();
                                 bytes.push(b'\n');
                                 write_line(out, &bytes).await?;
                             }
@@ -862,7 +866,7 @@ async fn forward_input<
                                 "id: Invalid input: expected string, received undefined",
                             );
                             let response = json!({"jsonrpc":"2.0", "id":id, "error":error.rpc()});
-                            let mut bytes = serde_json::to_vec(&response)?;
+                            let mut bytes = pacer_plugin_ops::settings::js_json(&response).into_bytes();
                             bytes.push(b'\n');
                             write_line(out, &bytes).await?;
                         }
@@ -924,7 +928,7 @@ async fn forward_input<
                                         json!({"jsonrpc":"2.0", "id":id, "error":error.rpc()})
                                     }
                                 };
-                                let mut bytes = serde_json::to_vec(&response)?;
+                                let mut bytes = pacer_plugin_ops::settings::js_json(&response).into_bytes();
                                 bytes.push(b'\n');
                                 write_line(out, &bytes).await?;
                             }
@@ -934,7 +938,7 @@ async fn forward_input<
                             if let Some(id) = request.get("id") {
                                 let response =
                                     json!({"jsonrpc":"2.0", "id":id, "error":error.rpc()});
-                                let mut bytes = serde_json::to_vec(&response)?;
+                                let mut bytes = pacer_plugin_ops::settings::js_json(&response).into_bytes();
                                 bytes.push(b'\n');
                                 write_line(out, &bytes).await?;
                             }
@@ -1002,9 +1006,11 @@ async fn forward_input<
                         None,
                     )
                     .await
-                } else if crate::native::needs_task_clean_bridge(op.name) {
+                } else if crate::native::uses_native_clean(op.name) {
                     match crate::native::task_dismiss_ops::ids_from_params(&params) {
                         Ok(ids) => {
+                            let runtime = std::sync::Arc::clone(&plugins.delegation);
+                            let clean_ctx = request_ctx.clone();
                             call_native(
                                 &request_ctx,
                                 op,
@@ -1016,10 +1022,14 @@ async fn forward_input<
                                 None,
                                 None,
                                 None,
-                                Some(Box::pin(crate::native::task_clean_sync::stdio(
-                                    &mut core, sync.0, sync.1, &ids, sync.2,
-                                ))
-                                    as pacer_foundation::api::OpFuture<'_>),
+                                Some(Box::pin(async move {
+                                    crate::native::task_dismiss_ops::auto_clean(
+                                        &clean_ctx,
+                                        &runtime,
+                                        &ids,
+                                    )
+                                    .await
+                                }) as pacer_foundation::api::OpFuture<'_>),
                                 None,
                                 None,
                                 None,
@@ -1243,7 +1253,7 @@ async fn forward_input<
                         Ok(value) => json!({"jsonrpc":"2.0", "id":id, "result":value}),
                         Err(error) => json!({"jsonrpc":"2.0", "id":id, "error":error.rpc()}),
                     };
-                    let mut bytes = serde_json::to_vec(&response)?;
+                    let mut bytes = pacer_plugin_ops::settings::js_json(&response).into_bytes();
                     bytes.push(b'\n');
                     write_line(out, &bytes).await?;
                 }
@@ -1316,6 +1326,7 @@ pub async fn run_stdio(core: Vec<String>, env: HashMap<String, String>) -> i32 {
 }
 
 async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i32> {
+    crate::core_process::record_startup();
     let scoped_work = env.contains_key("PACER_WORK_GRANT");
     let forward = env
         .get("PACER_FORWARD_OPS")
@@ -1365,8 +1376,13 @@ async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i3
             requests, core,
         ));
     }
+    let delegation = crate::native::runtime::session_runtime(
+        std::sync::Arc::clone(&ownership.service),
+        link.clone(),
+    );
     let mut plugins = Plugins {
         service: std::sync::Arc::clone(&ownership.service),
+        delegation,
         link,
         frames,
         tasks: tokio::task::JoinSet::new(),

@@ -6,13 +6,19 @@ use pacer_js_json::quoted;
 use serde_json::Value;
 use std::{fs, path::Path};
 
+/// Bun's `Error.message` for the fact lookup's three `TypeError` shapes.
+pub(crate) const NO_MODELS: &str = "undefined is not an object (evaluating 'entry?.models.find')";
+pub(crate) const NOT_FUNCTION: &str = "entry?.models.find is not a function. (In 'entry?.models.find((m) => m.id === id)', 'entry?.models.find' is undefined)";
+pub(crate) const NULL_MODELS: &str = "null is not an object (evaluating 'entry?.models.find')";
+pub(crate) const NULL_ITEM: &str = "null is not an object (evaluating 'm.id')";
+
 /// The provider's catalog entry as the fact lookup sees it.
 pub(crate) enum Entry {
     /// No catalog, or no entry: models carry no facts.
     Absent,
     Models(Vec<Value>),
     /// `entry?.models.find` throws a TypeError for every listed id.
-    Throws,
+    Throws(&'static str),
 }
 
 /// `cache/models.json` under the pacer home.
@@ -30,8 +36,8 @@ pub(crate) fn entry(home: &Path, provider: &str) -> Entry {
     };
     let catalog = match quoted::parse_file(&bytes) {
         Ok(value) => value,
-        // Bun parses deeper JSON than the native reader accepts.
-        Err(error) if error == quoted::NESTING_FALLBACK => return Entry::Throws,
+        // Bun parses deeper JSON than the native reader accepts; it finds no entry
+        // in the shapes that matter here rather than throwing on the lookup.
         Err(_) => return Entry::Absent,
     };
     if !is_obj(&catalog)
@@ -44,26 +50,29 @@ pub(crate) fn entry(home: &Path, provider: &str) -> Entry {
     let entry = match catalog["providers"].get(key.as_str().unwrap_or(provider)) {
         Some(entry) => entry,
         // `Object.prototype` members have no `models`.
-        None if PROTOTYPE_KEYS.contains(&provider) => return Entry::Throws,
+        None if PROTOTYPE_KEYS.contains(&provider) => return Entry::Throws(NO_MODELS),
         None => return Entry::Absent,
     };
     match entry {
-        Value::Null => Entry::Absent,
         Value::Object(fields) => match fields.get("models") {
             Some(Value::Array(items)) => Entry::Models(items.clone()),
-            _ => Entry::Throws,
+            Some(Value::Null) => Entry::Throws(NULL_MODELS),
+            Some(_) => Entry::Throws(NOT_FUNCTION),
+            None => Entry::Throws(NO_MODELS),
         },
-        _ => Entry::Throws,
+        // Optional chaining short-circuits a null entry to `undefined`.
+        Value::Null => Entry::Absent,
+        _ => Entry::Throws(NO_MODELS),
     }
 }
 
-/// The first catalog model whose `id` is `id`; `Err` is the TypeError of a
-/// null entry visited before the match.
-pub(crate) fn find<'a>(items: &'a [Value], id: &str) -> Result<Option<&'a Value>, ()> {
+/// The first catalog model whose `id` is `id`; `Err` is Bun's TypeError text
+/// for a null entry visited before the match.
+pub(crate) fn find<'a>(items: &'a [Value], id: &str) -> Result<Option<&'a Value>, &'static str> {
     let id = quoted::from_utf8(Value::String(id.to_owned()));
     for item in items {
         match item {
-            Value::Null => return Err(()),
+            Value::Null => return Err(NULL_ITEM),
             Value::Object(fields) if fields.get("id") == Some(&id) => return Ok(Some(item)),
             _ => {}
         }
@@ -82,18 +91,4 @@ pub(crate) fn facts(entry: &Value, model: &mut AvailableModel) {
     model.cost_in = get("costIn");
     model.cost_out = get("costOut");
     model.release = present("release");
-}
-
-/// A catalog the native door cannot reproduce for this provider: a lookup
-/// TypeScript may throw on (any null model entry), or facts whose JSON text
-/// the native reply could not write as `JSON.stringify` does.
-pub(crate) fn needs_core(home: &Path, provider: &str) -> bool {
-    match entry(home, provider) {
-        Entry::Absent => false,
-        Entry::Throws => true,
-        Entry::Models(items) => {
-            items.iter().any(Value::is_null)
-                || crate::reply::wire_value(&Value::Array(items)).is_none()
-        }
-    }
 }
