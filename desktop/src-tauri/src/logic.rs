@@ -519,10 +519,21 @@ pub fn handover_decision(
     }
 }
 
+/// `service.handover` settled the upgrade unless it answered `deferred: true`.
+pub fn handover_reply_settled(reply: &serde_json::Value) -> bool {
+    reply.get("deferred") != Some(&serde_json::Value::Bool(true))
+}
+
 #[cfg(test)]
 mod handover_tests {
     use super::*;
 
+    #[test]
+    fn deferred_handover_reply_is_not_settled() {
+        assert!(handover_reply_settled(&serde_json::json!({"summary": "ok"})));
+        assert!(handover_reply_settled(&serde_json::json!({"deferred": false})));
+        assert!(!handover_reply_settled(&serde_json::json!({"deferred": true})));
+    }
     #[test]
     fn handover_calls_when_service_is_newer() {
         assert_eq!(

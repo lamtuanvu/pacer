@@ -29,6 +29,7 @@ function fixture(options: { autoDownload?:boolean; ownership?: "managed"|"attach
   const session: VerifiedNativeSession = { installation, desktopClientId:"native-desktop", sessionId:"native-session", bootId:boot,
     desktop:{pid:101,bootId:boot,birth:"desktop-birth"},service:{pid:102,bootId:boot,birth:"service-birth"}, alive:()=>alive, closed:closed.promise };
   const reserveEntered=deferred<void>();
+  const reserveOptionsSeen:unknown[]=[], handovers:string[]=[], handoverAfter:string[][]=[];
   const calls:string[]=[], commands:AdapterCommand[]=[], raw:Record<string,unknown>[]=[], publications:unknown[]=[], scheduled:{delay:number;callback:()=>void}[]=[];
   let currentSession = session;
   const native: NativeAuthorityProvider = { sessions:()=>visible?[currentSession]:[], subscribe:()=>()=>{}, reverify:async()=>{if(!alive)throw Error("gone");},
@@ -58,11 +59,12 @@ function fixture(options: { autoDownload?:boolean; ownership?: "managed"|"attach
   }};
   const runtime=createDesktopUpdateRuntime(()=>ctx,{native,adapter:factory,clock:{nowS:()=>now,monotonicMs:()=>now*1000,bootId:()=>boot},random:()=>0,
     schedule:(callback,delay)=>{scheduled.push({callback,delay});return()=>{};},publish:async status=>{await options.publish?.(status);publications.push(status);},
-    admission:{reserveIdle:async()=>{calls.push("reserve");reserveEntered.resolve();await options.reservation;return{reserved:true,blockers:[]};},releaseReservation:async()=>{calls.push("release");await options.release?.();},reconcileAdmission:async()=>{}},
+    admission:{reserveIdle:async(_ctx,_tx,reserveOptions)=>{calls.push("reserve");reserveOptionsSeen.push(reserveOptions);reserveEntered.resolve();await options.reservation;return{reserved:true,blockers:[]};},releaseReservation:async()=>{calls.push("release");await options.release?.();},reconcileAdmission:async()=>{}},
+    handover:async()=>{handovers.push(readUpdate(ctx,"desktop").phase);handoverAfter.push([...calls]);return{summary:"handed over"};},
   });
   if(options.autoDownload===false){const record=readUpdate(ctx,installation.id);writeUpdate(ctx,{...record,autoDownload:false},record.revision);}
   const unbind=bindDesktopUpdateRuntime(ctx,runtime);cleanups.push(runtime.stop); cleanups.push(unbind);
-  return {ctx,runtime,session,native,factory,unbind,commands,raw,calls,publications,scheduled,reserveEntered:reserveEntered.promise,
+  return {ctx,runtime,session,native,factory,unbind,commands,raw,calls,publications,scheduled,reserveEntered:reserveEntered.promise,reserveOptionsSeen,handovers,handoverAfter,
     register(){visible=true;},
     seedPending(phase:"waiting"|"reserved"|"installing"){const value=readUpdate(ctx,"desktop");const ready=writeUpdate(ctx,{...value,phase:"ready",candidate,downloadedBytes:10,totalBytes:10,checkedAt:100},value.revision);const waiting=requestRestart(ready,{installationId:"desktop",requestId:"old-restart",expectRevision:ready.revision,version:candidate.version,clientId:"native-desktop"},boot);writeUpdate(ctx,{...waiting,phase},ready.revision);},
     stopDesktop(){alive=false;closed.resolve();},reconnectDesktop(){currentSession={...session,sessionId:`native-session-${++reconnects+1}`};alive=true;visible=true;},setBoot(value:string){boot=value;},setNow(value:number){now=value;},
@@ -807,4 +809,37 @@ test("a helper that predates channels rejecting a nightly check surfaces an upda
   await f.runtime.tick();await f.runtime.settled();
   expect(f.raw.filter(c=>c.command==="check")).toEqual([expect.objectContaining({channel:"nightly"})]);
   expect(f.commands).toEqual([]);
+});
+
+test("a supported update reserves with survivors and hands over once, after the commit is recorded",async()=>{
+  const f=fixture();await f.ready();
+  await callOp(f.ctx,"desktop.update.restart",{...f.request("restart"),version:"1.1.0"});
+  await f.runtime.tick();await f.runtime.settled();await Bun.sleep(0);
+  // 1.0.0 installed (helper and rollback target) and 1.1.0 target both postdate SURVIVOR_LEASES_SINCE.
+  expect(f.reserveOptionsSeen).toEqual([{survivors:true,target:"1.1.0"}]);
+  expect(f.handovers).toEqual(["complete"]);
+  // The reservation is released before runners are asked to hand over, so replacements can start.
+  expect(f.handoverAfter).toEqual([["reserve","release"]]);
+});
+
+test("a restored or recovering update signals no handover",async()=>{
+  const f=fixture({outcome:"restored"});f.seedPending("installing");await f.runtime.start();await f.runtime.settled();await Bun.sleep(0);
+  expect(readUpdate(f.ctx,"desktop").phase).toBe("restored");expect(f.handovers).toEqual([]);
+  const g=fixture();g.seedPending("installing");await g.runtime.start();await g.runtime.settled();await Bun.sleep(0);
+  // Recovery that ends committed is the new service's native commit signal: exactly one handover.
+  expect(readUpdate(g.ctx,"desktop").phase).toBe("complete");expect(g.handovers).toEqual(["complete"]);
+});
+
+test("an unproven commit outcome hands nothing over",async()=>{
+  const f=fixture();f.seedPending("installing");
+  f.native.verifyOutcome=async()=>{throw Error("outcome could not be verified");};
+  await f.runtime.start();await f.runtime.settled();await Bun.sleep(0);
+  expect(readUpdate(f.ctx,"desktop").phase).not.toBe("complete");
+  expect(f.handovers).toEqual([]);
+});
+
+test("a committed update whose reservation release fails signals no handover",async()=>{
+  const f=fixture({release:async()=>{throw Error("release failed");}});f.seedPending("installing");
+  await f.runtime.start();await f.runtime.settled();await Bun.sleep(0);
+  expect(readUpdate(f.ctx,"desktop").phase).toBe("complete");expect(f.handovers).toEqual([]);
 });

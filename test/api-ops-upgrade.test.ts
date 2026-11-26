@@ -87,3 +87,86 @@ test("recovery marks update.apply failed when handover rejects", async () => {
   await Bun.sleep(10);
   expect(getJob(ctx, "job-failed")).toMatchObject({ state: "failed", error: { message: expect.stringContaining("handover failed") }, steps: [{ name: "Restart", state: "failed" }] });
 });
+
+test("service.handover signals nothing while a desktop update can still roll back", async () => {
+  const { readUpdate, writeUpdate } = await import("../src/update/desktop/store");
+  const { desktopTransactionOpen } = await import("../src/update/desktop/store");
+  const ctx = fakeCtx({ now: Date.now() / 1000 });
+  const t = createTask(ctx, { brief: { goal: "g", repo: tmpDir() }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  updateTask(ctx, t.id, x => { x.state = "running"; x.runnerPid = 4194302; x.runnerPacer = "0.10.0";
+    x.handover = { protocol: 1, pacer: "0.10.0", identity: { pid: 4194302, bootId: "b", birth: "1:2" } }; });
+  expect(desktopTransactionOpen(ctx)).toBe(false);
+  mkdirSync(join(ctx.pacerHome, "desktop-updates"), { recursive: true, mode: 0o700 });
+  const { requestRestart } = await import("../src/update/desktop/policy");
+  const candidate = { version: "9.9.9", arch: "aarch64" as const, sha256: "a".repeat(64), signature: "s", url: "https://example.invalid/a", protocolMajors: [3], rollbackCompatible: true, notes: "" };
+  const value = readUpdate(ctx, "desktop");
+  const ready = writeUpdate(ctx, { ...value, phase: "ready", candidate, downloadedBytes: 10, totalBytes: 10, checkedAt: 100 }, value.revision);
+  const waiting = requestRestart(ready, { installationId: "desktop", requestId: "r", expectRevision: ready.revision, version: candidate.version, clientId: "native-desktop" }, "boot-1");
+  writeUpdate(ctx, { ...waiting, phase: "verifying" }, ready.revision);
+  expect(desktopTransactionOpen(ctx)).toBe(true);
+  const reply = await callOp(ctx, "service.handover", { wait_s: 0 }) as { deferred?: boolean; handed_over: number };
+  expect(reply).toMatchObject({ deferred: true, handed_over: 0, tasks: 1 });
+  // Nothing was signalled: the advertisement carries no signal time.
+  const { readTask } = await import("../src/tasks/store");
+  expect(readTask(ctx, t.id)?.handover?.signalledAt).toBeUndefined();
+  // An uncertain handoff can still be restored by an independent recovery helper and keeps the
+  // reservation: it defers too.
+  const verifying = readUpdate(ctx, "desktop");
+  const uncertain = writeUpdate(ctx, { ...verifying, phase: "recovery-failed", error: { code: "handoff_uncertain", message: "Desktop update requires transaction recovery" } }, verifying.revision);
+  expect(desktopTransactionOpen(ctx)).toBe(true);
+  expect(await callOp(ctx, "service.handover", { wait_s: 0 })).toMatchObject({ deferred: true, handed_over: 0 });
+  expect(readTask(ctx, t.id)?.handover?.signalledAt).toBeUndefined();
+  // A finished transaction no longer defers.
+  writeUpdate(ctx, { ...uncertain, phase: "complete", error: null, requestId: null, requestedBy: null, requesterBootId: null }, uncertain.revision);
+  expect(desktopTransactionOpen(ctx)).toBe(false);
+});
+
+test("concurrent handovers in one service share a single run", async () => {
+  const { sharedHandover } = await import("../src/tasks/handover-service");
+  let starts = 0, finish!: () => void;
+  const start = () => { starts++; return new Promise<any>(resolve => { finish = () => resolve({ summary: "ok" }); }); };
+  const first = sharedHandover(start), second = sharedHandover(start);
+  finish();
+  expect(await first).toEqual(await second);
+  expect(starts).toBe(1);
+  await sharedHandover(async () => { starts++; return { summary: "again" } as any; });
+  expect(starts).toBe(2);
+  // One log line per run, naming its origin; a joined caller logs nothing.
+  const lines: string[] = [];
+  let finishLogged!: () => void;
+  const logged = sharedHandover(() => new Promise<any>(resolve => { finishLogged = () => resolve({ summary: "Updated.", signalled: 2 }); }), "commit", line => lines.push(line));
+  const joined = sharedHandover(async () => ({ summary: "never" } as any), "request", line => lines.push(line));
+  finishLogged(); await logged; await joined;
+  expect(lines).toEqual(["pacer: handover (commit): signalled=2; Updated."]);
+  await expect(sharedHandover(async () => { throw Error("boom"); }, "request", line => lines.push(line))).rejects.toThrow("boom");
+  expect(lines.at(-1)).toBe("pacer: handover (request) failed: boom");
+});
+
+test("service.handover also defers while an admission reservation is held", async () => {
+  const { reserveIdle, releaseReservation, admissionReserved } = await import("../src/update/desktop/admission");
+  const { readTask } = await import("../src/tasks/store");
+  const ctx = fakeCtx({ now: Date.now() / 1000 });
+  expect(admissionReserved(ctx)).toBe(false);
+  // Reserve while idle (the record phase is already complete in this window), then record running work.
+  expect((await reserveIdle(ctx, "tx-r7")).reserved).toBe(true);
+  const t = createTask(ctx, { brief: { goal: "g", repo: tmpDir() }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  updateTask(ctx, t.id, x => { x.state = "running"; x.runnerPid = 4194302; x.runnerPacer = "0.10.0";
+    x.handover = { protocol: 1, pacer: "0.10.0", identity: { pid: 4194302, bootId: "b", birth: "1:2" } }; });
+  expect(admissionReserved(ctx)).toBe(true);
+  expect(await callOp(ctx, "service.handover", { wait_s: 0 })).toMatchObject({ deferred: true, handed_over: 0 });
+  expect(readTask(ctx, t.id)?.handover?.signalledAt).toBeUndefined();
+  await releaseReservation(ctx, "tx-r7");
+  expect(admissionReserved(ctx)).toBe(false);
+  expect((await callOp(ctx, "service.handover", { wait_s: 0 }) as { deferred?: boolean }).deferred).toBeUndefined();
+});
+
+test("service.handover also defers while a reconciliation fence holds a transaction", async () => {
+  const { admissionReserved } = await import("../src/update/desktop/admission");
+  const { readFence, reserveFence, releaseFence } = await import("../src/update/desktop/reconciliation-fence");
+  const ctx = fakeCtx({ now: Date.now() / 1000 });
+  const fence = reserveFence(ctx, readFence(ctx).epoch, "reconcile-1");
+  expect(admissionReserved(ctx)).toBe(true);
+  expect(await callOp(ctx, "service.handover", { wait_s: 0 })).toMatchObject({ deferred: true, handed_over: 0 });
+  releaseFence(ctx, fence);
+  expect(admissionReserved(ctx)).toBe(false);
+});
