@@ -221,6 +221,8 @@ export function buildRunTree(detail: RunDetail, openQuestions: RunQuestion[] | S
       attempts,
       label: `${stepId}${attemptLabel}`,
       waitsOnYou,
+      // Nothing runs and a branch waits for its verdict: the whole fan-out does.
+      ...(status === "waiting" && branches.some(stepAwaitsReview) && !branches.some(b => b.status === "running") ? { awaitsReview: true } : {}),
     });
     for (const child of branches) pushStep(child, depth + 1);
   };

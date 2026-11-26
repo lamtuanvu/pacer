@@ -1,4 +1,4 @@
-import { conflictRecordFor } from "../../../../src/view-model/run-gate";
+import { conflictRecordFor, isConflictGate } from "../../../../src/view-model/run-gate";
 import { mergeConflictStatus } from "../../../../src/view-model/words";
 import { useWorkspaceKey, useWorkspaceState } from '../../workspace/state';
 import { LazyWorkPanels } from "../../shell/panels/LazyWorkPanels";
@@ -62,7 +62,7 @@ const taskLink = (query: RouteQuery) => (id: string) => withQuery(`#/workspace?t
 function itemActions(item: AttentionItem, runner: ActionRunner, strong: boolean, count: 1 | 2, query: RouteQuery, ops: ReadonlySet<string>) {
   return item.actions.slice(0, count).map((action, i) => {
     // A workflow gate's actions are what can be done now: never replaced.
-    if (item.gate) return <ActionButton key={i} runner={runner} id={`${item.id}:${i}`} strong={strong && i === 0} action={action} confirmDone={gone(item)} />;
+    if (item.gate) return <ActionButton key={action.label} runner={runner} id={`${item.id}:${action.label}`} strong={strong && i === 0} action={action} confirmDone={gone(item)} />;
     if ((action.op === "task.answer" || action.op === "dispatch.answer")) {
       return <TextAction key={i} href={withQuery(`#/workspace?task=${encodeURIComponent(item.taskId!)}`, query)}>{action.label}</TextAction>;
     }
@@ -85,10 +85,10 @@ function AttentionCard({ card, snapshot, runner, now, query, actions, ops, narro
     label: item.kind === "question" ? "Answer" : item.kind === "failed" ? "Inspect failures" : "Review",
     href: `#/workspace?task=${encodeURIComponent(item.taskId)}`,
   } : null;
-  if (narrow && destination) return <li data-attention-id={item.id} className="pc-dispatch-card"><ListRowLink className={`pc-narrow-attention pc-narrow-attention--${bad ? "bad" : item.kind === "review" ? "review" : "warn"}`} href={withQuery(destination.href, query)}><StatusGlyph status={item.kind === "review" ? { ...status, tone: "info", glyph: "●" } : status} /><span className="pc-dispatch-decision__task"><strong className="pc-ellipsis" title={title}>{title}</strong><span className="pc-attn-card__caption muted" title={caption}>{caption}</span></span><span className="pc-narrow-attention__action">{item.kind === "failed" ? "Inspect" : destination.label}</span></ListRowLink></li>;
+  if (narrow && destination) return <li data-attention-id={item.id} className="pc-dispatch-card"><ListRowLink className={`pc-narrow-attention pc-narrow-attention--${bad ? "bad" : item.kind === "review" ? "review" : "warn"}`} href={withQuery(destination.href, query)}><StatusGlyph status={item.kind === "review" && !isConflictGate(item) ? { ...status, tone: "info", glyph: "●" } : status} /><span className="pc-dispatch-decision__task"><strong className="pc-ellipsis" title={title}>{title}</strong><span className="pc-attn-card__caption muted" title={caption}>{caption}</span></span><span className="pc-narrow-attention__action">{item.kind === "failed" ? "Inspect" : destination.label}</span></ListRowLink></li>;
   return <li data-attention-id={item.id} tabIndex={0} className="pc-dispatch-card">
     <ListRow layout="attention" className={`pc-attn-card${actions === 1 && item.kind === "review" ? " pc-attn-card--review" : ""}`} outlined tone={bad ? "bad" : actions === 1 && item.kind === "review" ? undefined : "warn"}
-      leading={<StatusGlyph status={actions === 1 && item.kind === "review" ? { ...status, tone: "info", glyph: "●" } : status} />}
+      leading={<StatusGlyph status={actions === 1 && item.kind === "review" && !isConflictGate(item) ? { ...status, tone: "info", glyph: "●" } : status} />}
       content={<div className={actions === 1 ? "pc-dispatch-attention-copy" : undefined}><div className="pc-attn-card__title"><span className="sr-only">{status.label}: </span>{card.kind === "task"
         ? <TextAction className="pc-ellipsis" href={taskLink(query)(card.id)} title={title}>{title}</TextAction>
         : <span className="pc-ellipsis" title={title}>{title}</span>}</div>

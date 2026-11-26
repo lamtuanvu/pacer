@@ -7,15 +7,22 @@ export const RECORD_ONLY_WORDS = "Accept records the verdict; you merge the bran
 export const MERGE_ON_ACCEPT_WORDS = "Accepting merges the changes into the run branch.";
 
 type Items = readonly AttentionItem[] | undefined;
+const stepReviewStatus: Status = { label: "Waiting for review", tone: "info", glyph: "◐" };
 /** The gate item about this task: a step under review or in conflict, or a branch conflict's record. */
 export const gateFor = (attention: Items, taskId: string): AttentionItem | undefined =>
   attention?.find(item => item.gate && item.taskId === taskId);
 /** The gate item whose conflict this task records. A record is not work: nothing runs it and it asks nothing. */
 export const conflictRecordFor = (attention: Items, taskId: string): AttentionItem | undefined =>
   attention?.find(item => item.gate?.recordId === taskId);
-/** A task's status, except a conflict record's: it asks nothing and nothing runs it. */
-export const taskStatusIn = (attention: Items, task: TaskStatusInput & { id: string }): Status =>
-  conflictRecordFor(attention, task.id) && task.state === "needs_input" ? mergeConflictStatus : taskStatus(task);
+/** A task's status in its lists and pages: what a gate holds up beats "completed",
+ *  and a conflict record asks nothing. */
+export function taskStatusIn(attention: Items, task: TaskStatusInput & { id: string }): Status {
+  if (conflictRecordFor(attention, task.id) && task.state === "needs_input") return mergeConflictStatus;
+  const gate = task.review ? undefined : gateFor(attention, task.id)?.gate?.kind;
+  if (gate === "step_conflict") return mergeConflictStatus;
+  if (gate === "step_review") return stepReviewStatus;
+  return taskStatus(task);
+}
 export const acceptWords = (item: AttentionItem | undefined): string => item?.gate ? MERGE_ON_ACCEPT_WORDS : RECORD_ONLY_WORDS;
 export const isConflictGate = (item: AttentionItem | undefined): boolean =>
   item?.gate?.kind === "step_conflict" || item?.gate?.kind === "branch_conflict";

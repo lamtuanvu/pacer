@@ -200,7 +200,8 @@ export function pruneAbandonedConflicts(ctx: Ctx, runId: string): void {
 export function closeConflictRecord(ctx: Ctx, resolutionTaskId: string): void {
   const record = readTask(ctx, resolutionTaskId);
   if (!record || record.review || record.dismissed) return;
-  updateTask(ctx, resolutionTaskId, t => { t.dismissed = true; });
+  // Settled as well as hidden: wherever it is still listed it must not read as a question.
+  updateTask(ctx, resolutionTaskId, t => { t.dismissed = true; if (t.state === "needs_input") t.state = "stopped"; });
 }
 
 /**

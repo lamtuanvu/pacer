@@ -22,7 +22,7 @@ import type { ClientSnapshot } from "../src/view-model/snapshot";
 import { counts, needsYou } from "../src/view-model/selectors";
 import { decisionKindLabel, stripSteps } from "../src/view-model/run-board";
 import { buildRunTree } from "../src/view-model/run-tree";
-import { OutcomeError } from "../src/view-model/run-gate";
+import { OutcomeError, taskStatusIn } from "../src/view-model/run-gate";
 import { waitsOnLabel } from "../src/view-model/runs";
 
 const TASK = "t-20261001-100000-aaaa", RECORD = "t-20261001-100000-bbbb";
@@ -124,6 +124,12 @@ test("a parked code step reads waiting for review everywhere the run is shown", 
   expect(renderToString(<StepState marker="waits_others" status="waiting" awaitsReview />)).toContain("Waiting for review");
   const child = detail([{ stepId: "impl", status: "waiting", taskId: TASK, result: { childRunId: "run_c" } }]);
   expect(buildRunTree(child)[0]!.awaitsReview).toBeUndefined();
+  const fan = (b: string) => buildRunTree(detail([
+    { stepId: "fan", branch: "a", status: "waiting", taskId: TASK, result: {} },
+    { stepId: "fan", branch: "b", status: b },
+  ]))[0]!;
+  expect(fan("done").awaitsReview).toBe(true);
+  expect(fan("running").awaitsReview).toBeUndefined();
   const list = buildRunsListState({
     ops: undefined, now: 200, attention: [stepConflict], store: { list: [] } as never,
     snapshotRuns: [{ id: "run_abc", title: "Ship it", workflow: "t/x", status: "waiting", priority: "normal", letter: "A", waits_on: "orchestrator" } as never],
@@ -188,4 +194,12 @@ test("the terminal's send-back to resolve sends the service's own note", async (
   await t.dash.refresh();
   await t.keys("2", "s");
   expect(t.calls.filter(c => c.op === "task.review")).toEqual([{ op: "task.review", params: verdict(TASK, "send_back", { note: "Merge it." }) }]);
+});
+
+test("a task held by a gate never reads completed in a list", () => {
+  const task = { id: TASK, state: "done" };
+  expect(taskStatusIn([stepConflict], task).label).toBe("Merge conflict");
+  expect(taskStatusIn([{ ...stepConflict, gate: { kind: "step_review" } }], task).label).toBe("Waiting for review");
+  expect(taskStatusIn([stepConflict], { id: RECORD, state: "needs_input" }).label).toBe("Merge conflict");
+  expect(taskStatusIn([], task).label).toBe("Completed");
 });

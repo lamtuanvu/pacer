@@ -20,7 +20,7 @@ export function RunGatePanel({ item, offer = () => true }: { item: AttentionItem
   return <section className="pc-action-panel" aria-label={item.title}>
     <Alert tone={isConflictGate(item) ? "warning" : "info"} title={item.title} announce={false}><p>{item.detail}</p></Alert>
     <GateSteps item={item} />
-    {!!actions.length && <div className="row-actions">{actions.map((action, i) => <ActionButton key={action.label} runner={runner} id={`gate:${item.id}:${i}`} action={action} strong={action.style === "primary"} />)}</div>}
+    {!!actions.length && <div className="row-actions">{actions.map(action => <ActionButton key={action.label} runner={runner} id={`gate:${item.id}:${action.label}`} action={action} strong={action.style === "primary"} />)}</div>}
   </section>;
 }
 /** On a step's own page the verdict buttons exist already: the panel adds only the send-back. */

@@ -16,6 +16,8 @@ import { createTask, listTasksWhere, readTask, updateTask } from "../src/tasks/s
 import { apiTask } from "../src/api/read-model/tasks";
 import type { SnapshotV2 } from "../src/api/read-model/types";
 import { emptySnapshot } from "../src/link/envelope";
+import { taskDetail } from "../src/core/task-detail";
+import { timelineCopy } from "../src/view-model/copy";
 import { needsYou, reviewQueue } from "../src/view-model/selectors";
 import { attentionStatus } from "../src/view-model/words";
 import { acceptWords, conflictRecordFor, MERGE_ON_ACCEPT_WORDS, outcomeProblem } from "../src/view-model/run-gate";
@@ -1606,6 +1608,7 @@ test("a base update conflict reads plainly, keeps one open record and refuses an
   s.w.git(tree, "commit", "-qam", "resolve");
   await tasks.review(s.w.ctx, next, { verdict: "accept" });
   expect(getRun(s.w.ctx, s.run.id)!.conflict ?? []).toEqual([]);
+  expect(readTask(s.w.ctx, next)).toMatchObject({ state: "done", review: { accepted: true } });
   expect(seen(s.w).needs.filter(i => i.gate?.kind === "branch_conflict")).toEqual([]);
 });
 
@@ -1614,4 +1617,19 @@ test("a verdict that conflicts is named a problem, never a success", () => {
   expect(outcomeProblem("task.review", result)).toContain("Not accepted");
   expect(outcomeProblem("dispatch.review", result)).toContain("no verdict was recorded");
   expect(outcomeProblem("task.review", { task: {} })).toBeNull();
+});
+
+test("a conflict record's history says what it is, not that it waits for an answer", async () => {
+  const w = world();
+  const c = await conflicted(w);
+  const detail = await taskDetail(w.ctx, c.record);
+  expect(timelineCopy(detail.timeline).map(e => e.text)).toContain("Merge conflict recorded");
+  expect(detail.timeline.map(e => e.text)).not.toContain("needs_input");
+});
+
+test("a closed conflict record is settled, not left asking", async () => {
+  const w = world();
+  const c = await conflicted(w);
+  await w.reject(c.y);
+  expect(readTask(w.ctx, c.record)).toMatchObject({ dismissed: true, state: "stopped" });
 });

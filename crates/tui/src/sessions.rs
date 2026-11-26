@@ -483,6 +483,7 @@ fn timeline_copy(raw: &str) -> String {
         "running" => "Run started",
         "queued" => "Run queued",
         "needs_input" => "Waiting for your answer",
+        "Merge conflict recorded" => "Merge conflict recorded",
         "hook: PostToolUse" => "Agent finished a tool step",
         "hook: PreToolUse" => "Agent started a tool step",
         "hook: Stop" => "Agent finished responding",

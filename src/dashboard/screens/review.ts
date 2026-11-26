@@ -167,6 +167,8 @@ export function reviewDetail(ctx: ScreenCtx, a: AttentionItem, resource: Resourc
   rows.push(...facts(statusSpans(theme, status), [executorLabel(executor), ran, branch], width).map(line => ({ line })));
   const finished = d?.endedAt ?? task?.updatedAt;
   rows.push({ line: [span([a.repo?.label ?? task?.repo?.label, finished ? `finished ${time(ctx, finished)}` : ""].filter(Boolean).join(` ${glyph(theme, "·")} `), { fg: "muted" })] });
+  // A conflict leads the page: what happened and the commands that resolve it.
+  if (isConflictGate(a)) rows.push(blank(), ...conflictRows(a, width));
   if (resource?.loading && !d) return [...rows, blank(), loadingRow(ctx, "Loading task…")];
   if (resource?.error && !d) {
     const removed = /worktree/i.test(resource.error.message) && /removed|missing|not found/i.test(resource.error.message);
@@ -219,7 +221,7 @@ export function reviewDetail(ctx: ScreenCtx, a: AttentionItem, resource: Resourc
   // Verdict
   rows.push(blank());
   const can = a.kind === "review" && ctx.supports("task.review") && !d.review && !d.resolved && !d.dismissed && !d.retriedBy;
-  if (isConflictGate(a)) rows.push(...conflictRows(a, width), blank());
+
   // Each verdict key stays whole; groups move to the next line when the box is narrow.
   const available:Partial<Record<"a"|"s"|"r"|"t",Act>>=can?reviewItem(ctx,a,task,d).keys:{};
   // A gate item words its own actions; `t` there tries the base update again.

@@ -232,12 +232,15 @@ export function runViewScreen(ctx: ScreenCtx, runId: string): ScreenView {
     const indent = "  ".repeat(line.depth);
     const elapsedFor = elapsed(Math.max(0, ctx.now - (detail.steps.find(s => s.stepId === line.stepId && s.attempt === line.attempt && (s.branch ?? "") === (line.branch ?? ""))?.startedAt ?? ctx.now)));
     // Qualifier + duration so truncated cells still show running/waiting (N4).
-    const timing = line.awaitsReview ? elapsedFor : line.status === "running" ? `running ${elapsedFor}`
+    const timing = line.awaitsReview ? "" : line.status === "running" ? `running ${elapsedFor}`
       : line.status === "waiting" ? `waiting ${elapsedFor}`
       : "";
     const statusWord = line.waitsOnYou ? "waits on you" : line.awaitsReview ? WAITING_FOR_REVIEW : line.status;
     // The longer review words take room from the timing column, never from themselves.
-    const w = flex(ctx.wide ? 52 : ctx.width - MARK, [{ weight: 1, min: 8 }, { fixed: reviewing ? 18 : 12 }, { fixed: reviewing ? 8 : 14 }]);
+    const room = ctx.wide ? 52 : ctx.width - MARK;
+    const w = reviewing
+      ? flex(room - 4, [{ weight: 1, min: 8 }, { fixed: 18 }, { fixed: 4 }])
+      : flex(room, [{ weight: 1, min: 8 }, { fixed: 12 }, { fixed: 14 }]);
     list.push({
       item: item.id,
       line: cols([

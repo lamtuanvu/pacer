@@ -281,6 +281,10 @@ export async function review(
       if(!current)throw unknown(id);
       checkRev(ctx,current,expected);
       taskReview(ctx, id, verdict === "accept", v.kind, v.note);
+      // A conflict record never ran: its verdict settles it, so no list reads it as a question.
+      if (current.requestId?.startsWith("wfconflict:") && current.state === "needs_input") {
+        updateTask(ctx, id, t => { t.state = verdict === "accept" ? "done" : "stopped"; });
+      }
       const reviewed = readTask(ctx, id)!, goal = taskTitle(reviewed);
       const resumed = ctx.env.PACER_CALLER_RESUME === id;
       const verdictText = (verdict === "accept" ? `Accepted “${goal}”` : verdict === "send_back" ? `Sent “${goal}” back to ${executorName(executor)}` : `Rejected “${goal}”`) + (resumed ? " (resumed caller session)" : "");

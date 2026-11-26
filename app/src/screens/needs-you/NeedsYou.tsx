@@ -86,7 +86,7 @@ function GateRow({ item, query, now }: { item: AttentionItem; query: RouteQuery;
     </div>
     <span className="ny-actions">
       {review && <ButtonLink typography="board" size="sm" href={withQuery(`${task}/review`, query)}>Review</ButtonLink>}
-      {item.actions.map((action, i) => <ActionButton key={action.label} runner={runner} id={`${item.id}:${i}`} action={action} strong={action.style === "primary"} />)}
+      {item.actions.map(action => <ActionButton key={action.label} runner={runner} id={`${item.id}:${action.label}`} action={action} strong={action.style === "primary"} />)}
     </span>
   </div>;
 }
