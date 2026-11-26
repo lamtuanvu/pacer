@@ -205,9 +205,12 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             Err(error) if plugin && error == pacer_plugin_ops::json::NESTING_FALLBACK => {
                 return forward_plugin_read(&state, parts, bytes, auth).await;
             }
-            // B2-11 removed the dispatch undecodable-body forward; the
-            // assistant turn arm stays here until B4 owns that bridge.
-            Err(_) if crate::native::assistant_turn_sync::needs_bridge(op.name) => {
+            // B2-11 removed the dispatch lifecycle ops from this shared
+            // forward; the assistant turn arm stays here until B4 owns it.
+            Err(_)
+                if crate::native::shared_body_forward::needs_core_body_forward(op.name)
+                    || crate::native::assistant_turn_sync::needs_bridge(op.name) =>
+            {
                 let Some(target) = state.core.target().await else {
                     return proxy::unavailable(false);
                 };

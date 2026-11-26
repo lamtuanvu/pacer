@@ -436,8 +436,8 @@ fn pending_dependencies(db: &Connection, id: &str) -> Result<Vec<String>, CoreEr
 }
 
 /// A `boundedGitRead` equivalent for the worktree checks: the bounded git
-/// reader in `pacer-repos` keeps the two-second deadline and returns the exit
-/// code and stdout rather than throwing.
+/// reader in `pacer-repos` enforces a deadline and returns the exit code and
+/// stdout rather than throwing.
 fn git_read(dir: &str, args: &[&str]) -> Option<(i32, String)> {
     git_read_unmarked(dir, args, Duration::from_secs(10))
 }
@@ -454,7 +454,6 @@ fn same_path(a: &str, b: &str) -> bool {
 /// write, plus the optional answer worktree base commit.
 struct RestartState {
     before: Value,
-    work: Value,
     answer_base: Option<String>,
 }
 
@@ -626,7 +625,6 @@ fn check_restart(
     };
     Ok(RestartState {
         before,
-        work,
         answer_base,
     })
 }
@@ -812,6 +810,11 @@ pub async fn restart_work(
                     return read_summarized(ctx, id);
                 }
             }
+            // TypeScript repeats the work-grant scope check inside the
+            // `work-retry-{id}` lock (`src/core/work.ts:158,171,241`).
+            if let Some(token) = ctx.env.get("PACER_WORK_GRANT") {
+                pacer_work::require_work_scope(ctx, token, id, true)?;
+            }
             // A live lane is typed into the executor's session and keeps the
             // same attempt; TypeScript checks this *before* `checkRestart`
             // (`src/core/work.ts:163-168`), so a running task can be answered.
@@ -922,12 +925,22 @@ pub async fn restart_work(
                                     {
                                         task["brief"]["base"] = json!(base);
                                     }
-                                    task["requestedExecutor"] = task
+                                    let last_executor = || {
+                                        task.get("attempts")
+                                            .and_then(Value::as_array)
+                                            .and_then(|attempts| attempts.last())
+                                            .and_then(|attempt| attempt.get("executor"))
+                                            .cloned()
+                                    };
+                                    let executor = task
                                         .pointer("/result/executor")
                                         .or_else(|| task.get("executor"))
-                                        .or_else(|| task.pointer("/attempts/-1/executor"))
                                         .cloned()
-                                        .unwrap_or(Value::Null);
+                                        .or_else(last_executor)
+                                        .or_else(|| task.get("requestedExecutor").cloned());
+                                    if let Some(executor) = executor {
+                                        task["requestedExecutor"] = executor;
+                                    }
                                 } else if let Some(feedback) = input.feedback.as_deref()
                                     && !feedback.trim().is_empty()
                                 {
