@@ -137,12 +137,14 @@ export function useModelDrafts(runners: readonly string[], targets: TierTargets)
       const rows = d.rows.map(r => r.id === id ? { id: value, on: r.on, tier: tier ?? r.tier, isDefault: r.isDefault, takes: [] } : r);
       return { ...d, rows, default: d.default === id ? value : d.default };
     }),
-    remove: (runner: string, id: string) => update(runner, d => {
-      (removedRef.current[runner] ??= new Set()).add(id);
+    remove: (runner: string, id: string) => {
+      if (!busy && !errors[runner]) (removedRef.current[runner] ??= new Set()).add(id);
+      update(runner, d => {
       const rows = removeModel(d.rows, id);
       // The last model removed leaves the saved default in place: the save needs one.
       return { ...d, rows, default: d.default === id ? rows.find(r => r.on)?.id ?? d.default : d.default };
-    }),
+      });
+    },
   };
   /** Runners whose save would leave them with no default and every model off. */
   const blocked = drafts.filter(d => d.default == null && d.rows.length > 0 && d.rows.every(r => !r.on)).map(d => d.runner);
@@ -177,6 +179,8 @@ export function useModelDrafts(runners: readonly string[], targets: TierTargets)
       const now = (runner: string) => versions.current[runner] ?? 0, then = (runner: string) => started[runner] ?? 0;
       setDrafts(list => rebaseSavedDrafts(list, changed, now, then, returned, baseline).drafts);
       setBases(list => rebaseSavedDrafts(list, changed, now, then, returned, baseline).baseDrafts);
+      // A saved runner starts a fresh draft: its removals are now the saved state. Edits made during the save keep theirs.
+      for (const runner of changed) if (now(runner) === then(runner)) delete removedRef.current[runner];
       setRevision(next); versions.current = {};
     };
     const send = async (expected: string) => {

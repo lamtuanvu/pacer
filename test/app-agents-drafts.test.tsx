@@ -512,6 +512,19 @@ test("R-1: a removed pinned default or a removed added model never comes back wh
   }
 });
 
+test("R-1/F-1: after a save, the saved state is the new start, so its pinned default is kept like on a fresh load", async () => {
+  const s = server({ codex: { default: "gpt-5", models: [] } });
+  const page = await models(s);
+  for (const [kind, id] of [["add", "a"], ["remove", "gpt-5"], ["remove", "a"]] as const) await act(async () => kind === "add" ? page.get().edits.add("codex", id, "small") : page.get().edits.remove("codex", id));
+  await act(async () => { await page.get().save(); });
+  const saved = page.get().draftOf("codex")!;
+  expect(saved.rows).toEqual([]);
+  await act(async () => page.get().edits.add("codex", "b", "medium"));
+  const after = page.get().draftOf("codex")!;
+  expect(after.rows.map(row => row.id)).toEqual(saved.default && saved.default !== "b" ? [saved.default, "b"] : ["b"]);
+  await page.unmount();
+});
+
 test("Replace swaps a model in place and keeps its size and default; a size can go back to Unrated", async () => {
   const s = server({ go: { default: "old", models: [{ id: "old", tier: "frontier" }, { id: "b", tier: "small" }] } });
   const page = await models(s);
