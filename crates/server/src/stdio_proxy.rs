@@ -1162,6 +1162,10 @@ async fn forward_input<
                     )
                     .await
                 } else if op.name == "host.set" {
+                    let endpoint_plugin = crate::native::endpoint_sync::StdioEndpoint {
+                        service: &plugins.service,
+                        link: &plugins.link,
+                    };
                     crate::native::host_mut_sync::call_stdio_set(
                         &request_ctx,
                         params,
@@ -1169,6 +1173,7 @@ async fn forward_input<
                         sync.0,
                         sync.1,
                         sync.2,
+                        crate::native::endpoint_sync::future(&request_ctx, &endpoint_plugin),
                     )
                     .await
                 } else if crate::native::needs_host_read_bridge(op.name) {
@@ -1267,15 +1272,19 @@ async fn forward_input<
                         Err(error) => Err(error),
                     }
                 } else {
+                    let endpoint_plugin = crate::native::endpoint_sync::StdioEndpoint {
+                        service: &plugins.service,
+                        link: &plugins.link,
+                    };
                     call_native(
                         &request_ctx,
                         op,
                         params,
                         request.get("id"),
-                        Some(Box::pin(crate::native::config_sync::stdio(
-                            &mut core, sync.0, sync.1, op.name, sync.2,
-                        ))
-                            as pacer_foundation::api::OpFuture<'_>),
+                        Some(crate::native::endpoint_sync::future(
+                            &request_ctx,
+                            &endpoint_plugin,
+                        )),
                         None,
                         None,
                         None,

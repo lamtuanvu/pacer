@@ -104,7 +104,6 @@ pub fn syncs_endpoints(op: &str) -> bool {
             | "host.set"
             | "host.remove"
             | "host.repo.map"
-            | "host.account.add"
             | "runner.add"
             | "runner.set"
             | "runner.reorder"
@@ -320,7 +319,7 @@ fn run<'a>(ctx: &'a Ctx, op: &'static str, params: Value) -> OpFuture<'a> {
             }
             "runner.settings.save" => {
                 // Matches TS withLock('executor-settings') + mutation(..., "runners", ...).
-                // No endpoint-plugin sync: finishNativeConfigEdit does not cover this op.
+                // No endpoint-plugin sync: this op is not in syncs_endpoints.
                 return with_lock(ctx, "executor-settings", LockOptions::default(), || {
                     executor_settings::save_executor_settings(home, &p)
                 })

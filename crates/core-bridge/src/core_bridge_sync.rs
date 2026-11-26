@@ -11,9 +11,46 @@ fn unavailable(message: &str) -> CoreError {
     CoreError::new(Code::Unavailable, message)
 }
 
+/// Decode a Core error envelope from any private bridge channel.
+pub fn error(value: &Value) -> CoreError {
+    let body = if value["code"].is_number() {
+        value.get("data").unwrap_or(value)
+    } else {
+        value
+    };
+    let code = match body["code"].as_str().unwrap_or("") {
+        "unknown_op" => Code::UnknownOp,
+        "unknown_task" => Code::UnknownTask,
+        "invalid_input" => Code::InvalidInput,
+        "unknown_executor" => Code::UnknownExecutor,
+        "not_found" => Code::NotFound,
+        "too_large" => Code::TooLarge,
+        "rate_limited" => Code::RateLimited,
+        "internal" => Code::Internal,
+        "plugin_timeout" => Code::PluginTimeout,
+        "plugin_unavailable" => Code::PluginUnavailable,
+        "plugin_refused" => Code::PluginRefused,
+        "capability_denied" => Code::CapabilityDenied,
+        "unknown_plugin" => Code::UnknownPlugin,
+        "not_allowed" => Code::NotAllowed,
+        "conflict" => Code::Conflict,
+        "unavailable" => Code::Unavailable,
+        _ => Code::InvalidInput,
+    };
+    let mut error = CoreError::new(
+        code,
+        value["message"]
+            .as_str()
+            .unwrap_or("bridge operation failed"),
+    );
+    error.hint = body.get("hint").and_then(Value::as_str).map(str::to_owned);
+    error.data = body.get("data").and_then(Value::as_object).cloned();
+    error
+}
+
 fn map_body(value: &Value) -> Result<Value, CoreError> {
-    if let Some(error) = value.get("error") {
-        return Err(crate::config_sync::error(error));
+    if let Some(body) = value.get("error") {
+        return Err(error(body));
     }
     value
         .get("result")
@@ -184,7 +221,7 @@ async fn receive(
             continue;
         }
         return if let Some(error) = value.get("error") {
-            Err(crate::config_sync::error(error))
+            Err(crate::core_bridge_sync::error(error))
         } else {
             value
                 .get("result")

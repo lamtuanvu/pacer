@@ -51,7 +51,13 @@ test.skipIf(!front)("stdio host.set matches forced forwarding for writes, update
       const forwarded = await call(homes[1]!, true, "host.set", params);
       expect(native.methods).not.toContain("host.set");
       expect(forwarded.methods).toContain("host.set");
-      if (params.max_tasks !== 0) expect(native.methods).toContain("_internal.native-config.finish");
+      if (params.max_tasks !== 0) {
+        // Endpoint sync now runs in-process through the plugin owner, not the
+        // retired native-config-finish bridge. The private plugin snapshot is
+        // refreshed instead; no config-finish request crosses the Core channel.
+        expect(native.methods).not.toContain("_internal.native-config.finish");
+        expect(native.methods).toContain("_internal.plugins");
+      }
       expect(native.reply).toEqual(forwarded.reply);
       if (params.max_tasks === 0) {
         expect(native.reply.error.data.code).toBe("invalid_input");

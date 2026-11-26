@@ -578,10 +578,11 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                     .env
                     .insert("PACER_TERMINAL_PRESETS_ONLY".into(), "1".into());
             }
-            let endpoint_sync = state.core.target().await.map(|target| {
-                Box::pin(crate::native::config_sync::http(Some(target), op.name))
-                    as pacer_foundation::api::OpFuture<'_>
-            });
+            let endpoint_plugin = crate::native::endpoint_sync::ServeEndpoint {
+                service: &state.plugins,
+                core: &state.core,
+            };
+            let endpoint_sync = Some(crate::native::endpoint_sync::future(&ctx, &endpoint_plugin));
             let broker_sync = if crate::native::needs_usage_broker(op.name) {
                 let broker_params = crate::native::usage_broker_params(op.name, &params);
                 state.core.target().await.map(|target| {

@@ -396,6 +396,59 @@ impl Service {
         }
         result
     }
+
+    /// Call an arbitrary method on the first enabled plugin contributing the
+    /// `endpoint` point with the `openai-compatible` API. This is the private
+    /// equivalent of TypeScript's `PluginRegistry.find` + `call`; no public
+    /// request can choose the target, method or destination.
+    pub async fn call_endpoint_method(
+        &self,
+        ctx: &Ctx,
+        core: impl Future<Output = Option<CoreLink>>,
+        method: &str,
+        params: Value,
+    ) -> Result<Value, CoreError> {
+        let (ipc, _) = core
+            .await
+            .ok_or_else(|| CoreError::new(Code::Unavailable, "pacer core is restarting"))?;
+        let mut owner = Owner {
+            ipc,
+            entries: vec![],
+            resets: HashSet::new(),
+            logs: vec![],
+            rpc: self.rpc.clone(),
+        };
+        // `prepare` is also the snapshot refresh every private request performs.
+        owner
+            .request(json!({"kind":"prepare", "op":"plugin.list", "params":{}}))
+            .await?;
+        let id = Runtime::refresh(&mut owner, ctx)?
+            .iter()
+            .filter(|entry| matches!(entry.state.as_str(), "idle" | "starting" | "ready"))
+            .filter(|entry| {
+                entry.manifest.as_ref().is_some_and(|manifest| {
+                    manifest["contributes"].get("endpoint").is_some()
+                })
+            })
+            .min_by(|a, b| b.bundled.cmp(&a.bundled).then_with(|| a.id.cmp(&b.id)))
+            .filter(|entry| {
+                entry.manifest.as_ref().is_some_and(|manifest| {
+                    manifest["contributes"]["endpoint"]["apis"]
+                        .as_array()
+                        .is_some_and(|apis| {
+                            apis.iter().any(|api| api.as_str() == Some("openai-compatible"))
+                        })
+                })
+            })
+            .map(|entry| entry.id.clone())
+            .ok_or_else(|| {
+                CoreError::new(
+                    Code::PluginUnavailable,
+                    "no enabled plugin provides OpenAI-compatible endpoints",
+                )
+            })?;
+        owner.call_native(&id, method, params).await
+    }
 }
 
 struct Owner {

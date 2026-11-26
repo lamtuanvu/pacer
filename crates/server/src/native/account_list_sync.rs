@@ -10,7 +10,7 @@ fn unavailable(message: &str) -> CoreError {
 
 fn map_body(value: &Value) -> Result<Value, CoreError> {
     if let Some(error) = value.get("error") {
-        return Err(crate::native::config_sync::error(error));
+        return Err(crate::native::core_bridge_sync::error(error));
     }
     value
         .get("result")
