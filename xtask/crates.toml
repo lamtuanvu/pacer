@@ -132,7 +132,7 @@ layer = 5
 [crates.pacer-plugin-runtime]
 layer = 6
 [crates.pacer-read-model]
-layer = 7
+layer = 6
 [crates.pacer-repos]
 layer = 4
 [crates.pacer-models]

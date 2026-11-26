@@ -4,14 +4,13 @@
 //! `stopWork` in `src/core/work.ts`).
 //!
 //! Rust owns the caller refusals (`authorizeWorkOperation`) and the Zod issue
-//! text of the published params. `dispatch.submit` and `dispatch.child` are
-//! served natively end-to-end (B2-9): after `check` passes, `dispatch_submit`
-//! routes through [`LifecycleEffects`], which the server backs with
-//! `pacer_delegation::work::{submit_work, delegate_child}`. `options`,
+//! text of the published params. All seven lifecycle ops are served natively
+//! end-to-end: after `check` passes they route through [`LifecycleEffects`],
+//! which the server backs with `pacer_delegation::work`. `options`,
 //! `difficulty` and `model` are validated natively against `workOptionsSchema`
-//! (see [`crate::work_options`]), so those requests no longer forward. B2-10
-//! adds native `wait`, `review` and `stop`; `retry` and `answer` still act in
-//! Core until B2-11.
+//! (see [`crate::work_options`]), so those requests no longer forward. B2-9
+//! owned submit/child, B2-10 added wait/review/stop and B2-11 adds retry and
+//! answer (`pacer_delegation::work::{retry_work, answer_work}`).
 #![allow(clippy::result_large_err)]
 use pacer_foundation::{
     Ctx,
@@ -26,9 +25,8 @@ use crate::dispatch_ops::{
 use crate::preview_ops::{issue_enum, issue_string};
 
 /// Effects a native lifecycle op needs that `dispatch_ops` cannot own. The
-/// front door installs a runtime-backed implementation once at startup. B2-9
-/// wired `submit`/`child`, B2-10 adds `wait`/`review`/`stop`; `retry` and
-/// `answer` still default to an unavailable bridge until B2-11.
+/// front door installs a runtime-backed implementation once at startup; all
+/// seven ops route through it.
 pub trait LifecycleEffects: Send + Sync {
     fn submit<'a>(&'a self, ctx: &'a Ctx, params: Value) -> OpFuture<'a>;
     fn child<'a>(&'a self, ctx: &'a Ctx, params: Value) -> OpFuture<'a>;
@@ -229,56 +227,7 @@ fn check(ctx: &Ctx, op: &str, params: &Value) -> Result<(), CoreError> {
     };
     authorize(ctx, op, params)?;
     let p = params_object(params)?;
-    if matches!(op, "dispatch.submit" | "dispatch.child") {
-        // B2-9: submit/child are native; the shapes carry `options`,
-        // `difficulty` and `model`, so `params_issues` reports every field in
-        // zod's interleaved key order with the correct path.
-        return finish(params_issues(shape, &p));
-    }
-    if inexact_number(shape, &p) {
-        return Ok(());
-    }
     finish(params_issues(shape, &p))
-}
-
-/// serde_json reads integer literals that fit 64 bits exactly; any other number
-/// may round differently from `JSON.parse`, so Core reads it.
-fn inexact_number(shape: Shape, p: &Map<String, Value>) -> bool {
-    shape
-        .iter()
-        .any(|(name, ..)| matches!(p.get(*name), Some(Value::Number(n)) if n.is_f64()))
-}
-
-/// Inputs Rust would not refuse: Core spawns, supervises and settles the work.
-/// B2-9 owns `submit`/`child` and B2-10 owns `wait`/`review`/`stop` end to end,
-/// so those never forward through this predicate; under `PACER_FORWARD_OPS`
-/// the registry drops them instead. `retry` and `answer` still forward until
-/// B2-11.
-pub fn lifecycle_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
-    if !LIFECYCLE_OPS.contains(&op) {
-        return false;
-    }
-    if matches!(op, "dispatch.submit" | "dispatch.child") {
-        return false;
-    }
-    if matches!(op, "dispatch.wait" | "dispatch.review" | "dispatch.stop") {
-        // B2-10 answers these natively, but a body whose numbers serde_json may
-        // round differently from JSON.parse still reaches Core verbatim.
-        return params_object(params)
-            .ok()
-            .is_some_and(|p| shape(op).is_some_and(|shape| inexact_number(shape, &p)));
-    }
-    check(ctx, op, params).is_ok()
-}
-
-fn refuse<'a>(ctx: &'a Ctx, op: &'static str, params: Value) -> OpFuture<'a> {
-    Box::pin(async move {
-        check(ctx, op, &params)?;
-        Err(CoreError::new(
-            Code::Unavailable,
-            "dispatch lifecycle bridge unavailable",
-        ))
-    })
 }
 
 pub fn dispatch_submit(ctx: &Ctx, params: Value) -> OpFuture<'_> {
@@ -310,11 +259,17 @@ pub fn dispatch_review(ctx: &Ctx, params: Value) -> OpFuture<'_> {
 }
 
 pub fn dispatch_retry(ctx: &Ctx, params: Value) -> OpFuture<'_> {
-    refuse(ctx, "dispatch.retry", params)
+    Box::pin(async move {
+        check(ctx, "dispatch.retry", &params)?;
+        effects()?.retry(ctx, params).await
+    })
 }
 
 pub fn dispatch_answer(ctx: &Ctx, params: Value) -> OpFuture<'_> {
-    refuse(ctx, "dispatch.answer", params)
+    Box::pin(async move {
+        check(ctx, "dispatch.answer", &params)?;
+        effects()?.answer(ctx, params).await
+    })
 }
 
 pub fn dispatch_stop(ctx: &Ctx, params: Value) -> OpFuture<'_> {
