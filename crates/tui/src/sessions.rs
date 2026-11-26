@@ -934,7 +934,11 @@ pub fn review_detail(ctx: &Ctx, a: &V, resource: &V, w: usize) -> Vec<Row> {
         }
         key_lines.extend(wrap_after(
             vec![],
-            "Accept records the verdict; you merge the branch.",
+            if a["gate"].is_null() {
+                "Accept records the verdict; you merge the branch."
+            } else {
+                "Accepting merges the changes into the run branch."
+            },
             w.saturating_sub(4),
         ));
         rows.extend(

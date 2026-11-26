@@ -32,6 +32,7 @@ const SECTION_IDS: Record<string, string> = {
 export function serviceAct(ctx: ScreenCtx, action: Action, subject?: string): Act | undefined {
   if (action.op === "ui.open") {
     const view = String(action.params.view ?? ""), id = typeof action.params.id === "string" ? action.params.id : undefined;
+    if (view === "run" && id) return { label: "Open run", effect: { type: "run-view", id } };
     const screen: ScreenId | undefined = view === "review" ? "review" : view === "task" || view === "session" ? "sessions" : view === "settings" ? "settings" : undefined;
     if (!screen) return undefined;
     const section = typeof action.params.section === "string" ? SECTION_IDS[action.params.section] : undefined;

@@ -1,10 +1,11 @@
 import type { Action } from "../../../src/api/read-model/types";
+import { OutcomeError, outcomeProblem } from "../../../src/view-model/run-gate";
 import { ApiError, type BrowserApi } from "./api";
 import type { StoreState } from "./store";
 
 export type ActionState =
   | { status: "idle" } | { status: "pending" } | { status: "done" }
-  | { status: "error"; message: string; hint?: string }
+  | { status: "error"; message: string; hint?: string; /** The call answered, but did nothing: see `OutcomeError`. */ problem?: true }
   | { status: "handled"; message: string }
   | { status: "job"; jobId: string };
 export interface ActionDeps {
@@ -24,6 +25,7 @@ export function uiHref(params: Record<string, unknown>): string {
   const id = typeof params.id === "string" ? encodeURIComponent(params.id) : "";
   switch (params.view) {
     case "review": return id ? `#/tasks/${id}` : "#/needs-you";
+    case "run": return id ? `#/runs/${id}` : "#/runs";
     // The thread lives in the workspace's Messages panel.
     case "task": return id ? params.tab === "messages" ? `#/workspace?task=${id}&panel=messages` : `#/tasks/${id}${params.tab === "answer" ? "?tab=answer" : ""}` : "#/tasks";
     case "session": return id ? `#/workspace?task=${id}${params.tab === "messages" ? "&panel=messages" : ""}` : "#/tasks";
@@ -71,6 +73,12 @@ export function createActionRunner(deps: ActionDeps) {
         return set(key, { status: "error", message: e?.message ?? (error instanceof Error ? error.message : String(error)), ...(e?.hint ? { hint: e.hint } : {}) });
       }
       results.set(key, result);
+      const problem = outcomeProblem(action.op, result);
+      if (problem) {
+        if (key.startsWith('service:')) errors.set(key, new OutcomeError(problem));
+        void deps.refetch();
+        return set(key, { status: "error", message: problem, problem: true });
+      }
       if ((action.op === "task.review" || action.op === "dispatch.review") && (action.params.verdict === "accept" || action.params.accepted === true) && typeof action.params.id === "string") deps.reviewAccepted?.(action.params.id);
       if (action.op === "task.takeover" && !key.startsWith("service:")) {
         const state = (result as {state?: string})?.state;

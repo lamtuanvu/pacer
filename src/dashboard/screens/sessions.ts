@@ -3,13 +3,14 @@ import { running } from "../../view-model/selectors";
 import { sessionTime, timelineCopy } from "../../view-model/copy";
 import { displayTitle } from "../../view-model/titles";
 import { ago, elapsed } from "../../view-model/time";
-import { executorLabel, taskStatus, taskOutcome } from "../../view-model/words";
+import { executorLabel, taskStatus, taskOutcome, mergeConflictStatus } from "../../view-model/words";
 import type { AttentionItem } from "../../attention/types";
 import type { ClientTask } from "../../view-model/snapshot";
 import { cols, flex, glyph, heading, span, statusSpans, wrap } from "../frame";
 import type { Act, Item } from "../state";
 import { blank, defined, empty, MARK, opAct, time, wrapAfter } from "./common";
-import { errorRows, managedAnswerAct, reviewDetail, reviewItem } from "./review";
+import { conflictRows, errorRows, managedAnswerAct, reviewDetail, reviewItem } from "./review";
+import { conflictRecordFor, gateFor, taskStatusIn } from "../../view-model/run-gate";
 import {workRows} from "./work";
 import { threadActs, threadMessages, threadRows } from "./thread";
 import type { Row, ScreenCtx, ScreenView } from "./types";
@@ -49,19 +50,21 @@ export function recentlyEnded(ctx: Pick<ScreenCtx, "s" | "state" | "data">): Cli
 
 export function sessionItem(ctx: ScreenCtx, t: ClientTask): Item {
   const live = attachable(ctx, t), active = ACTIVE.has(t.state);
+  const gate = gateFor(ctx.s.attention, t.id), record = conflictRecordFor(ctx.s.attention, t.id);
   const watch: Act | undefined = live ? { label: active ? "Watch" : "Replay", effect: { type: "attach", id: t.id, target: "here" } } : undefined;
   const terminal: Act | undefined = live ? { label: "Open in a terminal window", effect: { type: "attach", id: t.id, target: "terminal" } } : undefined;
   const tmux: Act | undefined = live ? { label: "Open in a tmux pane", effect: { type: "attach", id: t.id, target: "tmux" } } : undefined;
   const rev = typeof t.rev === "number" ? { expect_rev: t.rev } : {};
   const conversation = t.interactionMode === "conversation";
-  const stop = active || t.state === "needs_input" ? opAct(ctx, conversation ? "End session" : "Stop", conversation && ctx.supports("session.end") ? "session.end" : "task.stop", { id: t.id, ...rev }, { danger: true, confirm: { title: "Stop this session and its executor?", body: [displayTitle(t)], yes: "Stop" } }) : undefined;
+  const stop = !record && (active || t.state === "needs_input") ? opAct(ctx, conversation ? "End session" : "Stop", conversation && ctx.supports("session.end") ? "session.end" : "task.stop", { id: t.id, ...rev }, { danger: true, confirm: { title: "Stop this session and its executor?", body: [displayTitle(t)], yes: "Stop" } }) : undefined;
   const review: Act | undefined = waitingForReview(t) ? { label: "Review", effect: { type: "navigate", screen: "review", id: t.id } } : undefined;
   const detail = ctx.data.details.get(t.id)?.value;
   const asking = awaitingAnswer(t), route = asking ? answerRoute(ctx, t) : undefined;
   const answer: Act | undefined = route && "act" in route ? route.act : undefined;
   // A settled conversation is reviewable/retryable like any delegated task (interactive lanes design); one still
   // waiting for its answer is not a result yet, so it gets an answer action instead of verdicts.
-  const verdictItem = !active && !asking && !t.review && !t.resolved && !t.dismissed && !t.retriedBy ? reviewItem(ctx,{taskId:t.id,kind:waitingForReview(t)?"review":"failed",title:displayTitle(t)} as AttentionItem,t,detail) : undefined;
+  const verdictItem = gate ? reviewItem(ctx, gate, t, detail)
+    : !record && !active && !asking && !t.review && !t.resolved && !t.dismissed && !t.retriedBy ? reviewItem(ctx,{taskId:t.id,kind:waitingForReview(t)?"review":"failed",title:displayTitle(t)} as AttentionItem,t,detail) : undefined;
   const dismiss = !active ? opAct(ctx, "Dismiss", "task.dismiss", { ids: [t.id], ...rev }) : undefined;
   const { reply, answer: threadAnswer } = threadActs(ctx, t.id, detail);
   return {
@@ -86,12 +89,12 @@ export function sessionsScreen(ctx: ScreenCtx): ScreenView {
       list.push({ item: item.id, line: cols([
         { content: displayTitle(t), width: w[0]!, style: { bold: true } },
         { content: timing, width: w[1]!, align: "right", style: { fg: "muted" } },
-      ], 2, theme) }, { item: item.id, cont: true, line: statusSpans(theme, taskStatus(t)) });
+      ], 2, theme) }, { item: item.id, cont: true, line: statusSpans(theme, taskStatusIn(ctx.s.attention, t)) });
       return;
     }
     const w = flex(listWidth - MARK, [{ fixed: 20 }, { weight: 1, min: 8 }, { fixed: 9 }]);
     list.push({ item: item.id, line: cols([
-      { content: statusSpans(theme, taskStatus(t)), width: w[0]! },
+      { content: statusSpans(theme, taskStatusIn(ctx.s.attention, t)), width: w[0]! },
       { content: displayTitle(t), width: w[1]!, style: { bold: true } },
       { content: timing, width: w[2]!, align: "right", style: { fg: "muted" } },
     ], 2, theme) });
@@ -122,13 +125,17 @@ export function sessionsScreen(ctx: ScreenCtx): ScreenView {
 }
 
 function sessionDetail(ctx: ScreenCtx, t: ClientTask, width: number): Row[] {
+  const gate = gateFor(ctx.s.attention, t.id);
+  if (gate) return reviewDetail(ctx, gate, ctx.data.details.get(t.id), width);
+  const record = conflictRecordFor(ctx.s.attention, t.id);
+  if (record) return [...wrap(displayTitle(t), width, 2).map(line => ({ line: [span(line, { bold: true })] })), { line: statusSpans(ctx.theme, mergeConflictStatus) }, ...conflictRows(record, width)];
   // A settled conversation is reviewable/retryable like any delegated task (interactive lanes design).
   if (!ACTIVE.has(t.state) && !awaitingAnswer(t)) return reviewDetail(ctx,{taskId:t.id,title:displayTitle(t),kind:waitingForReview(t)?"review":"failed"} as AttentionItem,ctx.data.details.get(t.id),width);
   const { theme, now } = ctx, resource = ctx.data.details.get(t.id), d = resource?.value;
   const dot = ` ${glyph(theme, "·")} `;
   const rows: Row[] = wrap(displayTitle(t), width, 2).map(line => ({ line: [span(line, { bold: true })] }));
   const started = d?.startedAt ?? t.attemptStartedAt;
-  rows.push(...wrapAfter([...statusSpans(theme, taskStatus(t)), span(dot, { fg: "secondary" })], [executorLabel(t.executor), t.repo?.label, d?.branch, started ? `started ${time(ctx, started)}` : "Start time unknown"].filter(Boolean).join(dot), width, { fg: "secondary" }));
+  rows.push(...wrapAfter([...statusSpans(theme, taskStatusIn(ctx.s.attention, t)), span(dot, { fg: "secondary" })], [executorLabel(t.executor), t.repo?.label, d?.branch, started ? `started ${time(ctx, started)}` : "Start time unknown"].filter(Boolean).join(dot), width, { fg: "secondary" }));
   const progress = t.progress;
   rows.push(...wrapAfter([], [sessionTime(t, now), progress ? `${progress.files} files · ${progress.commits} commits` : "", progress?.lastOutputAt != null ? (progress.phase === "idle" ? `idle ${elapsed(now - progress.lastOutputAt)}` : `output ${ago(progress.lastOutputAt, now)}`) : ""].filter(Boolean).join(dot), width, { fg: progress?.phase === "idle" ? "warn" : "muted" }));
 

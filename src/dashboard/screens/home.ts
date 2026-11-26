@@ -1,6 +1,7 @@
 /** Home: the app's Overview — Needs you, Running, Capacity, Done today, in that order. */
 import { capacity, counts, doneToday, needsYou, otherReposNeedingYou, reviewQueue, running } from "../../view-model/selectors";
-import { attentionStatus, taskStatus, taskOutcome } from "../../view-model/words";
+import { attentionStatus, taskOutcome } from "../../view-model/words";
+import { taskStatusIn } from "../../view-model/run-gate";
 import { executorEligibility, executorPace, queueWait } from "../../view-model/capacity";
 import { displayTitle } from "../../view-model/titles";
 import { ago, elapsed } from "../../view-model/time";
@@ -147,7 +148,7 @@ export function runningLines(ctx: ScreenCtx, t: ClientTask, width: number, wide:
   const last = t.progress?.lastOutputAt;
   const idle = t.progress?.phase === "idle" && last != null;
   const started = t.attemptStartedAt ?? t.updatedAt;
-  const status = statusSpans(theme, taskStatus(t));
+  const status = statusSpans(theme, taskStatusIn(ctx.s.attention, t));
   const w = wide ? flex(width, [{ fixed: 16 }, { weight: 1, min: 14 }, { fixed: 12 }, { fixed: 24 }]) : flex(width, [{ fixed: 16 }, { weight: 1, min: 10 }, { fixed: 18 }]);
   const name = executorName(theme, t.executor, s.accounts?.map(a => ({ name: a.name, runners: a.executors, source: a.source })));
   const first = cols(wide
@@ -166,7 +167,7 @@ export function runningLines(ctx: ScreenCtx, t: ClientTask, width: number, wide:
 }
 function doneLine(ctx: ScreenCtx, t: ClientTask, width: number, wide: boolean): Line {
   const { theme, s } = ctx;
-  const status = statusSpans(theme, taskStatus(t));
+  const status = statusSpans(theme, taskStatusIn(ctx.s.attention, t));
   const ran = t.attemptStartedAt == null ? "" : `ran ${elapsed(t.updatedAt - t.attemptStartedAt)}`;
   if (!wide) {
     const w = flex(width, [{ fixed: 5 }, { fixed: 20 }, { weight: 1, min: 10 }]);

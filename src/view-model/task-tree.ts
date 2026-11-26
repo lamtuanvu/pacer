@@ -1,4 +1,5 @@
 /** The one descriptor for "a task in a tree". Tasks, the Session panel, Needs you and the tray all build it here (UI-10). */
+import { taskStatusIn } from "./run-gate";
 import type { AttentionItem } from "../attention/types";
 import type { TokenRollup } from "../tokens/rollup";
 import type { ClientSnapshot, ClientTask } from "./snapshot";
@@ -134,7 +135,7 @@ export function taskTree(snapshot: TreeSnapshot, opts: { now: number; extra?: Tr
   type Built = Sortable;
   const built = new Map<string, Built>();
   for (const task of tasks) {
-    const status = taskStatus(task);
+    const status = taskStatusIn(items, task);
     const attention = ownAttention(task, items, tasks);
     const branch = task.branch ?? undefined;
     const tok = tokenOf(task.tokens);

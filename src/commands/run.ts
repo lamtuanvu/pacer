@@ -7,6 +7,7 @@ import { resolve } from "node:path";
 import { connectClient } from "../api/client";
 import { assertCallerCanInvoke } from "../api/caller-policy";
 import { callOp, type OpDeps } from "../api/ops";
+import { stepAwaitsReview, WAITING_FOR_REVIEW } from "../view-model/run-tree";
 import { commandArgs } from "./accounts";
 import type { Command, Result } from "./types";
 import type { Ctx } from "../types";
@@ -59,8 +60,7 @@ function stepLabel(step: StepLike): string {
 function renderRun(run: RunLike, steps: StepLike[]): string {
   const lines = [`${run.id}  ${run.workflow}@${run.version}  ${run.status}${run.reason ? `  ${run.reason}` : ""}`];
   for (const step of steps) {
-    // A waiting step that has its task's result is a code step waiting for review.
-    const status = step.status === "waiting" && step.taskId && step.result !== undefined ? "waiting for review" : step.status;
+    const status = stepAwaitsReview(step) ? WAITING_FOR_REVIEW : step.status;
     lines.push([stepLabel(step), status, step.taskId ?? "-", ...(step.error ? [step.error] : [])].join("  "));
   }
   return lines.join("\n");

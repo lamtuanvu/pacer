@@ -71,10 +71,15 @@ export function nextRunPriority(priority: string | null | undefined): RunPriorit
   return order[(order.indexOf(current) + 1) % order.length]!;
 }
 
+/** A code step of the run waits for a verdict the person (or its planner) can give. */
+export const awaitsVerdict = (runId: string, attention: readonly { run?: { id: string }; gate?: { kind: string } }[] | undefined): boolean =>
+  !!attention?.some(a => a.run?.id === runId && (a.gate?.kind === "step_review" || a.gate?.kind === "step_conflict"));
+
 /** What the run is waiting on, in plain words (UI-12). */
 export function waitsOnLabel(waitsOn: string | null | undefined): string {
   if (!waitsOn || waitsOn === "-") return "—";
   if (waitsOn === "you" || waitsOn === "person") return "You";
+  if (waitsOn === "review") return "Review by you or the planner";
   if (waitsOn === "orchestrator" || waitsOn === "planner") return "Orchestrator";
   if (waitsOn === "executors") return "Executors";
   if (waitsOn === "nothing") return "Nothing";

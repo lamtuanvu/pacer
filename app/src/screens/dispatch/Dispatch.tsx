@@ -1,3 +1,5 @@
+import { conflictRecordFor } from "../../../../src/view-model/run-gate";
+import { mergeConflictStatus } from "../../../../src/view-model/words";
 import { useWorkspaceKey, useWorkspaceState } from '../../workspace/state';
 import { LazyWorkPanels } from "../../shell/panels/LazyWorkPanels";
 import styles from "./dispatch.css" with { type: "text" };
@@ -59,6 +61,8 @@ const taskLink = (query: RouteQuery) => (id: string) => withQuery(`#/workspace?t
 /** Card actions retain scoped result links and open questions in the Answer panel. */
 function itemActions(item: AttentionItem, runner: ActionRunner, strong: boolean, count: 1 | 2, query: RouteQuery, ops: ReadonlySet<string>) {
   return item.actions.slice(0, count).map((action, i) => {
+    // A workflow gate's actions are what can be done now: never replaced.
+    if (item.gate) return <ActionButton key={i} runner={runner} id={`${item.id}:${i}`} strong={strong && i === 0} action={action} confirmDone={gone(item)} />;
     if ((action.op === "task.answer" || action.op === "dispatch.answer")) {
       return <TextAction key={i} href={withQuery(`#/workspace?task=${encodeURIComponent(item.taskId!)}`, query)}>{action.label}</TextAction>;
     }
@@ -77,7 +81,7 @@ function AttentionCard({ card, snapshot, runner, now, query, actions, ops, narro
   // The board's caption: the service's detail, then when it was raised.
   const caption = [item.detail, clock(item.raisedAt, now)].filter(Boolean).join(" · ");
   const more = card.kind === "task" && card.items.length > 1 ? ` · ${card.items.length - 1} more` : "";
-  const destination = item.taskId && ["question", "failed", "review"].includes(item.kind) ? {
+  const destination = !item.gate && item.taskId && ["question", "failed", "review"].includes(item.kind) ? {
     label: item.kind === "question" ? "Answer" : item.kind === "failed" ? "Inspect failures" : "Review",
     href: `#/workspace?task=${encodeURIComponent(item.taskId)}`,
   } : null;
@@ -134,7 +138,7 @@ function LiveDispatch({ snapshot, scope, now, query, workRows, workLoading, work
       const task = snapshot.tasks.find(t => t.id === node.id);
       const running = task?.state === "running";
       // Preserve attention and conversational states; only ordinary active phases use the board's Working label.
-      const status = task?.state === "needs_input" ? {label:"Needs your answer",tone:"warn" as const} : task?.acceptanceState === "failed" ? { label: "Checks failed", tone: "bad" as const }
+      const status = task && conflictRecordFor(snapshot.attention, task.id) ? mergeConflictStatus : task?.state === "needs_input" ? {label:"Needs your answer",tone:"warn" as const} : task?.acceptanceState === "failed" ? { label: "Checks failed", tone: "bad" as const }
         : task?.review?.accepted ? { label: "Accepted", tone: "good" as const }
         : running && node.state.tone === "info" ? { ...node.state, label: "Working" } : node.state;
       const why = task?.queue?.detail ?? task?.brokenReason ?? (task?.retryOf ? "Retried on executor" : null);

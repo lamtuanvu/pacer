@@ -1,3 +1,5 @@
+import { useDialogs } from "../ds/useDialogs";
+import { OutcomeError, outcomeProblem, shortActionLabel } from "../../../src/view-model/run-gate";
 import { DensityProvider } from "../ds/Density";
 import { ListRow, ListRowLink, Skeleton } from "../ds/Patterns";
 import { SectionHeading } from "../ds/SectionHeading";
@@ -29,6 +31,8 @@ import { windowWords, resetWords } from "../../../src/view-model/usage";
 export interface TrayProps { snapshot: ClientSnapshot | null; api: BrowserApi; ipc: TrayIpc; connected?: boolean; sessionEnded?: boolean; activity?: ActivityEntry[]; ops?: ReadonlySet<string> }
 /** One short verb per row, as on the board; the full label stays in the tooltip. */
 export function rowLabel(label: string): string {
+  const short = shortActionLabel(label);
+  if (short) return short;
   // "Open planner settings" and the like: the row title already says what; the button says where.
   if (/^open\b.*\bsettings$/i.test(label)) return "Settings";
   // "Retry on Codex" names where the retry goes; other long labels ("Review changes") keep their verb only.
@@ -46,7 +50,10 @@ export async function performAction(action: Action, api: BrowserApi, ipc: TrayIp
   if (!actionSupported(action, ops)) throw new Error("This service does not support this action");
   if ((action.op === "task.answer" || action.op === "dispatch.answer") && typeof action.params.text !== "string") await ipc.open(`/needs-you?answer=${encodeURIComponent(String(action.params.id))}`);
   else if (action.op === "ui.open") await ipc.open(actionRoute(action));
-  else await api.call(action.op, action.params);
+  else {
+    const problem = outcomeProblem(action.op, await api.call(action.op, action.params));
+    if (problem) throw new OutcomeError(problem);
+  }
 }
 /** Native Tab order is also the arrow-key order, including expanded strategies. */
 export function moveFocus(root: HTMLElement, key: string): boolean {
@@ -79,6 +86,7 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
   // A failure on a Needs you row belongs to that row: it clears once the row is gone.
   const [failure, setFailure] = useState<{ message: string; item?: string } | null>(null);
   const setError = (message: string) => setFailure(message ? { message } : null);
+  const dialogs = useDialogs();
   const [busy, setBusy] = useState(false), [busyItem, setBusyItem] = useState<string>(), inFlight = useRef(false), mounted = useRef(true);
   useLayoutEffect(() => () => { mounted.current = false; }, []);
   const act = (work: () => Promise<unknown>, item?: string) => {
@@ -167,7 +175,16 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
     return () => observer?.disconnect();
   }, [stripData]);
   const navigate = (route: string) => (event: JSX.TargetedMouseEvent<HTMLAnchorElement>) => { event.preventDefault(); act(() => ipc.open(route)); };
+  // An action that asks first runs only after the person confirms it; the dialog starts on Cancel.
+  const perform = (action: Action, item: string) => {
+    const run = () => act(() => performAction(action, api, ipc, ops), item);
+    if (!action.confirm) { run(); return; }
+    if (inFlight.current) return;
+    void dialogs.confirm(action.confirm, action.label, shortActionLabel(action.label) ?? action.label).then(yes => { if (yes && mounted.current) run(); });
+  };
   const onKeyDown = (event: KeyboardEvent) => {
+    // An open confirmation owns the keyboard.
+    if (dialogs.dialog) return;
     if (event.key === "Escape") { event.preventDefault(); void dismissTray(() => { setMenuOpen(false); setStrategiesOpen(false); if (menuOpen) moreButton.current?.focus(); }, menuOpen ? async () => {} : ipc.hide, setError); return; }
     if (event.metaKey || event.ctrlKey) {
       const action = ({ n: () => ipc.open("/tasks/new"), ",": () => ipc.open("/settings"), o: () => ipc.open("/"), ...(ipc.desktop ? { q: ipc.quit } : {}) } as Record<string, () => Promise<unknown>>)[event.key.toLowerCase()];
@@ -228,9 +245,9 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
           const detail = item.detail?.trim();
           const taskTitle=<strong className="tray-ellipsis" title={shortTitle({ ...item, fullTitle: task?.fullTitle })}>{shortTitle({ ...item, fullTitle: task?.fullTitle })}</strong>;
           return <ListRow className={`tray-attention tray-attention--${item.kind}`} key={item.id}
-            leading={<span className={`tray-attention-glyph tray-attention-glyph--${item.kind === "failed" ? "bad" : item.kind === "review" ? "info" : "warn"}`} title={status.label} aria-hidden="true">{item.kind === "failed" ? "✕" : item.kind === "review" ? "●" : "◐"}</span>}
+            leading={<span className={`tray-attention-glyph tray-attention-glyph--${item.gate && item.gate.kind !== "step_review" ? status.tone : item.kind === "failed" ? "bad" : item.kind === "review" ? "info" : "warn"}`} title={status.label} aria-hidden="true">{item.gate && item.gate.kind !== "step_review" ? status.glyph : item.kind === "failed" ? "✕" : item.kind === "review" ? "●" : "◐"}</span>}
             content={<>{item.taskId?<TextAction className="tray-task-title" href={appHref(`/tasks/${encodeURIComponent(item.taskId)}`)} onClick={navigate(`/tasks/${encodeURIComponent(item.taskId)}`)}>{taskTitle}</TextAction>:taskTitle}<span className="tray-reason tray-ellipsis" title={detail}>{[item.repo?.label ?? task?.repo?.label, status.label, detail?.toLowerCase() === status.label.toLowerCase() ? undefined : detail].filter(Boolean).join(" · ")}</span></>}
-            actions={action && <Button variant={item.id === model.recommendedId ? "primary" : "secondary"} size="sm" aria-busy={busy && busyItem === item.id} aria-disabled={busy || sessionEnded} disabled={sessionEnded} title={action.label} onClick={() => act(() => performAction(action, api, ipc, ops), item.id)}><span className="tray-action__label">{busy && busyItem === item.id ? "Working…" : rowLabel(action.label)}</span></Button>}
+            actions={action && <Button variant={item.id === model.recommendedId ? "primary" : "secondary"} size="sm" aria-busy={busy && busyItem === item.id} aria-disabled={busy || sessionEnded} disabled={sessionEnded} title={action.label} onClick={() => perform(action, item.id)}><span className="tray-action__label">{busy && busyItem === item.id ? "Working…" : rowLabel(action.label)}</span></Button>}
           />;
         })}
       </section> : <section className="tray-clear" aria-label="Needs you"><span className="tray-check"><Icon name="check-circle" /></span><span><strong>Nothing needs you</strong>{model.lastReview !== null && <span className="tray-reason">Last review cleared {timeOnly(model.lastReview)}</span>}</span></section>}
@@ -250,6 +267,7 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
       })}<TextAction data-overflow hidden className="tray-executor tray-muted" href={appHref("/settings/executors")} onClick={navigate("/settings/executors")} />{offExecutors.length > 0 && <TextAction className="tray-executor tray-executor--off tray-muted" title={`Turned off or unable to take work: ${offExecutors.map(offExecutorLabel).join(" · ")}`} href={appHref("/settings/executors")} onClick={navigate("/settings/executors")}><span className="tray-executor-mark"><AgentMark agent={markAgent(offExecutors[0]!.id, offExecutors[0]!.account)} size={16} labelled={false} /></span>{offExecutors.length} off</TextAction>}<span className="tray-grow" /><span className="tray-reason">executors</span></section>
     </>}
     {error && <p role="alert" className="tray-error">{error}</p>}
+    {dialogs.dialog}
     </main><div className="tray-actions">
       <nav className="tray-footer" aria-label="pacer actions">
         <ButtonLink aria-keyshortcuts="Meta+N" size="sm" variant="primary" href={appHref("/tasks/new")} onClick={navigate("/tasks/new")}>New task <Kbd>⌘N</Kbd></ButtonLink>

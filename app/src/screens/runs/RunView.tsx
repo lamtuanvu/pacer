@@ -6,7 +6,7 @@ import {
   reviewerPanels, sentenceCase, stripSteps, testsAndPr, type BoardChild, type BoardInput, type BoardMessage, type BoardQuestion,
 } from "../../../../src/view-model/run-board";
 import {
-  displayRunLetter, orchestratorBlock, pausedReasonLabel, runAge, runPriorityLabel, runStatus, waitsOnLabel,
+  displayRunLetter, orchestratorBlock, pausedReasonLabel, runAge, runPriorityLabel, runStatus, waitsOnLabel, awaitsVerdict,
   RUN_HEADING, RUN_QUESTIONS_ERROR, RUN_SEEN_ERROR,
 } from "../../../../src/view-model/runs";
 import {
@@ -169,7 +169,8 @@ export function RunView({ runId, query, fetchText }: { runId: string; query: Rou
   const title = (typeof run?.title === "string" && run.title) || (typeof run?.workflow === "string" && run.workflow)
     || (listRow?.title !== runId && listRow?.title) || snapRun?.title || runName;
   const openQuestions = (view?.questions ?? []).filter(isOpenForPerson);
-  const waits = snapRun?.waits_on ?? (openQuestions.length ? "you" : status.label === "Waiting" ? "orchestrator" : "-");
+  const waits = !openQuestions.length && awaitsVerdict(runId, state.snapshot?.attention) ? "review"
+    : snapRun?.waits_on ?? (openQuestions.length ? "you" : status.label === "Waiting" ? "orchestrator" : "-");
   const orch = isObj(run?.orchestrator) ? run!.orchestrator as { state?: string; planner?: string; reason?: string; next_wake_at?: number } : undefined;
   const orchLine = sentenceCase(orchestratorBlock(orch, now));
   const orchAttention = orchestratorNeedsAttention(orch);

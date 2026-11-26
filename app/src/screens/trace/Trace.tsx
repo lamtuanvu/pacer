@@ -9,7 +9,8 @@ import { agentInfo, markAgent } from "../../../../src/view-model/agents";
 import { clock, durationWords } from "../../../../src/view-model/time";
 import { kindCopy } from "../../../../src/view-model/copy";
 import { agentSlot } from "../insights/model";
-import { taskPageStatus as taskStatus } from "../../../../src/view-model/words";
+import { mergeConflictStatus, taskPageStatus as taskStatus } from "../../../../src/view-model/words";
+import { conflictRecordFor } from "../../../../src/view-model/run-gate";
 import { ButtonLink, IconButton, TextAction } from "../../ds/Button";
 import { AgentMark } from "../../ds/AgentMark";
 import { Pill } from "../../ds/Pill";
@@ -47,7 +48,7 @@ export function Trace({id,query}:{id:string;query:RouteQuery}) {
   const decisionNode=root?.decisions.length ? root : children.find(n=>n.decisions.length);
   const decision=decisionNode?.decisions.at(-1), candidates=traceCandidates(decision,t);
   const subtask=decisionNode && decisionNode.taskId!==id ? children.indexOf(decisionNode)+1 : undefined;
-  const status=taskStatus(t), now=Date.now()/1000;
+  const status=conflictRecordFor(state.snapshot?.attention,t.id)&&t.state==="needs_input"?mergeConflictStatus:taskStatus(t), now=Date.now()/1000;
   const started=t.startedAt==null?null:clock(t.startedAt,now);
   const ran=t.startedAt==null || t.endedAt==null && !["running","queued"].includes(t.state)?null:durationWords((t.endedAt??now)-t.startedAt);
   const day=clock(t.startedAt??t.timeline[0]?.at??t.updatedAt,now), today=!day.includes(" ");
@@ -102,7 +103,7 @@ export function Trace({id,query}:{id:string;query:RouteQuery}) {
     </ActionPanel>}
     {answered && <p role="status" aria-live="polite">{answered}</p>}
     {(notice || unread>0) && <Alert tone={notice?"warning":"info"} compact announce={false} title={notice ?? `${unread} unread ${unread===1?"message":"messages"}`}><TextAction href={hrefFor(routes.workspace(id,"messages"))}>Open messages</TextAction></Alert>}
-    <NowCard task={t}/>
+    <NowCard task={t} attention={state.snapshot?.attention}/>
     <CostTiles task={t} tokens={totals} agentsUsed={agents.length} attempts={attempts} subtasks={children.length} retries={retries}/>
     <div className="pc-trace__columns">
       <section aria-labelledby={`${viewId}-trace-h`} className="pc-trace__timeline">

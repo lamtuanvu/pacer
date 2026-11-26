@@ -11,6 +11,8 @@ import { executorLabel } from "../../../../src/view-model/words";
 import { Button } from "../../ds/Button";
 import { kinds } from "../../model/tasks";
 import type { Verdict } from "./model";
+import type { AttentionItem } from "../../../../src/attention/types";
+import { acceptWords, isConflictGate } from "../../../../src/view-model/run-gate";
 
 export function verdictCommand(id: string, v: Verdict): string {
   // Double quotes keep the command readable; escape every shell expansion within them.
@@ -30,6 +32,8 @@ export function handleNoteKey(
   }
 }
 export interface VerdictPanelProps {
+  /** The workflow review gate this task is under, when it is a code step. */
+  gate?: AttentionItem;
   recovery?: boolean; task: TaskDetail; note: string; kind: string; executor: string;
   noteFor: "reject" | "send_back" | null; pending: boolean;
   onNote: (s: string) => void; onKind: (s: string) => void; onExecutor: (s: string) => void;
@@ -45,12 +49,12 @@ export function retryChoiceOptions(options: TaskDetail["retryOptions"]): ChoiceO
     reason: option.state !== "ready" ? reasonCopy(option.reason) : undefined,
   }));
 }
-export function VerdictPanel({ recovery = false, task, note, kind, executor, noteFor, pending, onNote, onKind, onExecutor, onOpenNote, onCancel, onSubmit, noteRef, retryRef }: VerdictPanelProps) {
+export function VerdictPanel({ gate, recovery = false, task, note, kind, executor, noteFor, pending, onNote, onKind, onExecutor, onOpenNote, onCancel, onSubmit, noteRef, retryRef }: VerdictPanelProps) {
   const verdict = noteFor ?? (executor ? "retry" : "accept");
   return <>
     <SectionHeading>{recovery ? "Continue work" : "Your verdict"}</SectionHeading>
-    {!recovery && <Button variant="primary" disabled={pending} onClick={() => onSubmit("accept")}>Mark accepted</Button>}
-    <p className="muted">Accept records the verdict; you merge the branch.</p>
+    {!recovery && <Button variant={isConflictGate(gate) ? "secondary" : "primary"} disabled={pending} onClick={() => onSubmit("accept")}>Mark accepted</Button>}
+    <p className="muted">{acceptWords(gate)}</p>
     <div className="pc-verdict-pair">{(!task.work||userStartedRoot(task))&&(task.executor || task.attempts.at(-1)?.executor) && <Button disabled={pending} onClick={() => onOpenNote("send_back")}>Send back</Button>}
     <Button variant="danger" disabled={pending} onClick={() => onOpenNote("reject")}>Reject result</Button></div>
     {task.work?<p className="muted">Open the Work tab to retry this work in its existing tree.</p>:task.retryOptions.some(option=>option.state === "ready") ? <div className="pc-retry"><SectionHeading as="label" htmlFor="review-retry">Or retry on</SectionHeading><div className="row"><ChoicePicker id="review-retry" ref={retryRef} value={executor} disabled={pending} onValueChange={onExecutor}

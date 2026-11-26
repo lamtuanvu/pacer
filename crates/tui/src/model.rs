@@ -281,6 +281,11 @@ pub fn task<'a>(s: &'a V, id: &str) -> Option<&'a V> {
 pub fn attention_status(a: &V, s: &V) -> Line {
     let kind = text(&a["kind"]);
     let t = task(s, text(&a["taskId"]));
+    match text(&a["gate"]["kind"]) {
+        "step_conflict" | "branch_conflict" => return line("! Merge conflict"),
+        "adoption" => return line("✕ Run blocked"),
+        _ => {}
+    }
     if kind == "review" {
         return line("◐ Review requested");
     }
@@ -316,6 +321,10 @@ pub fn needs(s: &V, scope: &str) -> Vec<V> {
         if a["kind"] == "review" && let Some(t) = task(s, text(&a["taskId"])) {
             if ["review", "resolved", "dismissed", "retriedBy"].iter().any(|k| truth(&t[k])) {
                 return None;
+            }
+            // A workflow review gate is raised only while a verdict is owed.
+            if text(&a["id"]).starts_with("run_review:") {
+                return Some(a);
             }
             if t["state"] == "partial" || t["acceptanceState"] == "failed" {
                 let failed = t["acceptanceState"] == "failed";

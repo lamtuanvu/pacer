@@ -26,8 +26,9 @@ export function useRunViewStyles() {
 }
 
 /** One status chip: a glyph and a word, never colour alone (UI-2, UI-10). */
-export function StepState({ marker, status, waitsOnYou }: { marker: StepMarker; status: string; waitsOnYou?: boolean }) {
+export function StepState({ marker, status, waitsOnYou, awaitsReview }: { marker: StepMarker; status: string; waitsOnYou?: boolean; awaitsReview?: boolean }) {
   if (waitsOnYou) return <Pill tone="warn"><span aria-hidden="true">{stepMarkerGlyph("waits_you")} </span>Waits on you</Pill>;
+  if (awaitsReview) return <Pill tone="info"><span aria-hidden="true">{stepMarkerGlyph(marker)} </span>Waiting for review</Pill>;
   if (status === "pending") return <Pill tone="neutral"><span aria-hidden="true">{stepMarkerGlyph("unknown")} </span>Not started</Pill>;
   const s = runStatus(status);
   return <Pill tone={s.tone}><span aria-hidden="true">{stepMarkerGlyph(marker)} </span>{s.label}</Pill>;

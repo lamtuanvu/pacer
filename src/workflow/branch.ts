@@ -570,6 +570,7 @@ export async function mergeTaskOnAccept(ctx: Ctx, taskId: string): Promise<Accep
       // accept the verdict but only clear markers whose conflicting branch is already in.
       // Dirty check is skipped: there is nothing to merge (R2-F8).
       await clearResolvedConflicts(ctx, live, top, taskId);
+      assertRecordResolved(ctx, live.id, taskId);
       return { merged: true };
     }
     const taskBranch = work.branch;
@@ -578,6 +579,7 @@ export async function mergeTaskOnAccept(ctx: Ctx, taskId: string): Promise<Accep
     if (await commitsAhead(ctx, top, live.branch!, work) === 0) {
       // M7: a non-code step with untracked notes and no commit is a plain accept.
       await clearResolvedConflicts(ctx, live, top, taskId);
+      assertRecordResolved(ctx, live.id, taskId);
       return { merged: true };
     }
 
@@ -600,16 +602,40 @@ export async function mergeTaskOnAccept(ctx: Ctx, taskId: string): Promise<Accep
   });
 }
 
+/** Accepting a run-branch conflict record that resolved nothing would report a
+ *  success that changed nothing: refused while its marker is still there. */
+function assertRecordResolved(ctx: Ctx, runId: string, taskId: string): void {
+  const open = getRun(ctx, runId)?.conflict?.some(entry =>
+    entry.resolutionTaskId === taskId && /^(base|child):/.test(entry.taskId));
+  if (open) {
+    throw new CoreError("not_allowed", `the conflict is not resolved yet: commit the merge on branch pacer/${taskId}, then accept`);
+  }
+}
+
 const CONFLICT_FILES_CAP = 4 * 1024;
 
 function resolutionStillOpen(task: TaskRecord): boolean {
-  // Dedupe only against a prior resolution that has not been reviewed yet (R2-F2).
-  return !task.review;
+  // Dedupe only against a prior resolution that has not been reviewed or
+  // superseded yet (R2-F2).
+  return !task.review && !task.dismissed;
 }
 
 function createConflictResolutionTask(
   ctx: Ctx, run: RunRow, task: TaskRecord | { id: string; rev: number }, taskBranch: string, files: string,
 ): TaskRecord {
+  const ofTask = !/^(base|child):/.test(task.id);
+  // A conflict on the run branch itself keeps one open record: trying again reuses
+  // it while the same commit conflicts, and replaces it once that has moved.
+  if (!ofTask) {
+    const earlier = (getRun(ctx, run.id)?.conflict ?? []).filter(entry => entry.taskId === task.id);
+    for (const entry of earlier) {
+      const record = readTask(ctx, entry.resolutionTaskId);
+      if (entry.branch === taskBranch && record && resolutionStillOpen(record)) return record;
+    }
+    for (const entry of removeRunConflicts(ctx, run.id, e => e.taskId === task.id)) {
+      closeConflictRecord(ctx, entry.resolutionTaskId);
+    }
+  }
   // Include an attempt counter so a reviewed/closed prior does not block a fresh resolution (R2-F2).
   let attempt = 1;
   let requestId = `wfconflict:${run.id}:${task.id}:${task.rev}:${attempt}`;
@@ -644,7 +670,6 @@ function createConflictResolutionTask(
     ? `${rawFiles.slice(0, CONFLICT_FILES_CAP)}\n…(truncated)`
     : rawFiles;
   const nonce = randomBytes(4).toString("hex");
-  const ofTask = !/^(base|child):/.test(task.id);
   const goal = (own: string) => [
     `Manual conflict resolution record for run ${run.id} (person or orchestrator; no executor runs this task).`,
     `Run branch: ${run.branch}. Conflicting branch: ${taskBranch}.`,
@@ -661,7 +686,9 @@ function createConflictResolutionTask(
     kind: "debug",
     requestedExecutor: null,
     timeoutS: 3600,
-    title: `Conflict · ${task.id}`.slice(0, 60),
+    title: (task.id.startsWith("base:") ? `Merge conflict: update from ${task.id.slice("base:".length)}`
+      : task.id.startsWith("child:") ? "Merge conflict: sub-workflow changes"
+      : `Merge conflict: task ${task.id}`).slice(0, 60),
     requestId,
   });
   // A record, not work: needs_input so the 600s never-started sweep cannot mark it

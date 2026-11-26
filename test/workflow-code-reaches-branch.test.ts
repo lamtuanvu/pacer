@@ -12,7 +12,13 @@ import { gitInfo } from "../src/core/git";
 import { buildPrompt } from "../src/exec/prompt";
 import { renderTurnPrompt } from "../src/messaging/turns";
 import { createTaskWorktree } from "../src/supervisor/worktree";
-import { createTask, readTask, updateTask } from "../src/tasks/store";
+import { createTask, listTasksWhere, readTask, updateTask } from "../src/tasks/store";
+import { apiTask } from "../src/api/read-model/tasks";
+import type { SnapshotV2 } from "../src/api/read-model/types";
+import { emptySnapshot } from "../src/link/envelope";
+import { needsYou, reviewQueue } from "../src/view-model/selectors";
+import { attentionStatus } from "../src/view-model/words";
+import { acceptWords, conflictRecordFor, MERGE_ON_ACCEPT_WORDS, outcomeProblem } from "../src/view-model/run-gate";
 import type { DelegateInput } from "../src/tasks/api";
 import type { TaskRecord, TaskState } from "../src/tasks/types";
 import { deriveWorkflowAttention } from "../src/workflow/attention";
@@ -1259,8 +1265,11 @@ test("a branch that cannot be adopted for a reason other than a conflict is show
   workflowDatabase(w.ctx).query("UPDATE workflow_runs SET status = 'waiting', branch = NULL WHERE id = ?").run(run.id);
   expect(await adoptGeneratedBranches(broken, getRun(w.ctx, run.id)!)).toBe(false);
   const item = deriveWorkflowAttention(w.ctx).find(i => i.id === `run_review:adopt:${childId}`)!;
-  expect(item.detail).toContain("object store is broken");
-  expect(item.actions[0]!.op).toBe("run.stop");
+  // The raw git words stay in the labelled technical detail.
+  expect(item.detail).not.toContain("object store");
+  expect(item.gate).toMatchObject({ kind: "adoption", technical: expect.stringContaining("object store is broken") });
+  expect(item.actions.map(a => a.op)).toEqual(["ui.open", "run.stop"]);
+  expect(item.actions[1]!.confirm).toBe("Stop this run?");
   expect(await adoptGeneratedBranches(w.ctx, getRun(w.ctx, run.id)!)).toBe(true);
   expect(deriveWorkflowAttention(w.ctx).some(i => i.id === `run_review:adopt:${childId}`)).toBe(false);
 });
@@ -1515,4 +1524,94 @@ test("publishing refuses when origin cannot be read for work the last publish di
   s.w.git(s.w.repo, "remote", "set-url", "origin", join(s.w.remote, "gone"));
   await expect(s.publish(false)).rejects.toMatchObject({ code: "unavailable", message: expect.stringMatching(/cannot confirm/) });
   s.untouched();
+});
+
+/** What a client sees: the service's workflow items beside its tasks, through the shared view model. */
+function seen(w: ReturnType<typeof world>) {
+  const attention = deriveWorkflowAttention(w.ctx);
+  const tasksSeen = listTasksWhere(w.ctx, { all: true }).map(task => ({ ...apiTask(w.ctx, task) }));
+  const snapshot = { ...emptySnapshot(), at: w.ctx.now, tasks: tasksSeen, attention } as unknown as SnapshotV2;
+  return { attention, snapshot, needs: needsYou(snapshot, { repo: null }) };
+}
+
+test("the review item of a finished or partial code step reaches every surface with its verdicts", async () => {
+  const w = world();
+  const run = await startChain(w);
+  const impl = w.taskOf(run.id, "impl");
+  await w.execute(impl, { file: "a.txt" });
+  for (const state of ["done", "partial"] as const) {
+    updateTask(w.ctx, impl, t => { t.state = state; });
+    const { snapshot, needs } = seen(w);
+    const item = needs.find(i => i.id === `run_review:${impl}`)!;
+    expect(item.kind).toBe("review");
+    expect(item.gate).toEqual({ kind: "step_review" });
+    expect(item.actions.map(a => a.label)).toEqual(["Accept", "Reject"]);
+    expect(item.actions[0]!.confirm).toContain("merge these changes into the run branch");
+    expect(item.actions[1]!.confirm).toBeTruthy();
+    expect(reviewQueue(snapshot).map(i => i.id)).toContain(item.id);
+    expect(acceptWords(item)).toBe(MERGE_ON_ACCEPT_WORDS);
+  }
+});
+
+test("a conflicting step shows the conflict, how to send it back and its record", async () => {
+  const w = world();
+  const c = await conflicted(w);
+  const { attention, needs } = seen(w);
+  const item = needs.find(i => i.id === `run_review:${c.y}`)!;
+  expect(item.gate).toMatchObject({ kind: "step_conflict", recordId: c.record });
+  expect(item.gate!.commands!.at(-1)).toBe(`pacer review ${c.y} --accept`);
+  expect(item.title).toStartWith("Merge conflict in step");
+  expect(attentionStatus(item).label).toBe("Merge conflict");
+  // This task cannot resume, so no send-back is offered.
+  expect(item.actions.map(a => a.label)).toEqual(["Accept", "Reject"]);
+  expect(item.detail).toContain("worktree and commit");
+  expect(conflictRecordFor(attention, c.record)?.id).toBe(item.id);
+  expect(readTask(w.ctx, c.record)!.title).toStartWith("Merge conflict: task");
+});
+
+test("a base update conflict reads plainly, keeps one open record and refuses an accept that resolves nothing", async () => {
+  const s = await staleRun();
+  writeFileSync(join(s.w.repo, "same.txt"), "main\n");
+  s.w.git(s.w.repo, "add", "same.txt");
+  s.w.git(s.w.repo, "commit", "-qm", "main moves");
+  const sync = async () => syncBase(s.w.ctx, s.run.id, getRun(s.w.ctx, s.run.id)!.rev);
+  const first = await sync();
+  expect(first.ok).toBe(false);
+  if (first.ok) return;
+  expect(outcomeProblem("run.sync_base", first)).toContain("still conflicts");
+  const record = first.resolution_task;
+  const item = seen(s.w).needs.find(i => i.id === `run_review:${record}`)!;
+  expect(item.title).toBe("Merge conflict: update from main");
+  expect(item.gate!.kind).toBe("branch_conflict");
+  expect(item.gate!.commands!.join("\n")).toContain(`merge ${getRun(s.w.ctx, s.run.id)!.conflict![0]!.branch}`);
+  expect(item.actions.map(a => a.label)).toEqual(["Try the update again", "Accept the resolution"]);
+  const again = await sync();
+  expect(again.ok ? "" : again.resolution_task).toBe(record);
+  // A newer base commit replaces the record: one stays open.
+  s.w.git(s.w.repo, "commit", "-qm", "main moves again", "--allow-empty");
+  const moved = await sync();
+  const next = moved.ok ? "" : moved.resolution_task;
+  expect(next).not.toBe(record);
+  expect(readTask(s.w.ctx, record)!.dismissed).toBe(true);
+  expect(getRun(s.w.ctx, s.run.id)!.conflict!.map(e => e.resolutionTaskId)).toEqual([next]);
+  await expect(tasks.review(s.w.ctx, next, { verdict: "accept" }))
+    .rejects.toMatchObject({ code: "not_allowed", message: expect.stringContaining("not resolved yet") });
+  expect(readTask(s.w.ctx, next)!.review).toBeUndefined();
+  // The commands on the item resolve it.
+  const tree = join(tmpDir(), "resolve");
+  const branch = getRun(s.w.ctx, s.run.id)!.branch!;
+  s.w.git(s.w.repo, "worktree", "add", "-q", tree, "-b", `pacer/${next}`, branch);
+  Bun.spawnSync(["git", "-C", tree, "-c", "user.email=t@t", "-c", "user.name=t", "merge", "-q", getRun(s.w.ctx, s.run.id)!.conflict![0]!.branch]);
+  writeFileSync(join(tree, "same.txt"), "resolved\n");
+  s.w.git(tree, "commit", "-qam", "resolve");
+  await tasks.review(s.w.ctx, next, { verdict: "accept" });
+  expect(getRun(s.w.ctx, s.run.id)!.conflict ?? []).toEqual([]);
+  expect(seen(s.w).needs.filter(i => i.gate?.kind === "branch_conflict")).toEqual([]);
+});
+
+test("a verdict that conflicts is named a problem, never a success", () => {
+  const result = { task: {}, accepted: false, merge: "conflict", resolution_task: "t" };
+  expect(outcomeProblem("task.review", result)).toContain("Not accepted");
+  expect(outcomeProblem("dispatch.review", result)).toContain("no verdict was recorded");
+  expect(outcomeProblem("task.review", { task: {} })).toBeNull();
 });

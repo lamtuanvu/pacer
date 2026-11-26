@@ -5,10 +5,16 @@ import { agentInfo, markAgent } from '../../../../src/view-model/agents';
 import { ButtonLink } from '../../ds/Button';
 import { hrefFor, routes } from '../../router';
 import { TaskOutputPreview } from './TaskOutputPreview';
+import type { AttentionItem } from '../../../../src/attention/types';
+import { conflictRecordFor, gateFor, isConflictGate } from '../../../../src/view-model/run-gate';
+import { RunGatePanel } from '../review/RunGatePanel';
 import { hasTaskExecution, tokenValue } from './model';
 
-export function NowCard({task:t,compact=false}:{task:TaskDetail;compact?:boolean}) {
- const failed=t.acceptance.state==='failed'||['failed','partial','limit'].includes(t.state);
+export function NowCard({task:t,compact=false,attention}:{task:TaskDetail;compact?:boolean;attention?:readonly AttentionItem[]}) {
+ // A conflict says what to do instead of a status; a step under review is ready even when partial.
+ const gate=t.review?undefined:gateFor(attention,t.id),conflict=isConflictGate(gate)?gate:t.review?undefined:conflictRecordFor(attention,t.id);
+ if(conflict){const record=conflict.gate?.recordId===t.id;return <RunGatePanel item={conflict} offer={()=>record}/>;}
+ const failed=!gate&&(t.acceptance.state==='failed'||['failed','partial','limit'].includes(t.state));
  const active=['running','queued','needs_input'].includes(t.state);
  const tone=failed?'bad':t.state==='needs_input'?'warn':'info';
  const executor=t.executor||t.attempts.at(-1)?.executor;

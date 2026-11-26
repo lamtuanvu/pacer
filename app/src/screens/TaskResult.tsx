@@ -6,6 +6,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/ho
 import { answerSteps, sendBackSteps, userStartedRoot, withManagedFallback } from "../../../src/view-model/managed-root";
 import type { TaskDetail } from "../../../src/core/task-detail";
 import type { ApiTask } from "../../../src/api/read-model/types";
+import { conflictRecordFor, gateFor, isConflictGate } from "../../../src/view-model/run-gate";
+import { RunGatePanel, sendBackOnly } from "./review/RunGatePanel";
 import { COORDINATES, answerDeliveryWords, executorLabel, managedSkipWords, taskOutcome, taskStatus } from "../../../src/view-model/words";
 import { scopedTaskTree, taskTree, workTasks, type WorkRow } from "../../../src/view-model/task-tree";
 import { clock } from "../../../src/view-model/time";
@@ -160,6 +162,7 @@ function TaskResultLoaded({ task, reload, compact = false, focusAnswer = false, 
     catch { setChangesError("Changes unavailable. The worktree may have been removed."); }
     finally { setLoadingChanges(false); }
   }
+  const gate = gateFor(state.snapshot?.attention, task.id), recorded = conflictRecordFor(state.snapshot?.attention, task.id);
   async function submit(verdict: Verdict["verdict"]) {
     if (inFlight.current) return;
     if ((verdict === "send_back" || verdict === "reject") && !note.trim()) { setMessage("Add a note before confirming.");noteRef.current?.focus();return; }
@@ -175,16 +178,17 @@ function TaskResultLoaded({ task, reload, compact = false, focusAnswer = false, 
       if (result.status === "error" || result.status === "handled") setMessage(result.message);
       else {
         const response = runner.result(key) as {retry?:{id:string}} | undefined;
-        setMessage(verdict === "accept" ? "Marked accepted. Integration is separate." : "Verdict recorded.");
+        setMessage(verdict !== "accept" ? "Verdict recorded." : gate ? "Accepted. The changes were merged into the run branch." : "Marked accepted. Integration is separate.");
         if (response?.retry?.id) location.hash = `#/tasks/${encodeURIComponent(response.retry.id)}`;
       }
       reload();
     } catch (error) { setMessage(error instanceof Error ? error.message : "Could not record the verdict."); }
     finally { inFlight.current=false;setPending(false); }
   }
-  const canReview = legacyReviewAvailable(task,state.features.ops.has("task.review"));
-  const panel = canReview ? <VerdictPanel recovery={task.acceptance.state === "failed" || ["partial","failed","limit"].includes(task.state)} task={task} note={note} kind={kind} executor={executor} noteFor={noteFor} pending={pending} noteRef={noteRef}
-    onNote={setNote} onKind={setKind} onExecutor={setExecutor} onOpenNote={v=>{setNoteFor(v);queueMicrotask(()=>noteRef.current?.focus());}} onCancel={()=>setNoteFor(null)} onSubmit={v=>void submit(v)} /> : undefined;
+  const record = recorded?.gate?.recordId === task.id ? recorded : undefined;
+  const canReview = !record && legacyReviewAvailable(task,state.features.ops.has("task.review"));
+  const panel = record ? <RunGatePanel item={record}/> : canReview ? <>{isConflictGate(gate) && <RunGatePanel item={gate!} offer={sendBackOnly}/>}<VerdictPanel gate={gate} recovery={!gate && (task.acceptance.state === "failed" || ["partial","failed","limit"].includes(task.state))} task={task} note={note} kind={kind} executor={executor} noteFor={noteFor} pending={pending} noteRef={noteRef}
+    onNote={setNote} onKind={setKind} onExecutor={setExecutor} onOpenNote={v=>{setNoteFor(v);queueMicrotask(()=>noteRef.current?.focus());}} onCancel={()=>setNoteFor(null)} onSubmit={v=>void submit(v)} /></> : undefined;
   const isQuestion = legacyQuestionPending(task), asked = messageQuestion(task);
   const question = isQuestion ? <>{!state.connected&&<p id={`${answerId}-reason`} className="muted">Reconnecting… Send when pacer reconnects.</p>}<p>{task.question!.text}</p><Field label="Your answer"><TextArea value={answer} rows={4} onInput={e=>setAnswer(e.currentTarget.value)} /></Field><Button variant="primary" busy={pending} disabled={!state.connected || !answer.trim()} aria-describedby={!state.connected ? `${answerId}-reason` : undefined} title={!state.connected ? "Reconnecting… Send when pacer reconnects." : undefined} onClick={async()=>{
     if(inFlight.current)return;inFlight.current=true;setPending(true);

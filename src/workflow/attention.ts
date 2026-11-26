@@ -21,7 +21,7 @@ import {
   type QuestionRow,
   type RunRow,
 } from "./store";
-import { taskDatabase } from "../tasks/store";
+import { readTask, taskDatabase } from "../tasks/store";
 import { isBudgetBlocked, parseBudget, parseSpent } from "./budget";
 import { resolveRunLetters } from "./letters";
 import { canSendBack, mergeConflictFor, reviewDueTask } from "./review";
@@ -446,9 +446,10 @@ function reviewItems(ctx: Ctx, run: RunRow, letters: Map<string, string>): Atten
     const root = run.parentRunId ? getRun(ctx, rootRunId(ctx, run.id)) ?? run : run;
     const stuck = !!conflict || root.orchestratorState === "blocked";
     const waitingOn = runExternalCaller(root);
-    const verdict = (label: string, value: "accept" | "reject" | "send_back", note?: string): Action => ({
+    const verdict = (label: string, value: "accept" | "reject" | "send_back", extra: Partial<Action> & { note?: string } = {}): Action => ({
       label, op: "task.review",
-      params: { id: task.id, verdict: value, expect_rev: task.rev, ...(note ? { note } : {}) },
+      params: { id: task.id, verdict: value, expect_rev: task.rev, ...(extra.note ? { note: extra.note } : {}) },
+      ...(extra.confirm ? { confirm: extra.confirm } : {}),
     });
     const sendable = !!conflict && canSendBack(ctx, task);
     const branch = branchOwner(ctx, run).branch;
@@ -458,20 +459,30 @@ function reviewItems(ctx: Ctx, run: RunRow, letters: Map<string, string>): Atten
       severity: stuck ? "blocked" : "decide",
       repo: null,
       taskId: task.id,
-      title: clipCodePoints(`Review the changes from step "${name}"`, QUESTION_TITLE_CLIP, true),
+      title: clipCodePoints(
+        conflict ? `Merge conflict in step "${name}"` : `Review the changes from step "${name}"`, QUESTION_TITLE_CLIP, true,
+      ),
       detail: conflict
-        ? `${runDetailSubject(root)}. Accepting hit a merge conflict. ${sendable ? "Send it back to merge the run branch and commit, or do that in the task's worktree" : "Merge the run branch in the task's worktree and commit"}, then accept.`
+        ? `${runDetailSubject(root)}. Accepting hit a merge conflict, so nothing was merged. ${sendable ? "Send it back to resolve it, or merge the run branch in the task's worktree and commit" : "Merge the run branch in the task's worktree and commit"}, then accept.`
         : `${runDetailSubject(root)}. Accepting merges the changes into the run branch and the run continues. Uncommitted work is refused.`,
+      gate: conflict
+        ? { kind: "step_conflict", recordId: conflict, commands: [`git merge ${branch}`, "git commit", `pacer review ${task.id} --accept`] }
+        : { kind: "step_review" },
       raisedAt: at,
       since: at,
       notify: notifyLevelForRun("question", root, ctx.now, { since: at, unblocks: stuck ? "run" : "nothing" }),
       ...(waitingOn ? { waitingOn } : {}),
       actions: [
         ...(sendable
-          ? [{ ...verdict("Send back to resolve", "send_back", `Merge ${branch} into your branch, resolve the conflicts and commit.`), style: "primary" as const }]
+          ? [{ ...verdict("Send back to resolve", "send_back", { note: `Merge ${branch} into your branch, resolve the conflicts and commit.` }), style: "primary" as const }]
           : []),
-        { ...verdict("Accept", "accept"), ...(sendable ? {} : { style: "primary" as const }) },
-        { ...verdict("Reject", "reject"), style: "danger" },
+        {
+          ...verdict("Accept", "accept", {
+            confirm: conflict ? "Accept now? This merges the task's branch into the run branch." : "Accept and merge these changes into the run branch?",
+          }),
+          ...(sendable ? {} : { style: "primary" as const }),
+        },
+        { ...verdict("Reject", "reject", { confirm: "Reject these changes? They are not merged and the step fails." }), style: "danger" },
       ],
       unblocks: "run",
       run: attentionRunRef(root, letters),
@@ -483,23 +494,42 @@ function reviewItems(ctx: Ctx, run: RunRow, letters: Map<string, string>): Atten
 /** A conflict with no step task behind it (base update, adopted branch): the
  *  record names the way to resolve it. */
 function branchConflictItems(ctx: Ctx, run: RunRow, letters: Map<string, string>): AttentionItem[] {
-  return (run.conflict ?? []).filter(entry => /^(base|child):/.test(entry.taskId)).map(entry => ({
-    id: `run_review:${entry.resolutionTaskId}`,
-    kind: "review" as const,
-    severity: "blocked" as const,
-    repo: null,
-    taskId: entry.resolutionTaskId,
-    title: "Resolve a merge conflict on the run branch",
-    detail: `${runDetailSubject(run)}. Task ${entry.resolutionTaskId} lists the conflicting files and the commands to resolve them. Publishing waits until then.`,
-    raisedAt: run.updatedAt,
-    since: run.updatedAt,
-    notify: notifyLevelForRun("question", run, ctx.now, { since: run.updatedAt, unblocks: "run" }),
-    actions: entry.taskId.startsWith("base:")
-      ? [{ label: "Try the update again", op: "run.sync_base", params: { id: run.id, expect_rev: run.rev } }]
-      : [],
-    unblocks: "run" as const,
-    run: attentionRunRef(run, letters),
-  }));
+  return (run.conflict ?? []).filter(entry => /^(base|child):/.test(entry.taskId)).map(entry => {
+    const record = entry.resolutionTaskId;
+    const base = entry.taskId.startsWith("base:") ? entry.taskId.slice("base:".length) : null;
+    const rev = readTask(ctx, record)?.rev;
+    const accept: Action[] = rev === undefined ? [] : [{
+      label: "Accept the resolution", op: "task.review", params: { id: record, verdict: "accept", expect_rev: rev },
+      confirm: `Accept the merge you committed on pacer/${record}? This merges it into the run branch.`,
+    }];
+    return {
+      id: `run_review:${record}`,
+      kind: "review" as const,
+      severity: "blocked" as const,
+      repo: null,
+      taskId: record,
+      title: clipCodePoints(base ? `Merge conflict: update from ${base}` : "Merge conflict: sub-workflow changes", QUESTION_TITLE_CLIP, true),
+      detail: `${runDetailSubject(run)}. ${base ? `Updating the run branch from ${base} conflicts` : "A sub-workflow's changes conflict with the run branch"}, and publishing waits. ${base ? "Try the update again after the branches change, or resolve" : "Resolve"} it by hand with the commands, run in the repository, then accept.`,
+      raisedAt: run.updatedAt,
+      since: run.updatedAt,
+      notify: notifyLevelForRun("question", run, ctx.now, { since: run.updatedAt, unblocks: "run" }),
+      gate: {
+        kind: "branch_conflict" as const,
+        recordId: record,
+        commands: [
+          `git worktree add ../resolve-${record} -b pacer/${record} ${run.branch}`,
+          `git -C ../resolve-${record} merge ${entry.branch}`,
+          `git -C ../resolve-${record} commit`,
+          `pacer review ${record} --accept`,
+        ],
+      },
+      actions: base
+        ? [{ label: "Try the update again", op: "run.sync_base", params: { id: run.id, expect_rev: run.rev }, style: "primary" as const }, ...accept]
+        : accept.map(action => ({ ...action, style: "primary" as const })),
+      unblocks: "run" as const,
+      run: attentionRunRef(run, letters),
+    };
+  });
 }
 
 /** A generated run whose own branch could not be moved to the run branch. */
@@ -507,19 +537,27 @@ function adoptionItems(ctx: Ctx, run: RunRow, letters: Map<string, string>): Att
   return stepsOfRun(ctx, run.id).flatMap(step => {
     const result = step.result as { childRunId?: unknown; adoptError?: unknown } | undefined;
     if (step.status !== "waiting" || typeof result?.adoptError !== "string") return [];
+    const root = run.parentRunId ? getRun(ctx, rootRunId(ctx, run.id)) ?? run : run;
     return [{
       id: `run_review:adopt:${String(result.childRunId)}`,
       kind: "orchestrator_failed" as const,
       severity: "blocked" as const,
       repo: null,
-      title: `Step "${step.stepId}" cannot add its code to the run branch`,
-      detail: `${runDetailSubject(run)}. ${clipCodePoints(collapseNewlines(result.adoptError), FULL_QUESTION_CLIP, true)}. pacer keeps trying; the run waits until it works.`,
+      title: "Code from a sub-workflow cannot reach the run branch",
+      detail: `${runDetailSubject(root)}. pacer keeps trying, and the run waits until it works. Open the run to see where it stopped.`,
       raisedAt: step.startedAt,
       since: step.startedAt,
       notify: notifyLevelForRun("question", run, ctx.now, { since: step.startedAt, unblocks: "run" }),
-      actions: [stopRunAction(run)],
+      gate: {
+        kind: "adoption" as const,
+        technical: `Step ${step.stepId}: ${clipCodePoints(collapseNewlines(result.adoptError), FULL_QUESTION_CLIP, true)}`,
+      },
+      actions: [
+        { label: "Open run", op: "ui.open", params: { view: "run", id: root.id }, style: "primary" as const },
+        stopRunAction(run),
+      ],
       unblocks: "run" as const,
-      run: attentionRunRef(run, letters),
+      run: attentionRunRef(root, letters),
     }];
   });
 }

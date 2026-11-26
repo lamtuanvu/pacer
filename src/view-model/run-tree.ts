@@ -13,6 +13,8 @@ export interface TreeLine {
   attempts: number;
   label: string;
   waitsOnYou: boolean;
+  /** A code step that reported and waits for its verdict. */
+  awaitsReview?: boolean;
 }
 
 export function stepTypeOf(detail: RunDetail, stepId: string): string | undefined {
@@ -104,6 +106,15 @@ function stepWaitsOnYou(
   return openKeys.has(`${step.stepId}\0\0${step.branch ?? ""}`);
 }
 
+export const WAITING_FOR_REVIEW = "waiting for review";
+
+/** A step parked for its verdict: it waits with its task's result (a generate
+ *  step waiting on its child run does not). The CLI reads the same fact. */
+export function stepAwaitsReview(step: { status: string; taskId?: string; result?: unknown }): boolean {
+  return step.status === "waiting" && !!step.taskId && step.result !== undefined && step.result !== null
+    && !(typeof step.result === "object" && "childRunId" in step.result);
+}
+
 /**
  * Build tree lines only from `run.get` steps, definition edges/types and graph versions.
  * Fan-out branch rows share the fan-out stepId (engine key); they nest under that step.
@@ -168,6 +179,7 @@ export function buildRunTree(detail: RunDetail, openQuestions: RunQuestion[] | S
       attempts,
       label: `${step.stepId}${branch}${attemptLabel}`,
       waitsOnYou,
+      ...(stepAwaitsReview(step) ? { awaitsReview: true } : {}),
     });
     if (!step.branch) {
       const graph = approvedByGenerate.get(`${step.stepId}\0${step.attempt}`);
