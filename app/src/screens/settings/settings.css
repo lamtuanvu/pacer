@@ -64,11 +64,8 @@
  .u3-settings td[data-label]{width:auto}
 }
 
-.u3-executor-order{display:grid;grid-template-columns:var(--size-16) var(--size-28) var(--size-28);gap:var(--space-1);align-items:center}
-.u3-executor-order>.pc-btn{width:var(--size-28);padding-inline:0}
-.u3-executor-model{display:block;max-width:var(--size-100);overflow-x:auto;white-space:nowrap;font-family:var(--font-mono);font-size:var(--type-code-size)}
 .u3-save-bar{position:sticky;bottom:0;display:flex;justify-content:space-between;align-items:center;gap:var(--space-3);padding:var(--space-3);margin-block:var(--space-3);background:var(--surface-card);border:1px solid var(--line);border-radius:var(--radius-md);z-index:var(--layer-sticky)}
-@media(max-width:700px){.u3-save-bar{flex-wrap:wrap}.u3-executor-model{max-width:100%}}
+@media(max-width:700px){.u3-save-bar{flex-wrap:wrap}}
 .u3-save-status:focus-visible{outline:var(--stroke-focus) solid var(--focus);outline-offset:var(--stroke-focus);border-radius:var(--radius-sm)}
 
 .pc-app--narrow .u3-save-bar{bottom:calc(var(--size-56) + env(safe-area-inset-bottom))}
@@ -118,41 +115,15 @@
 .pc-settings-plugin__copy{display:flex;flex-direction:column;min-width:0;overflow-wrap:anywhere}
 .pc-settings-plugin__name{display:flex;flex-wrap:wrap;gap:var(--space-1\.5);align-items:center}
 @media(max-width:560px){.pc-settings-plugin{grid-template-columns:var(--size-32) minmax(0,1fr) auto}.pc-settings-plugin>span:nth-last-child(2){grid-column:2;grid-row:2}.pc-settings-plugin>.pc-switch{grid-column:3;grid-row:1 / span 2}}
-.u3-agents:not(:has(.pc-page-columns__aside)){grid-template-columns:minmax(0,1fr)}
 .u3-chips{display:flex;flex-wrap:wrap;gap:var(--space-1)}.u3-chip{display:inline-flex;align-items:center;gap:var(--space-1);padding:0 var(--space-2) 0 var(--space-half);border:1px solid var(--line);border-radius:var(--radius-full);font-size:var(--type-caption-size);white-space:nowrap}
-.u3-settings tr.u3-row--selected td{background:var(--surface-lane)}
-.u3-settings tr.u3-row--selected .u3-muted,.u3-settings tr.u3-row--selected .u3-executor-model,.u3-settings tr.u3-row--selected .pc-usage__text{color:var(--ink-secondary)}
 .u3-fieldset{border:0;margin:0;padding:0;min-width:0;display:flex;flex-direction:column;gap:var(--space-2)}.u3-fieldset legend{padding:0;font-weight:var(--type-body-strong-weight)}
 .u3-choices--compact{grid-template-columns:repeat(auto-fill,minmax(var(--size-120),1fr));margin:0}
 
-/* Agents and Accounts use the boards' specialized table rhythm. */
-#executors,#accounts{gap:var(--size-18)}
-.u3-agents-table{border-radius:var(--radius-agents);overflow:auto}
-.u3-settings .u3-agents-table th{padding:var(--size-9) var(--space-4);font-size:var(--type-label-size);line-height:var(--type-label-line);font-weight:var(--type-label-weight);letter-spacing:var(--type-label-tracking);text-transform:uppercase;color:var(--ink-muted);border-bottom:1px solid var(--line)}
-.u3-settings .u3-agents-table td{padding:var(--space-2\.5) var(--space-4);border-bottom:0;border-top:1px solid var(--surface-lane)}
-.u3-agents-table .u3-agent{gap:var(--space-2\.5)}
-.u3-agents-table .u3-muted,.u3-agents-table .u3-executor-model{font-size:var(--type-caption-size);line-height:var(--type-caption-line);color:var(--ink-muted)}
-.u3-agents-table .u3-executor-model{font-family:var(--font-sans);max-width:var(--size-180);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.u3-agents-table td[data-label="Parallel tasks"]{text-align:right;white-space:nowrap}
 .u3-settings tr.u3-row--bad{background:var(--bad-tint);box-shadow:var(--shadow-agent-failure)}
 .u3-settings tr.u3-row--bad td{background:var(--bad-tint)}
 .u3-save-bar[hidden]{display:none}
-.u3-accounts-info{display:flex;align-items:flex-start;gap:var(--space-2\.5);padding:var(--space-2\.5) var(--space-3);border-radius:var(--radius-md);background:var(--surface-card);border:1px solid var(--line);font-size:var(--type-caption-size);line-height:var(--type-caption-line);color:var(--ink-secondary)}
-.u3-accounts-info svg{flex-shrink:0}
-.u3-account-policy{display:grid;grid-template-columns:var(--size-300) minmax(0,1fr);gap:var(--space-6);padding-top:var(--space-6);border-top:1px solid var(--line)}
-.u3-account-policy-controls{display:flex;flex-direction:column;align-items:flex-start;gap:var(--space-3)}
-.u3-agent-detail{display:flex;flex-direction:column;gap:var(--size-18)}
-.u3-agent-detail>.u3-agent>div{flex:1}
-.u3-agent-facts{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:var(--space-3);margin:0}
-.u3-agent-facts dt{font-size:var(--type-caption-size);color:var(--ink-muted)}
-.u3-agent-facts dd{margin:0;min-width:0}
-.u3-detail-footer{display:flex;align-items:center;gap:var(--space-2);border-top:1px solid var(--line);padding-top:var(--space-3\.5)}
-.u3-detail-footer>span{flex:1}
-@media(max-width:700px){.u3-account-policy{grid-template-columns:minmax(0,1fr)}.u3-settings .u3-agents-table td{border:0}.u3-agents-table td[data-label="Parallel tasks"]{text-align:left}}
 
-.u3-agents-scroll{max-width:100%;container-type:inline-size;container-name:agents-table}
 /* Keep absolute screen-reader labels inside the table's scroll clip. */
-.u3-agents-scroll{position:relative}
 
 /* Machines and Add agent have specialized board layouts; SettingRow owns its grid. */
 .u3-machines-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,var(--size-440)),1fr));gap:var(--space-5);align-items:start}
@@ -214,7 +185,6 @@
 .pc-page-columns--agents{grid-template-columns:minmax(0,1fr) minmax(var(--size-340),var(--size-400));gap:var(--space-6)}
 .pc-page-columns--agents:not(:has(.pc-page-columns__aside)){grid-template-columns:minmax(0,1fr)}
 .pc-page-columns--agents>.pc-page-columns__aside{align-self:stretch;background:var(--surface-card);border-left:1px solid var(--line);padding:var(--space-7) var(--space-6)}
-.pc-side-panel .u3-agent-detail{padding:var(--space-4) var(--space-3) var(--space-5);display:flex;flex-direction:column;gap:var(--space-4)}
 @media(max-width:1100px){.pc-page-columns--agents{grid-template-columns:minmax(0,1fr)}}
 
 .pc-usage--slim{display:flex;flex-direction:column;align-items:stretch;gap:var(--space-1);width:100%;min-width:var(--size-80)}
@@ -253,53 +223,14 @@
 .u3-machine-body .pc-setting-row--board{grid-template-columns:minmax(0,var(--size-240)) minmax(var(--size-220),1fr);gap:var(--space-5);padding:var(--space-3) 0}
 @container machine-body (max-width:420px){.u3-machine-body .pc-setting-row--board{grid-template-columns:minmax(0,1fr);gap:var(--space-2)}}
 
-/* The five-column board grammar gives every action its own visible cell. */
-#executors .u3-agents-table table,#executors .u3-agents-table tbody{display:block}
-#executors .u3-agents-table tr{display:grid;grid-template-columns:minmax(var(--size-120),1.4fr) minmax(var(--size-120),1fr) var(--size-130) var(--size-90) var(--size-32);gap:var(--space-3);padding:var(--space-2\.5) var(--space-4)}
-#executors .u3-agents-table th,#executors .u3-agents-table td{display:block;padding:0;min-width:0;width:auto;border:0;overflow-wrap:anywhere}
-#executors .u3-agents-table thead{display:block}
-#executors .u3-agents-table tbody tr{border-top:1px solid var(--surface-lane)}
-#executors .u3-agents-table td[data-label=Parallel]{text-align:right;white-space:nowrap}
-#executors .u3-agents-table th:last-child{font-size:0}
-#executors .u3-agents-table tr.u3-row--selected{background:var(--surface-lane)}
-.u3-settings #executors tr.u3-row--selected td{background:transparent}
-@container agents-table (max-width:571px){
- #executors .u3-agents-table thead{display:none}
- #executors .u3-agents-table tr{grid-template-columns:minmax(0,1fr);gap:var(--space-3)}
- #executors .u3-agents-table td[data-label]{text-align:left}
- #executors .u3-agents-table td[data-label]::before{content:attr(data-label);display:block;color:var(--ink-muted);font-size:var(--type-label-size);margin-bottom:var(--space-1)}
- #executors .u3-agents-table td[data-label=Actions]::before{display:none}
-}
-/* Accounts retains all six board columns until its own container needs cards. */
-.u3-accounts-scroll{max-width:100%;position:relative;container-type:inline-size;container-name:accounts-table}
-#accounts .u3-agents-table table,#accounts .u3-agents-table thead,#accounts .u3-agents-table tbody{display:block}
-#accounts .u3-agents-table tr{display:grid;grid-template-columns:minmax(0,1.3fr) var(--size-130) minmax(var(--size-160),1fr) var(--size-150) minmax(0,1fr) var(--size-180);gap:var(--space-3);padding:var(--space-2\.5) var(--space-4);align-items:center}
-#accounts .u3-agents-table th,#accounts .u3-agents-table td{display:block;min-width:0;width:auto;padding:0;border:0;overflow-wrap:anywhere}
-#accounts .u3-agents-table tbody tr{border-top:1px solid var(--surface-lane)}
-#accounts .u3-account-actions--open{grid-column:1 / -1}
-#accounts .u3-chip{max-width:100%;box-sizing:border-box;white-space:normal}
-#executors .u3-agents-table thead tr,#accounts .u3-agents-table thead tr{padding:var(--size-9) var(--space-4);background:var(--surface-card);border-bottom:1px solid var(--line)}
-#executors .u3-agents-table th,#accounts .u3-agents-table th{background:transparent}
-@container accounts-table (max-width:960px){
- #accounts .u3-agents-table thead{display:none}
- #accounts .u3-agents-table tr{grid-template-columns:minmax(0,1fr)}
- #accounts .u3-agents-table td[data-label]::before{content:attr(data-label);display:block;color:var(--ink-muted);font-size:var(--type-label-size);margin-bottom:var(--space-1)}
- #accounts .u3-agents-table td[data-label=Actions]::before{display:none}
-}
 .pc-tabs--nav .pc-btn{min-height:var(--size-32);padding:0 var(--space-3);font-size:var(--type-body-size)}
-.u3-agent-detail .u3-detail-parallel{width:var(--size-72);border-radius:var(--radius-sm);padding:var(--space-2\.5)}
 @media(max-width:700px),(pointer:coarse){
  .pc-tabs--nav .pc-btn{min-height:var(--control-touch)}
- .u3-agent-detail .pc-checkbox--bare,.pc-radio-choices label{min-height:var(--control-touch);box-sizing:border-box}
- .u3-agent-detail .pc-checkbox--bare{min-width:var(--control-touch)}
+ .pc-radio-choices label{min-height:var(--control-touch);box-sizing:border-box}
  .u3-settings .pc-text-action{display:inline-flex;align-items:center;min-height:var(--control-touch)}
  .u3-add-agent .u3-breadcrumb .pc-text-action,.u3-add-agent .u3-footer .pc-text-action{min-width:var(--control-touch)}
- .u3-executor-order{grid-template-columns:var(--size-16) var(--control-touch) var(--control-touch)}
 }
 
-/* The account policy stacks by its page width, not the viewport. */
-#accounts{container-type:inline-size;container-name:accounts-page}
-@container accounts-page (max-width:640px){.u3-account-policy{grid-template-columns:minmax(0,1fr)}}
 .pc-running-work-list{max-width:100%;min-width:0;margin:0;padding-inline-start:var(--space-5);overflow-wrap:anywhere}
 .pc-running-work-list li+li{margin-block-start:var(--space-2)}
 
@@ -315,21 +246,14 @@
 
 .u3-add-agent>.u3-breadcrumb{position:static;justify-content:flex-start;margin:0;padding:var(--space-6) var(--space-8) 0}
 .pc-stepper .pc-btn.pc-stepper__step{padding:var(--space-2\.5);min-height:var(--size-44)}
-.u3-account-policy .pc-section-heading{font-size:var(--type-session-title-size);line-height:var(--type-session-title-line);font-weight:var(--type-display-weight);text-transform:none;letter-spacing:normal}
 
 
 .dispatcher-preview-row{grid-template-columns:var(--size-200) var(--size-140) minmax(0,1fr) auto}
 @media(max-width:900px){.dispatcher-preview-row{grid-template-columns:minmax(0,1fr)}}
 
-.pc-agents-tab-row{display:flex;align-items:center;justify-content:space-between;gap:var(--space-3);flex-wrap:wrap}
 
 /* Board content layout. Control geometry and typography stay with DS variants. */
-.u3-agents-table .u3-agent strong{font-weight:var(--type-body-strong-weight)}
-.pc-agents-tab-row>.u3-actions{margin-bottom:var(--space-1)}
 .u3-chip{box-sizing:border-box;height:var(--size-22);padding:0 var(--space-2) 0 calc(var(--size-2) + var(--size-1))}
-.u3-account-policy{padding-top:var(--space-4)}
-.u3-account-policy .pc-section-heading{color:var(--ink)}
-.u3-agent-facts{grid-template-columns:calc(var(--size-100) + var(--size-10)) minmax(0,1fr)}
 .u3-add-agent>.u3-breadcrumb{padding:0}
 .u3-step-heading .u3-muted{color:var(--ink-muted);line-height:var(--type-caption-line)}
 .u3-aliases{display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--size-150),1fr));gap:var(--space-1\.5)}
@@ -396,40 +320,8 @@
 .pc-model-preview__chips{display:flex;flex-wrap:wrap;gap:var(--space-2);padding:var(--space-2) var(--space-4) var(--space-4);border-top:1px solid var(--surface-lane)}
 .pc-model-preview__empty{padding:var(--space-4)}
 
-/* Settings › Dispatcher › Model matrix */
-.pc-model-matrix__back{margin-left:auto}
-.pc-model-matrix__filters{display:flex;flex-wrap:wrap;gap:var(--space-2)}
-.pc-model-matrix__group{display:flex;flex-direction:column;gap:var(--space-3);min-width:0;border:1px solid var(--line);border-radius:var(--radius-lg);padding:var(--space-4)}
-.pc-model-matrix__group+.pc-model-matrix__group{margin-top:var(--space-4)}
-.pc-model-matrix__group-head{display:flex;flex-wrap:wrap;gap:var(--space-2);align-items:baseline}
-.pc-model-matrix__add{display:flex;flex-direction:row;align-items:flex-end;gap:var(--space-2);flex-wrap:wrap}
-.pc-model-matrix__add .pc-field{flex:1 1 var(--size-400);max-width:var(--size-400)}
-.pc-model-matrix__mono{font-family:var(--font-mono);font-size:var(--type-code-size)}
-.pc-model-matrix__tag{display:inline-flex;height:var(--size-18);padding:0 var(--space-1\.5);border-radius:var(--radius-sm);background:var(--surface-lane);color:var(--ink-secondary);font-size:var(--type-caption-size);font-weight:var(--type-label-weight)}
-.pc-model-matrix__table-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--radius-lg)}
-.pc-model-matrix__table{min-width:var(--size-960)}
-.pc-model-matrix__head,.pc-model-matrix__row{display:grid;grid-template-columns:minmax(var(--control-touch),var(--size-56)) minmax(var(--size-220),2fr) var(--size-72) var(--size-56) var(--size-64) minmax(var(--size-300),1fr) minmax(var(--size-150),1fr);column-gap:var(--space-3);align-items:center;padding:var(--space-2) var(--space-4)}
-/* The On track (first) stays wide enough for the touch-size switch at narrow
-   widths (review F7); the Size track was trimmed so the column widths sum fits
-   the box at 1440 without a 2 px horizontal overflow (review F5). */
-.pc-model-matrix__head{background:var(--surface-card);border-radius:var(--radius-lg) var(--radius-lg) 0 0}
-.pc-model-matrix__row{border-top:1px solid var(--surface-lane)}
-.pc-model-matrix__row--pending{background:var(--info-bg)}
-/* The Size chips stay on one line next to a gap between the model id and its
-   Default tag (review N4). */
-.pc-model-matrix__name{display:flex;align-items:center;gap:var(--space-2);min-width:0}
-.pc-model-matrix__size{display:flex;flex-wrap:nowrap;align-items:center;gap:var(--space-1)}
-.pc-model-matrix__coverage{display:grid;grid-template-columns:repeat(auto-fit,minmax(var(--size-220),1fr));gap:var(--space-3)}
-.pc-model-matrix__suggest{display:flex;flex-direction:column;gap:var(--space-2)}
-.pc-model-matrix__savebar{position:sticky;bottom:0;display:flex;justify-content:space-between;align-items:center;gap:var(--space-3);padding:var(--space-3);margin-block:var(--space-3);background:var(--surface-card);border:1px solid var(--line);border-radius:var(--radius-md);z-index:var(--layer-sticky)}
-
-/* Keep focused controls above the sticky save bars on both dispatcher pages.
-   The Matrix save bar is shorter than the Model choice dock (which also carries
-   the save copy and notices), so each gets its own scroll padding sized to the
-   bar it must clear (review N2). The Model choice selector is scoped inside
-   #model-choice and raised past the shared .pc-save-bar rule (0,3,0) so its
-   padding actually wins (review F3). */
-.pc-main-scroll:has(.pc-model-matrix__savebar){scroll-padding-bottom:calc(var(--size-120) + var(--space-4))}
+/* Keep focused controls above the Model choice save dock: its scroll padding is sized to the dock, scoped inside
+   #model-choice and raised past the shared .pc-save-bar rule (0,3,0) so it wins (review F3). */
 .pc-main-scroll:has(#model-choice .pc-model-choice__savedock){scroll-padding-bottom:calc(var(--size-176) + var(--space-6))}
 
 /* The preview scroller is keyboard-reachable (role=region, tabindex), so it
@@ -438,3 +330,52 @@
 
 /* The "Custom" marker when no preset matches is an informational chip, not a control. */
 .pc-model-choice__preset-note{display:inline-flex;align-items:center;min-height:var(--control-compact);padding:var(--space-1) var(--space-3);border:1px solid var(--line);border-radius:var(--radius-full);color:var(--ink-secondary);font-weight:var(--type-body-weight)}
+
+/* Dispatcher › Agents: master list (shell side panel or in page) and the selected agent. */
+.pc-dispatcher-head{gap:var(--space-4)}
+.pc-agent-list{display:flex;flex-direction:column;gap:var(--space-3);min-width:0}
+.pc-side-panel .pc-agent-list{padding:var(--space-4) var(--space-3) var(--space-5)}
+.pc-agent-list>.pc-btn{align-self:flex-start}
+.pc-agent-list__refresh{display:flex;align-items:center;justify-content:space-between;gap:var(--space-2);flex-wrap:wrap}
+.pc-agent-list__group{display:flex;flex-direction:column;gap:var(--space-half)}
+.pc-agent-list__group ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:var(--space-half)}
+.pc-agent-list__heading{padding:var(--space-2) var(--space-2\.5) var(--space-1);font-size:var(--type-label-size);line-height:var(--type-label-line);font-weight:var(--type-label-weight);letter-spacing:var(--type-label-tracking);text-transform:uppercase;color:var(--ink-muted)}
+.pc-agent-list__text{display:flex;flex:1;min-width:0;flex-direction:column}
+.pc-agent-list__text>*{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pc-agent-card__caption{font-size:var(--type-caption-size);line-height:var(--type-caption-line);color:var(--ink-muted)}
+.pc-agent-card__caption--warn{color:var(--warn-fg)}
+.pc-agent-detail{display:flex;flex-direction:column;gap:var(--space-5);min-width:0;max-width:var(--size-1240)}
+.pc-agent-detail__head{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-3)}
+.pc-agent-detail__title{display:flex;flex:1;min-width:0;flex-direction:column;gap:var(--space-half)}
+.pc-agent-detail__title .pc-section-heading{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2)}
+.pc-agent-detail__title code{font-family:var(--font-mono)}
+.pc-agent-detail__refresh{display:flex;align-items:center;gap:var(--space-2)}
+.pc-agent-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,var(--size-220)),1fr));gap:var(--space-3)}
+.pc-agent-card{display:flex;flex-direction:column;gap:var(--space-2);min-width:0;padding:var(--space-3);border:1px solid var(--line);border-radius:var(--radius-lg)}
+.pc-agent-card__figure{font-size:var(--type-number-lg-size);line-height:var(--type-number-lg-line);font-weight:var(--type-number-lg-weight)}
+.pc-card.pc-agent-fallback{display:flex;flex-direction:row;flex-wrap:wrap;align-items:flex-start;gap:var(--space-4)}
+.pc-agent-fallback__text{display:flex;flex:1 1 var(--size-360);min-width:0;flex-direction:column;gap:var(--space-1)}
+.pc-agent-models{overflow-x:auto;border:1px solid var(--line);border-radius:var(--radius-lg)}
+.pc-agent-models table{width:100%;min-width:var(--size-560);border-collapse:collapse;text-align:left}
+.pc-agent-models th{padding:var(--space-2) var(--space-3);background:var(--surface-card);border-bottom:1px solid var(--line);font-size:var(--type-caption-size);line-height:var(--type-caption-line);font-weight:var(--type-label-weight);color:var(--ink-secondary)}
+.pc-agent-models td{padding:var(--space-2\.5) var(--space-3);border-top:1px solid var(--surface-lane);vertical-align:middle}
+.pc-agent-models th:first-child,.pc-agent-models td:first-child{padding-left:var(--space-4)}
+.pc-agent-models__cell{display:flex;flex-direction:column;gap:var(--space-half);min-width:0}
+.pc-agent-models td:last-child{text-align:right}
+.pc-agent-models__id{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2)}
+.pc-agent-models__id code{font-family:var(--font-mono);font-size:var(--type-code-size);font-weight:var(--type-body-strong-weight);white-space:nowrap}
+.pc-agent-models__default{display:inline-flex;align-items:center;gap:var(--space-1\.5);font-size:var(--type-caption-size);color:var(--ink-secondary);cursor:pointer}
+.pc-agent-size{display:inline-flex;align-items:center;justify-content:center;min-width:var(--size-20);height:var(--size-20);padding:0 var(--space-1);box-sizing:border-box;border-radius:var(--radius-xs);font-size:var(--type-label-size);font-weight:var(--type-label-weight);background:var(--surface-lane);color:var(--ink-secondary)}
+.pc-agent-size--frontier{background:var(--ink);color:var(--ink-on-ink)}
+.pc-agent-size--none{background:var(--surface-page);color:var(--ink-muted);border:1px dashed var(--line)}
+.pc-agent-limits{border:1px solid var(--line);border-radius:var(--radius-lg)}
+.pc-agent-limits__row{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-3);padding:var(--space-3) var(--space-4)}
+.pc-agent-limits__row+.pc-agent-limits__row{border-top:1px solid var(--surface-lane)}
+.pc-agent-limits__text{display:flex;flex:1 1 var(--size-260);min-width:0;flex-direction:column}
+.pc-agent-limits__number{width:var(--size-72)}
+/* In page (narrow, or with the side panel closed) the agent list comes first, then the selected agent. */
+.pc-agent-stack{display:flex;flex-direction:column;align-items:stretch;gap:var(--space-6);min-width:0}
+.pc-agent-stack>.pc-agent-list{padding-bottom:var(--space-4);border-bottom:1px solid var(--line)}
+.pc-agent-detail__title .pc-section-heading:focus{outline:none}
+.pc-agent-detail__title .pc-section-heading:focus-visible{outline:var(--stroke-focus) solid var(--focus);outline-offset:var(--stroke-focus)}
+.pc-agent-card .pc-segmented{flex-wrap:wrap;max-width:100%}

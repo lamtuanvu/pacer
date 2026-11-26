@@ -10,11 +10,9 @@ import { containTooltipEscape } from "./shared";
 import { Tooltip } from "../../ds/Tooltip";
 import { markAgent } from "../../../../src/view-model/agents";
 import { percentage, accountLabel } from "../../../../src/view-model/words";
-import { ExecutorsSection } from "./Executors";
-export { ExecutorsSection } from "./Executors";
+import { LazyAgents } from "./LazyAgents";
+import { DispatcherHead, isDispatcherTab } from "./DispatcherTabs";
 import { PluginsSection } from "./Plugins";
-import { AccountsSection } from "./Accounts";
-export { AccountsSection } from "./Accounts";
 import { MachineSection } from "./Machines";
 export { TaskBackendField } from "./Machines";
 import { AddExecutor } from "./AddExecutor";
@@ -23,7 +21,6 @@ import { PairingView } from "./Pairing";
 import { UpdatesSection, type UpdateReport } from "./Updates";
 import { LazyDispatcher } from "./LazyDispatcher";
 import { LazyAssistantSettings } from "./LazyAssistantSettings";
-import { LazyModelMatrix } from "./LazyModelMatrix";
 
 import { withQuery, type RouteQuery } from "../../router";
 import { DensityContext } from "../../ds/Density";
@@ -107,7 +104,7 @@ export interface SettingsData {
 /** The footer for pages whose changes reach routing; Overview, App preferences and Diagnostics have none. */
 export function settingsNote(section: string | undefined): string | null {
   if (section === "machine") return "Task limits and launch settings apply on the next routing decision. Discovery changes apply right away.";
-  return ["accounts", "hosts", "dispatcher"].includes(section ?? "") ? "Changes apply on the next routing decision." : null;
+  return ["hosts", "dispatcher", "agents", "rules", "profiles"].includes(section ?? "") ? "Changes apply on the next routing decision." : null;
 }
 /** Mount only the selected editor: inactive pages must not fetch or run effects. */
 export function SettingsGeneral({
@@ -116,6 +113,8 @@ export function SettingsGeneral({
   query = { repo: null, scope: null },
   host,
   alias,
+  agent,
+  account,
 }: {
   section?: string;
   initialData?: SettingsData;
@@ -123,17 +122,19 @@ export function SettingsGeneral({
   /** Add agent prefills this host; host detail shows this alias. */
   host?: string;
   alias?: string;
+  /** Dispatcher › Agents opens this agent (runner id), or an account no agent uses. */
+  agent?: string;
+  account?: string;
 }) {
+  // Executors, Accounts and the Model matrix became Dispatcher › Agents; the router redirects their links.
+  if (section === "executors" || section === "accounts" || section === "models") section = "agents";
   let content: ComponentChildren;
   switch (section) {
     case "planner":
       content = <PlannerPacing initialData={initialData.config} initialAccounts={initialData.accounts} />;
       break;
-    case "accounts":
-      content = <AccountsSection initialData={initialData.accounts} initialConfig={initialData.config} />;
-      break;
-    case "executors":
-      content = <ExecutorsSection />;
+    case "agents":
+      content = <LazyAgents agent={agent} account={account} initialAccounts={initialData.accounts} initialConfig={initialData.config} />;
       break;
     case "machine":
     case "hosts":
@@ -149,8 +150,11 @@ export function SettingsGeneral({
     case "dispatcher":
       content = <LazyDispatcher query={query} />;
       break;
-    case "models":
-      content = <LazyModelMatrix />;
+    case "rules":
+      content = <LazyDispatcher query={query} tab="rules" />;
+      break;
+    case "profiles":
+      content = <LazyDispatcher query={query} tab="profiles" />;
       break;
     case "app":
     case "updates":
@@ -174,9 +178,8 @@ export function SettingsGeneral({
         value={section === "planner" ? "pacing" : section ? settingsPageId(section) : null}
       >
         <SettingsQueryContext.Provider value={query}>
-        {section === "dispatcher" && <PageHead><h1>Dispatcher</h1></PageHead>}
+        {isDispatcherTab(section) && <PageHead><DispatcherHead current={section} /></PageHead>}
         {section === "assistant" && <PageHead><header className="pc-settings-board__header"><h1>Assistant</h1><p>Ask questions about your tasks, dispatch and budgets from anywhere in the app. Choose where your questions are sent. Until then, the assistant button opens setup.</p></header></PageHead>}
-        {section === "models" && <PageHead><header className="pc-settings-board__header"><h1>{settingsPageTitle("models")}</h1><nav className="pc-model-matrix__back"><TextAction href="#/settings/dispatcher">Back to Dispatcher</TextAction></nav></header></PageHead>}
         <Page width="full" className="u3-settings u3-settings-page">
           <div className="u3-general-sections">{content}</div>
           {note && <p className="u3-settings-note">{note}</p>}
@@ -208,24 +211,24 @@ function GeneralOverview({ query, initialData }: { query: RouteQuery; initialDat
   const checks: { account?: string; title: string; detail?: string; tooltip?: string; tone: "good" | "bad" | "warn" | "neutral"; page: string; link: string }[] = [];
   for (const e of executors ?? []) {
     const status = readiness(e);
-    if (status.label !== "Ready") checks.push({ title: `${executorLabel(e.id)} · ${status.label}`, detail: status.reason, tone: status.tone === "info" ? "neutral" : status.tone, tooltip: status.tooltip, page: "executors", link: e.stale ? "Refresh usage" : "Open agent", ...(e.stale ? {account:e.account} : {}) });
+    if (status.label !== "Ready") checks.push({ title: `${executorLabel(e.id)} · ${status.label}`, detail: status.reason, tone: status.tone === "info" ? "neutral" : status.tone, tooltip: status.tooltip, page: `agents?${new URLSearchParams({ agent: e.id })}`, link: e.stale ? "Refresh usage" : "Open agent", ...(e.stale ? {account:e.account} : {}) });
   }
   for (const account of snapshot?.accounts ?? []) {
     // Freshness comes from the account's one usage record (ADR 0030); the view says why a reading needs refreshing.
     if (account.usageState?.freshness === "historical" && !executors?.some(e => e.account === account.name && stale(e))) {
       const view = usageView(account.usageState, Date.now() / 1000);
-      checks.push({ title: `${accountLabel(account)} usage reading is stale`, detail: view.freshness || undefined, tone: "warn", page: "executors", link: "Refresh usage", account: account.name });
+      checks.push({ title: `${accountLabel(account)} usage reading is stale`, detail: view.freshness || undefined, tone: "warn", page: "agents", link: "Refresh usage", account: account.name });
     }
   }
   checks.push({title:diagnostics.checked ? "Diagnostics checked" : "Diagnostics not run yet",detail:diagnostics.checked ? `${diagnostics.issues} checks need attention` : "Check that your setup is connected",tone:diagnostics.checked && !diagnostics.issues ? "good" : "warn",page:"diagnostics",link:"Run checks"});
   if (snapshot?.planner && !snapshot.console) checks.push({title:"Planner connection not observed",detail:"Open a planner session to verify its hooks",tone:"neutral",page:"planner",link:"Budget & pacing"});
-  if (snapshot?.console) checks.push({ title: "Planner connection observed", detail: `Last seen ${time(snapshot.console.heartbeatAt)}`, tone: "neutral", page: "executors", link: "Agents" });
-  if (executors) checks.push({ title: `${ready.length} ${ready.length === 1 ? "executor" : "executors"} ready`, detail: ready.map(e => executorLabel(e.id)).join(", "), tone: ready.length ? "good" : "warn", page: "executors", link: "Agents" });
+  if (snapshot?.console) checks.push({ title: "Planner connection observed", detail: `Last seen ${time(snapshot.console.heartbeatAt)}`, tone: "neutral", page: "agents", link: "Agents" });
+  if (executors) checks.push({ title: `${ready.length} ${ready.length === 1 ? "executor" : "executors"} ready`, detail: ready.map(e => executorLabel(e.id)).join(", "), tone: ready.length ? "good" : "warn", page: "agents", link: "Agents" });
   if (setup) checks.push({ title: `Saved setup ${setup.name} is active`, detail: setup.summary, tone: "good", page: "dispatcher", link: "Dispatcher" });
   if (update) checks.push({ title: update.label, tone: update.tone === "bad" ? "bad" : "warn", page: "app", link: "App" });
   else if (initialData.updates?.available && initialData.updates.latest) checks.push({ title: `pacer ${initialData.updates.latest} is available`, detail: `You have ${initialData.updates.current}`, tone: "warn", page: "app", link: "App" });
   const tiles: { label: string; value: string; note?: string; page: string }[] = [];
-  if (executors) tiles.push({ label: "Agents", value: `${snapshot?.planner ? `${executorLabel(snapshot.planner.agent)} plans · ` : ""}${executors.filter(e => e.rank !== "planner").length} executors`, note: ready.length ? `${ready.length} ready to take work` : "No executors ready", page: "executors" });
+  if (executors) tiles.push({ label: "Agents", value: `${snapshot?.planner ? `${executorLabel(snapshot.planner.agent)} plans · ` : ""}${executors.filter(e => e.rank !== "planner").length} executors`, note: ready.length ? `${ready.length} ready to take work` : "No executors ready", page: "agents" });
   if (setup) tiles.push({ label: "Dispatcher", value: `Saved setup ${setup.name}`, note: setup.summary, page: "dispatcher" });
   if (value("pacing.planner_reserve") != null) tiles.push({ label: "Budget", value: `${percentage(Number(value("pacing.planner_reserve")))} planner reserve`, note: [value("pacing.accounts") ? `${words(String(value("pacing.accounts")))} accounts` : "", value("pacing.fill_threshold") != null ? `move on at ${percentage(Number(value("pacing.fill_threshold")))}` : ""].filter(Boolean).join(" · "), page: "planner" });
   if (snapshot?.machine) tiles.push({ label: "Machines", value: machineHardCap(snapshot.machine) === null ? "No limit" : `${machineHardCap(snapshot.machine)} parallel`, note: snapshot.hosts ? `${snapshot.hosts.length} remote hosts` : undefined, page: "machine" });

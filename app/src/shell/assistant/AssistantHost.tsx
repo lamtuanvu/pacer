@@ -291,7 +291,7 @@ function AssistantSetup({ api, refresh }: { api: { call: <T>(op: string, params:
     {!accounts && !error && <p role="status">Loading accounts…</p>}
     {accounts?.length === 0 && <p>No endpoint accounts are configured.</p>}
     {error && <Alert tone="error" title="Could not set up the assistant">{error}{errorDetail && <Disclosure summary="Technical details"><code className="pc-code-wrap">{errorDetail}</code></Disclosure>} <Button size="sm" onClick={() => setAttempt(n => n + 1)}>Try again</Button></Alert>}
-    <p>No endpoint you want here? <a className="pc-inline-link" href="#/settings/accounts">Add an endpoint account</a> in Settings › Agents › Accounts. Hide this button in <a className="pc-inline-link" href="#/settings/app">App preferences</a>.</p>
+    <p>No endpoint you want here? <a className="pc-inline-link" href="#/settings/add-executor">Add an endpoint</a> in Settings › Dispatcher › Agents. Hide this button in <a className="pc-inline-link" href="#/settings/app">App preferences</a>.</p>
     {dialogs.dialog}
   </section>;
 }

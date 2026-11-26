@@ -82,22 +82,22 @@ test("the answer card reports steered executors and the preview groups by behavi
   expect(html).toContain("Skipped by automatic dispatch");
   expect(html).toContain("Runs its default if picked directly");
   expect(html).not.toContain("Not used");
-  // The matrix stays one click away even when some executors are steered.
-  expect(html).toContain("Open model matrix");
+  // Sizing models stays one click away (Dispatcher › Agents) even when some executors are steered.
+  expect(html).toContain("Size models in Agents");
+  expect(html).toContain('href="#/settings/agents"');
 });
 
-test("an unsteered inventory explains why and points at the model matrix when that route exists", () => {
+test("an unsteered inventory explains why and points at the Agents tab", () => {
   const html = render(config.tierTargets, { models: [unrated, fixed] });
   expect(html).toContain("Task difficulty does not change any model yet");
-  expect(html).toContain("Rate models in the model matrix");
-  // The models section is now registered, so the link points at it.
-  expect(html).toContain("Open model matrix");
+  expect(html).toContain("Size their models on the Agents tab");
+  expect(html).toContain("Size models in Agents");
 });
 
-test("an empty inventory still offers the model matrix", () => {
+test("an empty inventory still offers the Agents tab", () => {
   const html = render(config.tierTargets, { models: [] });
   expect(html).toContain("No executors in the model inventory yet");
-  expect(html).toContain("Open model matrix");
+  expect(html).toContain("Size models in Agents");
 });
 
 test("a non-matching mapping shows the Custom preset as a non-interactive marker", () => {

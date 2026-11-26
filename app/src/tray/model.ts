@@ -24,7 +24,7 @@ export function actionRoute(action: Action): string {
   if (view === "run") return "/needs-you";
   if ((view === "task" || view === "review") && typeof id === "string") return taskRoute(id, view === "task" && action.params.tab === "answer");
   if (view === "settings" && typeof section === "string") return settingsPath(section);
-  return ({ overview: "/", home: "/", delegate: "/", settings: "/settings", executors: "/settings/executors", accounts: "/settings/accounts", hosts: "/settings/hosts", setup: "/", tasks: "/sessions", strategy: "/settings/dispatcher" } as Record<string, string>)[String(view)] ?? "/";
+  return ({ overview: "/", home: "/", delegate: "/", settings: "/settings", executors: "/settings/agents", accounts: "/settings/agents", hosts: "/settings/hosts", setup: "/", tasks: "/sessions", strategy: "/settings/dispatcher" } as Record<string, string>)[String(view)] ?? "/";
 }
 /** Plain reason and next step for a tray action that did not work. */
 export function actionError(error: unknown): string {

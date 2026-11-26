@@ -161,7 +161,7 @@ export function DispatcherEnforcementRows({reading,canProbe,canConsent=true,prob
     </SettingRow>
     {item.probeSupported?<CertificationSchedule item={item}/>:null}
     {!item.probeSupported&&item.state!=="certified"?
-      <div className="u3-muted"><TextAction href="#/settings/executors">View executor setup</TextAction>, then refresh status.</div>
+      <div className="u3-muted"><TextAction href="#/settings/agents">View agents</TextAction>, then refresh status.</div>
     :null}
     {canConsent?<ConsentControl item={item} onConsent={onConsent}/>:null}
   </div>)}</>;
@@ -169,7 +169,7 @@ export function DispatcherEnforcementRows({reading,canProbe,canConsent=true,prob
 
 export function DispatcherModelInventory({inventory}:{inventory:DispatcherInventory}) {
   return <div className="pc-card">
-    <p>These models can be considered by the dispatcher. A declared tier is a configuration choice, not a measured quality score. <TextAction href="#/settings/executors">View executors</TextAction></p>
+    <p>These models can be considered by the dispatcher. A declared tier is a configuration choice, not a measured quality score. <TextAction href="#/settings/agents">View agents</TextAction></p>
     {inventory.models.length?<div className="pc-stack pc-stack--compact">{inventory.models.map(model=><SettingRow variant="board" key={`${model.runner}:${modelLabel(model)}`}
       label={<>{executorLabel(model.executor)} · {modelLabel(model)}</>}
       description={<>Account {model.account} · {model.tier==="unknown"?"Tier unknown":`${model.tier} tier`} · {model.actualModel?`Observed model ${model.actualModel}`:"Exact model unknown"}</>}
@@ -308,28 +308,31 @@ export function SavedSetups({onActivated,initialData}:{onActivated?:()=>void;ini
   </Section>;
 }
 
-export function DispatcherSection({query}:{query:RouteQuery}) {
+type DispatcherTab = "overview" | "rules" | "profiles";
+/** One Dispatcher tab: Overview (model choice and preview), Who can run what (guided rules) or Profiles (saved setups). */
+export function DispatcherSection({query,tab="overview"}:{query:RouteQuery;tab?:DispatcherTab}) {
   const {state}=useTaskContext();
-  if(!state.features.ops.has("dispatch.config.get"))return <><Section id="dispatcher" title="Dispatcher"><p>This service does not support dispatcher settings yet. Update the service to view the decision ladder.</p></Section><SavedSetups/></>;
-  return <DispatcherContent query={query}/>;
+  if(tab==="profiles")return <SavedSetups/>;
+  if(!state.features.ops.has("dispatch.config.get"))return <Section id="dispatcher" title="Dispatcher"><p>This service does not support dispatcher settings yet. Update the service to view the decision ladder.</p></Section>;
+  return <DispatcherContent query={query} tab={tab}/>;
 }
 export function DispatcherReadError({error,reload,subject}:{error:unknown;reload:()=>void;subject:string}){
   if(!error)return null;
   return <div className="pc-stack pc-stack--compact"><p>Could not refresh {subject}. Showing the last loaded reading.</p><ErrorMessage error={error}/><div><Button onClick={reload}>Try again</Button></div></div>;
 }
-function DispatcherContent({query}:{query:RouteQuery}){
-  const {state,api}=useTaskContext();
+function DispatcherContent({query,tab}:{query:RouteQuery;tab:"overview"|"rules"}){
+  const {state}=useTaskContext();
   const config=useResource<DispatcherConfigView>("dispatch.config.get");
   const models=useResource<DispatcherInventory>("dispatch.models");
-  const [setupsRevision,setSetupsRevision]=useState(0),[ladderDraft,setLadderDraft]=useState<StrategyDraft>();
-  const [refreshing,setRefreshing]=useState(false),[refreshError,setRefreshError]=useState<unknown>();
-  const refresh=async()=>{setRefreshing(true);setRefreshError(undefined);try{await api.call("dispatch.refresh",{});models.reload();}catch(error){setRefreshError(error);}finally{setRefreshing(false);}};
-  return config.data?<><DispatcherReadError error={config.error} reload={config.reload} subject="dispatcher settings"/><DispatcherOverview view={config.data} repositoryChoices={state.features.ops.has("project.strategy.list")}/>
-    <DispatcherModelChoice initialConfig={config.data} initialInventory={models.data} onSaved={()=>{config.reload();models.reload();setSetupsRevision(value=>value+1);}}/>
-    <DispatcherGuidedSetup view={config.data} onLadderDraft={setLadderDraft} onSaved={()=>{config.reload();models.reload();setSetupsRevision(value=>value+1);}}/>
-    {(state.features.ops.has("dispatch.explain")||state.features.ops.has("dispatch.preview"))&&<DispatcherPreviewForm query={query} draft={ladderDraft}/>}
-    <SavedSetups key={setupsRevision} onActivated={()=>{config.reload();models.reload();}}/>
-  </>:<><Section id="dispatcher" title="Dispatcher"><p role={config.error?"alert":undefined}>{config.error?"Dispatcher settings could not be loaded.":"Loading dispatcher settings…"}</p></Section><SavedSetups/></>;
+  const [ladderDraft,setLadderDraft]=useState<StrategyDraft>();
+  const preview=(state.features.ops.has("dispatch.explain")||state.features.ops.has("dispatch.preview"))&&<DispatcherPreviewForm query={query} draft={tab==="rules"?ladderDraft:undefined}/>;
+  if(!config.data)return <Section id="dispatcher" title="Dispatcher"><p role={config.error?"alert":undefined}>{config.error?"Dispatcher settings could not be loaded.":"Loading dispatcher settings…"}</p></Section>;
+  return <><DispatcherReadError error={config.error} reload={config.reload} subject="dispatcher settings"/>
+    {tab==="overview"?<><DispatcherOverview view={config.data} repositoryChoices={state.features.ops.has("project.strategy.list")}/>
+      <DispatcherModelChoice initialConfig={config.data} initialInventory={models.data} onSaved={()=>{config.reload();models.reload();}}/></>
+      :<DispatcherGuidedSetup view={config.data} onLadderDraft={setLadderDraft} onSaved={()=>{config.reload();models.reload();}}/>}
+    {preview}
+  </>;
 }
 
 function DispatcherEnforcement({query}:{query:RouteQuery}){

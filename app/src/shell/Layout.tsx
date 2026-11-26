@@ -33,7 +33,6 @@ import { AppFrame } from "./AppFrame";
 import { panelCommands, usePanelState } from "./panels";
 import { FrameContext, type FrameHeading } from "./slots";
 import { DOCK_ID, TerminalDock } from "./TerminalDock";
-import { useAgentDeepLink } from "./panels/agent-link";
 import { activeRepo } from "./narrow";
 
 /** The sheet loads after first paint so it stays out of the main bundle. Older services never load it. */
@@ -85,7 +84,6 @@ export function Layout({ route, loadingRoute = route, state, title, onDelegate =
   const [offlineBanner, setOfflineBanner] = useState(false);
   const desktopWarning = useDesktopWarning();
   useEffect(() => { setOfflineBanner(false); if (state.connected) return; const timer = setTimeout(() => setOfflineBanner(true), 2000); return () => clearTimeout(timer); }, [state.connected]);
-  useAgentDeepLink(route);
   const [density, setDensity] = useState(savedDensity);
   useEffect(() => {
     const sync = (event?: Event) => {
@@ -135,13 +133,13 @@ export function Layout({ route, loadingRoute = route, state, title, onDelegate =
   // A task's screen fills the Sessions list on the left and its session details on the right.
   const workPanels = !narrow && wide && !!context && !state.sessionEnded && route.name === "dispatch";
   const [scopeOpen, setScopeOpen] = usePanelState(`${route.name}.scope`, route.name !== "dispatch", route.name === "dispatch");
-  // Settings › Agents only fills the inspector when an executor is selected; keep it closed by default.
+  // Dispatcher › Agents opens the inspector for its agent list itself; other settings pages keep it closed.
   const [inspectorOpen, setInspectorOpen] = usePanelState(`${route.name}.inspector`, route.name !== "dispatch" && route.name !== "settings", route.name === "dispatch");
   const newTaskPanels = !narrow && wide && route.name === "new-task";
   // The Tasks board fills the right panel with the selected task; its own task route (with an id) renders Trace instead.
   const tasksPanels = !narrow && wide && route.name === "sessions" && !route.id;
   const tracePanels = !narrow && wide && ((route.name === "sessions" && !!route.id) || route.name === "task-review" || route.name === "task-failure");
-  const agentsPanels = !narrow && wide && route.name === "settings" && route.section === "executors";
+  const agentsPanels = !narrow && wide && route.name === "settings" && route.section === "agents";
   const setupPanels = !narrow && wide && route.name === "setup";
   const taskPanels = !narrow && wide && route.name === "terminal" && !!context && !state.sessionEnded;
   const rightInspector = workPanels || newTaskPanels || tasksPanels || tracePanels || agentsPanels;

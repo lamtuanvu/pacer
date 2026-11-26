@@ -4,6 +4,7 @@ import {join} from 'node:path';
 import {tmpDir} from './helpers';
 import type {Account} from '../app/src/model/accounts';
 import {usageStateFor} from './usage-fixtures';
+import {usageView} from '../src/view-model/usage';
 const browserPath=process.env.PACER_TEST_BROWSER;
 const browserTest=test.skipIf(!browserPath);
 let browser:Browser,server:ReturnType<typeof Bun.serve>,mode='unchanged',calls:{op:string;params:any}[]=[], snapshotAccounts:any[]=[];
@@ -21,6 +22,10 @@ beforeAll(async()=>{
   if(op==='fixture.snapshot')return Response.json(snapshotAccounts);
   if(op==='account.list')return Response.json(accounts);
   if(op==='config.get')return Response.json({keys:{},planners:[]});
+  // Dispatcher › Agents also reads each agent's limits and models.
+  if(op==='runner.settings.get')return Response.json({revision:'1',order:[],runners:[]});
+  if(op==='runner.models.get')return Response.json({runner:params.id,revision:'1',default:null,models:[]});
+  if(op==='executor.models.available')return Response.json({runner:params.runner,source:'none',models:null,fetchedAt:1800000000});
   if(op==='job.list')return Response.json(mode==='poll-complete'?[job(params.target)]:[]);
   if(op==='account.usage.check'){
    if(mode==='network')return Response.json({message:'Connection lost. Try again.'},{status:503});
@@ -32,6 +37,8 @@ beforeAll(async()=>{
  browser=await chromium.launch({executablePath:browserPath,headless:true});
 },15000);
 afterAll(async()=>{server?.stop(true);await browser?.close();});
+/** The Usage card of the agent that uses this account (Dispatcher › Agents). */
+const usageCard=(page:import('playwright-core').Page,account:string)=>page.locator(`[data-account="${account}"] section[aria-label="Usage"]`);
 browserTest('planner without executor asks consent, cancel spends nothing, confirmation checks the account',async()=>{
  calls=[];mode='unchanged';const page=await browser.newPage();try{
  await page.goto(String(server.url));const button=page.getByRole('button',{name:'Check usage for planner',exact:true});await button.click();
@@ -46,7 +53,7 @@ browserTest('provider checks explain unchanged and auth failures; reactive and u
  mode='unchanged';calls=[];const page=await browser.newPage();try{
  await page.setViewportSize({width:1440,height:960});
  await page.goto(String(server.url));
- const fits=await page.getByRole('button',{name:'Check usage for logs',exact:true}).evaluate(el=>{const cell=el.closest('td')!.getBoundingClientRect(),box=el.getBoundingClientRect();return box.right<=cell.right&&box.left>=cell.left&&el.scrollWidth<=el.clientWidth;});expect(fits).toBe(true);
+ const fits=await page.getByRole('button',{name:'Check usage for logs',exact:true}).evaluate(el=>{const cell=el.closest('section')!.getBoundingClientRect(),box=el.getBoundingClientRect();return box.right<=cell.right&&box.left>=cell.left&&el.scrollWidth<=el.clientWidth;});expect(fits).toBe(true);
  await page.getByRole('button',{name:'Check usage for logs',exact:true}).click();
  await page.getByText('Reading unchanged.',{exact:true}).waitFor();
  await page.getByRole('button',{name:'Check usage for byteplus',exact:true}).click();await page.getByRole('button',{name:'Check usage for byteplus',exact:true}).locator('..').getByText('Usage check details').click();await page.getByText(/Sign in to Ark CLI/).waitFor();
@@ -77,15 +84,15 @@ browserTest('one usage record owns figure, window, reset, freshness and source',
     Object.assign(record, usageStateFor({usedPct:80,window:'5h',resetsAt:now+3600,stale:false,capturedAt:now}, now));
     snapshotAccounts = [];
     await page.goto(String(server.url));
-    const quota = page.locator('tr').filter({has:page.getByRole('button',{name:'Check usage for planner',exact:true})}).locator('[data-label="Quota"]');
+    const quota = usageCard(page, 'planner');
     await quota.getByText(/80% of 5 h/).waitFor();
-    expect(await quota.innerText()).toContain('Updated 1m ago');
+    expect(await quota.innerText()).toContain(usageView(record, now).freshness);
     expect(await quota.innerText()).toMatch(/resets \d\d:\d\d/);
     expect(await quota.innerText()).toContain('Provider reading');
     // A historical record says its age instead of presenting the figure as current.
     Object.assign(record, usageStateFor({usedPct:80,window:'5h',stale:true,capturedAt:oldTime}, now));
     await page.goto(String(server.url));
-    await quota.getByText('Reading 26h old · refresh').waitFor();
+    await quota.getByText(usageView(record, now).freshness, {exact:false}).waitFor();
     // No record is a state, never a number.
     delete accounts[0]!.usageState;
     await page.goto(String(server.url));
@@ -121,15 +128,15 @@ browserTest('the record verdict, freshness and error drive status, meter and quo
     // A measured record quotes its verdict through the one vocabulary.
     accounts[0]!.usageState = usageStateFor({usedPct:20,window:'week',resetsAt:1800003600,stale:false,verdict:'ON_PACE',capturedAt:1800000000}, 1800000000);
     await page.goto(String(server.url));
-    const row = page.locator('tr').filter({has:page.getByRole('button',{name:'Check usage for planner',exact:true})});
+    const row = usageCard(page, 'planner');
     await row.getByText(/20% of week/).waitFor();
-    expect(await row.locator('[data-label="Status"]').innerText()).toContain('On pace');
+    expect(await row.innerText()).toContain('On pace');
     expect(await row.locator('.pc-meter__fill--good').count()).toBe(1);
     // A historical record says its age and keeps its error; the status pill names the check failure.
     accounts[0]!.usageState = {...usageStateFor({usedPct:20,window:'week',resetsAt:1800003600,stale:true,capturedAt:1799999900}, 1800000000), error:{message:'Sign in again',at:1800000000}};
     await page.goto(String(server.url));
-    await row.getByText('Reading of unknown age · refresh').waitFor();
-    expect(await row.locator('[data-label="Status"]').innerText()).toContain('Usage check failed');
+    await row.getByText(usageView(accounts[0]!.usageState!, 1800000000).freshness, {exact:false}).waitFor();
+    expect(await row.innerText()).toContain('Usage check failed');
     await row.getByText('Usage check details').click();
     await row.getByText('Sign in again', {exact:true}).waitFor();
     expect(await row.locator('.pc-meter__pace').count()).toBe(0);
@@ -137,11 +144,11 @@ browserTest('the record verdict, freshness and error drive status, meter and quo
     delete accounts[0]!.usageState;
     await page.goto(String(server.url));
     await row.getByText('Usage unknown').waitFor();
-    expect(await row.locator('[data-label="Status"]').innerText()).not.toContain('On pace');
+    expect(await row.innerText()).not.toContain('On pace');
     expect(errors).toEqual([]);
   } finally { accounts[0] = original; snapshotAccounts = []; await page.close(); }
 });
-for (const width of [1440,375]) browserTest(`failed usage stays compact until details are opened in full Accounts at ${width}px`,async()=>{
+for (const width of [1440,375]) browserTest(`failed usage stays compact until details are opened in Dispatcher › Agents at ${width}px`,async()=>{
   mode='failed'; calls=[];
   const original=structuredClone(accounts[0]!);
   const page=await browser.newPage({viewport:{width,height:960}});
@@ -149,13 +156,14 @@ for (const width of [1440,375]) browserTest(`failed usage stays compact until de
     accounts[0]!.usageState={...usageStateFor({stale:true,capturedAt:null},1800000000),error:{message:'Sign in to Ark CLI. arkcli exited 3: Live validation D3: UI fixture refuses execution',at:1800000000}};
     await page.goto(String(server.url));
     const button=page.getByRole('button',{name:'Check usage for planner',exact:true});
-    const row=page.locator('tr').filter({has:button});
+    const row=usageCard(page,'planner');
     const before=await row.evaluate(el=>el.getBoundingClientRect().height);
     await button.click();await page.getByRole('button',{name:'Run usage check',exact:true}).click();
     await row.getByRole('status').filter({hasText:'Couldn’t check usage. Try again.'}).waitFor();
     expect(await button.isDisabled()).toBe(false);
     const compact=await row.evaluate(el=>el.getBoundingClientRect().height);
-    expect(compact).toBeLessThan(width===1440?180:600);
+    // The usage card (not a table row) keeps its height until details open.
+    expect(compact).toBeLessThan(width===1440?360:640);
     expect(compact-before).toBeLessThan(70);
     expect(await row.locator('details').count()).toBe(1);
     expect(await row.locator('details').getAttribute('open')).toBe(null);
@@ -200,8 +208,8 @@ browserTest('reactive and unmetered records say so without a meter or a check ac
     }
     await page.goto(String(server.url));
     for (const [name, label] of [['reactive','No usage figure'],['local','Unmetered']] as const) {
-      const row = page.locator('tr').filter({has:page.locator('[data-label="Quota"]').getByText(label,{exact:true})});
-      const quota = row.locator('[data-label="Quota"]');
+      const row = usageCard(page, name);
+      const quota = row;
       await quota.getByText(label,{exact:true}).waitFor();
       expect(await quota.innerText()).toContain(label);
       expect(await row.getByRole('meter').count()).toBe(0);
@@ -214,30 +222,34 @@ browserTest('reactive and unmetered records say so without a meter or a check ac
 });
 
 for (const theme of ['light', 'dark']) for (const [freshness, stale] of [['fresh', false], ['historical', true]] as const) {
-  browserTest(`Accounts meter describes ${freshness} quota in ${theme}`, async () => {
+  browserTest(`Agents usage meter describes ${freshness} quota in ${theme}`, async () => {
     const original = structuredClone(accounts[0]!);
     const page = await browser.newPage({colorScheme: theme as 'light' | 'dark'});
     try {
       await page.addInitScript(theme => {localStorage.setItem('pacer.theme', theme); Date.now = () => 1800000000000;}, theme);
       const record = usageStateFor({usedPct:17,window:'week',resetsAt:1800003600,stale,capturedAt:stale ? 1799913599 : 1800000000,verdict:'ON_PACE'},1800000000);
       snapshotAccounts = [{name:'planner',agent:'claude-code',pacePct:30,signedIn:true,executors:[],usageState:record}];
+      // account.list is the authoritative record; the snapshot row carries the same one (ADR 0030).
+      accounts[0]!.usageState = record;
       await page.goto(String(server.url));
       await page.evaluate(theme => {document.documentElement.dataset.theme = theme;}, theme);
-      const row = page.locator('tr').filter({has:page.getByRole('button',{name:'Check usage for planner',exact:true})});
+      const row = usageCard(page, 'planner');
       const meter = row.getByRole('meter');
       await meter.waitFor();
       expect(await meter.getAttribute('aria-valuenow')).toBe('17');
       expect(await meter.getAttribute('aria-valuemin')).toBe('0');
       expect(await meter.getAttribute('aria-valuemax')).toBe('100');
       expect(await meter.getAttribute('aria-label')).toContain('usage');
-      expect((await meter.getAttribute('aria-valuetext'))?.includes('historical usage')).toBe(stale);
+      // The meter names a historical reading's age in words (UsageMeter freshness).
+      expect((await meter.getAttribute('aria-valuetext'))?.includes('reading')).toBe(stale);
       expect(await row.locator('.pc-meter--stale').count()).toBe(stale ? 1 : 0);
       expect(await meter.locator('.pc-meter__fill--good').count()).toBe(stale ? 0 : 1);
       expect(await meter.locator('.pc-meter__fill--neutral').count()).toBe(stale ? 1 : 0);
       expect(await meter.locator('.pc-meter__pace').count()).toBe(stale ? 0 : 1);
       // The record's verdict names the status; a historical reading says its age in the quota column.
-      expect(await row.locator('[data-label="Status"]').innerText()).toContain('On pace');
-      if (stale) expect(await row.innerText()).toContain('Reading 1d old · refresh');
+      // A historical reading is labelled as such rather than quoting a current pace (the SSR Agents tests agree).
+      expect(await row.innerText()).toContain(stale ? 'Historical usage' : 'On pace');
+      if (stale) expect(await row.innerText()).toContain(usageView(record, 1800000000).freshness);
       expect(await page.locator('html').getAttribute('data-theme')).toBe(theme);
     } finally {accounts[0] = original; snapshotAccounts = []; await page.close();}
   });
