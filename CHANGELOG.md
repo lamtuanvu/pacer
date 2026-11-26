@@ -15,6 +15,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - `pacer service restart` and `pacer update` now hand running work to the new service instead of warning "running work was not handed over: pacer core is restarting".
 - Settings › Updates no longer keeps showing a failed update after you install that release another way, such as by hand; pacer drops the installed offer and checks again.
 - After you install a newer pacer.app by hand, the app restarts its own older service onto the new version (handing running work over) instead of leaving the old service running with an "Older service" banner. It does this only on macOS, for the service it owns, with no update in progress.
+- The Rust front door now snoozes and dismisses workflow items (run budget, stopped planner, restart wait and run review) instead of answering "unknown attention item", and `snapshot.get` lists them while a workflow run is live. Dismissing a workflow item only hides it; it no longer dismisses the task it names.
 
 ### Fixed
 

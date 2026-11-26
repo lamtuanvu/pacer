@@ -165,11 +165,13 @@ pub fn service_agent_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> boo
     }
 }
 
-/// `runner.add`, `runner.check` and `attention.*` inputs whose effects only the TypeScript core owns.
+/// `runner.add`, `runner.check`, `attention.*` and `snapshot.get` inputs whose
+/// effects or items only the TypeScript core owns.
 pub fn runner_attention_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
     runner_ops::runner_stays_forwarded(ctx, op, params)
         || runner_check_ops::runner_check_stays_forwarded(ctx, op, params)
         || attention_ops::attention_stays_forwarded(ctx, op, params)
+        || snapshot_get_ops::snapshot_get_stays_forwarded(ctx, op)
 }
 
 /// `runner.models.*`, `dispatch.tierTargets.*` and `executor.models.available`
