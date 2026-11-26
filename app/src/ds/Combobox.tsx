@@ -13,6 +13,9 @@ export interface ComboboxOption {
   meta?: ComponentChildren;
   /** Options sharing a group render under one heading, in first-seen order. */
   group?: string;
+  /** Listed but not pickable (for example already added); shown with `disabledLabel`. */
+  disabled?: boolean;
+  disabledLabel?: string;
 }
 
 /** A row of the open list: a listed option, or the typed text when `allowCustom` accepts it. */
@@ -24,6 +27,18 @@ export function comboboxItems(options: readonly ComboboxOption[], query: string,
   const items = options.filter(option => `${option.value} ${option.description ?? ""}`.toLowerCase().includes(needle)).map(option => ({ option, custom: false }));
   if (allowCustom && text && !options.some(option => option.value === text)) items.push({ option: { value: text }, custom: true });
   return items;
+}
+
+/**
+ * What Enter picks: the highlighted option; with none highlighted, exactly the typed text (an option with that
+ * value, else the typed-text row). Never a longer substring match. -1 picks nothing.
+ */
+export function comboboxEnter(items: readonly ComboboxItem[], active: number, query: string): number {
+  if (active >= 0 && active < items.length) return active;
+  const text = query.trim();
+  if (!text) return -1;
+  const exact = items.findIndex(item => !item.custom && item.option.value === text);
+  return exact >= 0 ? exact : items.findIndex(item => item.custom);
 }
 
 /** Arrow keys move the active row and wrap; other keys leave it unchanged. */
@@ -39,8 +54,10 @@ export function comboboxStep(key: string, active: number, count: number): number
  * active option while focus stays in the field, Enter picks it, Escape closes the list and then clears the text.
  * Picking keeps focus and the list open so several values can be added in a row.
  */
-export function Combobox({ label, options, onPick, placeholder, source, hint, emptyLabel = "No matches", customLabel = value => `Add ${value}`, pickedLabel = value => `Added ${value}`, allowCustom = true, disabled, mono = false, className }: {
+export function Combobox({ label, options, onPick, placeholder, source, hint, emptyLabel = "No matches", customLabel = value => `Add ${value}`, pickedLabel = value => `Added ${value}`, allowCustom = true, disabled, mono = false, className, inputId: givenId }: {
   label: string;
+  /** Id of the field, so a consumer can move focus to it. */
+  inputId?: string;
   options: readonly ComboboxOption[];
   onPick: (value: string, custom: boolean) => void;
   placeholder?: string;
@@ -57,16 +74,18 @@ export function Combobox({ label, options, onPick, placeholder, source, hint, em
   mono?: boolean;
   className?: string;
 }) {
-  const id = useId(), inputId = `combobox-${id}`, listId = `${inputId}-list`;
+  const id = useId(), inputId = givenId ?? `combobox-${id}`, listId = `${inputId}-list`;
   const density = useDensity();
   const input = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState(""), [open, setOpen] = useState(false), [active, setActive] = useState(-1), [announcement, announce] = useState("");
   const items = comboboxItems(options, query, allowCustom);
+  const expanded = open && !disabled;
   const current = active >= 0 && active < items.length ? active : -1;
   const optionId = (index: number) => `${inputId}-option-${index}`;
   const pick = (index: number) => {
     const item = items[index];
     if (!item) return;
+    if (item.option.disabled) { announce(`${item.option.value}: ${item.option.disabledLabel ?? "unavailable"}`); return; }
     onPick(item.option.value, item.custom);
     announce(pickedLabel(item.option.value));
     setQuery(""); setActive(-1); setOpen(true);
@@ -78,24 +97,24 @@ export function Combobox({ label, options, onPick, placeholder, source, hint, em
     const last = groups[groups.length - 1];
     if (last && last.name === name) last.entries.push({ item, index }); else groups.push({ name, entries: [{ item, index }] });
   });
-  const row = ({ item, index }: { item: ComboboxItem; index: number }) => <div key={item.custom ? `custom:${item.option.value}` : item.option.value} id={optionId(index)} role="option" aria-selected={index === current}
-    className={classNames("pc-combobox__option", index === current && "pc-combobox__option--active")}
+  const row = ({ item, index }: { item: ComboboxItem; index: number }) => <div key={item.custom ? `custom:${item.option.value}` : item.option.value} id={optionId(index)} role="option" aria-selected={index === current} aria-disabled={item.option.disabled ? true : undefined}
+    className={classNames("pc-combobox__option", index === current && "pc-combobox__option--active", item.option.disabled && "pc-combobox__option--disabled")}
     onMouseDown={event => event.preventDefault()} onMouseMove={() => { if (index !== current) setActive(index); }} onClick={() => pick(index)}>
     <span className="pc-combobox__identity">
       <span className={classNames("pc-combobox__value", mono && "pc-combobox__value--mono")}>{item.custom ? customLabel(item.option.value) : item.option.value}</span>
       {item.option.description && <span className="pc-combobox__description">{item.option.description}</span>}
     </span>
-    {item.option.meta && <span className="pc-combobox__meta">{item.option.meta}</span>}
+    {item.option.disabled ? <span className="pc-combobox__meta">{item.option.disabledLabel ?? "Unavailable"}</span> : item.option.meta && <span className="pc-combobox__meta">{item.option.meta}</span>}
   </div>;
   return <div className={classNames("pc-combobox", `pc-combobox--${density}`, className)}>
     <label className="pc-combobox__label" htmlFor={inputId}>{label}</label>
-    <div className={classNames("pc-combobox__box", open && "pc-combobox__box--open")}>
+    <div className={classNames("pc-combobox__box", expanded && "pc-combobox__box--open")}>
       <div className="pc-combobox__field">
         <Icon name="search" />
         <input ref={input} id={inputId} className="pc-combobox__input" type="text" role="combobox" autoComplete="off" spellcheck={false}
-          aria-expanded={open} aria-controls={listId} aria-autocomplete="list" aria-activedescendant={open && current >= 0 ? optionId(current) : undefined}
+          aria-expanded={expanded} aria-controls={listId} aria-autocomplete="list" aria-activedescendant={expanded && current >= 0 ? optionId(current) : undefined}
           placeholder={placeholder} value={query} disabled={disabled}
-          onFocus={() => setOpen(true)}
+          onFocus={() => setOpen(true)} onMouseDown={() => setOpen(true)}
           onBlur={() => { setOpen(false); setActive(-1); }}
           onInput={event => { setQuery(event.currentTarget.value); setOpen(true); setActive(-1); }}
           onKeyDown={event => {
@@ -106,9 +125,9 @@ export function Combobox({ label, options, onPick, placeholder, source, hint, em
               return;
             }
             if (event.key === "Enter") {
-              if (!open) return;
+              if (!expanded) return;
               event.preventDefault();
-              pick(current >= 0 ? current : query.trim() ? 0 : -1);
+              pick(comboboxEnter(items, current, query));
               return;
             }
             const next = comboboxStep(event.key, current, items.length);
@@ -119,7 +138,7 @@ export function Combobox({ label, options, onPick, placeholder, source, hint, em
           }} />
         {source && <span className="pc-combobox__source">{source}</span>}
       </div>
-      <div id={listId} role="listbox" aria-label={label} className="pc-combobox__list" hidden={!open}>
+      <div id={listId} role="listbox" aria-label={label} className="pc-combobox__list" hidden={!expanded}>
         {groups.map((group, index) => group.name
           ? <div key={`group:${group.name}:${index}`} role="group" aria-labelledby={`${listId}-group-${index}`} className="pc-combobox__group">
               <div id={`${listId}-group-${index}`} role="presentation" className="pc-combobox__heading">{group.name}</div>
@@ -128,7 +147,7 @@ export function Combobox({ label, options, onPick, placeholder, source, hint, em
           : group.entries.map(row))}
         {!items.length && <div role="presentation" className="pc-combobox__empty">{emptyLabel}</div>}
       </div>
-      {open && hint && <p className="pc-combobox__hint">{hint}</p>}
+      {expanded && hint && <p className="pc-combobox__hint">{hint}</p>}
     </div>
     <span className="sr-only" role="status" aria-live="polite">{announcement}</span>
   </div>;

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { renderToString } from "preact-render-to-string";
-import { AgentModels } from "../app/src/screens/settings/AgentModels";
+import { AgentModels, pickOptions } from "../app/src/screens/settings/AgentModels";
 import { createDraft, type MatrixDraft } from "../app/src/model/model-matrix";
 import type { ModelDraftsState } from "../app/src/screens/settings/useModelDrafts";
 import type { AvailableModels } from "../src/models/available";
@@ -24,9 +24,13 @@ test("each model row has Size, Default, On and Remove, named for its model; unsa
   expect(html).toContain('aria-label="Size of opus"');
   expect(html).toMatch(/data-strip-value="frontier" aria-pressed="true"/);
   // Unrated: no size is pressed and the row says what that means.
-  expect(html.split('aria-label="Size of sonnet"')[1]!.split("</td>")[0]).not.toContain('aria-pressed="true"');
+  expect(html.split('aria-label="Size of sonnet"')[1]!.split("</td>")[0]).toMatch(/data-strip-value="unknown" aria-pressed="true"/);
   expect(html).toContain("Unrated: runs for any difficulty");
   expect(html.match(/type="radio"/g)).toHaveLength(2);
+  // A size can go back to Unrated (parity with the Model matrix).
+  expect(html.split('aria-label="Size of opus"')[1]!.split("</td>")[0]).toContain('data-strip-value="unknown"');
+  // UI-7: the model cell keeps table-cell layout; a wrapper inside it does the flex layout.
+  expect(html).toContain('<td><div class="pc-agent-models__cell">');
   expect(html).toMatch(/<input[^>]*name="default-claude-code"[^>]*checked/);
   expect(html).toContain("Make default<span class=\"sr-only\">: sonnet</span>");
   expect(html).toContain('aria-label="opus on"');
@@ -41,7 +45,8 @@ test("Claude Code without a listing offers its built-in choices in groups with s
   expect(html).toContain("From Claude Code");
   expect(html).toContain(">Aliases · always the newest model<");
   expect(html).toContain(">Pinned versions · stay on one release<");
-  expect(html).not.toMatch(/role="option"[^>]*>[\s\S]{0,200}>opus</); // already on the agent
+  // Already on the agent: listed, disabled and labelled, so it is never re-added.
+  expect(html).toMatch(/role="option"[^>]*aria-disabled="true"[^>]*>[\s\S]{0,300}>opus<[\s\S]{0,300}Already added/);
   expect(html).toContain("Medium, suggested");
   expect(html).toContain("Size after adding");
 });
@@ -53,6 +58,7 @@ test("an endpoint lists its provider's models with facts, and a missing model sa
   expect(html).toContain("2 models from tse");
   expect(html).toContain("128K context · tools");
   expect(html).toContain("gone is no longer offered by tse");
+  expect(html).toContain("Replace<span class=\"sr-only\"> gone</span>…");
   expect(html).toContain("terastor-ai-pro");
   expect(html).toContain("Frontier, suggested");
 });
@@ -60,8 +66,18 @@ test("an endpoint lists its provider's models with facts, and a missing model sa
 test("an agent with no models explains what that means, and the planner explains the fallback", () => {
   const empty = createDraft("codex", "r1", null, [], null, targets);
   expect(draw(state([empty], [empty]), "codex", "codex")).toContain("picks its own model and can take any task");
+  // S3: a pinned default with no declared models is stated, not hidden.
+  const pinned = createDraft("codex", "r1", "gpt-5", [], null, targets);
+  expect(draw(state([pinned], [pinned]), "codex", "codex")).toContain("uses gpt-5 for every task");
+  expect(draw(state([pinned], [pinned]), "codex", "codex")).not.toContain("picks its own model");
   expect(draw(state([empty], [empty]), "codex", "codex")).toContain("Add models");
   expect(draw(state([empty], [empty]), "codex", "codex", true)).toContain("To let the planner take complex tasks as a fallback");
   expect(draw(state([], []), "codex", "codex")).toContain("Loading models…");
   expect(draw(state([], [], {}, { errors: { codex: "Unknown executor codex" } } as never), "codex", "codex")).toContain("Unknown executor codex");
+});
+
+test("UI-2: the pick list marks the agent's own ids, listed or typed earlier, as Already added", () => {
+  const listing: AvailableModels = { runner: "go", source: "opencode", fetchedAt: 1, models: [{ id: "a", costOut: 2 }, { id: "a-pro", costOut: 9 }] };
+  const options = pickOptions("opencode", listing, ["a", "custom-x"]);
+  expect(options.map(option => [option.value, !!option.disabled])).toEqual([["a", true], ["a-pro", false], ["custom-x", true]]);
 });

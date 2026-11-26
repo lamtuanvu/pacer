@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { renderToString } from "preact-render-to-string";
-import { Combobox, comboboxItems, comboboxStep } from "../app/src/ds/Combobox";
+import { Combobox, comboboxEnter, comboboxItems, comboboxStep } from "../app/src/ds/Combobox";
 
 const options = [
   { value: "opus", description: "Hardest work", group: "Aliases" },
@@ -51,4 +51,28 @@ test("an empty list says what to do instead of rendering nothing", () => {
   const html = renderToString(<Combobox label="Add models" options={[]} onPick={() => {}} emptyLabel="Type a model id to add it." disabled />);
   expect(html).toContain("Type a model id to add it.");
   expect(html).toMatch(/<input[^>]*disabled/);
+});
+
+test("B2: with nothing highlighted, Enter adds exactly what was typed, never a longer substring match", () => {
+  const listed = [{ value: "glm-4.6" }, { value: "glm" }, { value: "gpt-5-codex" }];
+  const enter = (query: string, active = -1) => { const items = comboboxItems(listed, query, true); const at = comboboxEnter(items, active, query); return at < 0 ? null : [items[at]!.option.value, items[at]!.custom]; };
+  // An exact listed id picks that option (and so its suggested size).
+  expect(enter("glm")).toEqual(["glm", false]);
+  // An unlisted id that is a prefix of a listed one adds the typed id, not the listed one.
+  expect(enter("gpt-5")).toEqual(["gpt-5", true]);
+  expect(enter("  gpt-5  ")).toEqual(["gpt-5", true]);
+  // A highlighted option wins; nothing typed and nothing highlighted picks nothing.
+  expect(enter("glm", 0)).toEqual(["glm-4.6", false]);
+  expect(enter("")).toBeNull();
+  expect(comboboxEnter(comboboxItems(listed, "zzz", false), -1, "zzz")).toBe(-1);
+});
+
+test("UI-2: an already-added option is listed but disabled, and typing it does not offer a custom add", () => {
+  const listed = [{ value: "terastor-ai", disabled: true, disabledLabel: "Already added" }, { value: "terastor-ai-pro" }];
+  const items = comboboxItems(listed, "terastor-ai", true);
+  expect(items.map(item => [item.option.value, item.custom])).toEqual([["terastor-ai", false], ["terastor-ai-pro", false]]);
+  expect(items[comboboxEnter(items, -1, "terastor-ai")]!.option.disabled).toBe(true);
+  const html = renderToString(<Combobox label="Add a model" options={listed} onPick={() => {}} />);
+  expect(html).toMatch(/role="option"[^>]*aria-disabled="true"/);
+  expect(html).toContain("Already added");
 });
