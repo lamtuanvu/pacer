@@ -12,6 +12,7 @@ serde_json.workspace = true
 pacer-foundation = { path = "../foundation", features = ["async"] }
 pacer-js-json = { path = "../js-json" }
 pacer-config = { path = "../config" }
+pacer-discovery-ops = { path = "../discovery-ops" }
 pacer-config-ops = { path = "../config-ops" }
 pacer-dispatch-ops = { path = "../dispatch-ops" }
 pacer-engine = { path = "../engine" }

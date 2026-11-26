@@ -46,6 +46,7 @@ async fn failed_endpoint_sync_keeps_saved_edit_but_does_not_publish_success() {
         None,
         None,
         None,
+    None,
     )
     .await
     .unwrap_err();
@@ -89,6 +90,7 @@ async fn host_account_add_missing_endpoint_bridge_refuses_before_write() {
         None,
         None,
         None,
+    None,
     )
     .await
     .unwrap_err();
@@ -134,6 +136,7 @@ async fn host_add_missing_endpoint_bridge_refuses_before_write() {
         None,
         None,
         None,
+    None,
     )
     .await
     .unwrap_err();
@@ -170,6 +173,7 @@ async fn missing_bridge_refuses_before_mutating_the_document() {
         None,
         None,
         None,
+    None,
     )
     .await
     .unwrap_err();
@@ -221,6 +225,7 @@ async fn strategy_list_and_show_read_named_files_without_publishing() {
         None,
         None,
         None,
+    None,
     )
     .await
     .unwrap();
@@ -252,6 +257,7 @@ async fn strategy_list_and_show_read_named_files_without_publishing() {
         None,
         None,
         None,
+    None,
     )
     .await
     .unwrap();
@@ -277,6 +283,7 @@ async fn strategy_list_and_show_read_named_files_without_publishing() {
         None,
         None,
         None,
+    None,
     )
     .await
     .unwrap_err();
@@ -327,6 +334,7 @@ async fn pure_config_set_writes_publishes_and_strips_notes() {
         None,
         None,
         None,
+    None,
     )
     .await
     .unwrap();
@@ -377,6 +385,7 @@ async fn config_set(ctx: &Ctx, params: Value) -> Result<Value, CoreError> {
         None,
         None,
         None,
+    None,
     )
     .await
 }
@@ -622,6 +631,7 @@ async fn runner_settings_get_and_save_publish_runners_without_endpoint_bridge() 
         None,
         None,
         None,
+    None,
     )
     .await
     .unwrap();
@@ -651,6 +661,7 @@ async fn runner_settings_get_and_save_publish_runners_without_endpoint_bridge() 
         None,
         None,
         None,
+    None,
     )
     .await
     .unwrap();
@@ -685,6 +696,7 @@ async fn runner_settings_get_and_save_publish_runners_without_endpoint_bridge() 
         None,
         None,
         None,
+    None,
     )
     .await
     .unwrap_err();
@@ -731,6 +743,7 @@ async fn cookie_presets_flag_rejects_custom_terminal_open_templates() {
         None,
         None,
         None,
+    None,
     )
     .await
     .unwrap_err();

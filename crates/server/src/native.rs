@@ -164,11 +164,10 @@ pub fn service_agent_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> boo
     }
 }
 
-/// `runner.add`, `runner.check` and `attention.*` inputs whose effects only the TypeScript core owns.
+/// `runner.add` and `runner.check` inputs whose effects only the TypeScript core owns.
 pub fn runner_attention_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
     runner_ops::runner_stays_forwarded(ctx, op, params)
         || runner_check_ops::runner_check_stays_forwarded(ctx, op, params)
-        || attention_ops::attention_stays_forwarded(ctx, op, params)
 }
 
 pub(crate) use session_ops::needs_session_probe;
@@ -183,12 +182,11 @@ pub(crate) fn usage_broker_params(op: &str, params: &Value) -> Value {
     }
 }
 
-/// `mode.hold`, `routing.route` and `task.retry_options` inputs only TypeScript answers.
+/// `mode.hold` and `routing.route` inputs only TypeScript answers.
 pub fn status_residue_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
     match op {
         "mode.hold" => engine_ops::mode_hold_stays_forwarded(ctx, params),
         "routing.route" => status_ops::routing_route_stays_forwarded(ctx, params),
-        "task.retry_options" => status_ops::task_retry_options_stays_forwarded(ctx),
         _ => false,
     }
 }
@@ -1179,6 +1177,9 @@ pub async fn call_native(
     _task_review_probe: Option<Value>,
     _task_review_effects: Option<pacer_foundation::api::OpFuture<'_>>,
     _handover_bridge: Option<&mut dyn pacer_update::handover::HandoverBridge>,
+    // The front door's delegation runtime: plugin calls for remote eligibility
+    // and native auto-clean when an attention dismissal also dismisses a task.
+    runtime: Option<&pacer_delegation::Runtime>,
 ) -> Result<Value, CoreError> {
     let mut host_read_bridge = host_read_sync;
     if std::env::var("PACER_DEBUG_NATIVE").as_deref() == Ok("1") {
@@ -1227,7 +1228,9 @@ pub async fn call_native(
             "limits.check" => status_ops::limits_check(ctx, params, parts.await?).await?,
             "routing.status" => status_ops::routing_status(ctx, params, parts.await?).await?,
             "routing.route" => status_ops::routing_route(ctx, params, parts).await?,
-            "task.retry_options" => status_ops::task_retry_options(ctx, params, parts).await?,
+            "task.retry_options" => {
+                status_ops::task_retry_options(ctx, params, parts, runtime).await?
+            }
             "strategy.preview" => {
                 strategy_preview_ops::strategy_preview(ctx, params, parts).await?
             }
@@ -1254,7 +1257,9 @@ pub async fn call_native(
         })?;
         match op.name {
             "snapshot.get" => snapshot_get_ops::snapshot_get(ctx, params, parts.await?).await?,
-            "attention.dismiss" => attention_ops::attention_dismiss(ctx, params, parts).await?,
+            "attention.dismiss" => {
+                attention_ops::attention_dismiss(ctx, params, parts, runtime).await?
+            }
             "attention.snooze" => attention_ops::attention_snooze(ctx, params, parts).await?,
             _ => unreachable!("needs_snapshot_bridge"),
         }

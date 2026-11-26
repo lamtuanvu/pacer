@@ -1,5 +1,6 @@
 import { childEnv } from "./child-env";
 import { afterAll, beforeAll, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -235,19 +236,30 @@ test.skipIf(!front)("front door serves task.retry_options natively and matches f
   }
 }, 180_000);
 
-test.skipIf(!front)("project policy, remote runners and unloadable strategies stay forwarded", async () => {
+const HOSTS = "planner: claude-code\naccounts:\n  claude: {kind: claude}\n  codex: {kind: codex}\nhosts:\n  devbox: {ssh: devbox, repos: {}}\nrunners:\n  claude-code: {}\n  codex@devbox: {}\n";
+const hostTarget = createHash("sha256").update(JSON.stringify(["devbox", "devbox"])).digest("hex");
+
+test.skipIf(!front)("policy, host runners (reachable and unreachable) and unloadable strategies are native", async () => {
   const policy = ctxFor(PROVIDERS);
-  const remote = ctxFor("planner: claude-code\naccounts:\n  claude: {kind: claude}\n  codex: {kind: codex}\nhosts:\n  devbox: {ssh: devbox, repos: {}}\nrunners:\n  claude-code: {}\n  codex@devbox: {}\n");
+  const reachable = ctxFor(HOSTS);
+  const unreachable = ctxFor(HOSTS);
   const broken = ctxFor(BROKEN);
   const missing = ctxFor(null);
   try {
     const id = task(policy, null);
     writeFileSync(join(policy.pacerHome, "project-strategies.json"), "{}");
-    await compare(policy, { id }, false);
-    await compare(remote, { id: task(remote, null) }, false);
-    await compare(broken, { id: task(broken, null) }, false);
-    await compare(missing, { id: task(missing, null) }, false);
+    await compare(policy, { id }, true);
+    const hostReplies: string[] = [];
+    for (const [ctx, ok] of [[reachable, true], [unreachable, false]] as const) {
+      mkdirSync(join(ctx.pacerHome, "cache"), { recursive: true });
+      writeFileSync(join(ctx.pacerHome, "cache/hosts.json"), JSON.stringify({devbox: {target: hostTarget, at: Date.now() / 1000 - 1, reachable: ok, failures: 0}}));
+      hostReplies.push(JSON.stringify(await compare(ctx, { id: task(ctx, null) }, true)));
+    }
+    // The cached reachability reading must actually change the native answer.
+    expect(hostReplies[0]).not.toBe(hostReplies[1]);
+    await compare(broken, { id: task(broken, null) }, true);
+    await compare(missing, { id: task(missing, null) }, true);
   } finally {
-    for (const ctx of [policy, remote, broken, missing]) rmSync(ctx.home, { recursive: true, force: true });
+    for (const ctx of [policy, reachable, unreachable, broken, missing]) rmSync(ctx.home, { recursive: true, force: true });
   }
 }, 180_000);

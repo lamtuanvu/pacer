@@ -3,12 +3,14 @@
 //! the snapshot probe bridge, and the `state/attention.json` transaction is
 //! Rust's.
 //!
-//! Stays forwarded: `discovery-network` items (raised from the radio's network
-//! in TypeScript memory), dismissing a task item (it also dismisses the task),
-//! an unloadable strategy (TypeScript raises from a reduced input), and a store
-//! file or entry the TypeScript transaction would throw on.
+//! Every raised item is answered here: `discovery-network` comes from B7's native
+//! radio state, dismissing a task item also dismisses the task with native
+//! auto-clean, and the store files follow the TypeScript transaction (including
+//! its "Attempted to assign to readonly property." text).
 #![allow(clippy::result_large_err)]
 use crate::snapshot_get_ops::{local_zone, model, parse_snapshot_parts};
+use pacer_delegation::Runtime;
+use pacer_discovery_ops::network::{radio_available, radio_network};
 use pacer_foundation::{
     Ctx,
     api::{Code, CoreError, OpFuture},
@@ -18,10 +20,6 @@ use pacer_foundation::{
 use pacer_read_model::{SnapshotInput, StatusInput, js};
 use serde_json::{Map, Value, json};
 use std::path::PathBuf;
-
-const TASK_KINDS: &[&str] = &[
-    "question", "review", "failed", "limit", "stuck", "stalled", "message",
-];
 
 fn invalid(message: impl Into<String>) -> CoreError {
     CoreError::new(Code::InvalidInput, message)
@@ -42,32 +40,74 @@ fn path(ctx: &Ctx) -> PathBuf {
     ctx.pacer_home.join("state").join("attention.json")
 }
 
-/// `readJson(path) ?? {}`; None for a value the TypeScript transaction cannot index.
-fn read_store(ctx: &Ctx) -> Option<Map<String, Value>> {
+/// The JSON shape `readJson(path) ?? {}` yields. Arrays accept a named property
+/// but never serialize it; primitives reject the assignment with the Bun error.
+#[derive(Clone, Copy, PartialEq)]
+enum StoreKind {
+    Plain,
+    Array,
+    Primitive,
+}
+
+fn read_store(ctx: &Ctx) -> (Map<String, Value>, StoreKind) {
     let Ok(bytes) = std::fs::read(path(ctx)) else {
-        return Some(Map::new());
+        return (Map::new(), StoreKind::Plain);
     };
-    match serde_json::from_str(&String::from_utf8_lossy(&bytes)) {
-        Err(_) | Ok(Value::Null) => Some(Map::new()),
-        Ok(Value::Object(store)) => Some(store),
-        Ok(_) => None,
+    match serde_json::from_slice::<Value>(&bytes) {
+        Err(_) | Ok(Value::Null) => (Map::new(), StoreKind::Plain),
+        Ok(Value::Object(store)) => (store, StoreKind::Plain),
+        Ok(Value::Array(_)) => (Map::new(), StoreKind::Array),
+        Ok(_) => (Map::new(), StoreKind::Primitive),
     }
 }
 
-fn store_native(ctx: &Ctx, id: &str) -> bool {
-    read_store(ctx).is_some_and(|store| store.get(id).is_none_or(Value::is_object))
-}
-
-pub fn attention_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
-    if !matches!(op, "attention.dismiss" | "attention.snooze") {
-        return false;
+/// `discoveryRuleInput(ctx, now).network` in `src/discovery/prompts.ts`: the
+/// radio's current network only while it is available and still unanswered.
+fn discovery_network_item(ctx: &Ctx) -> Option<Value> {
+    if !radio_available() {
+        return None;
     }
-    let id = params.get("id").and_then(Value::as_str).unwrap_or("");
-    let kind = id.split(':').next().unwrap_or("");
-    kind == "discovery-network"
-        || (op == "attention.dismiss" && TASK_KINDS.contains(&kind))
-        || pacer_config::strategy::load_strategy(&ctx.pacer_home).is_err()
-        || !store_native(ctx, id)
+    let net = radio_network()?;
+    let state: Value = std::fs::read_to_string(ctx.pacer_home.join("discovery/state.json"))
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or(Value::Null);
+    if state["enabled"] == false {
+        return None;
+    }
+    let entry = &state["networks"][net.key.as_str()];
+    if !entry.is_object() || !entry.get("advertise").is_some_and(Value::is_null) {
+        return None;
+    }
+    let name = std::fs::read_to_string(ctx.pacer_home.join("identity/machine.json"))
+        .ok()
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())?["name"]
+        .as_str()
+        .map(str::to_owned)?;
+    let rev = state["networksRev"].clone();
+    let mut actions = vec![json!({
+        "label": "Allow",
+        "op": "discovery.network.set",
+        "params": {"network": net.key, "advertise": true, "expect_rev": rev},
+        "style": "primary",
+    })];
+    actions.push(json!({
+        "label": "Not on this network",
+        "op": "discovery.network.set",
+        "params": {"network": net.key, "advertise": false, "expect_rev": rev},
+    }));
+    Some(json!({
+        "id": format!("discovery-network:{}", net.key),
+        "kind": "discovery-network",
+        "severity": "decide",
+        "repo": Value::Null,
+        "title": format!("Let your other machines find this one on {}?", net.label),
+        "detail": format!("It will appear as {name}."),
+        "raisedAt": js::number(ctx.now),
+        "since": js::number(ctx.now),
+        "actions": actions,
+        "notify": "all",
+    }))
 }
 
 fn authorize(ctx: &Ctx) -> Result<(), CoreError> {
@@ -150,7 +190,11 @@ async fn raised(ctx: &Ctx, parts: OpFuture<'_>) -> Result<Vec<Value>, CoreError>
         .map_err(|_| CoreError::new(Code::Internal, "read model lock poisoned"))?
         .snapshot(ctx, input, local_zone(ctx), &alive)
         .map_err(|error| CoreError::new(Code::Internal, error.to_string()))?;
-    Ok(result.raised)
+    let mut items = result.raised;
+    if let Some(item) = discovery_network_item(ctx) {
+        items.push(item);
+    }
+    Ok(items)
 }
 
 /// JavaScript `===` between two possibly absent JSON values.
@@ -166,6 +210,8 @@ fn strict_equal(a: Option<&Value>, b: Option<&Value>) -> bool {
 }
 
 /// The locked read-modify-write of `state/attention.json`; writes only a changed store.
+/// A primitive store or entry reproduces Bun's "Attempted to assign to readonly
+/// property." instead of forwarding; an array accepts the entry but never persists it.
 fn transaction(
     ctx: &Ctx,
     id: &str,
@@ -174,14 +220,7 @@ fn transaction(
     change: impl FnOnce(&mut Map<String, Value>),
 ) -> Result<(), CoreError> {
     with_lock(ctx, "attention", LockOptions::default(), || {
-        let unusable = || {
-            CoreError::new(
-                Code::Unavailable,
-                "The attention store changed while it was being updated",
-            )
-            .hint("Try again.")
-        };
-        let mut store = read_store(ctx).ok_or_else(unusable)?;
+        let (mut store, kind) = read_store(ctx);
         let before = js::stringify(&Value::Object(store.clone()));
         let known = items.iter().any(|item| item["id"] == id);
         let dismissed = store
@@ -193,15 +232,23 @@ fn transaction(
                 format!("unknown attention item \"{id}\""),
             ));
         }
+        if kind == StoreKind::Primitive
+            || store.get(id).is_some_and(|entry| !entry.is_object())
+        {
+            return Err(CoreError::new(
+                Code::Internal,
+                "Attempted to assign to readonly property.",
+            ));
+        }
         let entry = store
             .entry(id)
             .or_insert_with(|| json!({"since": js::number(ctx.now)}));
         let Value::Object(entry) = entry else {
-            return Err(unusable());
+            unreachable!("checked above")
         };
         change(entry);
         let after = js::stringify(&Value::Object(store));
-        if before != after {
+        if kind == StoreKind::Plain && before != after {
             write_private(&path(ctx), after.as_bytes())
                 .map_err(|error| CoreError::new(Code::Internal, error.to_string()))?;
         }
@@ -223,10 +270,24 @@ pub async fn attention_dismiss(
     ctx: &Ctx,
     params: Value,
     parts: OpFuture<'_>,
+    runtime: Option<&Runtime>,
 ) -> Result<Value, CoreError> {
     authorize(ctx)?;
     let (id, _) = parse(&params, false)?;
     let items = raised(ctx, parts).await?;
+    // `dismissItem` calls `dismissTasks` for every raised item with a `taskId`
+    // (`src/core/attention.ts:46`), which covers the task kinds and prompt_wait.
+    let task_id = items
+        .iter()
+        .find(|item| item["id"] == id)
+        .and_then(|item| item["taskId"].as_str())
+        .map(str::to_owned);
+    let already = {
+        let (store, _) = read_store(ctx);
+        store
+            .get(&id)
+            .is_some_and(|entry| strict_equal(entry.get("dismissedSince"), entry.get("since")))
+    };
     transaction(ctx, &id, &items, true, |entry| {
         match entry.get("since").cloned() {
             Some(since) => {
@@ -237,6 +298,15 @@ pub async fn attention_dismiss(
             }
         }
     })?;
+    // `dismiss` in `src/core/attention.ts:44-49`: task-kind items also dismiss
+    // the task with native auto-clean (`src/core/tasks.ts:298-309`).
+    if !already
+        && let (Some(task_id), Some(runtime)) = (task_id, runtime)
+    {
+        let ids = vec![task_id];
+        let clean = crate::task_dismiss_ops::auto_clean(ctx, runtime, &ids);
+        crate::task_dismiss_ops::task_dismiss(ctx, json!({"ids": ids}), clean).await?;
+    }
     Ok(json!({"dismissed": true}))
 }
 

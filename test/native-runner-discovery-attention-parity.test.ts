@@ -1,7 +1,7 @@
 import {beforeAll, expect, test} from "bun:test";
 import {execFileSync} from "node:child_process";
 import {createHash} from "node:crypto";
-import {existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync} from "node:fs";
+import {existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {callOp} from "../src/api/ops";
@@ -171,8 +171,18 @@ test("attention.dismiss and attention.snooze apply the store to the raised items
   await compare("attention.dismiss", {id: "setup:gone"}, {setup: all(base, stored), bridge, files});
   for (const params of [{id: ""}, {id: "x", for: "2h"}, {}, "x", {id: "x".repeat(257)}])
     await compare("attention.snooze", params, {setup: base, bridge, files});
-  forwarded("attention.dismiss", {id: "failed:t-1"}, base);
-  forwarded("attention.snooze", {id: "discovery-network:abc", for: "1h"}, base);
-  forwarded("attention.snooze", {id: `discovery:${ID}`, for: "1h"}, all(base, write("state/attention.json", "[]")));
-  forwarded("attention.dismiss", {id: "setup:usage"}, strategy("planner: ["));
+  // Task-kind dismiss and discovery-network items are answered natively now.
+  await compare("attention.dismiss", {id: "failed:t-1"}, {setup: base, bridge, files});
+  await compare("attention.snooze", {id: "discovery-network:abc", for: "1h"}, {setup: base, bridge, files});
+  await compare("attention.snooze", {id: `discovery:${ID}`, for: "1h"}, {setup: all(base, write("state/attention.json", "[]")), bridge, files});
+  // The TS bridge itself throws on an unloadable strategy; feed the native side
+  // the parts a valid strategy produces, as B9's native probe will once landed.
+  const valid = mkdtempSync(join(tmpdir(), "native-rda-"));
+  try {
+    strategy()(valid);
+    const parts = JSON.parse(JSON.stringify(await snapshotProbeParts(ctxFor(valid, {}))));
+    await compare("attention.dismiss", {id: "setup:usage"}, {setup: strategy("planner: ["), bridge: async () => ({snapshotParts: parts}), files});
+  } finally {
+    rmSync(valid, {recursive: true, force: true});
+  }
 }, 180_000);

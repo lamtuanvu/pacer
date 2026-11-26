@@ -828,6 +828,7 @@ async fn forward_input<
                                 None,
                                 None,
                                 None,
+                            None,
                             )
                             .await;
                             if let Some(id) = request.get("id") {
@@ -885,6 +886,7 @@ async fn forward_input<
                         None,
                         None,
                         None,
+                        Some(&plugins.delegation),
                     )
                     .await
                 } else if crate::native::needs_task_read_bridge(op.name) {
@@ -915,6 +917,7 @@ async fn forward_input<
                         None,
                         None,
                         None,
+                    None,
                     )
                     .await
                 } else if crate::native::uses_native_clean(op.name) {
@@ -948,6 +951,7 @@ async fn forward_input<
                                 None,
                                 None,
                                 None,
+                            None,
                             )
                             .await
                         }
@@ -976,6 +980,7 @@ async fn forward_input<
                         None,
                         None,
                         None,
+                        Some(&plugins.delegation),
                     )
                     .await
                 } else if crate::native::needs_session_probe(op.name) {
@@ -1001,6 +1006,7 @@ async fn forward_input<
                         None,
                         None,
                         None,
+                    None,
                     )
                     .await
                 } else if crate::native::needs_config_host_bridge(op.name) {
@@ -1026,6 +1032,7 @@ async fn forward_input<
                         None,
                         None,
                         None,
+                    None,
                     )
                     .await
                 } else if op.name == "host.set" {
@@ -1070,6 +1077,7 @@ async fn forward_input<
                         None,
                         None,
                         None,
+                    None,
                     )
                     .await
                 } else if crate::native::needs_account_list_bridge(op.name) {
@@ -1095,6 +1103,7 @@ async fn forward_input<
                         None,
                         None,
                         None,
+                    None,
                     )
                     .await
                 } else if crate::native::needs_core_bridge(op.name) {
@@ -1128,6 +1137,7 @@ async fn forward_input<
                                 None,
                                 None,
                                 None,
+                            None,
                             )
                             .await
                         }
@@ -1156,6 +1166,7 @@ async fn forward_input<
                         None,
                         None,
                         None,
+                    None,
                     )
                     .await
                 };

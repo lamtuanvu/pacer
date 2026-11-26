@@ -50,29 +50,30 @@ fn params_match_zod_issue_text() {
 }
 
 #[test]
-fn forwards_items_and_stores_typescript_owns() {
+fn store_shapes_follow_the_typescript_transaction() {
     let dir = tempfile::tempdir().unwrap();
     let c = ctx(&dir);
-    let forwarded = |op: &str, id: &str| attention_stays_forwarded(&c, op, &json!({"id": id}));
-    assert!(!forwarded("attention.dismiss", "setup:usage"));
-    assert!(!forwarded("attention.snooze", "failed:t-1"));
-    assert!(forwarded("attention.dismiss", "failed:t-1"));
-    assert!(forwarded("attention.snooze", "discovery-network:abc"));
-    assert!(!forwarded("task.get", "failed:t-1"));
     fs::create_dir_all(dir.path().join("state")).unwrap();
-    fs::write(
-        dir.path().join("state/attention.json"),
-        r#"{"setup:usage":5}"#,
-    )
-    .unwrap();
-    assert!(forwarded("attention.dismiss", "setup:usage"));
-    assert!(!forwarded("attention.dismiss", "setup:other"));
+    let items = [json!({"id": "setup:usage"})];
+    // An array accepts the entry but never serialises it.
     fs::write(dir.path().join("state/attention.json"), "[]").unwrap();
-    assert!(forwarded("attention.dismiss", "setup:other"));
+    transaction(&c, "setup:usage", &items, true, |_| {}).unwrap();
+    assert_eq!(fs::read_to_string(dir.path().join("state/attention.json")).unwrap(), "[]");
+    // A primitive store and a primitive entry reproduce Bun's error text.
+    fs::write(dir.path().join("state/attention.json"), "5").unwrap();
+    let error = transaction(&c, "setup:usage", &items, true, |_| {}).unwrap_err();
+    assert_eq!((error.code, error.message.as_str()), (Code::Internal, "Attempted to assign to readonly property."));
+    fs::write(dir.path().join("state/attention.json"), r#"{"setup:usage":5}"#).unwrap();
+    let error = transaction(&c, "setup:usage", &items, true, |_| {}).unwrap_err();
+    assert_eq!((error.code, error.message.as_str()), (Code::Internal, "Attempted to assign to readonly property."));
+    // Unknown items still report TypeScript's text before any shape error.
+    fs::write(dir.path().join("state/attention.json"), "5").unwrap();
+    let error = transaction(&c, "setup:other", &items, false, |_| {}).unwrap_err();
+    assert_eq!((error.code, error.message.as_str()), (Code::UnknownTask, "unknown attention item \"setup:other\""));
+    // Invalid JSON is readJson's null, i.e. an empty object.
     fs::write(dir.path().join("state/attention.json"), "not json").unwrap();
-    assert!(!forwarded("attention.dismiss", "setup:other"));
-    fs::write(dir.path().join("strategy.yaml"), "planner: [").unwrap();
-    assert!(forwarded("attention.dismiss", "setup:other"));
+    transaction(&c, "setup:usage", &items, true, |_| {}).unwrap();
+    assert_eq!(store(&dir), r#"{"setup:usage":{"since":1700000000}}"#);
 }
 
 #[test]

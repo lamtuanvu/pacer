@@ -117,6 +117,15 @@ pub fn radio_available() -> bool {
     memory().contact.is_some_and(|at| unix_now() - at < 30.0)
 }
 
+/// The network the native radio last pulled its config on (`radioNetwork` in
+/// `src/discovery/radio.ts:27`), only while the radio is available.
+pub fn radio_network() -> Option<NetworkInfo> {
+    if !radio_available() {
+        return None;
+    }
+    memory().last.as_ref().map(|(_, info)| info.clone())
+}
+
 /// SEC-5: argv only. Any failure, timeout or nonzero exit means "not found".
 async fn out(argv: &[&str]) -> Option<String> {
     let fixed = memory()

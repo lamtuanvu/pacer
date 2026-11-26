@@ -6,10 +6,11 @@
 use pacer_config::strategy::load_strategy;
 use pacer_config_ops::strategy_load::native_load;
 use pacer_dispatch_ops::policy::{
-    agent_sessions_may_hold_slots, policy_error, policy_needs_core, policy_repo, repo_needs_core,
+    agent_sessions_may_hold_slots, policy_error, policy_repo, repo_needs_core,
     require_policy_identity,
 };
 use pacer_engine::{balance::balance_by_load, usage_broker};
+use pacer_delegation::{Runtime, runtime::PluginCalls};
 use pacer_foundation::{
     Ctx,
     api::{Code, CoreError, OpFuture},
@@ -18,6 +19,7 @@ use pacer_lifecycle::{project_selection, read_project_strategies};
 use pacer_read_model::retry;
 use pacer_store::{TaskFilter, TaskStore};
 use serde_json::{Map, Value, json};
+use sha2::Digest;
 
 const TASK_KINDS: &[&str] = &[
     "boilerplate",
@@ -60,12 +62,6 @@ fn has_host_runner(strategy: &Value) -> bool {
 /// may read a strategy without TypeScript's host runners.
 fn native_strategy(ctx: &Ctx) -> Option<Value> {
     native_load(&ctx.pacer_home).and_then(Result::ok)
-}
-
-/// `task.retry_options` forwards for a strategy Rust does not load as Bun does, any runner on a
-/// host (remote eligibility) and a project policy only TypeScript reads.
-pub fn task_retry_options_stays_forwarded(ctx: &Ctx) -> bool {
-    native_strategy(ctx).is_none_or(|strategy| has_host_runner(&strategy)) || policy_needs_core(ctx)
 }
 
 /// `routing.route` forwards for a `goal` (the classifier), a `difficulty` (planner tier fallback), a strategy Rust does not load as Bun
@@ -329,19 +325,192 @@ fn read_model_error(error: pacer_read_model::Error) -> CoreError {
     }
 }
 
+/// `targetKey` in `src/remote/eligibility.ts:19`: the SHA-256 of the JSON array
+/// `[alias, ssh]`, so a changed target invalidates a cached reachability reading.
+fn target_key(host: &Value) -> String {
+    let alias = host["alias"].as_str().unwrap_or_default();
+    let ssh = host["ssh"].as_str().unwrap_or_default();
+    let input = serde_json::to_string(&json!([alias, ssh])).unwrap_or_default();
+    format!("{:x}", sha2::Sha256::digest(input.as_bytes()))
+}
+
+/// `reachable` in `src/remote/eligibility.ts:62`. A fresh cache reading answers
+/// without a probe; otherwise the SSH caller plugin answers through `PluginCalls`.
+async fn reachable(
+    ctx: &Ctx,
+    plugins: &dyn PluginCalls,
+    host: &Value,
+    alias: &str,
+) -> bool {
+    let target = target_key(host);
+    let file = ctx.pacer_home.join("cache").join("hosts.json");
+    if let Ok(bytes) = std::fs::read(&file)
+        && let Ok(Value::Object(readings)) = serde_json::from_slice::<Value>(&bytes)
+        && let Some(reading) = readings.get(alias)
+        && reading["target"].as_str() == Some(target.as_str())
+        && reading["reachable"].is_boolean()
+        && reading["at"].as_f64().is_some_and(|at| {
+            at.is_finite() && ctx.now >= at && ctx.now - at < 60.0
+        })
+    {
+        return reading["reachable"].as_bool().unwrap_or(false);
+    }
+    if !plugins
+        .providers(ctx, "remoteCaller.reachability")
+        .iter()
+        .any(|id| id == "pacer-remote-caller")
+    {
+        return false;
+    }
+    let call = plugins.call(
+        ctx,
+        "pacer-remote-caller",
+        "remoteCaller.reachability",
+        json!({"alias": alias}),
+        std::time::Duration::from_secs(30),
+    );
+    call.await
+        .ok()
+        .and_then(|reply| reply["reachable"].as_bool())
+        .unwrap_or(false)
+}
+
+/// `slotBlock` for a remote runner (`src/engine/slots.ts:49`). Remote eligibility
+/// asks about a *new* worktree, so the machine guard (which gates fresh local
+/// starts) does not apply.
+fn slot_block(strategy: &Value, runner_id: &str, use_: &Value) -> Option<String> {
+    let runner = pacer_lifecycle::resolve_runner(strategy, runner_id);
+    let id = runner
+        .and_then(|r| r["id"].as_str())
+        .unwrap_or(runner_id);
+    let limit = pacer_lifecycle::slot_limit(strategy, id);
+    let used = use_["byExecutor"][id].as_u64().unwrap_or(0) as usize;
+    if used >= limit.executor {
+        return Some(format!(
+            "{} busy ({used}/{})",
+            pacer_config::strategy::display_name(id),
+            limit.executor
+        ));
+    }
+    let alias = runner.and_then(|r| r["host"].as_str()).unwrap_or_default();
+    if let Some(max) = limit.host {
+        let used = use_["byHost"][alias].as_u64().unwrap_or(0) as usize;
+        if used >= max {
+            return Some(format!("{alias} busy ({used}/{max})"));
+        }
+    }
+    None
+}
+
+/// Port of `remoteExclusion` (`src/remote/eligibility.ts:86`) for an executor in a
+/// broker reading. Only runners with a host are checked; the reachability probe
+/// goes through `PluginCalls`, and the project registry is the native B8 one.
+pub async fn remote_exclusion(
+    ctx: &Ctx,
+    plugins: &dyn PluginCalls,
+    strategy: &Value,
+    runner_id: &str,
+    task: Option<&Value>,
+    use_: &Value,
+) -> Option<String> {
+    let alias = pacer_lifecycle::resolve_runner(strategy, runner_id)
+        .and_then(|r| r["host"].as_str())
+        .unwrap_or_default();
+    if alias.is_empty() {
+        return None;
+    }
+    let host = &strategy["hosts"][alias];
+    if host["paused"] == true {
+        return Some(format!("{alias} paused"));
+    }
+    if !reachable(ctx, plugins, host, alias).await {
+        return Some(format!("host {alias} unreachable"));
+    }
+    let task = task?;
+    let repo = task["brief"]["repo"].as_str().unwrap_or_default();
+    let origin = std::process::Command::new("git")
+        .args(["-C", repo, "remote", "get-url", "origin"])
+        .output()
+        .ok()
+        .filter(|out| out.status.success())
+        .and_then(|out| {
+            let text = String::from_utf8_lossy(&out.stdout);
+            pacer_config::host::repo_key(text.trim())
+        });
+    let known = origin.as_deref().is_some_and(|key| {
+        host["repos"]
+            .as_object()
+            .is_some_and(|repos| repos.contains_key(key))
+    });
+    if !known {
+        return Some(format!(
+            "repo not set up on {alias} (add hosts.{alias}.repos.{})",
+            origin.as_deref().unwrap_or("<key>")
+        ));
+    }
+    slot_block(strategy, runner_id, use_)
+}
+
+/// Set `unavailableReason` on the broker providers exactly where TypeScript's
+/// `optionsFor` would (`src/core/task-detail.ts:67-70`).
+async fn apply_remote_exclusions(
+    ctx: &Ctx,
+    plugins: &dyn PluginCalls,
+    parts: &mut Value,
+    task: &Value,
+    tasks: &[Value],
+) {
+    let Ok(strategy) = load_strategy(&ctx.pacer_home) else {
+        return;
+    };
+    let use_ = pacer_lifecycle::slot_use(tasks);
+    let mut providers = parts["providers"].as_array().cloned().unwrap_or_default();
+    for provider in &mut providers {
+        let Some(id) = provider["id"].as_str().map(str::to_owned) else {
+            continue;
+        };
+        if let Some(reason) =
+            remote_exclusion(ctx, plugins, &strategy, &id, Some(task), &use_).await
+        {
+            provider["unavailableReason"] = json!(reason);
+        }
+    }
+    parts["providers"] = json!(providers);
+}
+
 /// Broker readings are requested only after the task resolves, as TS reads
-/// status only after `get`.
+/// status only after `get`. Remote eligibility is applied here, over the front
+/// door's plugin calls, before the read model ranks the executors.
 pub async fn task_retry_options(
     ctx: &Ctx,
     params: Value,
     parts: OpFuture<'_>,
+    runtime: Option<&Runtime>,
 ) -> Result<Value, CoreError> {
     let id = parse_retry_id(&params)?;
     let mut store = pacer_store::TaskStore::open(&ctx.pacer_home)
         .map_err(|error| CoreError::new(Code::Internal, error.to_string()))?;
     let task = retry::retry_task(&mut store, id).map_err(read_model_error)?;
+    // `optionsFor` catches an unloadable strategy before asking the broker; do
+    // not await parts whose TypeScript bridge would throw on that same file.
+    if load_strategy(&ctx.pacer_home).is_err() {
+        return Ok(json!([]));
+    }
     let selection = retry_selection(ctx, &task)?;
-    let parts = parts.await?;
+    let mut parts = parts.await?;
+    if let Some(runtime) = runtime {
+        let tasks = store
+            .list(&TaskFilter::default())
+            .unwrap_or_default()
+            .iter()
+            .map(|row| {
+                let mut slot = row.clone();
+                slot["host"] = row["run"]["host"].clone();
+                slot
+            })
+            .collect::<Vec<_>>();
+        apply_remote_exclusions(ctx, runtime.plugins.as_ref(), &mut parts, &task, &tasks).await;
+    }
     retry::retry_options(ctx, &mut store, &task, &parts, selection.as_ref())
         .map_err(read_model_error)
 }
@@ -477,38 +646,76 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn retry_options_forward_for_policy_remote_or_unloadable_strategy() {
+    async fn retry_options_answer_unknown_and_unloadable_inputs_natively() {
         let dir = tempdir().unwrap();
         let pacer_home = dir.path().join(".pacer");
         std::fs::create_dir_all(&pacer_home).unwrap();
         let ctx = Ctx::with(dir.path().into(), pacer_home.clone(), HashMap::new(), 1.0);
-        assert!(task_retry_options_stays_forwarded(&ctx));
-        let local = "planner: claude-code\nproviders:\n  claude-code: {}\n  codex: {}\n";
-        std::fs::write(pacer_home.join("strategy.yaml"), local).unwrap();
-        assert!(!task_retry_options_stays_forwarded(&ctx));
-        let policy = pacer_home.join("project-strategies.json");
-        std::fs::write(&policy, "{}").unwrap();
-        assert!(task_retry_options_stays_forwarded(&ctx));
-        std::fs::write(&policy, r#"{"version":1,"projects":{}}"#).unwrap();
-        assert!(!task_retry_options_stays_forwarded(&ctx));
-        std::fs::remove_file(&policy).unwrap();
-        std::fs::create_dir(&policy).unwrap();
-        assert!(task_retry_options_stays_forwarded(&ctx));
-        std::fs::remove_dir(&policy).unwrap();
-        let accounts = "planner: claude-code\naccounts:\n  claude: {kind: claude}\n  codex: {kind: codex}\nhosts:\n  devbox: {ssh: devbox, repos: {}}\nrunners:\n  claude-code: {}\n";
-        std::fs::write(pacer_home.join("strategy.yaml"), accounts).unwrap();
-        assert!(!task_retry_options_stays_forwarded(&ctx));
-        let remote = format!("{accounts}  codex@devbox: {{}}\n");
-        std::fs::write(pacer_home.join("strategy.yaml"), remote).unwrap();
-        assert!(load_strategy(&pacer_home).is_ok());
-        assert!(task_retry_options_stays_forwarded(&ctx));
-        let missing = task_retry_options(&ctx, json!({"id": "t-20990101-000000-abcd"}), {
-            Box::pin(async { Ok(json!({})) })
-        })
+        let missing = task_retry_options(
+            &ctx,
+            json!({"id": "t-20990101-000000-abcd"}),
+            Box::pin(async { Ok(json!({"providers": []})) }),
+            None,
+        )
         .await
         .unwrap_err();
         assert_eq!(missing.code, Code::UnknownTask);
         assert_eq!(missing.message, "unknown task t-20990101-000000-abcd");
+        std::fs::write(pacer_home.join("strategy.yaml"), "planner: [\n").unwrap();
+        let mut store = pacer_store::TaskStore::open(&pacer_home).unwrap();
+        let task = json!({"id":"t-1","state":"failed","brief":{"repo":"/tmp/x"},"attempts":[]});
+        assert_eq!(
+            retry::retry_options(&ctx, &mut store, &task, &json!({"providers":[]}), None).unwrap(),
+            json!([])
+        );
+    }
+
+    #[tokio::test]
+    async fn remote_exclusion_checks_host_pause_and_reachability() {
+        let dir = tempdir().unwrap();
+        let home = dir.path();
+        let pacer_home = home.join(".pacer");
+        std::fs::create_dir_all(pacer_home.join("cache")).unwrap();
+        let ctx = Ctx::with(home.into(), pacer_home.clone(), HashMap::new(), 1_700_000_000.0);
+        struct NoPlugins;
+        impl PluginCalls for NoPlugins {
+            fn providers(&self, _: &Ctx, _: &str) -> Vec<String> {
+                Vec::new()
+            }
+            fn call<'a>(
+                &'a self,
+                _: &'a Ctx,
+                _: &'a str,
+                _: &'a str,
+                _: Value,
+                _: std::time::Duration,
+            ) -> OpFuture<'a> {
+                Box::pin(async { Err(CoreError::new(Code::Unavailable, "no plugins")) })
+            }
+        }
+        let strategy = json!({
+            "planner": "claude-code",
+            "hosts": {"devbox": {"ssh": "devbox", "paused": true, "repos": {}}},
+            "runners": {"codex@devbox": {"host": "devbox"}},
+        });
+        let use_ = json!({"byExecutor": {}, "byHost": {}, "local": 0});
+        assert_eq!(
+            remote_exclusion(&ctx, &NoPlugins, &strategy, "codex@devbox", None, &use_).await,
+            Some("devbox paused".into())
+        );
+        let strategy = json!({
+            "planner": "claude-code",
+            "hosts": {"devbox": {"ssh": "devbox", "repos": {}}},
+            "runners": {"codex@devbox": {"host": "devbox"}},
+        });
+        assert_eq!(
+            remote_exclusion(&ctx, &NoPlugins, &strategy, "codex@devbox", None, &use_).await,
+            Some("host devbox unreachable".into())
+        );
+        assert_eq!(
+            remote_exclusion(&ctx, &NoPlugins, &strategy, "codex", None, &use_).await,
+            None
+        );
     }
 
     fn route_ctx(strategy: &str) -> (tempfile::TempDir, Ctx) {
@@ -591,7 +798,7 @@ mod tests {
     }
 
     #[test]
-    fn routes_and_retry_options_forward_unless_rust_loads_the_strategy_bun_loads() {
+    fn routes_forward_unless_rust_loads_the_strategy_bun_loads() {
         let (dir, ctx) = route_ctx(LOCAL);
         let home = &ctx.pacer_home;
         let elsewhere = dir.path().join("elsewhere");
@@ -600,18 +807,21 @@ mod tests {
         std::fs::create_dir_all(home.join("strategies")).unwrap();
         std::fs::write(home.join("strategies/local.yaml"), LOCAL).unwrap();
         let absolute = elsewhere.join("local").to_str().unwrap().to_owned();
-        for (name, rust_loads) in [(absolute.as_str(), true), ("none/../local", false)] {
+        // B3-1 (missing at this stack base) changes how an absolute or dotted
+        // active name resolves; while it is absent the native loader reads a
+        // different file than Bun for both, so routing still forwards.
+        for (name, forward) in [(absolute.as_str(), true), ("none/../local", false)] {
             std::fs::write(home.join("active"), format!("{name}\n")).unwrap();
-            assert_eq!(load_strategy(home).is_ok(), rust_loads, "{name}");
-            assert!(routing_route_stays_forwarded(&ctx, &json!({})), "{name}");
-            assert!(task_retry_options_stays_forwarded(&ctx), "{name}");
+            assert_eq!(
+                routing_route_stays_forwarded(&ctx, &json!({})),
+                forward,
+                "{name}"
+            );
         }
         std::fs::write(home.join("active"), "local\n").unwrap();
         assert!(!routing_route_stays_forwarded(&ctx, &json!({})));
-        assert!(!task_retry_options_stays_forwarded(&ctx));
         std::fs::remove_file(home.join("strategies/local.yaml")).unwrap();
         assert!(routing_route_stays_forwarded(&ctx, &json!({})));
-        assert!(task_retry_options_stays_forwarded(&ctx));
     }
 
     #[test]
