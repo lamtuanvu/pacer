@@ -11,6 +11,8 @@ pub mod cleanup;
 pub mod delegate;
 pub mod retry;
 pub mod runtime;
+pub mod stop;
+pub mod wait;
 
 pub use delegate::DelegateInput;
 pub use runtime::Runtime;

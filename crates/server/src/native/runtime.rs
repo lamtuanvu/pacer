@@ -21,6 +21,7 @@ use pacer_foundation::{
     api::{Code, CoreError, OpFuture},
 };
 use pacer_messaging_ops::msg_writes::Bridge as MsgWriteBridge;
+use pacer_task_ops::{task_stop_ops::StopEffects, task_wait_ops::WaitEffects};
 use serde_json::{Value, json};
 
 /// Plugin owner shared by a Listener or a stdio session.
@@ -179,6 +180,54 @@ pub fn session_runtime(
         spawn: Arc::new(CoreSpawn),
         supervisor: Arc::new(NoSupervisor),
     })
+}
+
+/// Native `task.stop` and `task.wait` effects, backed by this front door's
+/// delegation runtime. One struct serves both traits so a door needs one value.
+pub struct StopWaitEffects {
+    pub runtime: Arc<Runtime>,
+}
+
+impl StopEffects for StopWaitEffects {
+    fn stop<'a>(
+        &'a self,
+        ctx: &'a Ctx,
+        id: &'a str,
+        signal: bool,
+        expect_rev: Option<i64>,
+    ) -> OpFuture<'a> {
+        let runtime = Arc::clone(&self.runtime);
+        Box::pin(async move {
+            pacer_delegation::stop::stop_task(
+                ctx,
+                &runtime,
+                id,
+                pacer_delegation::stop::StopOptions { signal, expect_rev },
+            )
+            .await
+        })
+    }
+
+    fn stop_work<'a>(
+        &'a self,
+        ctx: &'a Ctx,
+        id: &'a str,
+        expect_rev: Option<i64>,
+    ) -> OpFuture<'a> {
+        let runtime = Arc::clone(&self.runtime);
+        Box::pin(async move {
+            pacer_delegation::stop::stop_work(ctx, &runtime, id, expect_rev).await
+        })
+    }
+}
+
+impl WaitEffects for StopWaitEffects {
+    fn wait<'a>(&'a self, ctx: &'a Ctx, id: &'a str, timeout_s: u32) -> OpFuture<'a> {
+        let runtime = Arc::clone(&self.runtime);
+        Box::pin(async move {
+            pacer_delegation::wait::wait_task(ctx, &runtime, id, timeout_s).await
+        })
+    }
 }
 
 /// Native `task.delegate` effects, backed by this front door's delegation runtime.

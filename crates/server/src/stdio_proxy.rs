@@ -727,30 +727,22 @@ async fn forward_input<
                         }
                         continue;
                     }
-                    match crate::native::task_wait_sync::stdio_probe(
-                        &mut core, sync.0, sync.1, &task_id, sync.2,
-                    )
-                    .await
-                    {
-                        Ok(probe)
-                            if crate::native::task_wait_sync::task_wait_stays_forwarded(&probe) =>
-                        {
-                            core.write_all(&line).await?;
-                            core.flush().await?;
-                            continue;
-                        }
-                        Ok(_) => {}
-                        Err(error) => {
-                            if let Some(id) = request.get("id") {
-                                let response =
-                                    json!({"jsonrpc":"2.0", "id":id, "error":error.rpc()});
-                                let mut bytes = pacer_plugin_ops::settings::js_json(&response).into_bytes();
-                                bytes.push(b'\n');
-                                write_line(out, &bytes).await?;
-                            }
-                            continue;
-                        }
+                    crate::native::msg_write_sync::trace(op.name, request.get("id"));
+                    let reply = request.get("id").cloned();
+                    let wait_ctx = request_ctx.clone();
+                    let effects = crate::native::runtime::StopWaitEffects {
+                        runtime: std::sync::Arc::clone(&plugins.delegation),
+                    };
+                    let task = waits.spawn(async move {
+                        let result =
+                            crate::native::task_wait_ops::task_wait(&wait_ctx, params, &effects)
+                                .await;
+                        reply.and_then(|id| rpc_line(&id, result).ok())
+                    });
+                    if let Some(id) = request.get("id") {
+                        wait_ids.insert(task.id(), id.clone());
                     }
+                    continue;
                 }
                 if op.name == "task.review" {
                     let task_id = params
@@ -877,79 +869,17 @@ async fn forward_input<
                         }
                         continue;
                     }
-                    match crate::native::task_stop_sync::stdio_probe(
-                        &mut core, sync.0, sync.1, &task_id, sync.2,
-                    )
-                    .await
-                    {
-                        Ok(probe)
-                            if crate::native::task_stop_sync::task_stop_stays_forwarded(&probe) =>
-                        {
-                            core.write_all(&line).await?;
-                            core.flush().await?;
-                            continue;
-                        }
-                        Ok(probe) => {
-                            let before = probe
-                                .get("beforeState")
-                                .and_then(Value::as_str)
-                                .map(str::to_owned);
-                            let task_id = task_id.clone();
-                            let result = call_native(
-                                &request_ctx,
-                                op,
-                                params,
-                                request.get("id"),
-                                None,
-                                None,
-                                None,
-                                None,
-                                None,
-                                None,
-                                None,
-                                None,
-                                None,
-                                Some(probe),
-                                Some(Box::pin(crate::native::task_stop_sync::stdio_effects(
-                                    &mut core,
-                                    sync.0,
-                                    sync.1,
-                                    &task_id,
-                                    before.as_deref(),
-                                    sync.2,
-                                ))
-                                    as pacer_foundation::api::OpFuture<'_>),
-                                None,
-                                None,
-                                None,
-                            )
+                    crate::native::msg_write_sync::trace(op.name, request.get("id"));
+                    let effects = crate::native::runtime::StopWaitEffects {
+                        runtime: std::sync::Arc::clone(&plugins.delegation),
+                    };
+                    let result =
+                        crate::native::task_stop_ops::task_stop(&request_ctx, params, &effects)
                             .await;
-                            if let Some(id) = request.get("id") {
-                                let response = match result {
-                                    Ok(value) => {
-                                        json!({"jsonrpc":"2.0", "id":id, "result":value})
-                                    }
-                                    Err(error) => {
-                                        json!({"jsonrpc":"2.0", "id":id, "error":error.rpc()})
-                                    }
-                                };
-                                let mut bytes = pacer_plugin_ops::settings::js_json(&response).into_bytes();
-                                bytes.push(b'\n');
-                                write_line(out, &bytes).await?;
-                            }
-                            continue;
-                        }
-                        Err(error) => {
-                            if let Some(id) = request.get("id") {
-                                let response =
-                                    json!({"jsonrpc":"2.0", "id":id, "error":error.rpc()});
-                                let mut bytes = pacer_plugin_ops::settings::js_json(&response).into_bytes();
-                                bytes.push(b'\n');
-                                write_line(out, &bytes).await?;
-                            }
-                            continue;
-                        }
+                    if let Some(id) = request.get("id") {
+                        write_line(out, &rpc_line(id, result)?).await?;
                     }
+                    continue;
                 }
                 let result = if crate::native::needs_usage_broker(op.name) {
                     let broker_params = crate::native::usage_broker_params(op.name, &params);

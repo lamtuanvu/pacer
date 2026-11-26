@@ -3,12 +3,20 @@ use pacer_foundation::{
     Ctx,
     api::{Code, CoreError, OpFuture},
 };
-use pacer_lifecycle::task_wait_settled;
-use pacer_store::TaskStore;
 use serde_json::{Map, Value};
 
 use super::lifecycle_ops::{invalid, object, require_string};
-use super::task_reads::summarize_api_task;
+
+/// Native effects of `task.wait`, implemented in `pacer-server` over
+/// `pacer_delegation::wait`. The settle probe is gone.
+pub trait WaitEffects: Send + Sync {
+    fn wait<'a>(
+        &'a self,
+        ctx: &'a Ctx,
+        id: &'a str,
+        timeout_s: u32,
+    ) -> OpFuture<'a>;
+}
 
 fn require_task_id(params: &Map<String, Value>, name: &str) -> Result<String, CoreError> {
     let id = require_string(params, name)?;
@@ -26,10 +34,10 @@ fn require_task_id(params: &Map<String, Value>, name: &str) -> Result<String, Co
     Ok(id.to_owned())
 }
 
-fn optional_timeout_s(params: &Map<String, Value>) -> Result<(), CoreError> {
+/// `timeout_s` is 1..=3000 and defaults to 600, as the operation schema says.
+fn timeout_s(params: &Map<String, Value>) -> Result<u32, CoreError> {
     match params.get("timeout_s") {
-        None => Ok(()),
-        Some(Value::Null) => Ok(()),
+        None | Some(Value::Null) => Ok(600),
         Some(value) if !value.is_number() => Err(invalid(format!(
             "timeout_s: Invalid input: expected number, received {}",
             super::lifecycle_ops::type_name(value)
@@ -51,33 +59,31 @@ fn optional_timeout_s(params: &Map<String, Value>) -> Result<(), CoreError> {
             if n > 3000.0 {
                 return Err(invalid("timeout_s: Too big: expected number to be <=3000"));
             }
-            Ok(())
+            Ok(n as u32)
         }
     }
 }
 
-pub fn task_wait(ctx: &Ctx, params: Value) -> OpFuture<'_> {
+/// Validate the operation and dispatch to the native wait effect.
+pub fn task_wait<'a>(
+    ctx: &'a Ctx,
+    params: Value,
+    effects: &'a dyn WaitEffects,
+) -> OpFuture<'a> {
     Box::pin(async move {
         let p = object(&params)?;
         let id = require_task_id(p, "id")?;
-        optional_timeout_s(p)?;
-        let mut store = TaskStore::open(&ctx.pacer_home)
-            .map_err(|error| CoreError::new(Code::Internal, error.to_string()))?;
-        let task = store
-            .read(&id)
-            .map_err(|error| CoreError::new(Code::Internal, error.to_string()))?;
-        let Some(task) = task else {
-            return Err(CoreError::new(
-                Code::UnknownTask,
-                format!("unknown task {id}"),
-            ));
-        };
-        if !task_wait_settled(&task, false, false) {
-            return Err(CoreError::new(
-                Code::Unavailable,
-                "task wait requires supervision while the task is active",
-            ));
-        }
-        Ok(summarize_api_task(&task))
+        let seconds = timeout_s(p)?;
+        effects.wait(ctx, &id, seconds).await
+    })
+}
+
+/// Fallback in the registry; the doors dispatch `task.wait` before `call_native`.
+pub fn task_wait_stub(_: &Ctx, _: Value) -> OpFuture<'_> {
+    Box::pin(async move {
+        Err(CoreError::new(
+            Code::Unavailable,
+            "task wait effects unavailable",
+        ))
     })
 }

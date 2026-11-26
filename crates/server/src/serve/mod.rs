@@ -251,6 +251,21 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             crate::native::msg_write_sync::trace(op.name, None);
             return reply;
         }
+        if op.name == "task.stop" || op.name == "task.wait" {
+            crate::native::msg_write_sync::trace(op.name, None);
+            let effects = crate::native::runtime::StopWaitEffects {
+                runtime: Arc::clone(&state.delegation),
+            };
+            let result = if op.name == "task.stop" {
+                crate::native::task_stop_ops::task_stop(&ctx, params, &effects).await
+            } else {
+                crate::native::task_wait_ops::task_wait(&ctx, params, &effects).await
+            };
+            return match result {
+                Ok(value) => native_json(StatusCode::OK, serde_json::json!({"result":value})),
+                Err(error) => native_error(error),
+            };
+        }
         if crate::native::client_ops::is_client_op(op.name) {
             use crate::native::{client_control_sync::HttpBridge, client_ops};
             crate::native::msg_write_sync::trace(op.name, None);
@@ -454,34 +469,6 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                 Err(error) => native_error(error),
             };
         }
-        if op.name == "task.wait" {
-            let Some(id) = params
-                .get("id")
-                .and_then(serde_json::Value::as_str)
-                .filter(|id| !id.is_empty())
-            else {
-                return native_error(CoreError::new(
-                    Code::InvalidInput,
-                    "id: Invalid input: expected string, received undefined",
-                ));
-            };
-            let core_target = state.core.target().await;
-            match crate::native::task_wait_sync::http_probe(core_target.clone(), id).await {
-                Ok(probe) if crate::native::task_wait_sync::task_wait_stays_forwarded(&probe) => {
-                    let Some(target) = core_target else {
-                        return proxy::unavailable(false);
-                    };
-                    return proxy::forward(
-                        Request::from_parts(parts, Body::from(bytes)),
-                        target,
-                        auth,
-                    )
-                    .await;
-                }
-                Ok(_) => {}
-                Err(error) => return native_error(error),
-            }
-        }
         let task_review_probe_cache = if op.name == "task.review" {
             if params
                 .get("id")
@@ -498,36 +485,6 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                 Ok(probe)
                     if crate::native::task_review_sync::task_review_stays_forwarded(&probe) =>
                 {
-                    let Some(target) = core_target else {
-                        return proxy::unavailable(false);
-                    };
-                    return proxy::forward(
-                        Request::from_parts(parts, Body::from(bytes)),
-                        target,
-                        auth,
-                    )
-                    .await;
-                }
-                Ok(probe) => Some(probe),
-                Err(error) => return native_error(error),
-            }
-        } else {
-            None
-        };
-        let task_stop_probe_cache = if op.name == "task.stop" {
-            let Some(id) = params
-                .get("id")
-                .and_then(serde_json::Value::as_str)
-                .filter(|id| !id.is_empty())
-            else {
-                return native_error(CoreError::new(
-                    Code::InvalidInput,
-                    "id: Invalid input: expected string, received undefined",
-                ));
-            };
-            let core_target = state.core.target().await;
-            match crate::native::task_stop_sync::http_probe(core_target.clone(), id).await {
-                Ok(probe) if crate::native::task_stop_sync::task_stop_stays_forwarded(&probe) => {
                     let Some(target) = core_target else {
                         return proxy::unavailable(false);
                     };
@@ -697,32 +654,6 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             } else {
                 None
             };
-            let task_stop_effects = if task_stop_probe_cache.is_some() {
-                let id = params
-                    .get("id")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("")
-                    .to_owned();
-                let before = task_stop_probe_cache
-                    .as_ref()
-                    .and_then(|probe| probe.get("beforeState"))
-                    .and_then(serde_json::Value::as_str)
-                    .map(str::to_owned);
-                state.core.target().await.map(|target| {
-                    let id = id.clone();
-                    let before = before.clone();
-                    Box::pin(async move {
-                        crate::native::task_stop_sync::http_effects(
-                            Some(target),
-                            &id,
-                            before.as_deref(),
-                        )
-                        .await
-                    }) as pacer_foundation::api::OpFuture<'_>
-                })
-            } else {
-                None
-            };
             let task_review_effects = if task_review_probe_cache.is_some() {
                 let id = params
                     .get("id")
@@ -775,8 +706,8 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                 auto_clean,
                 host_read_sync,
                 core_bridge_sync,
-                task_stop_probe_cache,
-                task_stop_effects,
+                None,
+                None,
                 task_review_probe_cache,
                 task_review_effects,
                 None,

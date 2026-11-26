@@ -92,10 +92,8 @@ pub(crate) use pacer_task_ops::task_send_ops;
 pub(crate) mod assistant_turn_sync;
 pub(crate) mod task_send_sync;
 pub(crate) mod terminal_sync;
-pub(crate) use pacer_core_bridge::task_stop_sync;
-pub(crate) use pacer_core_bridge::task_wait_sync;
-use pacer_task_ops::task_stop_ops;
-use pacer_task_ops::task_wait_ops;
+pub(crate) use pacer_task_ops::task_stop_ops;
+pub(crate) use pacer_task_ops::task_wait_ops;
 pub(crate) use pacer_task_ops::terminal_ops;
 use pacer_update::apply;
 
@@ -196,7 +194,6 @@ pub fn status_residue_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bo
 pub(crate) use task_dismiss_ops::uses_native_clean;
 pub(crate) use task_get_ops::needs_task_read_bridge;
 pub(crate) use task_review_ops::needs_task_review_bridge;
-pub(crate) use task_stop_ops::needs_task_stop_bridge;
 
 #[cfg(feature = "test-ops")]
 fn echo(_: &Ctx, params: Value) -> pacer_foundation::api::OpFuture<'_> {
@@ -671,6 +668,7 @@ static OPS: &[NativeOp] = &[
         name: "task.stop",
         call: task_stop_ops::task_stop_stub,
     },
+
     NativeOp {
         name: "task.send",
         call: task_send_ops::task_send_stub,
@@ -701,7 +699,7 @@ static OPS: &[NativeOp] = &[
     },
     NativeOp {
         name: "task.wait",
-        call: task_wait_ops::task_wait,
+        call: task_wait_ops::task_wait_stub,
     },
     NativeOp {
         name: "task.review",
@@ -1174,8 +1172,9 @@ pub async fn call_native(
     auto_clean: Option<pacer_foundation::api::OpFuture<'_>>,
     host_read_sync: Option<pacer_foundation::api::OpFuture<'_>>,
     core_bridge_sync: Option<pacer_foundation::api::OpFuture<'_>>,
-    task_stop_probe: Option<Value>,
-    task_stop_effects: Option<pacer_foundation::api::OpFuture<'_>>,
+    // Retired task.stop probe/effects slots; kept so call sites stay positional.
+    _task_stop_probe: Option<Value>,
+    _task_stop_effects: Option<pacer_foundation::api::OpFuture<'_>>,
     task_review_probe: Option<Value>,
     task_review_effects: Option<pacer_foundation::api::OpFuture<'_>>,
     _handover_bridge: Option<&mut dyn pacer_update::handover::HandoverBridge>,
@@ -1201,13 +1200,6 @@ pub async fn call_native(
         return Err(CoreError::new(
             pacer_foundation::api::Code::Unavailable,
             "task delegation runtime unavailable",
-        ));
-    }
-    if needs_task_stop_bridge(op.name) && (task_stop_probe.is_none() || task_stop_effects.is_none())
-    {
-        return Err(CoreError::new(
-            pacer_foundation::api::Code::Unavailable,
-            "task stop bridge unavailable",
         ));
     }
     if needs_task_review_bridge(op.name)
@@ -1314,23 +1306,6 @@ pub async fn call_native(
         match op.name {
             "task.dismiss" => task_dismiss_ops::task_dismiss(ctx, params, clean).await?,
             _ => unreachable!("uses_native_clean"),
-        }
-    } else if needs_task_stop_bridge(op.name) {
-        let probe = task_stop_probe.ok_or_else(|| {
-            CoreError::new(
-                pacer_foundation::api::Code::Unavailable,
-                "task stop bridge unavailable",
-            )
-        })?;
-        let effects = task_stop_effects.ok_or_else(|| {
-            CoreError::new(
-                pacer_foundation::api::Code::Unavailable,
-                "task stop effects bridge unavailable",
-            )
-        })?;
-        match op.name {
-            "task.stop" => task_stop_ops::task_stop(ctx, params, probe, effects).await?,
-            _ => unreachable!("needs_task_stop_bridge"),
         }
     } else if needs_task_review_bridge(op.name) {
         let probe = task_review_probe.ok_or_else(|| {
