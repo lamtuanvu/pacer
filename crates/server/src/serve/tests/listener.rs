@@ -65,7 +65,7 @@ async fn public_listener_routes_static_and_forwards_fallbacks() {
         ("GET", "/app/auth", bearer, "502"),
         ("GET", "/app/missing.js", bearer, "502"),
         ("GET", "/app/missing.js/", bearer, "502"),
-        ("GET", "/v3/attachments", bearer, "502"),
+        ("GET", "/v3/attachments", bearer, "404"),
         (
             "GET",
             "/v3/tasks/one/session",
@@ -259,11 +259,7 @@ async fn public_listener_forwards_to_available_core() {
         .await
         .unwrap();
     });
-    for (path, status) in [
-        ("/app/auth", "200"),
-        ("/app/missing.js/", "404"),
-        ("/v3/attachments", "200"),
-    ] {
+    for (path, status) in [("/app/auth", "200"), ("/app/missing.js/", "404")] {
         let response = request(port, "GET", path, "Authorization: Bearer token\r\n").await;
         assert!(
             response.starts_with(&format!("HTTP/1.1 {status}")),
@@ -274,6 +270,16 @@ async fn public_listener_forwards_to_available_core() {
             "{path}: {response}"
         );
     }
+    // Attachments used to fall through to Core; the front door owns them now.
+    let attachments = request(
+        port,
+        "GET",
+        "/v3/attachments",
+        "Authorization: Bearer token\r\n",
+    )
+    .await;
+    assert!(attachments.starts_with("HTTP/1.1 404"), "{attachments}");
+    assert!(!attachments.contains("core:"), "{attachments}");
     let mut upgrade = format!("ws://127.0.0.1:{port}/v3/tasks/one/session")
         .into_client_request()
         .unwrap();
@@ -320,6 +326,151 @@ async fn public_listener_forwards_to_available_core() {
         .unwrap();
     assert_eq!(echoed.into_data().as_ref(), bytes.as_slice());
     websocket.close(None).await.unwrap();
+    core.shutdown().await;
+    server.abort();
+}
+
+async fn request_with_body(
+    port: u16,
+    method: &str,
+    path: &str,
+    headers: &str,
+    body: &str,
+) -> String {
+    let mut stream = tokio::net::TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, port))
+        .await
+        .unwrap();
+    stream
+        .write_all(
+            format!(
+                "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\nContent-Length: {}\r\n{headers}\r\n{body}",
+                body.len()
+            )
+            .as_bytes(),
+        )
+        .await
+        .unwrap();
+    let mut bytes = Vec::new();
+    stream.read_to_end(&mut bytes).await.unwrap();
+    String::from_utf8(bytes).unwrap()
+}
+
+#[tokio::test]
+async fn attachments_upload_list_download_and_delete_with_the_core_stopped() {
+    let dir = tempfile::tempdir().unwrap();
+    let ctx = Ctx::with(
+        dir.path().into(),
+        dir.path().join("pacer"),
+        Default::default(),
+        1_800_000_000.0,
+    );
+    let draft = {
+        let mut store = pacer_store::TaskStore::open(&ctx.pacer_home).unwrap();
+        pacer_store::attachments::create_draft(&mut store, ctx.now).unwrap()
+    };
+    let session = sessions::create(&ctx.at_now()).unwrap();
+    // No Core argv: every non-native path reports 502, so a successful
+    // attachment flow proves the front door owns these routes.
+    let core = Arc::new(core_child::CoreChild::spawn(vec![], HashMap::new(), None));
+    let socket = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+        .await
+        .unwrap();
+    let port = socket.local_addr().unwrap().port();
+    let state = Arc::new(Listener {
+        core: core.clone(),
+        heartbeat: Arc::new(heartbeat::Heartbeat::new()),
+        ctx,
+        port,
+        token: "token".into(),
+        registry: service_registry(""),
+        scoped_work: false,
+        plugins: crate::native::plugins::Service::default(),
+        forward_log_follow: false,
+        forward_events: false,
+    });
+    let server = tokio::spawn(async move {
+        axum::serve(
+            socket,
+            Router::new().fallback(any(handle)).with_state(state),
+        )
+        .await
+        .unwrap();
+    });
+    let bearer = "Authorization: Bearer token\r\n";
+    let upload_path = format!("/v3/attachments?draft={draft}&batch=one");
+    let unauthenticated = request(port, "GET", &upload_path, "").await;
+    assert!(
+        unauthenticated.starts_with("HTTP/1.1 401"),
+        "{unauthenticated}"
+    );
+    let foreign_origin = request_with_body(
+        port,
+        "POST",
+        &upload_path,
+        &format!(
+            "Cookie: pacer_session={session}\r\nOrigin: https://foreign.invalid\r\nX-Pacer-Client: app\r\n"
+        ),
+        "hello",
+    )
+    .await;
+    assert!(
+        foreign_origin.starts_with("HTTP/1.1 403"),
+        "{foreign_origin}"
+    );
+    let headers = format!("{bearer}X-Pacer-Filename: hello%2Etxt\r\nContent-Type: text/plain\r\n");
+    let created = request_with_body(port, "POST", &upload_path, &headers, "hello").await;
+    assert!(created.starts_with("HTTP/1.1 201"), "{created}");
+    let id = created
+        .lines()
+        .last()
+        .and_then(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .and_then(|value| value["id"].as_str().map(str::to_owned))
+        .unwrap();
+    assert!(created.contains("\"name\":\"hello.txt\""), "{created}");
+
+    let listing = request(
+        port,
+        "GET",
+        &format!("/v3/attachments?draft={draft}"),
+        bearer,
+    )
+    .await;
+    assert!(listing.starts_with("HTTP/1.1 200"), "{listing}");
+    assert!(listing.contains(&id), "{listing}");
+
+    let downloaded = request(
+        port,
+        "GET",
+        &format!("/v3/attachments/{id}?draft={draft}"),
+        bearer,
+    )
+    .await;
+    assert!(downloaded.starts_with("HTTP/1.1 200"), "{downloaded}");
+    assert!(
+        downloaded
+            .to_ascii_lowercase()
+            .contains("x-content-type-options: nosniff"),
+        "{downloaded}"
+    );
+    assert!(downloaded.ends_with("hello"), "{downloaded}");
+
+    let deleted = request(
+        port,
+        "DELETE",
+        &format!("/v3/attachments/{id}?draft={draft}"),
+        bearer,
+    )
+    .await;
+    assert!(deleted.starts_with("HTTP/1.1 204"), "{deleted}");
+
+    let listing = request(
+        port,
+        "GET",
+        &format!("/v3/attachments?draft={draft}"),
+        bearer,
+    )
+    .await;
+    assert!(listing.ends_with("[]"), "{listing}");
     core.shutdown().await;
     server.abort();
 }
