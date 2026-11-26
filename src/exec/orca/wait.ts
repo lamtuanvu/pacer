@@ -19,6 +19,8 @@ export interface WaitOpts {
   run: string;
   dispatchId: string;
   terminal: string | null;
+  /** A live interactive root a person started: sitting at the prompt is the user's to end, not an idle failure. */
+  heldOpenForHuman?: boolean;
   deadlineMs: number;
   isStopped: () => boolean;
   sliceMs?: number;
@@ -92,8 +94,10 @@ export async function waitForWorker(ctx: Ctx, c: OrcaClient, o: WaitOpts): Promi
       if (o.isStopped()) return { kind: "stopped" };
       const question = o.taskId ? readTask(ctx, o.taskId)?.question : undefined;
       if (question && question.answer === undefined) return {kind:"settled",state:"needs_input",error:null,needsStop:true};
-      const left = o.deadlineMs - now();
-      if (left <= 0) return { kind: "timeout" };
+      // A held lane belongs to the user: the task timeout does not reap its terminal. A worker_done
+      // (put in the inbox by a check) may still settle it, and the user's own stop ends it.
+      const left = o.heldOpenForHuman ? slice : o.deadlineMs - now();
+      if (!o.heldOpenForHuman && left <= 0) return { kind: "timeout" };
 
       if (!nudged && o.terminal) {
         const t = await c.terminalShow(o.terminal);
@@ -131,7 +135,7 @@ export async function waitForWorker(ctx: Ctx, c: OrcaClient, o: WaitOpts): Promi
         }
       } else {
         busyAt = null;
-        if (tail !== lastTail || working || !IDLE_PROMPT.test(tail)) { idleAt = null; idleNudged = false; }
+        if (tail !== lastTail || working || !IDLE_PROMPT.test(tail) || o.heldOpenForHuman) { idleAt = null; idleNudged = false; }
         else if (o.terminal) {
           idleAt ??= now();
           if (now() - idleAt >= 600_000) {

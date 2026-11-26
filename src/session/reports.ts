@@ -1,5 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
-import { appendFileSync, openSync, closeSync, readSync, statSync, readFileSync, writeFileSync, renameSync, mkdirSync, realpathSync } from "node:fs";
+import { appendFileSync, openSync, closeSync, readSync, statSync, readFileSync, writeFileSync, renameSync, mkdirSync, realpathSync, rmSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Launch } from "../exec/launch";
@@ -28,6 +28,36 @@ export function readReport(dir: string): SessionReport | null {
   }
   return null;
 }
+
+/**
+ * A held interactive root's explicit `pacer report` is kept in its own per-attempt record. The
+ * native hooks own session-status.json (PostToolUse writes running, Stop writes turn-ended), so a
+ * completion recorded there would be overwritten before the user ends the session. Only a terminal
+ * reportCommand writes this record; hooks never touch it.
+ */
+const HELD_REPORT = "held-report.json";
+export function writeHeldReport(dir: string, status: ReportStatus, summary: string, attempt: number): void {
+  if (status !== "done" && status !== "failed") return;
+  const value = JSON.stringify({ status, summary: cleanSummary(summary).trim(), at: Date.now() / 1000, attempt });
+  const tmp = join(dir, `held-report.${process.pid}.${crypto.randomUUID()}.tmp`);
+  writeFileSync(tmp, value, { mode: 0o600 });
+  renameSync(tmp, join(dir, HELD_REPORT));
+}
+export function readHeldReport(dir: string, attempt?: number): SessionReport | null {
+  try {
+    const value = JSON.parse(readFileSync(join(dir, HELD_REPORT), "utf8"));
+    const report = parseReport(value);
+    if (!report) return null;
+    // A report from an older attempt must not settle a later one.
+    if (attempt !== undefined && Number.isFinite(value?.attempt) && value.attempt !== attempt) return null;
+    return report;
+  } catch { return null; }
+}
+/** A new user turn invalidates the previous turn's completion report. */
+export function clearHeldReport(dir: string): void {
+  try { rmSync(join(dir, HELD_REPORT), { force: true }); } catch { /* optional marker */ }
+}
+
 export function writeReport(dir: string, status: string, summary: string, source?: "agent" | "user"): void {
   summary = cleanSummary(summary);
   if (!["done", "failed", "needs-input", "running"].includes(status)) throw Error("report status must be done, failed, needs-input or running");
@@ -106,6 +136,8 @@ export function agentHook(dir: string, input: unknown): void {
   } else if (event === "Stop") {
     storeReport(dir, "turn-ended", "Agent finished its turn; attach to answer or report completion");
   } else if (["UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "ElicitationResult"].includes(String(event))) {
+    // A new user turn starts here: the previous turn's explicit completion no longer applies.
+    if (event === "UserPromptSubmit") clearHeldReport(dir);
     writeReport(dir, "running", "Agent is working");
   }
   if (typeof event === "string") appendFileSync(join(dir, "events.jsonl"), JSON.stringify({event, status: readReport(dir)?.status, at: Date.now() / 1000}) + "\n", {mode: 0o600});
@@ -163,7 +195,7 @@ function reportRun(path: string): {dir: string; home: string; id: string; attemp
 }
 
 /** Bind agent reports to the active attempt, including when --task is supplied. */
-export function reportDestination(ctx: Ctx, id?: string, explicitTask = false): {dir: string; source: "agent" | "user"; note?: string} {
+export function reportDestination(ctx: Ctx, id?: string, explicitTask = false): {dir: string; source: "agent" | "user"; attempt: number; note?: string} {
   const fromRun = ctx.env.PACER_RUN_DIR;
   const insideRun = fromRun !== undefined;
   if (!insideRun && (ctx.env.PACER_ROLE || ctx.env.PACER_REPORT_TOKEN !== undefined || !explicitTask)) {
@@ -196,7 +228,7 @@ export function reportDestination(ctx: Ctx, id?: string, explicitTask = false): 
   let currentHome = resolve(ctx.pacerHome);
   try { currentHome = realpathSync(currentHome); } catch { /* An overridden home may not exist. */ }
   const note = launch && currentHome !== launch.home ? "pacer: PACER_HOME was ignored for this report; using the launch home from PACER_RUN_DIR" : undefined;
-  return {dir, source: insideRun ? "agent" : "user", ...(note ? {note} : {})};
+  return {dir, source: insideRun ? "agent" : "user", attempt: task.run!.attempt, ...(note ? {note} : {})};
 }
 
 /** Why this Codex cannot take per-run hook overrides (codex-cli >= 0.162.1), or null when it can. */
@@ -228,8 +260,11 @@ export function reportCommand(args: string[], ctx: Ctx): Result {
       else if (!args[i].startsWith("-") && !id) id = args[i];
       else throw Error("usage: pacer report [task-id] --status done|failed|needs-input|running --summary <text>");
     }
-    const {dir, source, note} = reportDestination(ctx, id, explicitTask);
+    const {dir, source, note, attempt} = reportDestination(ctx, id, explicitTask);
     writeReport(dir, status, summary, source);
+    // Keep the explicit completion in its own record: hooks rewrite session-status.json while the
+    // user keeps working, and a held root must settle with this outcome when the user ends it.
+    if (status === "done" || status === "failed") writeHeldReport(dir, status as ReportStatus, summary, attempt);
     return {code: 0, out: `Reported ${status}`, err: note ?? ""};
   } catch (e) { return {code: 2, out: "", err: `pacer: ${(e as Error).message}`}; }
 }

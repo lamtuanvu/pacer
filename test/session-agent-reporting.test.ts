@@ -4,7 +4,7 @@ import {readFileSync,writeFileSync,mkdirSync,symlinkSync} from 'node:fs';
 import {tmpDir,fakeCtx} from './helpers';
 import {prepare} from '../plugins/agent-session';
 import {materializeAgentReporting} from '../src/session/agent-reporting';
-import {readReport,writeReport,reportCommand} from '../src/session/reports';
+import {readReport,writeReport,reportCommand,readHeldReport,agentHook,clearHeldReport} from '../src/session/reports';
 import {createTask,readTask,updateTask} from '../src/tasks/store';
 import {runTask} from '../src/tasks/runner';
 import {validateStrategy} from '../src/config/strategy';
@@ -62,6 +62,28 @@ function reportingRun() {
 const completion = (ctx: ReturnType<typeof fakeCtx>, id?: string) => reportCommand([
   ...(id ? ['--task', id] : []), '--outcome', 'done', '--summary', 'Finished and checked',
 ], ctx);
+
+test('an explicit completion is bound to its attempt and survives native hook overwrites', () => {
+  const {ctx, task, dir} = reportingRun();
+  // A conversation's session-status.json is owned by the hooks, unlike a headless report.json.
+  writeFileSync(join(dir, 'interactive.json'), JSON.stringify({reportToken: 'owned-token', interactionMode: 'conversation'}), {mode: 0o600});
+  expect(completion(ctx).code).toBe(0);
+  expect(readHeldReport(dir, 1)).toMatchObject({status: 'done', summary: 'Finished and checked', attempt: 1});
+  expect(readHeldReport(dir, 2)).toBeNull();
+  // Claude/Codex hooks rewrite session-status.json while the user keeps working.
+  agentHook(dir, {hook_event_name: 'PostToolUse'});
+  agentHook(dir, {hook_event_name: 'Stop'});
+  expect(readReport(dir)?.status).toBe('turn-ended');
+  expect(readHeldReport(dir, 1)?.status).toBe('done');
+  // A new user turn invalidates the previous completion.
+  agentHook(dir, {hook_event_name: 'UserPromptSubmit'});
+  expect(readHeldReport(dir, 1)).toBeNull();
+  // A new explicit report re-binds the current attempt.
+  expect(completion(ctx).code).toBe(0);
+  expect(readHeldReport(dir, 1)?.status).toBe('done');
+  clearHeldReport(dir);
+  expect(readHeldReport(dir, 1)).toBeNull();
+});
 
 test('agent report ignores an empty overridden home and the runner settles the launch task', async () => {
   const {ctx, task, dir} = reportingRun();

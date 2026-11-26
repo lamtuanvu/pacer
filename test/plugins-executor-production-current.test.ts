@@ -121,6 +121,19 @@ test("local interactive owner preserves the session files and fails a wrapper ex
   } finally { cleanup(); }
 });
 
+test("a human-held interactive root is refused by the owned direct route", async () => {
+  const { ctx, task, cfg, cleanup } = fixture();
+  try {
+    updateTask(ctx, task.id, current => {
+      current.origin = "human"; current.source = "ui";
+      current.interactive = true; current.interactionMode = "delegated";
+    });
+    await expect(runOwnedDirectCurrent(ctx, cfg, readTask(ctx, task.id)!)).rejects
+      .toMatchObject({ code: "capability_denied" });
+    expect(readTask(ctx, task.id)?.run).toBeUndefined();
+  } finally { cleanup(); }
+});
+
 test("task runner routes an admitted current attempt through the bundled provider", async () => {
   const { ctx, task, cleanup } = fixture();
   try {
@@ -610,6 +623,9 @@ test("an interactive deadline whose wrapper died without an exit record settles 
       current.state = "queued";
       current.timeoutS = 1;
       current.interactive = true;
+      // An agent-delegated interactive lane is not held open by a person: it still takes the
+      // owned route whose deadline this test exercises.
+      current.origin = "task:t-parent";
       delete current.executor;
       delete current.executorProvider;
     });

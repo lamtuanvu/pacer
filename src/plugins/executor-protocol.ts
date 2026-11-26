@@ -77,7 +77,7 @@ export const executorRunParams = z.union([executorEffectRunParams, executorOwned
 export const RUN_DIR_CONTRACT = {
   version: 1,
   files: ["argv", "stdout", "stderr", "pid", "exit", "session.log", "session.json",
-    "report.json", "transcript-report.md", "prompt.md"],
+    "report.json", "held-report.json", "transcript-report.md", "prompt.md"],
 } as const;
 
 /** Host-verified durable state passed to a future plugin reattach/stop owner. */

@@ -37,6 +37,8 @@ import { slotLimit, SLOT_STATES, localMachineGuard, slotBlock, slotUse } from ".
 import { readPause } from "../core/pause";
 import { drainQueue } from "./drain";
 import { onRunEnded } from "../messaging/turns";
+import { heldOpenForHuman } from "../messaging/participants";
+import { heldSettlement, userStopped } from "./held-report";
 import { type SpawnRunner } from "./api";
 import { createHash } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
@@ -112,6 +114,7 @@ export function needsDirectBackend(task: TaskRecord, strict: boolean): boolean {
 async function finish(ctx: Ctx, id: string, result: TaskResult): Promise<TaskRecord> {
   if (getWork(ctx,id) && result.status === "done" && pendingChildren(ctx,id).length) result = {...result,status:"needs_input",report:result.report+"\nRequired child work needs review before this task can complete."};
   const finished = await withTaskLockAsync(ctx, id, () => updateTask(ctx, id, (t) => {
+    const stoppedByUser = userStopped(t);
     if (t.executorProvider && t.stopPending) {
       const receipt = t.executorExitReceipt, run = t.run, pending = t.stopPending;
       if (!run || !receipt || receipt.attempt !== pending.attempt ||
@@ -131,11 +134,16 @@ async function finish(ctx: Ctx, id: string, result: TaskResult): Promise<TaskRec
       const line=p.mode==="new"?`ran in new worktree ${t.worktree??result.worktree??"(unknown)"} (${p.why})`:`ran in current worktree (${p.why})`;
       result={...result,report:`${line}\n\n${result.report}`};
     }
-    t.result = t.state === "stopped" ? { ...result, status: "stopped" } : result;
+    // A held interactive root keeps its terminal after `pacer report done|failed`. When the user
+    // ends it, honour that report instead of downgrading it to a bare stop so the outcome stays
+    // visible for review. Without a report the recorded stop stands.
+    const preserved = heldSettlement(ctx, t, result, stoppedByUser);
+    if (preserved) result = preserved;
+    t.result = stoppedByUser && !preserved ? { ...result, status: "stopped" } : result;
     t.state = t.result.status;
     if (t.interactionMode === "conversation") t.conversation = {
       ...t.conversation, activity: "ended",
-      endReason: t.state === "stopped" ? "user" : t.state === "done" ? "agent_exit" : "failure",
+      endReason: preserved || stoppedByUser ? "user" : t.state === "done" ? "agent_exit" : "failure",
     };
     if (t.takeover) t.takeover.state = "ended";
     delete t.childPid;
@@ -629,6 +637,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
       attemptedBackend = backend?.id ?? "direct";
       const localOwnerCandidate = !resuming && !deps.runAttempt && backend?.id === "direct" &&
         ctx.env.PACER_BACKEND !== "orca" && task.interactionMode !== "conversation" &&
+        !heldOpenForHuman(ctx, task) &&
         !resolveRunner(s, pick)?.host &&
         (!task.worktree || !!task.retryOf || task.attempts.length > 0) &&
         // A task whose earlier attempt ran on the built-in owner continues there: its receipts predate the provider.
@@ -651,6 +660,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
         !!localGit && !("error" in localGit);
       const remoteRunner = resolveRunner(s, pick);
       const ownedRemote = !deps.runAttempt && !work && task.interactionMode !== "conversation" &&
+        !heldOpenForHuman(ctx, task) &&
         ctx.env.PACER_BACKEND !== "orca" && !!remoteRunner?.host &&
         !!s.hosts[remoteRunner.host] && s.hosts[remoteRunner.host]!.session !== "full" &&
         validateExecution(s.execution).session !== "pty" && cfg.session !== "interactive" &&

@@ -1,10 +1,10 @@
 import { beginWorkSync, claimWorkSync, attachRunEvidenceSync, finishWorkSync } from "../update/desktop/admission";
 import { makeCtx } from "../ctx";
 import { nativeTerminalEnv } from "./environment";
-import { readReport, writeReport } from "./reports";
+import { readReport, writeReport, clearHeldReport } from "./reports";
 import { createServer, createConnection } from "node:net";
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { ViewerHub } from "./viewers";
@@ -18,8 +18,16 @@ import { isCursorReport } from "./queries";
 import { killTree } from "../exec/process";
 import { WRAPPER_SH } from "../supervisor/wrapper";
 import type { InteractionMode } from "../tasks/types";
+import { isTaskId, readTask } from "../tasks/store";
+import { heldOpenForHuman } from "../messaging/participants";
 /** `terminal`: a built-in workspace terminal, whose host refuses pacer's deliveries. */
-export interface SessionLaunch { interactionMode?:InteractionMode; completionNonce?:string; takeover?:boolean; interactive?:boolean; terminal?:boolean; argv:string[]; cwd:string; capBytes?:number; pacerHome?:string; keepColor?:string[] }
+export interface SessionLaunch { interactionMode?:InteractionMode; taskId?:string; completionNonce?:string; takeover?:boolean; interactive?:boolean; terminal?:boolean; argv:string[]; cwd:string; capBytes?:number; pacerHome?:string; keepColor?:string[] }
+/** The task that owns a run. Prefer the id carried in session.json; older runs still use runs/<task>/<attempt>. */
+export function launchTaskId(dir:string, launch:SessionLaunch):string|undefined {
+  if(launch.taskId && isTaskId(launch.taskId)) return launch.taskId;
+  const derived=basename(dirname(dir));
+  return isTaskId(derived)?derived:undefined;
+}
 export function socketPath(dir:string):string {
   const direct=join(dir,"session.sock");
   if(Buffer.byteLength(direct) < 104) return direct;
@@ -63,12 +71,20 @@ export async function sessionHost(dir:string):Promise<number> {
   attachRunEvidenceSync(ctx, lease, dir);
   // Executor subprocesses must not inherit the private admission capability.
   delete process.env.PACER_ADMISSION_SESSION; delete process.env.PACER_ADMISSION_DIR; delete process.env.PACER_COMPLETION_NONCE;
-  const result = await sessionHostAdmitted(dir);
+  // Interactive roots a person started keep their terminal after reporting done; the report stays in
+  // the run's report file for the UI and the user's stop (or the agent's own exit) ends the session.
+  let held = false;
+  try {
+    const id = launchTaskId(dir, config);
+    const task = id ? readTask(ctx, id) : undefined;
+    held = !!task && heldOpenForHuman(ctx, task);
+  } catch { /* a missing or unreadable task must not stop the host; default to a reapable run */ }
+  const result = await sessionHostAdmitted(dir, held);
   writeFileSync(join(dir, "admission.complete"), (config.completionNonce ?? lease) + "\n", { mode: 0o600 });
   finishWorkSync(ctx, lease);
   return result;
 }
-async function sessionHostAdmitted(dir:string):Promise<number> {
+async function sessionHostAdmitted(dir:string, heldOpen = false):Promise<number> {
   const launch=JSON.parse(readFileSync(join(dir,"session.json"),"utf8")) as SessionLaunch;
   if(launch.cwd.startsWith("~/"))launch.cwd=join(process.env.HOME ?? "",launch.cwd.slice(2));
   const atomic=(name:string,value:string)=>{writeFileSync(join(dir,`${name}.tmp`),value,{mode:0o600});renameSync(join(dir,`${name}.tmp`),join(dir,name));};
@@ -106,7 +122,12 @@ async function sessionHostAdmitted(dir:string):Promise<number> {
       input:(bytes,delivery)=>{
         if(bytes.length)try{
           writeFileSync(join(dir,"session.input"),"",{mode:0o600});
-          if(!delivery)writeFileSync(join(dir,"session.human-input"),"",{mode:0o600});
+          if(!delivery){
+            writeFileSync(join(dir,"session.human-input"),"",{mode:0o600});
+            // A submitted line starts a new user turn; the previous turn's completion no longer holds.
+            // Terminal replies a viewer sends on attach (escape sequences) are not a turn.
+            if(bytes[0]!==0x1b&&bytes.includes(0x0d))clearHeldReport(dir);
+          }
         }catch{/* optional input markers */}
         proc.terminal?.write(bytes);
         try{writeFileSync(join(dir,'session.activity'),'',{mode:0o600});}catch{/* optional activity */}
@@ -179,7 +200,7 @@ async function sessionHostAdmitted(dir:string):Promise<number> {
   } catch { /* a socket failure must never terminate the attempt */ }
   // Completion is also consumed here so reporting still ends the TUI if its supervisor died.
   let escalation: ReturnType<typeof setTimeout> | undefined;
-  const reports = launch.interactive && launch.interactionMode !== "conversation" ? setInterval(() => {
+  const reports = launch.interactive && launch.interactionMode !== "conversation" && !heldOpen ? setInterval(() => {
     const report = readReport(dir);
     if (!stopping && (report?.status === "done" || report?.status === "failed")) {
       stop();

@@ -37,6 +37,7 @@ import { issueConfiguredHostAttemptPreflight } from "../plugins/host-attempt-pre
 import { headlessTurnPath, launchFor, launchModeFor, providerEnv, resumeHeadlessFor, resumeLaunchFor, type LaunchModeChoice } from "./launch";
 import { claimTurnMessages, renderReplayThread, renderTurnPrompt } from "../messaging/turns";
 import { liveTick } from "../messaging/live";
+import { heldOpenForHuman } from "../messaging/participants";
 import { parseOpencodeSessions } from "../session/takeover";
 import { claudeConfigFile, grantClaudeFolderTrust, projectMcpChoices, type McpChoices } from "./claude-trust";
 import { providerRetryingReason } from "./broken";
@@ -298,7 +299,7 @@ export async function finishRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, ru
   try {
     end = await supervise({
       io, ...(host ? { pollMs: 5000 } : {}), deadlineMs: ((task.attemptStartedAt ?? run.startedAt) + task.timeoutS) * 1000,
-      interactionMode: run.interactionMode, runDir: run.host ? undefined : run.dir,
+      interactionMode: run.interactionMode, heldOpenForHuman: heldOpenForHuman(ctx, task), runDir: run.host ? undefined : run.dir,
       isStopped: () => readTask(ctx, task.id)?.state === "stopped",
       onPoll: async state => {
         const next = onPoll ? await onPoll(state) : "continue";
@@ -703,7 +704,7 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
     t.run = run;
     if (conversation && agentSession) t.conversation = {...t.conversation, activity: "starting", agentSessionId: agentSession.id};
   });
-  const started = startRun({ interactionMode: task.interactionMode, dir: rdir, argv: launch.argv, cwd: launch.cwd, stdin: launch.stdin, env, ...(cfg.session === "interactive" ? {session: "interactive" as const} : {}),
+  const started = startRun({ interactionMode: task.interactionMode, taskId: task.id, dir: rdir, argv: launch.argv, cwd: launch.cwd, stdin: launch.stdin, env, ...(cfg.session === "interactive" ? {session: "interactive" as const} : {}),
     ...(base ? {umask: terminalUmask(base), keepColor: profileColor(base)} : {}) });
   if ("error" in started) {
     const exec = { code: 127, stdout: "", stderr: started.error, timedOut: false };

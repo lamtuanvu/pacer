@@ -171,6 +171,27 @@ test("idle prompt gets one nudge after ten minutes then fails after ten more",as
  const sends=h.f.calls.filter(a=>a[1]==="terminal"&&a[2]==="send");expect(sends).toHaveLength(1);expect(arg(sends[0],"--text")).toBe("continue the assigned task; report when done");expect(h.logs[0]).toContain("worker idle: nudge");
  expect(h.at()).toBe(1260000);
 });
+test("a held human root is never failed or nudged for sitting idle, and outlives its deadline",async()=>{
+  let polls=0;
+  const h=monitor(()=>["› "],{deadlineMs:1000,heldOpenForHuman:true,isStopped:()=>++polls>=3});
+  expect(await waitForWorker(h.ctx,h.c,h.opts)).toEqual({kind:"stopped"});
+  expect(h.at()).toBeGreaterThan(1000); // the task deadline passed without ending the held lane
+  expect(h.f.calls.filter(a=>a[1]==="terminal"&&a[2]==="send")).toHaveLength(0);
+  expect(h.logs).toHaveLength(0);
+});
+test("a held human root still settles on worker_done reported after its deadline",async()=>{
+  let t=0;
+  const dispatch="ctx_802297d1724f";
+  const ctx=fakeCtx({run:async()=>({code:0,stdout:"",stderr:""})});
+  const f=fakeRun([
+    [O("orchestration","check"),()=>{t=2000;putInbox(ctx,dispatch,{outcome:"succeeded",subject:"Held lane done",body:"done",filesModified:[],messageId:"msg_held"});return raw(JSON.stringify({ok:true,result:{messages:[]}}));}],
+    [O("orchestration","worker-read"),raw('{"ok":true,"result":{"terminal":{"tail":["Working"]}}}')],
+  ]);
+  const opts:WaitOpts={coordinator:COORD,run:RUN,dispatchId:dispatch,terminal:null,deadlineMs:1000,
+    heldOpenForHuman:true,isStopped:()=>false,sliceMs:30000,now:()=>t,sleep:async ms=>{t+=ms;}};
+  expect(await waitForWorker(ctx,new OrcaClient(f.run),opts)).toMatchObject({kind:"done",outcome:"succeeded",subject:"Held lane done"});
+  expect(t).toBeGreaterThan(1000);
+});
 test("new output and active working indicator reset idle observation; absent tail never proves idle",async()=>{
  for(const tail of [(_at:number)=>["Working · esc to interrupt","› "],(at:number)=>[`output ${at}`,"› "],(_at:number)=>[]]){
   const h=monitor(tail,{deadlineMs:1400000});expect(await waitForWorker(h.ctx,h.c,h.opts)).toEqual({kind:"timeout"});expect(h.logs).toHaveLength(0);
