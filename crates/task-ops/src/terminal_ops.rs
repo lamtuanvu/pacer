@@ -147,15 +147,40 @@ fn internal(error: impl std::fmt::Display) -> CoreError {
     CoreError::new(Code::Internal, error.to_string())
 }
 
+fn marker_path(ctx: &Ctx, id: &str) -> PathBuf {
+    root(ctx).join(id).join("published.json")
+}
+
+/// The "last published" marker, in the same format the TypeScript registry writes. It lives
+/// beside `record.json` so the TypeScript liveness pump, another front door and a restarted
+/// service all compare against the same baseline. `rev` comes from the authoritative stored
+/// record; liveness comes from Core's presentation.
+fn present_marker(stored: &Map<String, Value>, presented: &Value) -> Value {
+    json!({
+        "live": presented.get("live").and_then(Value::as_bool).unwrap_or(false),
+        "exit": presented.get("exit").filter(|value| value.is_null() || value.is_number()).cloned().unwrap_or(Value::Null),
+        "rev": stored.get("rev").cloned().unwrap_or_else(|| json!(1)),
+    })
+}
+
 /// Publishes the same `terminal` entity event the TypeScript registry does: the presented
 /// record for a create, rename or liveness/state change, and `{ removed: true }` on close.
-fn publish_terminal(ctx: &Ctx, id: &str, value: Option<&Value>) {
+/// The marker advances only after the event reached the outbox, so a failed publish is retried
+/// by the liveness check instead of losing the change.
+fn publish_terminal(ctx: &Ctx, id: &str, value: Option<&Value>, marker: &Value) {
     let data = match value {
         Some(record) => json!({"kind": "terminal", "id": id, "value": record}),
         None => json!({"kind": "terminal", "id": id, "removed": true}),
     };
     let event = json!({"type": "entity", "data": data});
-    for error in pacer_store::publish(ctx, &[event]).errors {
+    let errors = pacer_store::publish(ctx, &[event]).errors;
+    if errors.is_empty() {
+        let text = quoted::stringify(marker);
+        if let Err(error) = write_private(&marker_path(ctx, id), text.as_bytes()) {
+            eprintln!("pacer: terminal marker write failed: {error}");
+        }
+    }
+    for error in errors {
         eprintln!("pacer: terminal publication failed: {error}");
     }
 }
@@ -404,7 +429,12 @@ async fn rename(
         advance(&mut stored, expect);
         write_stored(ctx, id, &stored)?;
         let presented = present(bridge, id).await?;
-        publish_terminal(ctx, id, Some(&presented));
+        publish_terminal(
+            ctx,
+            id,
+            Some(&presented),
+            &present_marker(&stored, &presented),
+        );
         Ok(presented)
     })
     .await
@@ -428,7 +458,7 @@ async fn close(
         stored.insert("state".into(), json!("closed"));
         advance(&mut stored, expect);
         write_stored(ctx, id, &stored)?;
-        publish_terminal(ctx, id, None);
+        publish_terminal(ctx, id, None, &json!({"removed": true}));
         Ok(json!({"closed": true}))
     })
     .await
@@ -598,7 +628,12 @@ async fn create(
             record.insert("error".into(), quoted::from_utf8(json!(error)));
             write_stored(ctx, &id, &record)?;
             if let Ok(presented) = present(bridge, &id).await {
-                publish_terminal(ctx, &id, Some(&presented));
+                publish_terminal(
+                    ctx,
+                    &id,
+                    Some(&presented),
+                    &present_marker(&record, &presented),
+                );
             }
             started?;
             return Err(CoreError::new(Code::NotAllowed, "Could not start terminal").hint(error));
@@ -606,7 +641,12 @@ async fn create(
         record.insert("state".into(), json!("running"));
         write_stored(ctx, &id, &record)?;
         let presented = present(bridge, &id).await?;
-        publish_terminal(ctx, &id, Some(&presented));
+        publish_terminal(
+            ctx,
+            &id,
+            Some(&presented),
+            &present_marker(&record, &presented),
+        );
         Ok(presented)
     })
     .await
@@ -815,6 +855,13 @@ mod tests {
         }
     }
 
+    /// The marker is the on-disk baseline the TypeScript liveness pump reads; its format must
+    /// stay in sync with `src/terminal/workspace.ts`.
+    fn marker(c: &Ctx, id: &str) -> Value {
+        let bytes = fs::read(marker_path(c, id)).unwrap();
+        quoted::parse_file(&bytes).unwrap()
+    }
+
     #[tokio::test]
     async fn create_rename_and_close_publish_terminal_entity_events() {
         let dir = tempfile::tempdir().unwrap();
@@ -840,6 +887,10 @@ mod tests {
         assert_eq!(events[0]["envelope"]["data"]["kind"], "terminal");
         assert_eq!(events[0]["envelope"]["data"]["id"], id);
         assert!(events[0]["envelope"]["data"]["value"].is_object());
+        assert_eq!(
+            marker(&c, &id),
+            json!({"live": true, "exit": Value::Null, "rev": 1})
+        );
 
         call(
             &c,
@@ -854,6 +905,10 @@ mod tests {
         assert_eq!(events[1]["envelope"]["data"]["kind"], "terminal");
         assert_eq!(events[1]["envelope"]["data"]["id"], id);
         assert_eq!(events[1]["envelope"]["data"]["value"]["title"], "shell"); // the bridge's presentation
+        assert_eq!(
+            marker(&c, &id),
+            json!({"live": true, "exit": Value::Null, "rev": 2})
+        );
 
         call(
             &c,
@@ -868,6 +923,16 @@ mod tests {
         assert_eq!(
             events[2]["envelope"]["data"],
             json!({"kind": "terminal", "id": id, "removed": true})
+        );
+        assert_eq!(marker(&c, &id), json!({"removed": true}));
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            fs::metadata(marker_path(&c, &id))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
         );
     }
 }

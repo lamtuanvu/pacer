@@ -3,12 +3,12 @@ import { createSession } from "../src/serve/app-auth";
 import { startServer } from "../src/serve/http";
 import { callOp, opNames } from "../src/api/ops";
 import { fakeCtx } from "./helpers";
-import { createTerminal, listTerminals, resetTerminalObservation, terminalDirectory, terminalLivenessEvents } from "../src/terminal/workspace";
+import { createTerminal, listTerminals, terminalDirectory, terminalLivenessEvents } from "../src/terminal/workspace";
 import { readOutboxSince } from "../src/link/store";
 import { parseOutboxEvent } from "../src/link/envelope";
 import { Recording } from "../src/session/recording";
 import { FrameType, WireDecoder, wire } from "../src/session/framing";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 const canBind = (() => { try { const server = Bun.serve({ port: 0, fetch: () => new Response("ok") }); server.stop(true); return true; } catch { return false; } })();
@@ -34,21 +34,24 @@ test("terminal operations create one shell, list it, rename with a revision and 
   }
 });
 
-test("terminal create, rename and close publish terminal entity events", async () => {
+test("terminal create, rename and close publish terminal entity events and advance the marker", async () => {
   const ctx = fakeCtx({ env: { ...process.env } });
-  resetTerminalObservation(ctx.pacerHome);
   const terminalEvents = () => readOutboxSince(ctx, 0).flatMap(entry => {
     const event = parseOutboxEvent(entry.envelope);
     return event?.type === "entity" && event.data.kind === "terminal" ? [event.data] : [];
   });
+  const marker = (id: string) => JSON.parse(readFileSync(join(ctx.pacerHome, "terminals", id, "published.json"), "utf8"));
   const created = await callOp(ctx, "terminal.create", { request_id: "events-shell", kind: "shell", cwd: ctx.home }) as { id: string; rev: number; title: string };
   try {
     expect(terminalEvents()).toEqual([{ kind: "terminal", id: created.id, value: expect.objectContaining({ id: created.id, title: created.title }) }]);
+    expect(marker(created.id)).toMatchObject({ rev: created.rev });
     const renamed = await callOp(ctx, "terminal.rename", { id: created.id, title: "Renamed", expect_rev: created.rev }) as { rev: number };
     expect(terminalEvents().map(event => event.id)).toEqual([created.id, created.id]);
     expect(terminalEvents()[1]?.value).toMatchObject({ id: created.id, title: "Renamed", rev: renamed.rev });
+    expect(marker(created.id)).toMatchObject({ rev: renamed.rev });
     await callOp(ctx, "terminal.close", { id: created.id, expect_rev: renamed.rev });
     expect(terminalEvents()[2]).toEqual({ kind: "terminal", id: created.id, removed: true });
+    expect(marker(created.id)).toEqual({ removed: true });
   } finally {
     const active = (await callOp(ctx, "terminal.list", {}) as { id: string; rev: number }[]).find(tab => tab.id === created.id);
     if (active) await callOp(ctx, "terminal.close", { id: active.id, expect_rev: active.rev });
@@ -57,26 +60,58 @@ test("terminal create, rename and close publish terminal entity events", async (
 
 test("a failed terminal launch publishes the failed state before refusing", async () => {
   const ctx = fakeCtx({ env: { ...process.env } });
-  resetTerminalObservation(ctx.pacerHome);
   await expect(createTerminal(ctx, { requestId: "failed-launch", kind: "shell", cwd: ctx.home }, { start: () => ({ error: "boom" }) })).rejects.toMatchObject({ code: "not_allowed" });
   const events = readOutboxSince(ctx, 0).flatMap(entry => parseOutboxEvent(entry.envelope));
   expect(events).toHaveLength(1);
   expect(events[0]).toMatchObject({ type: "entity", data: { kind: "terminal", value: { live: false } } });
 });
 
-test("a registry shell exit produces one pushed liveness event", async () => {
+test("an exit after a fresh observer starts is published once; rename and close are not duplicated", async () => {
+  // A fresh ctx with the same home models a restarted service or the background Worker: no
+  // in-memory baseline exists, so the on-disk marker is the only source of truth.
   const ctx = fakeCtx({ env: { ...process.env } });
-  resetTerminalObservation(ctx.pacerHome);
+  const observer = fakeCtx({ home: ctx.home, pacerHome: ctx.pacerHome, env: { ...process.env } });
   const created = await createTerminal(ctx, { requestId: "exit-shell", kind: "shell", cwd: ctx.home }, { start: () => ({ pid: 99999999 }) });
-  // The first observation is a baseline; an exit file is what the session host writes on shell exit.
-  expect(terminalLivenessEvents(ctx)).toEqual([]);
+  const pushed = async (c: typeof ctx) => (await terminalLivenessEvents(c)).flatMap(event => parseOutboxEvent(event));
+  expect(await pushed(observer)).toEqual([]);
   writeFileSync(join(terminalDirectory(ctx, created.id), "exit"), "7");
   // A refetch racing the pump must not consume the exit signal.
-  await listTerminals(ctx);
-  const events = terminalLivenessEvents(ctx);
-  expect(events).toEqual([{ type: "entity", data: { kind: "terminal", id: created.id, value: expect.objectContaining({ id: created.id, live: false, exit: 7 }) } }]);
-  expect(terminalLivenessEvents(ctx)).toEqual([]);
-  await callOp(ctx, "terminal.close", { id: created.id, expect_rev: created.rev });
+  await listTerminals(observer);
+  expect(await pushed(observer)).toEqual([{ type: "entity", data: { kind: "terminal", id: created.id, value: expect.objectContaining({ id: created.id, live: false, exit: 7 }) } }]);
+  expect(await pushed(observer)).toEqual([]);
+  // A rename on the "request thread" publishes once; the Worker does not repeat it.
+  const renamed = await callOp(ctx, "terminal.rename", { id: created.id, title: "Renamed", expect_rev: created.rev }) as { rev: number };
+  const added = (await terminalLivenessEvents(observer)).flatMap(event => parseOutboxEvent(event));
+  expect(added).toEqual([]);
+  expect(JSON.parse(readFileSync(join(terminalDirectory(ctx, created.id), "published.json"), "utf8"))).toMatchObject({ rev: renamed.rev });
+  await callOp(ctx, "terminal.close", { id: created.id, expect_rev: renamed.rev });
+  expect(await pushed(observer)).toEqual([]);
+});
+
+test("a failed publish leaves the marker untouched and is retried on the next check", async () => {
+  const ctx = fakeCtx({ env: { ...process.env } });
+  const created = await createTerminal(ctx, { requestId: "retry-shell", kind: "shell", cwd: ctx.home }, { start: () => ({ pid: 99999999 }) });
+  const dir = terminalDirectory(ctx, created.id);
+  writeFileSync(join(dir, "exit"), "3");
+  const marker = join(dir, "published.json"), before = readFileSync(marker, "utf8");
+  const failed = await terminalLivenessEvents(ctx, { publish: async () => ({ seq: 0, transports: [], errors: ["outbox down"] }) });
+  expect(failed).toEqual([]);
+  expect(readFileSync(marker, "utf8")).toBe(before);
+  const events = await terminalLivenessEvents(ctx);
+  expect(events).toEqual([{ type: "entity", data: { kind: "terminal", id: created.id, value: expect.objectContaining({ live: false, exit: 3 }) } }]);
+  expect(await terminalLivenessEvents(ctx)).toEqual([]);
+});
+
+test("the liveness check spawns no ps when no terminal has a live pid", async () => {
+  const ctx = fakeCtx({ env: { ...process.env } });
+  await createTerminal(ctx, { requestId: "dead-shell", kind: "shell", cwd: ctx.home }, { start: () => ({ pid: 99999999 }) });
+  const original = Bun.spawnSync;
+  let ps = 0;
+  (Bun as any).spawnSync = (argv: string[], ...rest: any[]) => { if (argv?.[0] === "ps") ps++; return (original as any)(argv, ...rest); };
+  try {
+    expect(await terminalLivenessEvents(ctx)).toEqual([]);
+    expect(ps).toBe(0);
+  } finally { (Bun as any).spawnSync = original; }
 });
 
 test("terminal operations reject argv and executor-role callers", async () => {

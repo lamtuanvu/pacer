@@ -176,6 +176,9 @@ export function pumpOnceOpts(spawnRunner: SpawnRunner): { poll: true; spawnRunne
  *  diffs — spec §4) leaves the per-tick path: the bounded snapshot read model
  *  runs at most this often, and always on a periodic full reconcile. */
 const STRATEGY_PASS_SECONDS = 15;
+/** Shell exits must reach clients in ~2 s, not after the 15 s taskOnly pass or a quiet tick. */
+const TERMINAL_LIVENESS_MS = 2000;
+const terminalLivenessAt = new Map<string, number>();
 const strategyPasses = new Map<string, number>();
 const statusPasses = new Map<string, Status>();
 const notificationContexts = new Map<string, Awaited<ReturnType<typeof readModelContext>>>();
@@ -224,6 +227,14 @@ export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps,opts:PumpOp
   const ledger=opts.ledger??defaultLedgerApi;
   const recoveredEvents = await recoverPumpPublish(ctx,ledger);
   const recoveredNotifications = pendingPumpNotifications(ctx);
+  // Independent of task/status work: a quiet poll still checks the registry, but only every
+  // ~2 s, and the check itself skips closed terminals and spawns `ps` only for a live pid.
+  let pushedTerminalEvents:OutboxEvent[]=[];
+  const nowMs=Date.now();
+  if(nowMs-(terminalLivenessAt.get(ctx.pacerHome)??-Infinity)>=TERMINAL_LIVENESS_MS){
+    terminalLivenessAt.set(ctx.pacerHome,nowMs);
+    pushedTerminalEvents=await terminalLivenessEvents(ctx).catch(()=>[]);
+  }
   const lastPass = strategyPasses.get(ctx.pacerHome);
   const taskOnly = opts.poll === true && !opts.reconcile && lastPass !== undefined
     && ctx.now >= lastPass && ctx.now - lastPass < STRATEGY_PASS_SECONDS
@@ -233,8 +244,8 @@ export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps,opts:PumpOp
   if (taskOnly && !recoveredNotifications.length && taskChangesHead(ctx) === ledger.readCursor(ctx)
     && !ledger.nonTerminalTaskIds(ctx).length && !ledger.liveTaskIds(ctx).length
     && !ledger.registryTaskIds(ctx).length
-    && !Object.values(loadOrcaState(ctx).workers).some(w => w.taskId && w.terminal)) return recoveredEvents;
-  const lifecycleEvents:OutboxEvent[]=[...recoveredEvents];
+    && !Object.values(loadOrcaState(ctx).workers).some(w => w.taskId && w.terminal)) return [...recoveredEvents,...pushedTerminalEvents];
+  const lifecycleEvents:OutboxEvent[]=[...recoveredEvents,...pushedTerminalEvents];
   const agentRevision=agentSessionsRevision(ctx),agentSeen=join(ctx.pacerHome,'link','agent-sessions-seen.json');
   const priorAgentRevision=readJson<string>(agentSeen);
   if(priorAgentRevision!==agentRevision){
@@ -259,9 +270,6 @@ export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps,opts:PumpOp
     await drainQueue(ctx, opts.spawnRunner).catch(() => {});
   }
   const latest=readLatest(ctx),out:OutboxEvent[]=[];
-  // A registry shell can exit with no other API write; push the liveness change instead of
-  // making clients poll terminal.list to discover it.
-  out.push(...terminalLivenessEvents(ctx));
   let st:Status;
   try{st=taskOnly?statusPasses.get(ctx.pacerHome)!:await deps.status(ctx);}catch(e){const body=clip(e instanceof Error?e.message:String(e),LIMITS.body),prev=latest.alerts.find(a=>a.key==="status-error");
     if(prev?.body!==body)out.push(alert({key:"status-error",level:"error",title:"Status could not be refreshed",body,error:body,at:ctx.now})); if(out.length)await deps.publish(ctx,out); return [...lifecycleEvents,...expiredEvents,...out];}
