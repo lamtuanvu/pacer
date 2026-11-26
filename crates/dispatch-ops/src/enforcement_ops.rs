@@ -758,9 +758,11 @@ pub fn dispatch_enforcement<'a>(
         string_issues("repo", p.get("repo"), Some(4096), &mut issues);
         finish(issues)?;
         let repo_input = p["repo"].as_str().unwrap_or_default();
-        let strategy = load_strategy(&ctx.pacer_home).map_err(internal)?;
+        // TS resolves the repo before loading the strategy; keep that order so a
+        // relative, unregistered repo is refused `invalid_input` in both paths.
         let projects = read_project_strategies(&ctx.pacer_home).map_err(policy_error)?;
         let repo = policy_repo(ctx, repo_input, &projects)?;
+        let strategy = load_strategy(&ctx.pacer_home).map_err(internal)?;
         let repo_path = repo["path"].as_str().unwrap_or_default().to_owned();
         let now = now(ctx);
         let Some((consent, attempts)) = read_schedule(ctx) else {

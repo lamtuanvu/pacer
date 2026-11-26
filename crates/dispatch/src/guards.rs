@@ -20,7 +20,7 @@ use std::{
     time::Duration,
 };
 
-use crate::version_cache::VersionCache;
+use crate::{readonly::ReadOnlyStore, version_cache::VersionCache};
 
 #[cfg(test)]
 #[path = "guards/tests.rs"]
@@ -790,11 +790,20 @@ fn scheduled_repo(ctx: &Ctx) -> Option<(String, String)> {
             task["attemptStartedAt"].as_f64().unwrap_or(0.0),
         ].into_iter().fold(0.0, f64::max)
     };
-    let mut tasks: Vec<Value> = pacer_store::TaskStore::open(&ctx.pacer_home)
-        .ok()
-        .and_then(|mut store| store.list_active_and_recent(ctx.now - 86_400.0).ok())
+    // Read-only: a parts call must never checkpoint or grow the task database.
+    let store = ReadOnlyStore::open(&ctx.pacer_home, false).ok();
+    let mut tasks: Vec<Value> = store
+        .as_ref()
+        .and_then(|store| {
+            store.query(
+                "SELECT record FROM tasks WHERE archived=0 AND (updated_at>=? OR state IN ('queued','running') OR (state='needs_input' AND json_type(record, '$.question.answer') IS NULL AND json_extract(record, '$.retriedBy') IS NULL AND NOT COALESCE(json_extract(record, '$.dismissed'),0))) ORDER BY id DESC",
+                [ctx.now - 86_400.0],
+                |row| row.get::<_, String>(0),
+            ).ok()
+        })
         .unwrap_or_default()
         .into_iter()
+        .filter_map(|record| serde_json::from_str::<Value>(&record).ok())
         .filter(|task| {
             matches!(task["state"].as_str(), Some("queued" | "running"))
                 || task["dismissed"] != true && updated_at(task) >= ctx.now - 86_400.0
@@ -1188,17 +1197,18 @@ fn file_identity(path: &str) -> Value {
 /// with the same keys. A missing row is `uncertified`, matching TypeScript.
 fn certificate_status(ctx: &Ctx, target: &EnforcementTarget) -> Value {
     let uncertified = || json!({"state": "uncertified", "reason": "Native subagent control has not been verified"});
-    let row = pacer_store::TaskStore::open(&ctx.pacer_home)
+    // The read-only view cannot checkpoint the WAL (explain writes nothing).
+    let rows = ReadOnlyStore::open(&ctx.pacer_home, false)
         .ok()
-        .and_then(|mut db| {
-            let conn = db.connection().ok()?;
-            conn.query_row(
+        .and_then(|store| {
+            store.query(
                 "SELECT fingerprint,probed_at,expires FROM enforcement_certificates WHERE target=?",
                 [target_key(target)],
                 |row| Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?, row.get::<_, f64>(2)?)),
             ).ok()
-        });
-    let Some((fingerprint, probed_at, expires)) = row else { return uncertified(); };
+        })
+        .unwrap_or_default();
+    let Some((fingerprint, probed_at, expires)) = rows.into_iter().next() else { return uncertified(); };
     if expires <= ctx.now {
         return json!({"state": "stale", "reason": "Native subagent control verification expired",
             "probedAt": probed_at, "expiresAt": expires});

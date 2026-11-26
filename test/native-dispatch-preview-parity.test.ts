@@ -490,6 +490,9 @@ const P = "dispatch.preview", E = "dispatch.explain";
 // Core's background certification check may cache the planner binary's version at any time, so
 // explanations follow a preview, which checks every version first.
 const FRONT: Step[] = [
+  // A forwarded explain goes to Core, whose own checkedVersions is independent of the
+  // native cache. Run it first so both twins' cores see the same (empty) version cache.
+  { op: E, params: goal({ via: "dispatch" }), native: false },
   { op: P, params: goal({ kind: "debug" }), native: true },
   { op: P, params: goal({ delegationEnforcement: "cooperative" }), native: true },
   { op: P, params: { repo: KEY, goal: "g", kind: "docs" }, native: true },
@@ -499,7 +502,6 @@ const FRONT: Step[] = [
   { op: E, params: explain({ executor: "codex", delegationEnforcement: "cooperative" }), native: true },
   { op: E, params: explain({ strategyDraft: { from: "default", set: { dispatch: { onNoMatch: "fail" } } } }), native: true },
   { op: E, params: explain({ kind: "nope" }), native: true },
-  { op: E, params: goal({ via: "dispatch" }), native: false },
   { op: P, params: { repo: "app", goal: "g" }, native: false },
   { op: P, params: { repo: APP, goal: "" }, native: false },
 ];
@@ -507,8 +509,8 @@ const FRONT: Step[] = [
 for (const transport of ["stdio", "http"] as const) {
   test.skipIf(!front)(`${transport}: previews and explains ladder dispatch natively`, async () => {
     const replies = await compare(transport, { strategy: LADDER, registered: true, setup: running("codex") }, FRONT);
-    expect(replies[0]).toContain("Codex tool-result observation is not implemented");
-    expect(replies[2]).toContain('"task":{"kind":"docs"');
+    expect(replies[1]).toContain("Codex tool-result observation is not implemented");
+    expect(replies[3]).toContain('"task":{"kind":"docs"');
   }, 180_000);
 
   test.skipIf(!front)(`${transport}: a failing --version, a project policy and learned fit`, async () => {
