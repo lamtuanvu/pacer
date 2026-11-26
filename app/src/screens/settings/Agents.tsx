@@ -77,11 +77,14 @@ export function AgentsTab({ agent: requested, account: requestedAccount, initial
     .map(id => rows?.find(row => row.id === id) ?? known.current.get(id)).filter((row): row is ExecutorRow => !!row && row.id !== plannerId);
   const all = [...(plannerRow ? [plannerRow] : []), ...executorRows];
   // Accounts that no agent uses yet still get a page: usage, sign-in, and a way to add them as an agent.
-  const spare = (accounts.data ?? []).filter(account => !(rows ?? []).some(row => row.account === account.name));
+  // Only once the agents are known can an account be "without an agent".
+  const spare = rows ? (accounts.data ?? []).filter(account => !rows.some(row => row.account === account.name)) : [];
   const spareSelected = requestedAccount ? spare.find(account => account.name === requestedAccount) : undefined;
-  const selected = spareSelected ? undefined : all.find(row => row.id === requested) ?? all[0];
-  // The agent this link named was removed (here or elsewhere) while the page was open.
-  const removed = !!requested && !spareSelected && !all.some(row => row.id === requested) && known.current.has(requested) ? known.current.get(requested)! : null;
+  // ?account= naming an account an agent uses opens that agent.
+  const selected = spareSelected ? undefined : all.find(row => row.id === requested) ?? (requestedAccount ? all.find(row => row.account === requestedAccount) : undefined) ?? all[0];
+  // The agent this link named disappeared through a change made elsewhere (a removal here clears the link).
+  const removedHere = useRef(new Set<string>());
+  const removed = !!requested && !spareSelected && !removedHere.current.has(requested) && !all.some(row => row.id === requested) && known.current.has(requested) ? known.current.get(requested)! : null;
   const [filter, setFilter] = useState("");
   const addAgent = useRef<HTMLAnchorElement>(null);
   const [saving, setSaving] = useState(false), [leaving, setLeaving] = useState(false), [refreshedAt, setRefreshedAt] = useState<number | null>(null), [refreshingAll, setRefreshingAll] = useState(false);
@@ -160,10 +163,15 @@ export function AgentsTab({ agent: requested, account: requestedAccount, initial
   }, [shown, side]);
   const needle = filter.trim().toLowerCase();
   const matches = (...words: (string | null | undefined)[]) => !needle || words.some(word => word?.toLowerCase().includes(needle));
+  const captionOf = (row: ExecutorRow) => models.errors[row.id] ? { text: "Models could not load", warn: true } : agentCaption(models.draftOf(row.id), row.model);
+  // Groups, headings and the empty message all follow the filtered result.
+  const rowMatches = (row: ExecutorRow) => matches(executorLabel(row.id), row.id, captionOf(row).text);
+  const spareMatches = (account: Account) => matches(account.name, accountLabel({ ...account, agent: accountAgent(account) }));
+  const plannerShown = plannerRow && rowMatches(plannerRow) ? plannerRow : null;
+  const executorsShown = executorRows.filter(rowMatches), spareShown = spare.filter(spareMatches);
   const item = (row: ExecutorRow) => {
-    const caption = models.errors[row.id] ? { text: "Models could not load", warn: true } : agentCaption(models.draftOf(row.id), row.model);
+    const caption = captionOf(row);
     const off = row.rank !== "planner" && !(settings.draft?.runners[row.id]?.enabled ?? row.enabled);
-    if (!matches(executorLabel(row.id), row.id, caption.text)) return null;
     return <li key={row.id}><ListRowLink layout="nav" href={scoped(agentsHref(row.id))} aria-current={row.id === selected?.id ? "page" : undefined}>
       <AgentMark agent={markAgent(row.id, row.account)} size={24} labelled={false} />
       <span className="pc-agent-list__text"><strong>{executorLabel(row.id)}</strong><span className={caption.warn ? "pc-agent-card__caption pc-agent-card__caption--warn" : "pc-agent-card__caption"}>{off ? `Off · ${caption.text}` : caption.text}</span></span>
@@ -177,15 +185,15 @@ export function AgentsTab({ agent: requested, account: requestedAccount, initial
       <Button variant="ghost" size="sm" busy={refreshingAll} disabled={!state.connected} aria-label="Refresh all agents: models, sign-in and usage" onClick={() => void refreshAll()}><Icon name="refresh" />Refresh all</Button>
     </div>
     {!rows ? <p className="u3-muted" role="status">Loading agents…</p> : !all.length ? <p className="u3-muted">No agents yet. Add an agent.</p> : <>
-      {plannerRow && <div className="pc-agent-list__group"><span className="pc-agent-list__heading" id="agents-planner">Planner</span><ul aria-labelledby="agents-planner">{item(plannerRow)}</ul></div>}
-      {executorRows.length > 0 && <div className="pc-agent-list__group"><span className="pc-agent-list__heading" id="agents-executors">Executors</span><ul aria-labelledby="agents-executors">{executorRows.map(item)}</ul></div>}
+      {plannerShown && <div className="pc-agent-list__group"><span className="pc-agent-list__heading" id="agents-planner">Planner</span><ul aria-labelledby="agents-planner">{item(plannerShown)}</ul></div>}
+      {executorsShown.length > 0 && <div className="pc-agent-list__group"><span className="pc-agent-list__heading" id="agents-executors">Executors</span><ul aria-labelledby="agents-executors">{executorsShown.map(item)}</ul></div>}
     </>}
-    {spare.some(account => matches(account.name, accountLabel({ ...account, agent: accountAgent(account) }))) && <div className="pc-agent-list__group"><span className="pc-agent-list__heading" id="agents-spare">Accounts without an agent</span><ul aria-labelledby="agents-spare">{spare.filter(account => matches(account.name, accountLabel({ ...account, agent: accountAgent(account) }))).map(account =>
+    {spareShown.length > 0 && <div className="pc-agent-list__group"><span className="pc-agent-list__heading" id="agents-spare">Accounts without an agent</span><ul aria-labelledby="agents-spare">{spareShown.map(account =>
       <li key={account.name}><ListRowLink layout="nav" href={scoped(accountHref(account.name))} aria-current={account.name === spareSelected?.name ? "page" : undefined}>
         <AgentMark agent={markAgent(accountAgent(account), account.name)} size={24} labelled={false} />
         <span className="pc-agent-list__text"><strong>{accountLabel({ ...account, agent: accountAgent(account) })}</strong><span className="pc-agent-card__caption">No agent uses it</span></span>
       </ListRowLink></li>)}</ul></div>}
-    {needle && !all.some(row => matches(executorLabel(row.id), row.id)) && !spare.some(account => matches(account.name)) && <p className="u3-muted" role="status">No agent matches “{filter.trim()}”.</p>}
+    {needle && rows && !plannerShown && !executorsShown.length && !spareShown.length && <p className="u3-muted" role="status">No agent matches “{filter.trim()}”.</p>}
   </nav>;
   const detail = <section className="pc-agent-detail" aria-label={selected ? `${executorLabel(selected.id)} details` : spareSelected ? `${spareSelected.name} details` : "Agent details"}>
     {dialogs.dialog}
@@ -198,7 +206,13 @@ export function AgentsTab({ agent: requested, account: requestedAccount, initial
       settings={settings} models={models} accounts={accounts.data} config={settingsConfig.data} reloadAccounts={accounts.reload} independent={independent} busy={saving}
       fallback={fallbackValue === undefined ? undefined : { on: fallbackOn, reload: settingsConfig.reload, complex: coverageNow.counts.complex, plannerFits: coverageNow.plannerFits, target: targets.complex }}
       onRemoving={active => { removing.current = active; }}
-      onRemoved={() => setTimeout(() => addAgent.current?.focus(), 0)} />
+      onRemoved={() => {
+        const id = selected.id;
+        removedHere.current.add(id);
+        // The link no longer names an agent that exists: drop it so the page shows no stale selection.
+        if (requested === id) location.hash = scoped(agentsHref());
+        setTimeout(() => addAgent.current?.focus(), 0);
+      }} />
       : rows && <p className="u3-muted">Add an agent to give it delegated work.</p>}
     {freesPlanner && <Card tone="warn"><strong>These changes free the planner</strong><span className="u3-muted">Complex tasks would go to an executor with a {tierLabels[targets.complex].toLowerCase()} model instead of {executorLabel(plannerId)}, so the planner stops spending its quota on them.</span></Card>}
     <SaveBar count={count} busy={saving || settings.busy || settings.enabledBusy || models.busy} onSave={() => void saveAll()} onDiscard={discard} blockedReason={blockedReason} notice={models.notice ?? undefined}>

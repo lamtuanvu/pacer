@@ -331,3 +331,13 @@ test('UI-6: in page (no side panel) the agent list and its Find field come befor
   expect(html).toContain('<span class="sr-only">Find an agent</span>');
   expect(html).not.toContain('pc-page-columns');
 });
+
+test('?account= naming an account an agent uses opens that agent; nothing is "without an agent" before the agents load', () => {
+  const list = [{ name: 'team', kind: 'codex', signedIn: true, runners: [executor.id] }, { name: 'spare', kind: 'codex' }] as any;
+  const other = { ...executor, id: 'claude-code', agent: 'claude-code', account: 'claude-code', host: null };
+  const html = renderAgents(withState({ executors: [other, executor] }), { account: 'team', initialAccounts: list });
+  expect(html).toContain('<a href="#/settings/agents?agent=codex%23team%40devbox" aria-current="page"');
+  const loading = renderAgents({ ...withState({}), snapshot: { at: 1000, accounts: [], hosts: [], repos: [] } } as any, { initialAccounts: list });
+  expect(loading).toContain('Loading agents…');
+  expect(loading).not.toContain('Accounts without an agent');
+});

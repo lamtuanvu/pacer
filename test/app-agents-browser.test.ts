@@ -16,7 +16,7 @@ beforeAll(async () => {
   browser = await chromium.launch({ executablePath: browserPath, headless: true });
 }, 20000);
 afterAll(async () => { await browser?.close(); }, 20000);
-async function open(fn: (page: Page) => Promise<void>, viewport = { width: 1440, height: 1000 }, hash = '') {
+async function open(fn: (page: Page) => Promise<void>, viewport = { width: 1440, height: 1000 }, hash = '', seed = '') {
   const page = await browser.newPage({ viewport });
   page.setDefaultTimeout(3000);
   const errors: string[] = [];
@@ -24,6 +24,7 @@ async function open(fn: (page: Page) => Promise<void>, viewport = { width: 1440,
   try {
     await page.setContent(`<style>${styles}</style><div id="app"></div>`);
     if (hash) await page.evaluate(value => { location.hash = value; }, hash);
+    if (seed) await page.evaluate(name => { (window as any)[name] = true; }, seed);
     await page.addScriptTag({ content: script });
     await page.getByRole('navigation', { name: 'Agents' }).waitFor();
     await fn(page);
@@ -200,6 +201,10 @@ browserTest('Remove asks first and then focuses Add agent; a failed check card n
     await page.getByRole('dialog').getByRole('button', { name: 'Remove', exact: true }).click();
     await page.waitForFunction(() => document.activeElement?.textContent?.includes('Add agent'));
     expect(await fixture<any>(page, 'settings')).toMatchObject({ order: ['opencode#tse'] });
+    // Removed here, not elsewhere: the link drops the removed agent and no alert appears.
+    await page.waitForFunction(() => !location.hash.includes('agent=codex'));
+    await page.waitForTimeout(100);
+    expect(await page.getByText('Removed elsewhere', { exact: true }).count()).toBe(0);
   });
 }, 20000);
 
@@ -308,6 +313,17 @@ browserTest('Find an agent filters the list; an agent removed elsewhere says so'
     await nav.getByRole('searchbox', { name: 'Find an agent' }).fill('tse');
     await page.waitForFunction(() => document.querySelectorAll('nav[aria-label="Agents"] li').length === 1);
     expect(await nav.locator('li').innerText()).toContain('tse');
+    // Headings and the empty message follow the filtered result.
+    expect(await nav.getByText('Planner', { exact: true }).count()).toBe(0);
+    await nav.getByRole('searchbox', { name: 'Find an agent' }).fill('opus');
+    await page.waitForFunction(() => document.querySelectorAll('nav[aria-label="Agents"] li').length === 1);
+    expect(await nav.locator('li').innerText()).toContain('Claude Code');
+    expect(await nav.getByText(/No agent matches/).count()).toBe(0);
+    expect(await nav.getByText('Executors', { exact: true }).count()).toBe(0);
+    await nav.getByRole('searchbox', { name: 'Find an agent' }).fill('zzz');
+    await nav.getByText('No agent matches “zzz”.').waitFor();
+    expect(await nav.locator('li').count()).toBe(0);
+    for (const heading of ['Planner', 'Executors', 'Accounts without an agent']) expect(await nav.getByText(heading, { exact: true }).count()).toBe(0);
     await nav.getByRole('searchbox', { name: 'Find an agent' }).fill('');
     await pick(page, 'tse');
     await page.evaluate(() => (window as any).agentsFixture.removeElsewhere('opencode#tse'));
@@ -331,4 +347,24 @@ browserTest('Find an agent is one field (no inner border) and nothing in the fac
     const overflow = await page.evaluate(() => [...document.querySelectorAll('.pc-agent-card *')].filter(el => el.getBoundingClientRect().right > el.closest('.pc-agent-card')!.getBoundingClientRect().right + 1).map(el => el.className));
     expect(overflow).toEqual([]);
   }, viewport);
+}, 20000);
+
+browserTest('Replace swaps a model the provider no longer offers and keeps its size and default', async () => {
+  await open(async page => {
+    await pick(page, 'tse');
+    await page.getByText('legacy-model is no longer offered by tse').waitFor();
+    await page.getByRole('button', { name: /^Replace legacy-model/ }).click();
+    const box = page.getByRole('combobox', { name: 'Replace legacy-model with' });
+    await page.waitForFunction(() => document.activeElement?.getAttribute('role') === 'combobox');
+    await box.fill('terastor-ai-pro');
+    await page.keyboard.press('Enter');
+    await page.getByRole('group', { name: 'Size of terastor-ai-pro', exact: true }).waitFor();
+    expect(await page.getByRole('group', { name: 'Size of legacy-model', exact: true }).count()).toBe(0);
+    // The listing suggests frontier for the replacement.
+    expect(await page.getByRole('group', { name: 'Size of terastor-ai-pro', exact: true }).getByRole('button', { name: 'Frontier' }).getAttribute('aria-pressed')).toBe('true');
+    await page.getByRole('combobox', { name: 'Add a model' }).waitFor();
+    await page.getByRole('button', { name: 'Save changes', exact: true }).click();
+    await page.getByRole('status').filter({ hasText: 'Agent settings saved' }).waitFor();
+    expect((await fixture<any>(page, 'models'))['opencode#tse'].models).toEqual([{ id: 'terastor-ai', tier: 'medium' }, { id: 'terastor-ai-pro', tier: 'frontier' }]);
+  }, undefined, '', 'agentsSeedLegacy');
 }, 20000);

@@ -26,6 +26,8 @@ const models: Record<string, RunnerModels> = {
   codex: { runner: 'codex', revision: '1', default: null, models: [] },
   'opencode#tse': { runner: 'opencode#tse', revision: '1', default: 'terastor-ai', models: [{ id: 'terastor-ai', tier: 'medium' }] },
 };
+// A declared model the provider no longer lists (for Replace), when the test asks for it before loading.
+if ((window as any).agentsSeedLegacy) models['opencode#tse']!.models.push({ id: 'legacy-model', tier: 'small' });
 const listing = { runner: 'opencode#tse', source: 'opencode', fetchedAt: 1800000000, provider: 'tse', models: [{ id: 'terastor-ai', context: 128000, tools: true, costOut: 2 }, { id: 'terastor-ai-pro', context: 1000000, tools: true, costOut: 12 }] };
 let writes = 0, modelWrites = 0, fail = false, hold = false, conflictNext = false, failing = false, fallback = 'on';
 let gone: string[] = [];
