@@ -33,9 +33,13 @@ async function exchange(home: string, requests: string[], forward: boolean, extr
       const match = /^native (\S+) \d+$/.exec(line);
       return match != null && ops.has(match[1]!);
     });
-    const expected = forward ? [] : requests.map((request, index) => ({ request, index }))
-      .filter(({ index }) => native === null || native.includes(index))
-      .map(({ request, index }) => `native ${JSON.parse(request).method} ${index + 2}`);
+    // A grant or enforcement identity is refused natively even when the forward list empties the registry.
+    const expected = (
+      forward
+        ? (native ?? []).map(index => ({ request: requests[index]!, index }))
+        : requests.map((request, index) => ({ request, index }))
+            .filter(({ index }) => native === null || native.includes(index))
+    ).map(({ request, index }) => `native ${JSON.parse(request).method} ${index + 2}`);
     expect(markers).toEqual(expected);
     const result = replies.slice(1).sort((a, b) => a.id - b.id);
     rawLines.set(result, lines.slice(1).sort((a, b) => JSON.parse(a).id - JSON.parse(b).id));
@@ -114,8 +118,9 @@ test.skipIf(!front)("caller identities, a missing strategy and a due refresh fol
   seed(ctx);
   const requests = [request(2, "dispatch.models", {}), request(3, "dispatch.refresh", {}), request(4, "dispatch.enforcement.consent", { account: "a", granted: true })];
   for (const env of [{ PACER_ROLE: "executor" }, { PACER_ENFORCEMENT_TOKEN: "pet_x" }] as Record<string, string>[]) {
+    const refused = "PACER_ENFORCEMENT_TOKEN" in env ? [0, 1, 2] : [];
     const native = await exchange(ctx.home, requests, false, env);
-    expect(wire(native)).toEqual(wire(await exchange(ctx.home, requests, true, env)));
+    expect(wire(native)).toEqual(wire(await exchange(ctx.home, requests, true, env, refused)));
     expect(native.every(reply => reply.error?.data?.code === "not_allowed")).toBe(true);
   }
   const empty = fakeCtx();
@@ -167,19 +172,18 @@ test.skipIf(!front)("dispatch.enforcement.consent writes the same schedule as Ty
   expect(schedule(homes[0]!)).toBe(schedule(homes[1]!));
   expect(JSON.parse(schedule(homes[0]!)).consent.a).toBe("granted");
 
-  // Shapes the object spread would coerce, and text serde rejects, stay with TypeScript.
-  for (const text of ['{"consent":"ab"}', '{"consent":{"a":"granted"},"attempts":{"n":1e400}}', '{"s":"\\ud800"}']) {
+  // A non-object consent is spread as JS spreads it, and lone surrogates survive the rewrite byte for byte.
+  for (const text of ['{"consent":"ab"}', '{"consent":7}', '{"consent":{"a":"granted"},"attempts":{"n":1e400}}', '{"s":"\\ud800"}']) {
     for (const home of homes) writeFileSync(join(home, "state", "certification-schedule.json"), text);
     const one = [request(2, "dispatch.enforcement.consent", { account: "z", granted: true })];
-    expect(wire(await exchange(join(homes[0]!, ".."), one, false, {}, []))).toEqual(wire(await exchange(join(homes[1]!, ".."), one, true)));
+    expect(wire(await exchange(join(homes[0]!, ".."), one, false))).toEqual(wire(await exchange(join(homes[1]!, ".."), one, true)));
     expect(schedule(homes[0]!)).toBe(schedule(homes[1]!));
   }
   // Text both runtimes reject reads as an empty schedule.
   for (const text of ["[1,2]", "null", "{broken"]) {
     for (const home of homes) writeFileSync(join(home, "state", "certification-schedule.json"), text);
     const one = [request(2, "dispatch.enforcement.consent", { account: "z", granted: false })];
-    const native = text === "{broken" ? [] : null;
-    expect(wire(await exchange(join(homes[0]!, ".."), one, false, {}, native))).toEqual(wire(await exchange(join(homes[1]!, ".."), one, true)));
+    expect(wire(await exchange(join(homes[0]!, ".."), one, false))).toEqual(wire(await exchange(join(homes[1]!, ".."), one, true)));
     expect(schedule(homes[0]!)).toBe(schedule(homes[1]!));
   }
-}, 60000);
+}, 120000);

@@ -14,7 +14,7 @@ const core = JSON.stringify([process.execPath, join(import.meta.dir, "../src/cli
 const OPS = "dispatch.dependencies,dispatch.dependencies.waive";
 
 /** Runs one stdio session; `forwardedIndexes` are requests the native front door must still forward. */
-async function exchange(home: string, requests: string[], forward: boolean, forwardedIndexes = new Set<number>(), extra: Record<string, string> = {}) {
+async function exchange(home: string, requests: string[], forward: boolean, forwardedIndexes = new Set<number>(), extra: Record<string, string> = {}, nativeIndexes: number[] = []) {
   const child = Bun.spawn([front!, "api", "--stdio"], {
     env: { ...childEnv(home), PATH: process.env.PATH ?? "/usr/bin:/bin",
       PACER_CORE_ARGV: core, PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off",
@@ -29,7 +29,10 @@ async function exchange(home: string, requests: string[], forward: boolean, forw
     const lines = stdout.trim().split("\n");
     expect(JSON.parse(lines[0]!).result?.protocol).toBe("3.0.0");
     const markers = stderr.split("\n").filter(line => /^native dispatch\.dependencies(\.waive)? \d+$/.test(line));
-    const expected = forward ? [] : requests.flatMap((r, index) => forwardedIndexes.has(index) ? [] : [`native ${JSON.parse(r).method} ${index + 2}`]);
+    // Grant callers are refused natively even when the forward list empties the registry.
+    const expected = forward
+      ? nativeIndexes.map(index => `native ${JSON.parse(requests[index]!).method} ${index + 2}`)
+      : requests.flatMap((r, index) => forwardedIndexes.has(index) ? [] : [`native ${JSON.parse(r).method} ${index + 2}`]);
     expect(markers).toEqual(expected);
     return lines.slice(1);
   } finally { if (child.exitCode === null) { child.kill("SIGTERM"); await child.exited; } }
@@ -92,11 +95,11 @@ function snapshot(from: string, to: string) {
   expect(copy.exitCode, copy.stderr.toString()).toBe(0);
 }
 
-async function both(ctx: Ctx, backup: string, requests: string[], forwardedIndexes = new Set<number>(), extra: Record<string, string> = {}) {
+async function both(ctx: Ctx, backup: string, requests: string[], forwardedIndexes = new Set<number>(), extra: Record<string, string> = {}, nativeIndexes: number[] = []) {
   const run = async (forward: boolean) => {
     rmSync(ctx.pacerHome, { recursive: true, force: true });
     snapshot(backup, ctx.pacerHome);
-    const lines = await exchange(ctx.home, requests, forward, forwardedIndexes, extra);
+    const lines = await exchange(ctx.home, requests, forward, forwardedIndexes, extra, nativeIndexes);
     return { lines, state: dump(ctx, ctx.now) };
   };
   const native = await run(false), forwarded = await run(true);
@@ -111,7 +114,7 @@ test.skipIf(!front)("dependency edits and waivers match forced forwarding in rep
   const backup = join(ctx.home, "backup");
   snapshot(ctx.pacerHome, backup);
   const ra = s.rev(s.a.id), rb = s.rev(s.b.id), rr = s.rev(s.root.id);
-  const split = `a${"😀".repeat(1500)}`;
+  const split = "a".repeat(1999) + "😀";
   const cases: [string, unknown][] = [
     ["dispatch.dependencies", { id: s.a.id, dependencies: [s.b.id, s.c.id, s.b.id, s.d.id], expect_rev: ra }],
     ["dispatch.dependencies", { id: s.a.id, dependencies: [], expect_rev: ra }],
@@ -155,9 +158,9 @@ test.skipIf(!front)("dependency edits and waivers match forced forwarding in rep
   expect(replies[18].result.nodes.find((n: { taskId: string }) => n.taskId === s.a.id).dependencies).toEqual([]);
   expect(replies.slice(15).every(r => r.error?.data?.code === "invalid_input" || r.result)).toBe(true);
 
-  // A cut through a surrogate pair cannot be held in a Rust string, so only that input stays on TypeScript.
-  const forwarded = await both(ctx, backup, [request(2, "dispatch.dependencies.waive", { id: s.a.id, dependency: s.g.id, reason: split, expect_rev: ra })], new Set([0]));
-  expect(nodeOf(forwarded[0], s.a.id).waivedChildren).toEqual([s.d.id, s.g.id].sort());
+  // A cut at 2000 UTF-16 units splits the emoji; native must store the same bytes Bun SQLite does.
+  const waived = await both(ctx, backup, [request(2, "dispatch.dependencies.waive", { id: s.a.id, dependency: s.g.id, reason: split, expect_rev: ra })], new Set());
+  expect(nodeOf(waived[0], s.a.id).waivedChildren).toEqual([s.d.id, s.g.id].sort());
 }, 120000);
 
 test.skipIf(!front)("dependency writes refuse executor and enforcement identities like the TypeScript core", async () => {
@@ -170,7 +173,8 @@ test.skipIf(!front)("dependency writes refuse executor and enforcement identitie
     request(3, "dispatch.dependencies.waive", { id: s.a.id, dependency: s.d.id, reason: "x", expect_rev: s.rev(s.a.id) }),
   ];
   for (const env of [{ PACER_ROLE: "executor" }, { PACER_ENFORCEMENT_TOKEN: "pet_x" }] as Record<string, string>[]) {
-    const replies = await both(ctx, backup, requests, new Set(), env);
+    const refused = "PACER_ENFORCEMENT_TOKEN" in env ? [0, 1] : [];
+    const replies = await both(ctx, backup, requests, new Set(), env, refused);
     expect(replies.map(r => r.error?.data?.code)).toEqual(["not_allowed", "not_allowed"]);
   }
 }, 60000);

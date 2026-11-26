@@ -238,27 +238,21 @@ async fn params_report_zod_issues_in_schema_order() {
 }
 
 #[test]
-fn reason_slices_utf16_units_and_forwards_split_pairs() {
+fn reason_slices_utf16_units_and_keeps_split_pairs() {
     let even = "😀".repeat(2000);
-    assert_eq!(reason_text(&even), Some("😀".repeat(1000).as_str()));
-    let odd = format!("a{}", "😀".repeat(1500));
-    assert_eq!(reason_text(&odd), None);
-    assert!(dependencies_waive_stays_forwarded(
-        "dispatch.dependencies.waive",
-        &json!({"reason": odd})
-    ));
-    assert!(!dependencies_waive_stays_forwarded(
-        "dispatch.dependencies.waive",
-        &json!({"reason": even})
-    ));
-    assert!(!dependencies_waive_stays_forwarded(
-        "dispatch.dependencies.waive",
-        &json!({"reason": format!("a{}", "😀".repeat(2000))})
-    ));
-    assert!(!dependencies_waive_stays_forwarded(
-        "dispatch.dependencies",
-        &json!({"reason": odd})
-    ));
+    let even_reason = reason_text(&even);
+    assert_eq!(even_reason.units().len(), REASON_MAX);
+    assert_eq!(even_reason.units()[0], 0xd83d);
+    assert_eq!(reason_bytes(&even_reason).len(), 4000);
+
+    let odd = format!("{}😀", "a".repeat(1999));
+    let odd_reason = reason_text(&odd);
+    assert_eq!(odd_reason.units().len(), REASON_MAX);
+    assert_eq!(odd_reason.units()[0], b'a' as u16);
+    assert_eq!(odd_reason.units()[1999], 0xd83d);
+    // Bun SQLite writes the lone high surrogate as CESU-8, which reads back as U+FFFD.
+    let odd_bytes = reason_bytes(&odd_reason);
+    assert_eq!(&odd_bytes[odd_bytes.len() - 4..], &[0x61, 0xed, 0xa0, 0xbd]);
     assert_eq!(
         js_trim("\u{feff}\u{2028} x \u{85}\u{180e}"),
         "x \u{85}\u{180e}"

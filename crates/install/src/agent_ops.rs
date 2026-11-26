@@ -12,9 +12,7 @@ use pacer_foundation::{
     Ctx,
     api::{Code, CoreError, OpFuture},
 };
-use rusqlite::Connection;
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
 
 /// The four agent integration ops this module secures, in bridge kind order.
 pub const AGENT_OPS: [&str; 4] = [
@@ -82,12 +80,17 @@ fn authorize(ctx: &Ctx, op: &str) -> Result<(), CoreError> {
     if op != "agent.preview" && ctx.env.get("PACER_ROLE").map(String::as_str) == Some("executor") {
         return Err(CoreError::new(Code::NotAllowed, EXECUTOR_REFUSAL));
     }
-    if ctx
+    if let Some(token) = ctx
         .env
         .get("PACER_ASSISTANT_GRANT")
-        .is_some_and(|grant| !grant.is_empty())
+        .filter(|grant| !grant.is_empty())
     {
-        return authorize_assistant_grant(ctx, &ctx.env["PACER_ASSISTANT_GRANT"]);
+        // Live grants resolve; no agent op is `assistant.tool`, so they still answer for nothing.
+        pacer_work::authorize_assistant_grant(ctx, token)?;
+        return Err(CoreError::new(
+            Code::NotAllowed,
+            "An assistant grant runs assistant.tool only.",
+        ));
     }
     if ctx
         .env
@@ -100,54 +103,6 @@ fn authorize(ctx: &Ctx, op: &str) -> Result<(), CoreError> {
         ));
     }
     Ok(())
-}
-
-/// Replicates `authorizeAssistantGrant` (`src/dispatch/work.ts`:129), which `authorizeWorkOperation`
-/// runs first when `PACER_ASSISTANT_GRANT` is set. A malformed token, or a token with no live row
-/// in `work_grants` (`tasks.db` under `pacer_home/state`) whose kind is `assistant`, is refused;
-/// a live assistant grant answers nothing here, because no agent op is `assistant.tool`.
-fn authorize_assistant_grant(ctx: &Ctx, token: &str) -> Result<(), CoreError> {
-    if !is_pag(token) {
-        return Err(CoreError::new(Code::NotAllowed, "Invalid assistant grant"));
-    }
-    let hash = format!("{:x}", Sha256::digest(token.as_bytes()));
-    let live = Connection::open(ctx.pacer_home.join("state").join("tasks.db"))
-        .ok()
-        .and_then(|db| {
-            db.query_row(
-                "SELECT kind, expires, revoked FROM work_grants WHERE hash = ?1",
-                [&hash],
-                |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, f64>(1)?,
-                        row.get::<_, i64>(2)?,
-                    ))
-                },
-            )
-            .ok()
-        });
-    match live {
-        Some((kind, expires, revoked))
-            if kind == "assistant" && revoked == 0 && expires > ctx.now =>
-        {
-            Err(CoreError::new(
-                Code::NotAllowed,
-                "An assistant grant runs assistant.tool only.",
-            ))
-        }
-        _ => Err(CoreError::new(
-            Code::NotAllowed,
-            "Expired or revoked assistant grant",
-        )),
-    }
-}
-
-/// `^pag_[0-9a-f]{64}$`.
-fn is_pag(token: &str) -> bool {
-    token.len() == 68
-        && token.starts_with("pag_")
-        && token[4..].bytes().all(|b| b.is_ascii_hexdigit())
 }
 
 /// The Zod schema over the params, with issues in schema key order joined by `; `.

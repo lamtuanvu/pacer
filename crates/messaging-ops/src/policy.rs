@@ -126,7 +126,7 @@ fn strategy_config(home: &Path) -> Value {
         .unwrap_or_else(strategy::default_messaging_config);
     if let Some(rules) = config.get_mut("rules").and_then(Value::as_array_mut) {
         for rule in rules {
-            if let Some(normal) = project_messaging::rule(rule) {
+            if let Some(normal) = project_messaging::rule(rule, "", &mut Vec::new()) {
                 *rule = normal;
             }
         }
@@ -142,7 +142,7 @@ fn layered(rules: Option<&Value>, layer: &str, out: &mut Vec<Value>) {
     }
 }
 
-/// `effectivePolicy(ctx, { root })`: `{config, rules}`. An unusable project file stays forwarded.
+/// `effectivePolicy(ctx, { root })`: `{config, rules, projectError?}`.
 pub fn effective(store: &mut Store<'_>, root: Option<&str>) -> Result<Value> {
     let home = store.home;
     let mut config = strategy_config(home);
@@ -151,7 +151,10 @@ pub fn effective(store: &mut Store<'_>, root: Option<&str>) -> Result<Value> {
         None => None,
     };
     let tree = root_task.as_ref().and_then(|t| t.get("messaging"));
-    let projects = project_messaging::read_projects(home).unwrap_or_default();
+    let (projects, project_error) = match project_messaging::read_projects(home) {
+        Ok(projects) => (projects, None),
+        Err(error) => (Map::new(), Some(error.to_string())),
+    };
     let project = root_task
         .as_ref()
         .and_then(|t| t.get("repo")?.get("key")?.as_str())
@@ -180,7 +183,11 @@ pub fn effective(store: &mut Store<'_>, root: Option<&str>) -> Result<Value> {
     if truthy(config.get("defaults")) {
         layered(Some(&default_rules()), "default", &mut rules);
     }
-    Ok(json!({"config": config, "rules": rules}))
+    let mut out = json!({"config": config, "rules": rules});
+    if let Some(error) = project_error {
+        out["projectError"] = json!(error);
+    }
+    Ok(out)
 }
 
 fn ancestors(store: &mut Store<'_>, p: &str) -> Result<Vec<String>> {

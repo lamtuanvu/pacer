@@ -774,11 +774,7 @@ pub fn dispatch_enforcement<'a>(
         let repo = policy_repo(ctx, repo_input, &projects)?;
         let repo_path = repo["path"].as_str().unwrap_or_default().to_owned();
         let now = now(ctx);
-        let Some((consent, attempts)) = read_schedule(ctx) else {
-            return Err(unavailable(
-                "pacer core must read the certification schedule",
-            ));
-        };
+        let (consent, attempts) = read_schedule(ctx);
         let Some(srefs) = StrategyRefs::of(&strategy) else {
             return Err(CoreError::new(
                 Code::Internal,
@@ -883,7 +879,7 @@ fn probe_stays_forwarded(ctx: &Ctx, params: &Value) -> bool {
 /// forwards by answering `unavailable`.
 pub fn dispatch_enforcement_probe(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
-        authorize(ctx)?;
+        authorize(ctx, &params)?;
         let p = params_object(&params)?;
         let mut issues = Vec::new();
         string_issues("repo", p.get("repo"), Some(4096), &mut issues);
@@ -1010,8 +1006,8 @@ fn enum_issues(name: &str, value: Option<&Value>, options: &[&str], issues: &mut
     }
 }
 
-fn authorize(ctx: &Ctx) -> Result<(), CoreError> {
-    crate::dispatch_ops::authorize(ctx)
+fn authorize(ctx: &Ctx, params: &Value) -> Result<(), CoreError> {
+    crate::dispatch_ops::authorize(ctx, "dispatch.enforcement.probe", params)
 }
 
 fn sha256_hex(value: &str) -> String {

@@ -10,6 +10,7 @@ use pacer_foundation::{
     Ctx,
     api::{Code, CoreError, OpFuture},
 };
+use pacer_js_json::{Utf16String, quoted};
 use pacer_lifecycle::AdmissionState;
 use pacer_store::{StoreError, is_task_id};
 use rusqlite::{Connection, OptionalExtension, params};
@@ -158,7 +159,7 @@ fn append_event(
 ) -> Result<(), CoreError> {
     db.execute(
         "INSERT INTO work_events(root_id,task_id,at,kind,data) SELECT root_id,task_id,?,?,? FROM work_nodes WHERE task_id=?",
-        params![now, kind, data.to_string(), id],
+        params![now, kind, quoted::stringify(data), id],
     )
     .map(drop)
     .map_err(internal)
@@ -230,30 +231,38 @@ fn js_trim(text: &str) -> &str {
     })
 }
 
-/// `reason.trim().slice(0, 2000)` in UTF-16 units; `None` when the cut would
-/// leave a lone surrogate, which a Rust string cannot hold.
-fn reason_text(reason: &str) -> Option<&str> {
-    let reason = js_trim(reason);
-    let mut units = 0;
-    for (index, c) in reason.char_indices() {
-        if units == REASON_MAX {
-            return Some(&reason[..index]);
-        }
-        units += c.len_utf16();
-        if units > REASON_MAX {
-            return None;
-        }
-    }
-    Some(reason)
+/// `reason.trim().slice(0, 2000)` in UTF-16 units. The cut may land between the
+/// halves of a surrogate pair, so keep the exact units in a `pacer-js-json` string.
+fn reason_text(reason: &str) -> Utf16String {
+    Utf16String::from_units(
+        js_trim(reason)
+            .encode_utf16()
+            .take(REASON_MAX)
+            .collect(),
+    )
 }
 
-/// A valid waiver reason whose stored text would end in half a surrogate pair.
-pub fn dependencies_waive_stays_forwarded(op: &str, params: &Value) -> bool {
-    op == "dispatch.dependencies.waive"
-        && params
-            .get("reason")
-            .and_then(Value::as_str)
-            .is_some_and(|r| js_trim(r).chars().count() <= REASON_MAX && reason_text(r).is_none())
+/// The bytes Bun SQLite stores for a JavaScript string: well-formed pairs become
+/// UTF-8, lone surrogates keep their CESU-8 bytes and read back as U+FFFD.
+fn reason_bytes(reason: &Utf16String) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    for unit in char::decode_utf16(reason.units().iter().copied()) {
+        match unit {
+            Ok(c) => {
+                let mut buffer = [0; 4];
+                bytes.extend_from_slice(c.encode_utf8(&mut buffer).as_bytes());
+            }
+            Err(lone) => {
+                let code = u32::from(lone.unpaired_surrogate());
+                bytes.extend_from_slice(&[
+                    0xE0 | (code >> 12) as u8,
+                    0x80 | ((code >> 6) & 0x3F) as u8,
+                    0x80 | (code & 0x3F) as u8,
+                ]);
+            }
+        }
+    }
+    bytes
 }
 
 fn text<'a>(p: &'a Map<String, Value>, key: &str) -> &'a str {
@@ -266,7 +275,7 @@ fn clock(ctx: &Ctx) -> f64 {
 
 pub fn dispatch_dependencies(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
-        authorize(ctx)?;
+        authorize(ctx, "dispatch.dependencies", &params)?;
         let p = params_object(&params)?;
         let mut issues = Vec::new();
         string_issues("id", p.get("id"), Some(128), &mut issues);
@@ -341,7 +350,7 @@ pub fn dispatch_dependencies(ctx: &Ctx, params: Value) -> OpFuture<'_> {
 
 pub fn dispatch_dependencies_waive(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
-        authorize(ctx)?;
+        authorize(ctx, "dispatch.dependencies.waive", &params)?;
         let p = params_object(&params)?;
         let mut issues = Vec::new();
         string_issues("id", p.get("id"), Some(128), &mut issues);
@@ -354,8 +363,8 @@ pub fn dispatch_dependencies_waive(ctx: &Ctx, params: Value) -> OpFuture<'_> {
         positive_int_issues("expect_rev", p.get("expect_rev"), &mut issues);
         finish(issues)?;
         let (id, dependency) = (text(&p, "id"), text(&p, "dependency"));
-        let reason = reason_text(text(&p, "reason"))
-            .ok_or_else(|| internal("waiver reason requires the TypeScript path"))?;
+        let reason = reason_text(text(&p, "reason"));
+        let stored = rusqlite::types::Value::Blob(reason_bytes(&reason));
         let now = clock(ctx);
         let change = |db: &Connection, work: &Node| {
             if !work.dependencies.iter().any(|d| d == dependency)
@@ -364,13 +373,16 @@ pub fn dispatch_dependencies_waive(ctx: &Ctx, params: Value) -> OpFuture<'_> {
                 return Err(invalid("Not a dependency or direct child of this work"));
             }
             db.execute(
-                "INSERT OR REPLACE INTO work_dependency_waivers(task_id,dependency_id,reason,at) VALUES(?,?,?,?)",
-                params![id, dependency, reason, now],
+                "INSERT OR REPLACE INTO work_dependency_waivers(task_id,dependency_id,reason,at) VALUES(?,?,CAST(? AS TEXT),?)",
+                params![id, dependency, stored, now],
             )
             .map(drop)
             .map_err(internal)
         };
-        let event = json!({"dependency": dependency, "reason": reason});
+        let event = json!({
+            "dependency": dependency,
+            "reason": quoted::from_units(reason.units()),
+        });
         let expect_rev = p["expect_rev"].as_f64().unwrap_or_default();
         write(
             ctx,

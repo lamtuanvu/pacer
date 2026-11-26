@@ -54,6 +54,8 @@ const DISPATCH_BLOCK = `${STRATEGY}dispatch:
     complex: frontier
   engine: ladder
 `;
+// A tab inside a comment is valid YAML for Bun but makes `native_load` decline the strategy.
+const TAB_COMMENT = STRATEGY.replace("  # The default executor", "  # The\tdefault executor");
 const LEGACY = `# starter shape
 planner: claude-code # planning account
 providers:
@@ -273,7 +275,8 @@ async function compare(transport: "stdio" | "http", cases: Case[]) {
         if (contains) expect(replies[0], label).toContain(contains);
         expect(disk(homes[0]), `${label}: disk`).toEqual(disk(homes[1]));
         expect(envelopes(homes[0], outbox(homes[0]).slice(before[0])), `${label}: events`).toEqual(envelopes(homes[1], outbox(homes[1]).slice(before[1])));
-        if (c.native) expectedMarkers.push(`native ${op}`);
+        // Tier targets now load natively for every strategy, including the unloadable ones.
+        if (c.native || op.startsWith("dispatch.tierTargets.")) expectedMarkers.push(`native ${op}`);
       }
       await settle(doors[0].markers, expectedMarkers.length);
       expect(doors[0].markers.map(marker => marker.replace(/ \d+$/, "")), `${transport} ${c.name}: trace`).toEqual(expectedMarkers);
@@ -395,6 +398,10 @@ const cases: Case[] = [
   { name: "reads and refusals", steps: refusals, native: true },
   { name: "saves", steps: saves, native: true },
   { name: "existing dispatch block", strategy: DISPATCH_BLOCK, steps: tierBlock, native: true },
+  { name: "a tab-indented comment line", strategy: TAB_COMMENT, steps: [
+    ["dispatch.tierTargets.get", {}],
+    ["dispatch.tierTargets.set", { expectedRevision: "$REV", targets: { simple: "medium", complex: "frontier" } }],
+  ], native: true },
   // The runner is listed through `opencode models` and cached; each case starts without that cache.
   { name: "a runner only OpenCode lists", steps: [["runner.models.set", set("opencode#oc-miss", "acme/b")]], native: true },
   // A failing or empty listing saves the declaration with a "could not be checked" warning.

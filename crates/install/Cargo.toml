@@ -9,6 +9,7 @@ rust-version.workspace = true
 [dependencies]
 hex = "0.4"
 pacer-foundation = { path = "../foundation" }
+pacer-work = { path = "../work" }
 rusqlite = { version = "0.41", features = ["bundled"] }
 serde_json.workspace = true
 sha2 = "0.10"

@@ -10,12 +10,14 @@ rust-version.workspace = true
 hex = "0.4"
 serde_json.workspace = true
 pacer-foundation = { path = "../foundation" }
+pacer-js-json = { path = "../js-json" }
 pacer-config = { path = "../config" }
 pacer-dispatch = { path = "../dispatch" }
 pacer-engine = { path = "../engine" }
 pacer-repos = { path = "../repos" }
 pacer-lifecycle = { path = "../lifecycle" }
 pacer-store = { path = "../store" }
+pacer-work = { path = "../work" }
 rusqlite = { version = "0.41", features = ["bundled"] }
 icu_collator = { version = "=2.4.0", features = ["unstable"] }
 ryu-js = "1"

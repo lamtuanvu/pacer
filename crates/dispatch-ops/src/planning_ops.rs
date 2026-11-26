@@ -6,8 +6,9 @@
 //! `dispatch.refresh` owns its refusals, params, the unknown-runner error and the
 //! backoff reply. A refresh that would run reads `computeStatus` and calls the
 //! observation plugins, so it stays forwarded. `dispatch.enforcement.consent`
-//! forwards a schedule file Rust cannot rewrite with `JSON.stringify` bytes.
-//! Callers holding a work grant never reach these handlers.
+//! rewrites the schedule with JavaScript's quoted JSON bytes, including non-object
+//! consent spread the way `{...consent}` does. Callers holding a work grant never
+//! reach these handlers.
 #![allow(clippy::result_large_err)]
 use pacer_config::strategy::load_strategy;
 use pacer_dispatch::{is_exact, model_inventory, stored_observations};
@@ -17,6 +18,7 @@ use pacer_foundation::{
     fsutil::write_private,
     lock::{LockOptions, with_lock},
 };
+use pacer_js_json::quoted;
 use pacer_lifecycle::AdmissionState;
 use rusqlite::OptionalExtension;
 use serde_json::{Map, Value, json};
@@ -42,7 +44,7 @@ pub(crate) fn open(ctx: &Ctx) -> Result<AdmissionState, CoreError> {
 
 pub fn dispatch_models(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
-        authorize(ctx)?;
+        authorize(ctx, "dispatch.models", &params)?;
         params_object(&params)?;
         let strategy = load_strategy(&ctx.pacer_home).map_err(internal)?;
         let now = now(ctx);
@@ -82,7 +84,7 @@ enum Refresh {
 }
 
 fn refresh_plan(ctx: &Ctx, params: &Value) -> Refresh {
-    let checked = authorize(ctx).and_then(|()| {
+    let checked = authorize(ctx, "dispatch.refresh", params).and_then(|()| {
         let p = params_object(params)?;
         let mut issues = Vec::new();
         if p.contains_key("runner") {
@@ -156,74 +158,53 @@ fn schedule_path(ctx: &Ctx) -> PathBuf {
         .join("certification-schedule.json")
 }
 
-/// `readScheduleState` as consent and attempts, or `None` when the file must stay
-/// with TypeScript: unreadable, text `serde_json` rejects, or a `consent` that the
-/// object spread would coerce.
-pub(crate) fn read_schedule(ctx: &Ctx) -> Option<(Object, Value)> {
+/// JS `{...consent}` for a string: own enumerable index keys, one per code point.
+fn spread_string(text: &str) -> Object {
+    let mut spread = Object::new();
+    for (index, point) in char::decode_utf16(quoted::utf16(text)).enumerate() {
+        let mut buffer = [0; 2];
+        let units = match point {
+            Ok(c) => c.encode_utf16(&mut buffer).to_vec(),
+            Err(lone) => vec![lone.unpaired_surrogate()],
+        };
+        spread.insert(index.to_string(), Value::String(quoted::from_units(&units)));
+    }
+    spread
+}
+
+/// `readScheduleState` as consent and attempts. Bun's `JSON.parse` accepts lone
+/// surrogates and overflow numbers, and an object spread coerces every other type:
+/// a string or array gains index keys, a number, bool or null becomes `{}`.
+pub(crate) fn read_schedule(ctx: &Ctx) -> (Object, Value) {
     let bytes = match std::fs::read(schedule_path(ctx)) {
         Ok(bytes) => bytes,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Some((Object::new(), json!({})));
-        }
-        Err(_) => return None,
+        Err(_) => return (Object::new(), json!({})),
     };
-    let Value::Object(stored) = serde_json::from_slice::<Value>(&bytes).ok()? else {
-        return Some((Object::new(), json!({})));
+    let Value::Object(stored) = quoted::parse_file(&bytes).unwrap_or(Value::Null) else {
+        return (Object::new(), json!({}));
     };
     let consent = match stored.get("consent") {
         None | Some(Value::Null) => Object::new(),
         Some(Value::Object(consent)) => consent.clone(),
-        Some(_) => return None,
+        Some(Value::String(text)) => spread_string(text),
+        Some(Value::Array(items)) => Object::from_iter(
+            items
+                .iter()
+                .enumerate()
+                .map(|(index, value)| (index.to_string(), value.clone())),
+        ),
+        Some(_) => Object::new(),
     };
     let attempts = match stored.get("attempts") {
         None | Some(Value::Null) => json!({}),
         Some(attempts) => attempts.clone(),
     };
-    Some((consent, attempts))
-}
-
-/// `JSON.stringify`: ECMAScript numbers and integer-index keys first.
-fn stringify(value: &Value, out: &mut String) {
-    fn index(key: &str) -> Option<u32> {
-        key.parse::<u32>()
-            .ok()
-            .filter(|n| *n != u32::MAX && n.to_string() == key)
-    }
-    match value {
-        Value::Number(n) => {
-            out.push_str(ryu_js::Buffer::new().format(n.as_f64().unwrap_or(f64::NAN)))
-        }
-        Value::Array(items) => {
-            out.push('[');
-            for (i, item) in items.iter().enumerate() {
-                if i > 0 {
-                    out.push(',');
-                }
-                stringify(item, out);
-            }
-            out.push(']');
-        }
-        Value::Object(map) => {
-            let mut keys: Vec<&String> = map.keys().collect();
-            keys.sort_by_key(|key| index(key).map_or((1, 0), |n| (0, n)));
-            out.push('{');
-            for (i, key) in keys.into_iter().enumerate() {
-                if i > 0 {
-                    out.push(',');
-                }
-                out.push_str(&Value::String(key.clone()).to_string());
-                out.push(':');
-                stringify(&map[key], out);
-            }
-            out.push('}');
-        }
-        other => out.push_str(&other.to_string()),
-    }
+    (consent, attempts)
 }
 
 pub fn dispatch_enforcement_consent(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
-        authorize(ctx)?;
+        authorize(ctx, "dispatch.enforcement.consent", &params)?;
         let p = params_object(&params)?;
         let mut issues = Vec::new();
         string_issues("account", p.get("account"), Some(128), &mut issues);
@@ -245,19 +226,9 @@ pub fn dispatch_enforcement_consent(ctx: &Ctx, params: Value) -> OpFuture<'_> {
             stale: Duration::from_secs(30),
         };
         with_lock(ctx, "certification-schedule", options, || {
-            let (mut consent, attempts) = read_schedule(ctx).ok_or_else(|| {
-                CoreError::new(
-                    Code::Unavailable,
-                    "The certification schedule changed while it was being updated",
-                )
-                .hint("Try again.")
-            })?;
+            let (mut consent, attempts) = read_schedule(ctx);
             consent.insert(account.into(), json!(answer));
-            let mut text = String::new();
-            stringify(
-                &json!({"consent": consent, "attempts": attempts}),
-                &mut text,
-            );
+            let text = quoted::stringify(&json!({"consent": consent, "attempts": attempts}));
             write_private(&schedule_path(ctx), text.as_bytes()).map_err(internal)
         })
         .map_err(internal)??;
@@ -269,7 +240,6 @@ pub fn dispatch_enforcement_consent(ctx: &Ctx, params: Value) -> OpFuture<'_> {
 pub fn planning_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
     match op {
         "dispatch.refresh" => matches!(refresh_plan(ctx, params), Refresh::Forward),
-        "dispatch.enforcement.consent" => read_schedule(ctx).is_none(),
         _ => false,
     }
 }

@@ -59,6 +59,7 @@ Layers from bottom (0) to top. Budgets are the planned size at the end of M3; CR
 | 1 | `pacer-js-json` (`crates/js-json`) | JavaScript JSON semantics: `JSON.parse` acceptance (exact `WireReply` documents and the quoted serde Value form with lone surrogates and signed Infinity), `JSON.stringify` bytes, ECMAScript number text and JS value helpers | ≤ 2,000 | none |
 | 2 | `pacer-store` (`crates/store`) | Task store, activity log, outbox and events | 2,000–2,500 | none |
 | 3 | `pacer-config` (`crates/config`) | Strategy, YAML editor, config areas (publishes config changes through `pacer-store`) | 3,000–3,800 | none |
+| 3 | `pacer-work` (`crates/work`) | Work grants and `authorizeWorkOperation` | ≤ 1,500 | none |
 | 2 | `pacer-discovery-ops` (`crates/discovery-ops`) | Native LAN discovery write operation handlers (`discovery.set`, `discovery.respond`) | ≤ 800 | none |
 | 3 | `pacer-machine-ops` (`crates/machine-ops`) | Machine identity store, key rotation and the native `machine.*` operation handlers | ≤ 1,500 | none |
 | 3 | `pacer-sessions` (`crates/sessions`) | PTY sessions, screen, recording, terminal opening | 2,000–2,500 | `portable-pty`, `vt100` |
