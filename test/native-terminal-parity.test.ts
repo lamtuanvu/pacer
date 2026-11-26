@@ -6,6 +6,8 @@ import { join } from "node:path";
 import { toApiError } from "../src/api/errors";
 import { callOp } from "../src/api/ops";
 import { createTerminal } from "../src/terminal/workspace";
+import { parseOutboxEvent } from "../src/link/envelope";
+import { readOutboxSince } from "../src/link/store";
 import { fakeCtx } from "./helpers";
 import { front, home, serve } from "./native-repo-front-door";
 import { closedPort, spawnPinned } from "./port-isolation";
@@ -126,6 +128,40 @@ test("native rename and close keep TypeScript's revision guards and record bytes
   }
   const upper = ID.replace("1111-4111", "AAAA-4111");
   await compare([{ op: "terminal.rename", params: { ...RENAME, id: upper } }, { op: "terminal.close", params: { ...CLOSE, id: upper } }]);
+}, 600_000);
+
+/** A terminal event skeleton: both runtimes promise one entity event per mutation, its removal flag and marker keys. */
+function terminalEvents(dir: string) {
+  const ctx = fakeCtx({ home: dir, pacerHome: dir, env: {} });
+  return readOutboxSince(ctx, 0).flatMap(entry => {
+    const event = parseOutboxEvent(entry.envelope);
+    return event?.type === "entity" && event.data.kind === "terminal"
+      ? [{ removed: "removed" in event.data, hasValue: "value" in event.data }]
+      : [];
+  });
+}
+function markerKeys(dir: string) {
+  return Object.keys(JSON.parse(readFileSync(join(dir, "terminals", ID, "published.json"), "utf8"))).sort();
+}
+
+test("native rename and close publish the same terminal event shapes and marker format as TypeScript", async () => {
+  const steps: Step[] = [
+    { op: "terminal.rename", params: { id: ID, title: "T", expect_rev: 3 } },
+    { op: "terminal.close", params: { id: ID, expect_rev: 4 } },
+  ];
+  const [reference, native] = [fresh(), fresh()];
+  for (const dir of [reference, native]) seedRecord(dir);
+  const input = steps.map(step => JSON.stringify({ op: step.op, params: step.params, home: native, now: NOW, env: {}, terminalParts: PARTS })).join("\n") + "\n";
+  execFileSync(driver(), [], { input, cwd: native });
+  for (const step of steps) {
+    const ctx = fakeCtx({ home: reference, pacerHome: reference, now: NOW, env: {} });
+    await callOp(ctx, step.op, step.params);
+  }
+  expect(terminalEvents(native)).toEqual(terminalEvents(reference));
+  expect(terminalEvents(native)).toEqual([{ removed: false, hasValue: true }, { removed: true, hasValue: false }]);
+  expect(markerKeys(native)).toEqual(markerKeys(reference));
+  // Close leaves the removal marker; rename's { live, exit, rev } format is covered by the Rust unit test.
+  expect(markerKeys(native)).toEqual(["removed"]);
 }, 600_000);
 
 test("registries only TypeScript reads faithfully stay forwarded", () => {

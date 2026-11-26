@@ -20,10 +20,10 @@ fn host_observation_types_are_generated_policy_event_types() {
 }
 
 #[test]
-fn host_observation_types_cover_the_generated_control_and_discovery_events() {
-    // `control` and `discovery.found` were added as v3 events; the host must
+fn host_observation_types_cover_the_generated_control_discovery_and_terminal_events() {
+    // `control`, `discovery.found` and `terminal` were added as v3 events; the host must
     // accept them like the TypeScript host so behavior does not diverge per host.
-    for event in ["control", "discovery.found"] {
+    for event in ["control", "discovery.found", "terminal"] {
         assert!(
             POLICY_EVENT_TYPES.contains(&event),
             "host observation list must include {event:?}"

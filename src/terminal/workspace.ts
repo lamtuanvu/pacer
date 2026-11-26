@@ -8,6 +8,8 @@ import type { Ctx } from "../types";
 import { CORE_SECRET_ENV } from "../core-secrets";
 import { resolveLoginShell } from "./login-shell";
 import { hostVersionView, type HostVersionView } from "../session/protocol";
+import { publish, type PublishReport } from "../link/publish";
+import type { OutboxEvent } from "../link/envelope";
 
 export interface TerminalRecord {
   id: string;
@@ -100,6 +102,141 @@ function presentation(ctx: Ctx, stored: StoredTerminal): TerminalRecord {
     hostVersion: hostVersionView(dir),
   };
 }
+/**
+ * Durable "last published" marker for a terminal. It lives beside the record so a mutation on the
+ * request thread, the liveness check in the background Worker and a restarted service all compare
+ * against the same baseline. A marker is written only after its event reached the outbox, so a
+ * failed publish is retried on the next check instead of silently losing the change.
+ */
+interface PublishedMarker { live?: boolean; exit?: number | null; rev?: number; removed?: true }
+function markerPath(ctx: Ctx, id: string): string { return join(directory(ctx, id), "published.json"); }
+function readMarker(ctx: Ctx, id: string): PublishedMarker | null {
+  try {
+    const value = JSON.parse(readFileSync(markerPath(ctx, id), "utf8"));
+    if (value?.removed === true) return { removed: true };
+    if (value && typeof value.live === "boolean" && (value.exit === null || typeof value.exit === "number") && typeof value.rev === "number") return { live: value.live, exit: value.exit, rev: value.rev };
+    return null;
+  } catch { return null; }
+}
+function writeMarker(ctx: Ctx, id: string, marker: PublishedMarker): void { writePrivate(markerPath(ctx, id), marker); }
+function markerFor(record: TerminalRecord): PublishedMarker { return { live: record.live, exit: record.exit, rev: record.rev }; }
+function terminalEvent(id: string, value?: TerminalRecord): OutboxEvent {
+  return { type: "entity", data: value ? { kind: "terminal", id, value } : { kind: "terminal", id, removed: true } };
+}
+async function publishTerminal(ctx: Ctx, id: string, value: TerminalRecord | undefined, marker: PublishedMarker): Promise<void> {
+  const report = await publish(ctx, [terminalEvent(id, value)]);
+  // Publish is best effort, as for other entity kinds; a failed publish must NOT advance the marker.
+  if (!report.errors.length && report.transports.includes("outbox")) {
+    try { writeMarker(ctx, id, marker); }
+    catch (error) { console.error(`pacer: terminal marker write failed: ${error instanceof Error ? error.message : String(error)}`); }
+  }
+}
+function numberFile(path: string): number | null {
+  try { const raw = readFileSync(path, "utf8").trim(); if (!raw) return null; const value = Number(raw); return Number.isFinite(value) ? value : null; }
+  catch { return null; }
+}
+function pidAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try { process.kill(pid, 0); return true; }
+  catch (error) { return (error as NodeJS.ErrnoException).code === "EPERM"; }
+}
+/**
+ * The cheapest record the liveness check needs: no hostVersionView, and the synchronous `ps`
+ * probe in readRun only runs for a terminal that still has a live pid. Closed, starting and
+ * already-exited terminals never spawn a process.
+ */
+function livenessRecord(ctx: Ctx, stored: StoredTerminal): TerminalRecord {
+  const dir = directory(ctx, stored.id);
+  const exit = numberFile(join(dir, "exit"));
+  let live = false;
+  if (stored.state === "running" && exit === null) {
+    const pid = numberFile(join(dir, "pid"));
+    if (pid !== null && pidAlive(pid)) live = readRun(dir).alive;
+  }
+  let state: { cols?: number; rows?: number } = {};
+  try { state = JSON.parse(readFileSync(join(dir, "session.state"), "utf8")); } catch { /* session may still be starting */ }
+  return {
+    id: stored.id, kind: stored.kind, title: stored.title, cwd: stored.cwd,
+    createdAt: stored.createdAt, rev: stored.rev, live, exit,
+    cols: state.cols ?? 120, rows: state.rows ?? 40,
+    attach: { ws: `/v3/terminals/${stored.id}/session` },
+  };
+}
+export interface TerminalLivenessChange { events: OutboxEvent[]; markers: { id: string; value: PublishedMarker }[] }
+/**
+ * Compare each registry terminal (and directory that has lost its record) against its on-disk
+ * marker. No in-memory baseline: a fresh observer, another thread or a restart sees exactly the
+ * same state, and the marker advances only after the caller publishes the returned events.
+ */
+export function terminalLivenessChanges(ctx: Ctx): TerminalLivenessChange {
+  const events: OutboxEvent[] = [], markers: { id: string; value: PublishedMarker }[] = [];
+  const base = root(ctx);
+  if (!existsSync(base)) return { events, markers };
+  for (const entry of readdirSync(base, { withFileTypes: true })) {
+    if (!entry.isDirectory() || !TERMINAL_ID.test(entry.name)) continue;
+    const id = entry.name;
+    let stored: StoredTerminal | null = null;
+    try { stored = readStored(ctx, id); } catch { /* closed or unreadable: no longer in the registry */ }
+    const seen = readMarker(ctx, id);
+    if (stored) {
+      const record = livenessRecord(ctx, stored), marker = markerFor(record);
+      if (!seen || seen.removed === true || seen.live !== marker.live || seen.exit !== marker.exit || seen.rev !== marker.rev) {
+        events.push(terminalEvent(id, record));
+        markers.push({ id, value: marker });
+      }
+    } else if (seen && seen.removed !== true) {
+      events.push(terminalEvent(id));
+      markers.push({ id, value: { removed: true } });
+    }
+  }
+  return { events, markers };
+}
+export function commitTerminalMarkers(ctx: Ctx, markers: { id: string; value: PublishedMarker }[]): void {
+  for (const { id, value } of markers) {
+    try { writeMarker(ctx, id, value); } catch { /* a missing marker retries the event next tick */ }
+  }
+}
+/**
+ * Publish the liveness changes under the registry lock, so a rename/close cannot interleave
+ * between this read and its marker commit. The pump calls this on its own short cadence so an
+ * exit is pushed even when no client is polling; a first observation is not a change.
+ */
+/** Cheap check: any registry terminal that is not closed. Avoids locking/scanning when none. */
+export function hasNonClosedTerminals(ctx: Ctx): boolean {
+  const base = root(ctx);
+  if (!existsSync(base)) return false;
+  for (const entry of readdirSync(base, { withFileTypes: true })) {
+    if (!entry.isDirectory() || !TERMINAL_ID.test(entry.name)) continue;
+    try { readStored(ctx, entry.name); return true; } catch { /* closed or unreadable */ }
+  }
+  return false;
+}
+
+export async function terminalLivenessEvents(ctx: Ctx, deps: { publish?: (ctx: Ctx, events: OutboxEvent[]) => Promise<PublishReport> } = {}): Promise<OutboxEvent[]> {
+  // Skip the check entirely when there are no non-closed terminals: no lock, no scan.
+  if (!hasNonClosedTerminals(ctx)) return [];
+  // A slow closeTerminal (TERM/KILL grace) or a stuck holder must not stall the pump:
+  // try to acquire the registry lock and skip this tick if it is busy.
+  try {
+    return await withLock(ctx, "terminal-registry", async () => {
+      const { events, markers } = terminalLivenessChanges(ctx);
+      if (!events.length) return [];
+      const report = await (deps.publish ?? publish)(ctx, events);
+      if (report.errors.length || !report.transports.includes("outbox")) return [];
+      commitTerminalMarkers(ctx, markers);
+      return events;
+    }, { timeoutMs: 0 });
+  } catch {
+    return [];
+  }
+}
+function readTerminals(ctx: Ctx): TerminalRecord[] {
+  if (!existsSync(root(ctx))) return [];
+  return readdirSync(root(ctx), { withFileTypes: true }).filter(entry => entry.isDirectory() && TERMINAL_ID.test(entry.name)).flatMap(entry => {
+    try { return [presentation(ctx, readStored(ctx, entry.name))]; } catch { return []; }
+  }).sort((a, b) => a.createdAt - b.createdAt);
+}
+
 function validate(ctx: Ctx, input: CreateTerminalInput) {
   if (!ID.test(input.requestId)) throw new CoreError("invalid_input", "Invalid terminal request ID");
   const argv = input.kind === "shell" ? shellArgv(ctx) : input.argv;
@@ -151,7 +288,8 @@ export async function stopTerminalSession(ctx: Ctx, id: string): Promise<void> {
 export async function createTerminal(ctx: Ctx, input: CreateTerminalInput, deps: { start?: Start } = {}): Promise<TerminalRecord> {
   const { title, cwd, argv } = validate(ctx, input);
   const payload = createHash("sha256").update(JSON.stringify({ kind: input.kind, title, cwd, argv, env: input.kind === "action" ? input.env : undefined })).digest("hex");
-  return withLock(ctx, "terminal-registry", async () => {
+  let failure: string | undefined;
+  const created = await withLock(ctx, "terminal-registry", async () => {
     const base = ensureRoot(ctx);
     const reservations = readReservations(ctx);
     const prior = reservations[input.requestId];
@@ -162,6 +300,13 @@ export async function createTerminal(ctx: Ctx, input: CreateTerminalInput, deps:
       return presentation(ctx, stored);
     }
     if (liveTerminalCount(ctx) >= MAX_LIVE) throw new CoreError("not_allowed", "Too many live terminals; close one before opening another");
+    // Publish and marker share the registry lock with the Worker's liveness check, so a fresh
+    // observer can never see a published record before its marker (or publish a duplicate).
+    const publishCreated = async (record: StoredTerminal): Promise<TerminalRecord> => {
+      const result = presentation(ctx, record);
+      await publishTerminal(ctx, result.id, result, markerFor(result));
+      return result;
+    };
     const id = randomUUID();
     const dir = directory(ctx, id);
     mkdirSync(dir, { mode: 0o700 });
@@ -177,19 +322,20 @@ export async function createTerminal(ctx: Ctx, input: CreateTerminalInput, deps:
       record.state = "failed";
       record.error = started.error;
       writePrivate(join(dir, "record.json"), record);
-      throw new CoreError("not_allowed", "Could not start terminal", started.error);
+      failure = started.error;
+      return publishCreated(record);
     }
     record.state = "running";
     writePrivate(join(dir, "record.json"), record);
-    return presentation(ctx, record);
+    return publishCreated(record);
   });
+  if (failure) throw new CoreError("not_allowed", "Could not start terminal", failure);
+  return created;
 }
 
 export async function listTerminals(ctx: Ctx): Promise<TerminalRecord[]> {
-  if (!existsSync(root(ctx))) return [];
-  return readdirSync(root(ctx), { withFileTypes: true }).filter(entry => entry.isDirectory() && TERMINAL_ID.test(entry.name)).flatMap(entry => {
-    try { return [presentation(ctx, readStored(ctx, entry.name))]; } catch { return []; }
-  }).sort((a, b) => a.createdAt - b.createdAt);
+  // A read never advances the on-disk marker; only a successful publish does.
+  return readTerminals(ctx);
 }
 export async function getTerminal(ctx: Ctx, id: string): Promise<TerminalRecord> {
   return presentation(ctx, readStored(ctx, id));
@@ -203,7 +349,9 @@ export async function renameTerminal(ctx: Ctx, id: string, title: string, expect
     stored.title = next;
     stored.rev++;
     writePrivate(join(directory(ctx, id), "record.json"), stored);
-    return presentation(ctx, stored);
+    const renamed = presentation(ctx, stored);
+    await publishTerminal(ctx, renamed.id, renamed, markerFor(renamed));
+    return renamed;
   });
 }
 export async function closeTerminal(ctx: Ctx, id: string, expectRev: number): Promise<{ closed: true }> {
@@ -214,7 +362,8 @@ export async function closeTerminal(ctx: Ctx, id: string, expectRev: number): Pr
     stored.state = "closed";
     stored.rev++;
     writePrivate(join(directory(ctx, id), "record.json"), stored);
-    return { closed: true };
+    await publishTerminal(ctx, id, undefined, { removed: true });
+    return { closed: true as const };
   });
 }
 

@@ -1,6 +1,13 @@
 import {expect,test} from 'bun:test';
 import {capture} from './fixtures/protocol-v2/capture';
 
+test('terminal events are v3-only on the frozen v2 event surface',async()=>{
+ const {toV2Event,v3OnlyEvent}=await import('../src/api/v2-compat');
+ const event={seq:3_000_000_000_001,at:1,type:'terminal',data:{id:'shell-1',removed:true}};
+ expect(v3OnlyEvent(event as never)).toBe(true);
+ expect(toV2Event(event as never)).toBeNull();
+});
+
 test('the unmetered verdict stays OK on the frozen v2 rows and UNMETERED on v3',async()=>{
  const {toV2Snapshot}=await import('../src/api/v2-compat');
  const account={name:'free',agent:'opencode',source:'default',usedPct:null,pacePct:null,window:null,resetsAt:null,verdict:'UNMETERED',signedIn:true,executors:['free','p'],spendUsdWeek:null,capUsdWeek:null};

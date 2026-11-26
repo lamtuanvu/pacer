@@ -424,7 +424,8 @@
       "question",
       "assistant",
       "discovery.found",
-      "control"
+      "control",
+      "terminal"
     ]
   }
 }
