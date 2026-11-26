@@ -197,3 +197,17 @@ test("an attempt's first plan is drafted when that attempt started, not when the
   const plans = journey.events.filter(e => e.kind === "plan");
   expect(plans.map(e => [e.text, e.at])).toEqual([["The planner drafts plan v1 (1 step)", 905], ["The planner drafts plan v1 (attempt 2) (1 step)", 950]]);
 });
+
+test("a plan starts before the first agent of its child arrives in the same second", () => {
+  const input: LayoutInput = {
+    steps: [step("plan", "done", { startedAt: 910, endedAt: 1000 })],
+    graphs: [{ stepId: "plan", attempt: 1, version: 1, status: "approved", stepCount: 1 }],
+    children: [{ runId: "kid", parentStep: "plan", createdAt: 930, status: "done", workflow: "gen/run_1/plan/a1/v1", steps: [step("api", "done", { runId: "kid", startedAt: 930, endedAt: 950, taskId: "t_api" })] }],
+  };
+  const { board, journey } = replay(input, []);
+  const texts = journey.events.map(e => e.text);
+  const starts = texts.indexOf("Plan v1 starts"), arrives = texts.indexOf("t_api joins and takes api; its mascot is generated");
+  expect(starts).toBeGreaterThan(texts.indexOf("The planner drafts plan v1 (1 step)"));
+  expect(arrives).toBe(starts + 1);
+  expect(frameAt(journey, board, arrives).zones.get("zone:plan")!.line).toContain("v1 approved");
+});

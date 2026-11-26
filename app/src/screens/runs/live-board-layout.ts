@@ -37,10 +37,11 @@ export const GAP_X = 72;
 export const GAP_Y = 44;
 const BAND_HEAD = 28;
 const BAND_PAD = 12;
-const ZONE_HEAD = 52;
+/** Room for the zone's title and two lines of summary. */
+const ZONE_HEAD = 68;
 const ZONE_PAD = 12;
 const ZONE_EMPTY_H = 36;
-/** A zone is at least this wide, so its one-line summary fits inside it. */
+/** A zone is at least this wide, so its summary fits on two lines. */
 export const ZONE_MIN_W = 320;
 export const STATION_W = 160;
 export const STATION_H = 96;

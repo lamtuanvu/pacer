@@ -4,7 +4,7 @@ import { stepMarkerFor, stepMarkerGlyph, runStatus } from "../../../../src/view-
 import { sentenceCase } from "../../../../src/view-model/run-board";
 import { Creature, PersonFigure, creatureHeight } from "./MascotArt";
 import { FIGURE, GAP_X, STATION_H, STATION_W, type BoardNode, type BoardZone, type LiveBoardLayout } from "./live-board-layout";
-import { graphStatusLabel, nodeLabel, shortLabel } from "./live-board-model";
+import { graphStatusLabel, nodeLabel } from "./live-board-model";
 
 /** `executor` is the identity that seeds the creature; `name` is what the screen says. */
 export interface CanvasAgent { taskId: string; nodeId: string; x: number; y: number; executor: string; name: string; label: string }
@@ -54,15 +54,26 @@ export function wrapWords(text: string, max: number): string[] {
 
 /** A station's note: up to two lines inside the box, with the full text as its title (UI-11, UI-16). */
 function StationNote({ id, text }: { id: string; text: string }) {
-  const lines = wrapWords(text, NOTE_CHARS);
-  const shown = lines.length > 2 ? [lines[0]!, lines.slice(1).join(" ")] : lines;
   return <>
-    {shown.map((line, i) => <ClippedText key={i} id={`${id}-${i}`} x={72} y={52 + i * 16} width={STATION_W - 72 - 8} className="lb-station-note" text={line} title={text} />)}
+    {twoLines(text, NOTE_CHARS).map((line, i) => <ClippedText key={i} id={`${id}-${i}`} x={72} y={52 + i * 16} width={STATION_W - 72 - 8} className="lb-station-note" text={line} title={text} />)}
   </>;
 }
 const NOTE_CHARS = 13;
-/** A generous width per caption character, used to cut a zone note with an ellipsis before it reaches the edge. */
+/** A generous width per caption character, used to choose where a zone note wraps. */
 const NOTE_CHAR_W = 6;
+
+/** A zone's summary on up to two lines inside the zone, nothing cut by character count (UI-11); the full line is the title. */
+function ZoneNote({ id, x, y, width, text }: { id: string; x: number; y: number; width: number; text: string }) {
+  return <>
+    {twoLines(text, Math.floor(width / NOTE_CHAR_W)).map((line, i) => <ClippedText key={i} id={`${id}-${i}`} x={x} y={y + i * 16} width={width} className="lb-zone-note" text={line} title={text} />)}
+  </>;
+}
+
+/** Wrapped between words; whatever does not fit the first line shares the second. */
+function twoLines(text: string, max: number): string[] {
+  const lines = wrapWords(text, max);
+  return lines.length > 2 ? [lines[0]!, lines.slice(1).join(" ")] : lines;
+}
 
 export interface CanvasProps {
   layout: LiveBoardLayout;
@@ -131,7 +142,7 @@ export function BoardCanvas(p: CanvasProps) {
           <g key={z.id} data-zone={z.id}>
             <rect className={`lb-zone${(p.zoneApproved ? p.zoneApproved(z) : z.approved > 0) ? " lb-zone--filled" : ""}`} x={z.x} y={z.y} width={z.w} height={z.h} rx="8" />
             <ClippedText id={`${p.markerId}-clip-zone-${z.id}`} className="lb-zone-label" x={z.x + 12} y={z.y + 20} width={z.w - 24} text={`Generated plan · ${z.stepId}`} />
-            <ClippedText id={`${p.markerId}-clip-note-${z.id}`} className="lb-zone-note" x={z.x + 12} y={z.y + 38} width={z.w - 24} text={shortLabel(line, Math.floor((z.w - 24) / NOTE_CHAR_W))} title={line} />
+            <ZoneNote id={`${p.markerId}-clip-note-${z.id}`} x={z.x + 12} y={z.y + 38} width={z.w - 24} text={line} />
           </g>
         );
       })}

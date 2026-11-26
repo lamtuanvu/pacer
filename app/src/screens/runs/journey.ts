@@ -2,7 +2,8 @@
  * Board 7: the journey of a run, replayed from what the engine recorded. Events come from step rows (when each step
  * started and ended, which task ran it), recorded decisions (the router's choice, plan approvals) and graph versions
  * (plan construction). Nothing is guessed: an event exists only because a row, a decision, a graph version or a
- * generated child run does. Every child run of a generate step is replayed, in the order they started.
+ * generated child run does. The child runs of a generate step are replayed in the order they started: those the data
+ * layer holds, which is at most 8 per run.
  * Playback is read-only and pure; the screen only walks the index.
  */
 import { actorLabel, decisionKindLabel, decisionRows } from "../../../../src/view-model/run-board";
@@ -12,7 +13,7 @@ import type { LayoutChild, LayoutInput, LiveBoardLayout } from "./live-board-lay
 import { graphStatusLabel, nodeLabel } from "./live-board-model";
 
 export type JourneyKind = "start" | "router" | "decision" | "plan" | "plan_start" | "arrive" | "step" | "leave" | "step_end" | "finish";
-const RANK: Record<JourneyKind, number> = { start: 0, router: 1, decision: 1, arrive: 2, step: 2, plan: 3, plan_start: 3.5, leave: 4, step_end: 4, finish: 5 };
+const RANK: Record<JourneyKind, number> = { start: 0, router: 1, decision: 1, arrive: 2, step: 2, plan_start: 1.5, plan: 3, leave: 4, step_end: 4, finish: 5 };
 
 export interface JourneyEvent {
   index: number;
@@ -59,7 +60,7 @@ const ENDED_RUN = new Set(["done", "failed", "stopped"]);
 const GENERATED = /\/a(\d+)\/v(\d+)$/;
 
 /**
- * What the replay draws and walks: all of a generate step's child runs merged into one, oldest first. A replan copies
+ * What the replay draws and walks: the loaded child runs of a generate step merged into one, oldest first. A replan copies
  * finished steps into the new child as already done rows (src/workflow/engine.ts `seedFinishedAndResume`: no task,
  * attempt 1, ended the moment they were inserted); those are carried over, not replayed a second time.
  */

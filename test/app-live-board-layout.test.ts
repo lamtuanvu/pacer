@@ -32,11 +32,11 @@ test("layout snapshot: a fan-out is one band of parallel lanes, one lane per bra
 test("layout snapshot: a generated plan is a zone under its generate step, filled only by the child run's steps", () => {
   const l = layoutLiveBoard(generatedInput);
   expect(place(l).sort()).toEqual([
-    "approve_spec|desk|248,281", "brainstorm|desk|0,281", "plan|desk|744,140", "review|desk|496,281",
-    "zone:plan/api|desk|756,350", "zone:plan/docs|desk|1004,410", "zone:plan/ui|desk|1004,290",
+    "approve_spec|desk|248,289", "brainstorm|desk|0,289", "plan|desk|744,140", "review|desk|496,289",
+    "zone:plan/api|desk|756,366", "zone:plan/docs|desk|1004,426", "zone:plan/ui|desk|1004,306",
   ]);
   expect(l.zones).toHaveLength(1);
-  expect(l.zones[0]).toMatchObject({ id: "zone:plan", stepId: "plan", x: 744, y: 238, w: 448, h: 260, approved: 1, drawn: 3 });
+  expect(l.zones[0]).toMatchObject({ id: "zone:plan", stepId: "plan", x: 744, y: 238, w: 448, h: 276, approved: 1, drawn: 3 });
   expect(l.zones[0]!.versions.map(v => `v${v.version}:${v.status}:${v.stepCount}`)).toEqual(["v1:rejected:2", "v2:approved:4"]);
   // the child's own edges are drawn, and its definition-only step ("tests") has no node
   expect(l.edges.map(e => e.id)).toContain("zone:plan/api>ui");

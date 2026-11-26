@@ -1101,15 +1101,17 @@ test("a running task catches up at once while pages are full, then waits for the
   } finally { await done(dom); }
 });
 
-test("a zone note too long for its zone ends in an ellipsis, with the whole line as its title", async () => {
-  const graphs = [{ stepId: "approve_spec", attempt: 1, version: 123456789, status: "superseded", stepCount: 123456789 }, { stepId: "approve_spec", attempt: 1, version: 1234567890, status: "superseded", stepCount: 123456789 }];
+test("a long zone summary wraps onto two lines with every word shown and the whole line as title", async () => {
+  const graphs = [{ stepId: "approve_spec", attempt: 1, version: 1, status: "superseded", stepCount: 2 }, { stepId: "approve_spec", attempt: 1, version: 2, status: "proposed", stepCount: 3 }];
   const { dom } = await live({}, () => ({ ...liveFixture.get, graphs }));
+  const whole = "v2 proposed · 3 steps · not approved yet · v1 replaced";
   try {
-    const note = must(all(dom.container as Node).find(n => n.tagName === "text" && attr(n, "class") === "lb-zone-note"), "note");
-    const title = text(must(all(note).find(n => n.tagName === "title"), "title"));
-    const shown = note.childNodes!.filter(c => (c as Node).nodeType === 3).map(c => (c as Node).data).join("");
-    expect(title.length).toBeGreaterThan(60);
-    expect(shown.endsWith("…")).toBe(true);
-    expect(title.startsWith(shown.slice(0, -1))).toBe(true);
+    const notes = all(dom.container as Node).filter(n => n.tagName === "text" && attr(n, "class") === "lb-zone-note");
+    const shown = notes.map(n => n.childNodes!.filter(c => (c as Node).nodeType === 3).map(c => (c as Node).data).join(""));
+    expect(shown).toHaveLength(2);
+    expect(shown.join(" ")).toBe(whole);
+    expect(shown.join("")).not.toContain("…");
+    expect(notes.map(n => text(must(all(n).find(x => x.tagName === "title"), "title")))).toEqual([whole, whole]);
+    expect(notes.map(n => Number(attr(n, "y"))).reduce((a, b) => b - a)).toBe(16);
   } finally { await done(dom); }
 });

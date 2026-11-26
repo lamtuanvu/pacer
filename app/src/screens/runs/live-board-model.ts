@@ -40,10 +40,6 @@ export function layoutInputFromDetail(detail: Pick<RunDetailState, "steps" | "de
 
 export const nodeLabel = (n: Pick<BoardNode, "stepId" | "branch">): string => n.branch ? `${n.stepId} · ${n.branch}` : n.stepId;
 
-export function shortLabel(text: string, max = 24): string {
-  return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
-}
-
 const UNKNOWN = "task:";
 
 /** The executor identity behind a task (the snapshot's `executor` id, e.g. `codex#personal`). A task the snapshot does not list keeps its own identity, so unknown agents never merge into one. */
