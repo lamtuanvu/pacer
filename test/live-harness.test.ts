@@ -133,7 +133,7 @@ describe("live guard (D3)", () => {
       PACER_ASSISTANT_GRANT: grant,
       PACER_ASSISTANT_URL: "http://127.0.0.1:49672",
       PACER_ASSISTANT_TURN: "turn-1",
-      PACER_HOME: "/tmp/ask-run",
+      PACER_HOME: join(session.root, "home/runs/assistant/turn-1"),
       PACER_ROLE: "executor",
     };
     const statusEnv = guardedChildEnv(session, ["status", "--json"], inherited);
@@ -143,7 +143,7 @@ describe("live guard (D3)", () => {
     expect(mcpEnv.PACER_ASSISTANT_GRANT).toBe(grant);
     expect(mcpEnv.PACER_ASSISTANT_URL).toBe("http://127.0.0.1:49672");
     expect(mcpEnv.PACER_ASSISTANT_TURN).toBe("turn-1");
-    expect(mcpEnv.PACER_HOME).toBe("/tmp/ask-run");
+    expect(mcpEnv.PACER_HOME).toBe(inherited.PACER_HOME);
     expect(mcpEnv.PACER_ROLE).toBeUndefined();
   });
   test("executable guard exits 3 without reading a session or dispatching pacer", () => {

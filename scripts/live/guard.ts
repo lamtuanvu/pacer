@@ -1,7 +1,8 @@
 import { CONDITIONAL_OPS, refusedOp } from "./proxy";
-import { lstatSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { pacerArgv, SANDBOX_MARK, sandboxEnv, type Session } from "./core";
+import { isolatedArgv, pacerArgv, SANDBOX_MARK, sandboxEnv, type Session } from "./core";
 import { runSessionStreamFaultProxy } from "./session-stream-fault";
 
 /**
@@ -121,9 +122,12 @@ const IDENTITY_KEYS = [
 /** Identity values pacer writes to or derives a home from; each must stay inside the sandbox home. */
 const HOME_PATH_KEYS = ["PACER_RUN_DIR", "PACER_TRANSCRIPT_REPORT", "PACER_GUARD_FAILURE_MARKER"] as const;
 
-/** The real path of `path`, resolving its existing part; undefined for relative paths and dangling links. */
+/**
+ * The real path of `path`, resolving its existing part; undefined for relative paths, dangling links and `..`,
+ * which resolves lexically here but after a symlink in the kernel.
+ */
 function realTarget(path: string): string | undefined {
-  if (!isAbsolute(path)) return undefined;
+  if (!isAbsolute(path) || path.split(sep).includes("..")) return undefined;
   const missing: string[] = [];
   for (let at = resolve(path); ; at = dirname(at)) {
     try { lstatSync(at); } catch (error) {
@@ -138,13 +142,18 @@ function within(path: string, directory: string): boolean {
   const target = realTarget(path), root = realTarget(directory);
   if (!target || !root) return false;
   const rest = relative(root, target);
-  return rest !== "" && rest !== ".." && !rest.startsWith(`..${sep}`) && !isAbsolute(rest);
+  return rest !== "" && rest !== ".." && !rest.startsWith(`..${sep}`);
+}
+function sandboxHomeOrWithin(session: Session, path: string): boolean {
+  const home = join(session.root, "home");
+  return within(path, home) || realTarget(path) === realTarget(home);
 }
 
 /** True only for the environment of a process this sandbox launched: its launch mark and its own home. */
 export function sandboxLaunched(session: Session, inherited: NodeJS.ProcessEnv): boolean {
   if (inherited[SANDBOX_MARK] !== session.root || !inherited.PACER_HOME) return false;
-  try { return realpathSync(inherited.PACER_HOME) === realpathSync(join(session.root, "home")); } catch { return false; }
+  const home = realTarget(inherited.PACER_HOME);
+  return home !== undefined && home === realTarget(join(session.root, "home"));
 }
 
 /** The identity a sandbox-launched caller keeps. Anything else, and every outer identity, is dropped. */
@@ -158,7 +167,7 @@ function sandboxIdentity(session: Session, inherited: NodeJS.ProcessEnv): NodeJS
   }
   // The certification canary's marker lives in the probe's own temporary directory, not in the home.
   const marker = inherited.PACER_CANARY_MARKER;
-  if (marker && isAbsolute(marker) && basename(dirname(marker)).startsWith("pacer-control-canary-") && basename(marker).startsWith("denied-")) {
+  if (marker && within(marker, session.tmp ?? tmpdir()) && basename(dirname(marker)).startsWith("pacer-control-canary-") && basename(marker).startsWith("denied-")) {
     kept.PACER_CANARY_MARKER = marker;
   }
   return kept;
@@ -170,11 +179,9 @@ function sandboxIdentity(session: Session, inherited: NodeJS.ProcessEnv): NodeJS
  */
 export function guardedChildCwd(session: Session, cwd: string): string {
   const repo = join(session.root, "repo");
-  try {
-    const real = realpathSync(cwd);
-    const inside = [join(session.root, "home"), repo].some(root => real === realTarget(root) || within(real, root));
-    return inside ? real : repo;
-  } catch { return repo; }
+  const real = realTarget(cwd);
+  if (!real || !existsSync(real)) return repo;
+  return [join(session.root, "home"), repo].some(root => real === realTarget(root) || within(real, root)) ? real : repo;
 }
 
 /**
@@ -190,11 +197,14 @@ export function guardedChildEnv(
   const env: NodeJS.ProcessEnv = { ...sandboxEnv(session), ...sandboxIdentity(session, inherited) };
   // The sandbox sits inside the checkout, so git must not search above it from a folder with no repository.
   env.GIT_CEILING_DIRECTORIES = [session.root, env.GIT_CEILING_DIRECTORIES].filter(Boolean).join(delimiter);
+  if (env.PACER_CORE_ARGV) env.PACER_CORE_ARGV = JSON.stringify(isolatedArgv(JSON.parse(env.PACER_CORE_ARGV) as string[]));
   if (args[0] !== "mcp" || args[1] !== "--assistant") return env;
   const pass = ["PACER_ASSISTANT_GRANT", "PACER_ASSISTANT_URL", "PACER_ASSISTANT_TURN", "PACER_HOME", "PACER_ASSISTANT_HOME"] as const;
   for (const key of pass) {
     const value = inherited[key];
-    if (typeof value === "string" && value.length > 0) env[key] = value;
+    // A turn's home is a folder of the sandbox home; an outside one would point the server at another install.
+    if (typeof value !== "string" || value.length === 0 || (key.endsWith("_HOME") && !sandboxHomeOrWithin(session, value))) continue;
+    env[key] = value;
   }
   return env;
 }
@@ -214,7 +224,7 @@ if (import.meta.main) {
     if (args.length === 3 && args[0] === "plugin" && args[1] === "run" && args[2] === "pacer-ssh") {
       process.exit(await runSessionStreamFaultProxy(session, args));
     }
-    const child = Bun.spawn([...pacerArgv(session), ...args], {
+    const child = Bun.spawn([...isolatedArgv(pacerArgv(session)), ...args], {
       cwd: guardedChildCwd(session, process.cwd()), env: guardedChildEnv(session, args), stdin: "inherit", stdout: "inherit", stderr: "inherit",
     });
     // Forward shutdown to the guarded process, including nested task runners.
