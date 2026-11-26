@@ -20,11 +20,20 @@ fn message(op: &str, params: Value) -> String {
 }
 
 #[test]
-fn valid_requests_forward_to_core() {
+fn submit_and_child_stay_native_while_the_rest_forward() {
     let ctx = ctx(&[]);
+    // B2-9 owns `dispatch.submit` and `dispatch.child` natively, so a request
+    // Rust would not refuse still runs them natively rather than forwarding.
     for (op, params) in [
         ("dispatch.submit", json!({"goal": "g", "repo": "/r"})),
         ("dispatch.child", json!({"goal": "g", "requestId": "r1"})),
+        ("dispatch.submit", json!({"goal": "g", "repo": "/r", "options": {"allowDelegation": true}})),
+        ("dispatch.child", json!({"goal": "g", "requestId": "r1", "difficulty": "simple", "model": "x"})),
+    ] {
+        assert!(!lifecycle_stays_forwarded(&ctx, op, &params), "{op} {params}");
+    }
+    // The remaining lifecycle ops still act in Core (B2-10), so they forward.
+    for (op, params) in [
         ("dispatch.wait", json!({"id": "t", "timeout_s": 3000})),
         (
             "dispatch.review",
@@ -54,18 +63,33 @@ fn valid_requests_forward_to_core() {
 }
 
 #[test]
-fn options_forward_whatever_the_other_fields_hold() {
+fn work_options_validate_natively_and_interleave_with_field_issues() {
     let ctx = ctx(&[]);
-    assert!(lifecycle_stays_forwarded(
+    // Unknown `workOptionsSchema` key is answered natively (not forwarded).
+    assert!(!lifecycle_stays_forwarded(
         &ctx,
         "dispatch.submit",
         &json!({"goal": 1, "options": {"bogus": true}})
     ));
-    assert!(lifecycle_stays_forwarded(
-        &ctx,
+    let text = message(
+        "dispatch.submit",
+        json!({"goal": "", "options": {"bogus": true}}),
+    );
+    assert!(
+        text.contains("options: Unrecognized key: \"bogus\"") && text.contains("goal: Too small"),
+        "{text}"
+    );
+    let child = message(
         "dispatch.child",
-        &json!({"options": null})
-    ));
+        json!({"goal": "g", "requestId": "r", "difficulty": "hard", "model": 7}),
+    );
+    assert!(
+        child.contains("difficulty: Invalid option: expected one of \"simple\"|\"standard\"|\"complex\"")
+            && child.contains("model: Invalid input: expected string"),
+        "{child}"
+    );
+    // `options` on the still-forwarded ops (wait) is an unknown key, not a
+    // work option, so those ops publish their own shape issue natively.
     assert!(!lifecycle_stays_forwarded(
         &ctx,
         "dispatch.wait",

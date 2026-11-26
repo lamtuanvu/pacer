@@ -314,6 +314,7 @@ async fn forward_input<
                 || ctx.env.contains_key("PACER_ENFORCEMENT_TOKEN"))
         {
             let allowed = pacer_work::WORK_GRANT_OPS.contains(&name)
+                || name == "dispatch.submit"
                 || (name == "dispatch.enforcement.denied"
                     && ctx.env.contains_key("PACER_ENFORCEMENT_TOKEN"));
             if !allowed {
@@ -379,6 +380,7 @@ async fn forward_input<
                 || request_ctx.env.contains_key("PACER_ENFORCEMENT_TOKEN")
             {
                 let allowed = pacer_work::WORK_GRANT_OPS.contains(&op.name)
+                    || op.name == "dispatch.submit"
                     || (op.name == "dispatch.enforcement.denied"
                         && request_ctx.env.contains_key("PACER_ENFORCEMENT_TOKEN"));
                 if !allowed {
@@ -1403,6 +1405,10 @@ async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i3
         value: tokio::sync::OnceCell::new(),
     };
     let mut ctx = Ctx::from_env();
+    // B2-9: install the native submit/child lifecycle effects once at startup.
+    pacer_dispatch_ops::lifecycle_ops::install_lifecycle_effects(std::sync::Arc::new(
+        crate::native::dispatch_lifecycle_effects::NativeDispatchEffects::new(),
+    ));
     // Only the HTTP front door may assert how a message caller authenticated.
     ctx.env.remove(crate::native::msg_ops::CALLER_AUTH_ENV);
     ctx.env.remove(core_secrets::ANNOUNCE_ENV);

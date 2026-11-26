@@ -165,6 +165,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             || ctx.env.contains_key("PACER_ENFORCEMENT_TOKEN")
         {
             let allowed = pacer_work::WORK_GRANT_OPS.contains(&op.name)
+                || op.name == "dispatch.submit"
                 || (op.name == "dispatch.enforcement.denied"
                     && ctx.env.contains_key("PACER_ENFORCEMENT_TOKEN"));
             if !allowed {
@@ -960,6 +961,10 @@ pub async fn run_serve(
     };
     // Native operations and the core must observe the same configuration environment.
     ctx.env = env.clone();
+    // B2-9: install the native submit/child lifecycle effects once at startup.
+    pacer_dispatch_ops::lifecycle_ops::install_lifecycle_effects(std::sync::Arc::new(
+        crate::native::dispatch_lifecycle_effects::NativeDispatchEffects::new(),
+    ));
     // Runtime environment cannot turn a generic front door into a native owner.
     env.remove("PACER_INTERNAL_NATIVE_BOOTSTRAP");
     // The owner's credential reaches the Core child alone, on its stdin.

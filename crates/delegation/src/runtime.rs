@@ -38,3 +38,53 @@ pub struct Runtime {
     pub spawn: Arc<dyn RunnerSpawn>,
     pub supervisor: Arc<dyn Supervisor>,
 }
+
+fn unavailable(what: &str) -> CoreError {
+    use pacer_foundation::api::Code;
+    CoreError::new(Code::Unavailable, format!("{what} is unavailable"))
+}
+
+/// Test double: no plugins are enabled, so plugin-owned effects are skipped.
+pub struct NoPlugins;
+impl PluginCalls for NoPlugins {
+    fn providers(&self, _: &Ctx, _: &str) -> Vec<String> {
+        Vec::new()
+    }
+    fn call<'a>(
+        &'a self,
+        _: &'a Ctx,
+        _: &'a str,
+        _: &'a str,
+        _: Value,
+        _: Duration,
+    ) -> OpFuture<'a> {
+        Box::pin(async { Err(unavailable("plugin calls")) })
+    }
+}
+
+/// Test double for a runtime without an effectful Rust runner (B1 prerequisite).
+pub struct NoSpawn;
+impl RunnerSpawn for NoSpawn {
+    fn launch(&self, _: &Ctx, _: &str, _: Option<&str>) -> Result<Option<u32>, CoreError> {
+        Err(unavailable("runner spawn"))
+    }
+}
+
+/// Test double for a runtime without a native supervision loop (B1 prerequisite).
+pub struct NoSupervisor;
+impl Supervisor for NoSupervisor {
+    fn tick<'a>(&'a self, _: &'a Ctx, _: &'a str) -> OpFuture<'a> {
+        Box::pin(async { Err(unavailable("supervisor")) })
+    }
+}
+
+/// A runtime with only inert doubles, used by tests and by surfaces that have no owner yet.
+impl Default for Runtime {
+    fn default() -> Self {
+        Self {
+            plugins: Arc::new(NoPlugins),
+            spawn: Arc::new(NoSpawn),
+            supervisor: Arc::new(NoSupervisor),
+        }
+    }
+}

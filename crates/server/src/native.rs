@@ -33,6 +33,7 @@ use pacer_dispatch_ops::tier_targets_ops;
 pub use pacer_task_ops::session_lifecycle_ops::session_lifecycle_stays_forwarded;
 use pacer_update::desktop_reconcile_ops;
 pub(crate) mod dispatch_lifecycle_sync;
+pub(crate) mod dispatch_lifecycle_effects;
 use pacer_config_ops::engine_ops;
 use pacer_config_ops::host_check_clean_setup_ops;
 use pacer_config_ops::host_mut_ops;

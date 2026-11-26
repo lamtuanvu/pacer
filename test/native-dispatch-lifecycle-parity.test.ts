@@ -87,7 +87,8 @@ test.skipIf(!front)("requests Core must run and work options stay with TypeScrip
     request(5, "dispatch.answer", { id: "missing", expect_rev: 1, requestId: "r", text: "yes" }),
     request(6, "dispatch.stop", { id: "missing" }),
     request(7, "dispatch.child", { goal: "g", requestId: "r" }),
-    // workOptionsSchema issues interleave with the field issues, so any `options` forwards.
+    // B2-9 serves `dispatch.submit`/`dispatch.child` natively, so `options`,
+    // `difficulty` and `model` are validated against `workOptionsSchema` here too.
     request(8, "dispatch.submit", { goal: "", options: { bogus: true } }),
     request(9, "dispatch.child", { options: null }),
     request(10, "dispatch.stop", { expect_rev: 0 }),
@@ -98,7 +99,7 @@ test.skipIf(!front)("requests Core must run and work options stay with TypeScrip
     // New child fields must be validated together with the original fields by Core.
     request(14, "dispatch.child", { difficulty: "invalid", model: 42 }),
   ];
-  const routed = await exchange(ctx.home, requests, false, {}, [8]);
+  const routed = await exchange(ctx.home, requests, false, {}, [5, 6, 7, 8, 11, 12]);
   expect(wire(routed)).toEqual(wire(await exchange(ctx.home, requests, true)));
   expect(routed.every(reply => reply.error != null)).toBe(true);
   expect(routed[6].error.message).toContain("options");
@@ -146,7 +147,7 @@ test.skipIf(!front)("HTTP bodies serde_json cannot represent reach Core exactly 
     { op: "dispatch.stop", body: '{"id":"t","expect_rev":123456789012345678901234567890}' },
     { op: "dispatch.review", body: '{"id":"t","accepted":true,"expect_rev":1.0000000000000002}' },
     { op: "dispatch.retry", body: '{"id":"","expect_rev":0.1e1,"requestId":"r"}' },
-    { op: "dispatch.child", body: '{"goal":"g","requestId":"r","acceptance_timeout_min":-1e-400}' },
+    { op: "dispatch.child", body: '{"goal":"g","requestId":"r","acceptance_timeout_min":-1e-400}', native: true },
     { op: "dispatch.wait", body: "{" },
     { op: "dispatch.stop", body: '{"id":"t","expect_rev":12345678901234567890}', native: true },
     { op: "dispatch.wait", body: '{"id":"","timeout_s":-9223372036854775808}', native: true },

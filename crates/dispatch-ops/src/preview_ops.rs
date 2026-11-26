@@ -58,20 +58,20 @@ pub fn preview_stub(_: &Ctx, _: Value) -> OpFuture<'_> {
     })
 }
 
-fn chars(value: &Value, min: usize, max: usize) -> bool {
+pub(crate) fn chars(value: &Value, min: usize, max: usize) -> bool {
     value
         .as_str()
         .is_some_and(|s| (min..=max).contains(&s.chars().count()))
 }
 
-fn names(value: &Value, max: usize) -> bool {
+pub(crate) fn names(value: &Value, max: usize) -> bool {
     value
         .as_array()
         .is_some_and(|items| items.len() <= max && items.iter().all(|n| chars(n, 1, 256)))
 }
 
 /// `received` strings match zod's `utilZodIssue` type names verbatim.
-fn zod_type(value: &Value) -> &'static str {
+pub(crate) fn zod_type(value: &Value) -> &'static str {
     match value {
         Value::Null => "null",
         Value::Bool(_) => "boolean",
@@ -84,7 +84,7 @@ fn zod_type(value: &Value) -> &'static str {
 }
 
 /// `z.enum(options)`, in zod v4's wording: `Invalid option: expected one of "a"|"b"`.
-fn issue_enum(name: &str, value: &Value, options: &[&str]) -> Vec<String> {
+pub(crate) fn issue_enum(name: &str, value: &Value, options: &[&str]) -> Vec<String> {
     if let Some(s) = value.as_str() && options.contains(&s) {
         return vec![];
     }
@@ -97,7 +97,7 @@ fn issue_enum(name: &str, value: &Value, options: &[&str]) -> Vec<String> {
 }
 
 /// `z.string().min(min).max(max)`, in zod v4's wording.
-fn issue_string(name: &str, value: &Value, min: usize, max: usize) -> Vec<String> {
+pub(crate) fn issue_string(name: &str, value: &Value, min: usize, max: usize) -> Vec<String> {
     match value.as_str() {
         None => vec![format!(
             "{name}: Invalid input: expected string, received {}",
@@ -122,7 +122,7 @@ fn issue_string(name: &str, value: &Value, min: usize, max: usize) -> Vec<String
 }
 
 /// `z.boolean()`, in zod's wording.
-fn issue_bool(name: &str, value: &Value) -> Vec<String> {
+pub(crate) fn issue_bool(name: &str, value: &Value) -> Vec<String> {
     if value.is_boolean() {
         vec![]
     } else {
@@ -134,7 +134,7 @@ fn issue_bool(name: &str, value: &Value) -> Vec<String> {
 }
 
 /// `z.number().int().positive()`, in zod v4's wording.
-fn issue_number(name: &str, value: &Value) -> Vec<String> {
+pub(crate) fn issue_number(name: &str, value: &Value) -> Vec<String> {
     let Some(n) = value.as_f64() else {
         return vec![format!(
             "{name}: Invalid input: expected number, received {}",
@@ -152,7 +152,7 @@ fn issue_number(name: &str, value: &Value) -> Vec<String> {
 }
 
 /// `requirementsSchema`, in zod's key order; `.strict()` rejects unknown keys.
-fn requirements(issues: &mut Vec<String>, name: &str, value: &Value) -> Option<Value> {
+pub(crate) fn requirements(issues: &mut Vec<String>, name: &str, value: &Value) -> Option<Value> {
     let Some(given) = value.as_object() else {
         issues.push(format!("{name}: Invalid input: expected object, received {}", zod_type(value)));
         return None;
@@ -184,7 +184,7 @@ fn requirements(issues: &mut Vec<String>, name: &str, value: &Value) -> Option<V
 }
 
 /// `preferencesSchema` with its defaults, in zod's wording.
-fn preferences(issues: &mut Vec<String>, name: &str, value: &Value) -> Option<Value> {
+pub(crate) fn preferences(issues: &mut Vec<String>, name: &str, value: &Value) -> Option<Value> {
     let Some(given) = value.as_object() else {
         issues.push(format!("{name}: Invalid input: expected object, received {}", zod_type(value)));
         return None;
