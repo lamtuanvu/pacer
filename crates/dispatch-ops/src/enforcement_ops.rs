@@ -45,7 +45,7 @@ type Object = Map<String, Value>;
 
 /// Core's per-runner native-control reads for an enforcement request.
 pub trait Bridge: Send {
-    /// Dispatch parts (`src/api/dispatch-parts-bridge.ts`).
+    /// Dispatch parts (`pacer_dispatch::guards`), now answered natively by the caller.
     fn parts(&mut self, params: Value) -> OpFuture<'_>;
 }
 
@@ -523,14 +523,6 @@ fn schedule_for(
     }
 }
 
-/// The `repo` a `dispatch.enforcement` request names; `""` when missing.
-fn repo_input(params: &Value) -> &str {
-    params
-        .get("repo")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-}
-
 /// `dispatch.enforcement` forwards when the repository or policy needs Core.
 fn enforcement_forwarded(ctx: &Ctx, repo: &str) -> bool {
     repo_needs_core(ctx, repo, true)
@@ -767,9 +759,6 @@ pub fn dispatch_enforcement<'a>(
         finish(issues)?;
         let repo_input = p["repo"].as_str().unwrap_or_default();
         let strategy = load_strategy(&ctx.pacer_home).map_err(internal)?;
-        if enforcement_forwarded(ctx, repo_input) {
-            return Err(unavailable("pacer core must resolve the repository"));
-        }
         let projects = read_project_strategies(&ctx.pacer_home).map_err(policy_error)?;
         let repo = policy_repo(ctx, repo_input, &projects)?;
         let repo_path = repo["path"].as_str().unwrap_or_default().to_owned();
@@ -851,9 +840,10 @@ pub fn dispatch_enforcement<'a>(
 
 /// Whether `dispatch.enforcement` (or `dispatch.enforcement.denied`) should
 /// stay forwarded: the repository or policy needs Core.
-pub fn dispatch_enforcement_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
+pub fn dispatch_enforcement_stays_forwarded(_ctx: &Ctx, op: &str, _params: &Value) -> bool {
     match op {
-        "dispatch.enforcement" => enforcement_forwarded(ctx, repo_input(params)),
+        // B2-5: dispatch parts are native, so the repository no longer needs Core.
+        "dispatch.enforcement" => false,
         "dispatch.enforcement.denied" => false,
         _ => false,
     }

@@ -47,6 +47,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::any,
 };
+use pacer_dispatch::VersionCache;
 use pacer_foundation::{
     Ctx,
     api::{Code, CoreError, Registry},
@@ -84,6 +85,8 @@ struct Listener {
     plugins: crate::native::plugins::Service,
     forward_log_follow: bool,
     forward_events: bool,
+    /// Native dispatch-parts `--version` checks share this cache across requests.
+    versions: VersionCache,
 }
 async fn forward_plugin_read(
     state: &Listener,
@@ -366,8 +369,10 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
         }
         if crate::native::preview_ops::needs_dispatch_parts(op.name) {
             crate::native::msg_write_sync::trace(op.name, None);
-            let mut bridge = crate::native::dispatch_preview_sync::HttpBridge {
+            let mut bridge = crate::native::dispatch_preview_sync::NativeParts {
                 target: state.core.target().await,
+                ctx: &ctx,
+                cache: &state.versions,
             };
             let result =
                 crate::native::preview_ops::dispatch_preview(&ctx, op.name, params, &mut bridge);
@@ -378,8 +383,9 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
         }
         if crate::native::enforcement_ops::needs_dispatch_parts(op.name) {
             crate::native::msg_write_sync::trace(op.name, None);
-            let mut bridge = crate::native::dispatch_enforcement_sync::HttpBridge {
-                target: state.core.target().await,
+            let mut bridge = crate::native::dispatch_enforcement_sync::NativeParts {
+                ctx: &ctx,
+                cache: &state.versions,
             };
             let result = match op.name {
                 "dispatch.enforcement" => {
@@ -1018,6 +1024,7 @@ pub async fn run_serve(
         plugins,
         forward_log_follow,
         forward_events,
+        versions: VersionCache::default(),
     });
     let app = Router::new()
         .fallback(any(handle))

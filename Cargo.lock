@@ -1597,14 +1597,17 @@ dependencies = [
 name = "pacer-dispatch"
 version = "0.0.0"
 dependencies = [
+ "pacer-config",
  "pacer-engine",
  "pacer-foundation",
  "pacer-js-json",
+ "pacer-repos",
  "pacer-store",
  "rusqlite",
  "serde_json",
  "sha2",
  "tempfile",
+ "tokio",
 ]
 
 [[package]]
@@ -2065,6 +2068,7 @@ dependencies = [
  "pacer-config-ops",
  "pacer-core-bridge",
  "pacer-discovery-ops",
+ "pacer-dispatch",
  "pacer-dispatch-ops",
  "pacer-engine",
  "pacer-foundation",

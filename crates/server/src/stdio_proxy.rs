@@ -1,6 +1,7 @@
 use crate::core_secrets::{self, CoreSecrets};
 use crate::native::{call_native, service_registry};
 use crate::stdio_plugins::{self, Done, Line, Ownership, PluginLink};
+use pacer_dispatch::VersionCache;
 use pacer_foundation::{
     Ctx,
     api::{Code, CoreError, Registry},
@@ -193,6 +194,7 @@ async fn forward_input<
     sync: (&str, &str, &mut tokio::sync::mpsc::UnboundedReceiver<Value>),
     core_build: &CoreBuild<'_>,
     plugins: &mut Plugins,
+    versions: &VersionCache,
 ) -> io::Result<()> {
     let mut line = Vec::new();
     let mut protocol = 2;
@@ -587,11 +589,13 @@ async fn forward_input<
                 }
                 if crate::native::preview_ops::needs_dispatch_parts(op.name) {
                     crate::native::msg_write_sync::trace(op.name, request.get("id"));
-                    let mut bridge = crate::native::dispatch_preview_sync::StdioBridge {
+                    let mut bridge = crate::native::dispatch_preview_sync::NativeStdioParts {
                         core: &mut core,
                         prefix: sync.0,
                         key: sync.1,
                         replies: &mut *sync.2,
+                        ctx: &request_ctx,
+                        cache: &versions,
                     };
                     let result = crate::native::preview_ops::dispatch_preview(
                         &request_ctx,
@@ -607,11 +611,9 @@ async fn forward_input<
                 }
                 if crate::native::enforcement_ops::needs_dispatch_parts(op.name) {
                     crate::native::msg_write_sync::trace(op.name, request.get("id"));
-                    let mut bridge = crate::native::dispatch_enforcement_sync::StdioBridge {
-                        core: &mut core,
-                        prefix: sync.0,
-                        key: sync.1,
-                        replies: &mut *sync.2,
+                    let mut bridge = crate::native::dispatch_enforcement_sync::NativeParts {
+                        ctx: &request_ctx,
+                        cache: &versions,
                     };
                     let result = match op.name {
                         "dispatch.enforcement" => {
@@ -1394,6 +1396,8 @@ async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i3
     let sync_id = hex::encode(rand::random::<[u8; 32]>());
     let sync_key = hex::encode(rand::random::<[u8; 32]>());
     let (sync_tx, mut sync_rx) = tokio::sync::mpsc::unbounded_channel();
+    // Shared by every dispatch-parts call in this stdio session (Core's checkedVersions).
+    let versions = VersionCache::default();
     let core_build = CoreBuild {
         forward_hello,
         program,
@@ -1465,6 +1469,7 @@ async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i3
             (&sync_id, &sync_key, &mut sync_rx),
             &core_build,
             &mut plugins,
+            &versions,
         );
         let outgoing = forward_output(BufReader::new(output), &out, &sync_id, sync_tx, &link);
         tokio::pin!(incoming, outgoing);

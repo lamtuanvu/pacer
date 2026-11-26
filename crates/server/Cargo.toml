@@ -30,6 +30,7 @@ pacer-config-ops = { path = "../config-ops" }
 pacer-models = { path = "../models" }
 pacer-messaging-ops = { path = "../messaging-ops" }
 pacer-dispatch-ops = { path = "../dispatch-ops" }
+pacer-dispatch = { path = "../dispatch" }
 pacer-issues = { path = "../issues" }
 pacer-install = { path = "../install" }
 pacer-work = { path = "../work" }

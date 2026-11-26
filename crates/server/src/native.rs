@@ -16,7 +16,6 @@ pub(crate) use pacer_core_bridge::client_control_sync;
 pub(crate) use pacer_core_bridge::config_host_sync;
 pub(crate) use pacer_core_bridge::config_sync;
 pub(crate) use pacer_core_bridge::core_bridge_sync;
-pub(crate) use pacer_core_bridge::dispatch_parts_sync;
 use pacer_discovery_ops::{discovery_ops, network_ops};
 use pacer_dispatch_ops::dependency_writes;
 use pacer_dispatch_ops::dispatch_ops;
