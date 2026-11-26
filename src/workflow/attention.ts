@@ -477,7 +477,7 @@ function reviewItems(ctx: Ctx, run: RunRow, letters: Map<string, string>): Atten
         : `${runDetailSubject(root)}. Accepting merges the changes into the run branch and the run continues. Uncommitted work is refused.`,
       gate: conflict
         ? { kind: "step_conflict", recordId: conflict, commands: [
-          ...(gone ? [`git worktree add ${dir} ${own}`, `git -C ${dir} merge ${branch}`, `git -C ${dir} commit`] : [`git merge ${branch}`, "git commit"]),
+          ...(gone ? ["git worktree prune", `git worktree add ${dir} ${own}`, `git -C ${dir} merge ${branch}`, `git -C ${dir} commit`] : [`git merge ${branch}`, "git commit"]),
           `pacer review ${task.id} --accept`,
         ] }
         : { kind: "step_review" },

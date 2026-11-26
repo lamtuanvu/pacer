@@ -1755,10 +1755,19 @@ for (const [state, spoil, words] of [
     expect(item.actions.map(a => a.label)).toEqual(["Accept", "Reject"]);
     if (state === "without its worktree") {
       expect(item.gate!.commands).toEqual([
-        `git worktree add ../resolve-${y} pacer/${y}`, `git -C ../resolve-${y} merge ${getRun(w.ctx, run.id)!.branch}`,
+        "git worktree prune", `git worktree add ../resolve-${y} pacer/${y}`, `git -C ../resolve-${y} merge ${getRun(w.ctx, run.id)!.branch}`,
         `git -C ../resolve-${y} commit`, `pacer review ${y} --accept`,
       ]);
       expect(item.detail).toContain("The task's worktree was removed");
+      const branch = getRun(w.ctx, run.id)!.branch!, dir = join(w.repo, `../resolve-${y}`);
+      w.git(w.repo, "worktree", "prune");
+      w.git(w.repo, "worktree", "add", "-q", `../resolve-${y}`, `pacer/${y}`);
+      Bun.spawnSync(["git", "-C", dir, "-c", "user.email=t@t", "-c", "user.name=t", "merge", "-q", branch]);
+      writeFileSync(join(dir, "same.txt"), "by hand\n");
+      w.git(dir, "commit", "-qam", "resolve");
+      await w.accept(y);
+      expect(w.branchFile(branch, "same.txt")).toBe("by hand\n");
+      expect(getRun(w.ctx, run.id)!.status).toBe("done");
     }
   });
 }
