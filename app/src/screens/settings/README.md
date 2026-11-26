@@ -6,7 +6,7 @@ Import `screens/settings/index` explicitly. This barrel exports the U3 screens m
 | --- | --- |
 | `#/settings` | `SettingsGeneral` (Overview) |
 | `#/settings/<section>` | `SettingsGeneral section={section}` (only the selected editor mounts) |
-| `#/settings/dispatcher` | Dispatcher › Overview: model choice and preview (`DispatcherSection tab="overview"`, lazy) |
+| `#/settings/dispatcher` | Dispatcher › Overview: model choice, preview and Native subagent control (`DispatcherSection tab="overview"`, lazy) |
 | `#/settings/agents` | Dispatcher › Agents (`AgentsTab`, lazy through `LazyAgents`); `?agent=<runner id>` selects an agent |
 | `#/settings/rules` | Dispatcher › Who can run what: guided rules and draft preview (`DispatcherSection tab="rules"`) |
 | `#/settings/profiles` | Dispatcher › Profiles: saved setups (`DispatcherSection tab="profiles"`) |

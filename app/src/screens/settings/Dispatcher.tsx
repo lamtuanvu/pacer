@@ -9,6 +9,7 @@ import { clock } from "../../../../src/view-model/time";
 import type { RouteQuery } from "../../router";
 import type { BrowserApi } from "../../data/api";
 import { useEffect, useLayoutEffect, useRef, useState, useId } from "preact/hooks";
+import type { ComponentChildren } from "preact";
 import { SortableList, useStableKeys } from "../../ds/SortableList";
 import { DispatcherGuidedSetup } from "./DispatcherSetup";
 import { Button, TextAction } from "../../ds/Button";
@@ -21,6 +22,7 @@ import { SettingRow } from "../../ds/SettingRow";
 import type { StrategyRow } from "../../model/strategy";
 import type { ProjectStrategyView } from "../../model/project-strategies";
 import { SectionHeading } from "../../ds/SectionHeading";
+import { ActionStatus } from "../../ds/ActionStatus";
 import { ErrorMessage, useTaskContext } from "../task-shared";
 import { Section, useResource, useOperation, ResourceState, Feedback } from "./shared";
 
@@ -126,7 +128,7 @@ function CertificationSchedule({item}:{item:EnforcementRunner}){
   if(!parts.length)return null;
   return <div className="u3-muted">{parts.join(" · ")}</div>;
 }
-function ConsentControl({item,onConsent}:{item:EnforcementRunner;onConsent:(account:string,granted:boolean)=>void}){
+function ConsentControl({item,busy,onConsent}:{item:EnforcementRunner;busy?:boolean;onConsent:(account:string,granted:boolean)=>void}){
   // With scheduling off, consent decides nothing: offering it would be a control
   // that cannot take effect.
   if(!item.probeSupported||item.probeMode==="off")return null;
@@ -143,27 +145,32 @@ function ConsentControl({item,onConsent}:{item:EnforcementRunner;onConsent:(acco
     </div>}
     <div className="pc-cluster">
       {actions.map(action=><Button key={action.label} size="sm" variant={action.variant}
-        onClick={()=>onConsent(...action.send)} aria-label={action.ariaLabel}>{action.label}</Button>)}
+        aria-disabled={busy||undefined} onClick={()=>{if(!busy)onConsent(...action.send);}} aria-label={action.ariaLabel}>{action.label}</Button>)}
     </div>
   </div>;
 }
-export function DispatcherEnforcementRows({reading,canProbe,canConsent=true,probing,onProbe,onConsent}:{
-  reading:EnforcementReading;canProbe:boolean;canConsent?:boolean;probing:string|null;
-  onProbe:(runner:string)=>void;onConsent:(account:string,granted:boolean)=>void;
+type EnforcementControl="probe"|"consent";
+export function DispatcherEnforcementRows({reading,canProbe,canConsent=true,probing,consenting,status,onProbe,onConsent}:{
+  reading:EnforcementReading;canProbe:boolean;canConsent?:boolean;probing:string|null;consenting?:boolean;
+  /** What the last action on one of this executor's controls said, shown beside that control. */
+  status?:(runner:string,control:EnforcementControl)=>ComponentChildren;
+  onProbe:(runner:string)=>void;onConsent:(account:string,granted:boolean,runner:string)=>void;
 }){
   return <>{reading.runners.map(item=><div className="pc-stack pc-stack--compact" key={item.runner}>
     <SettingRow variant="board" label={executorLabel(item.runner)}
       description={<>Account {item.account} · {item.version??"version unknown"}{item.reason?` · ${nativeControlReasonCopy(item.reason,item.probeSupported)}`:""}</>}
       status={{tone:item.state==="certified"?"good":"neutral",label:!item.probeSupported&&item.state!=="certified"?"Unavailable":enforcementStateCopy[item.state]}}>
       {canProbe&&item.probeSupported&&item.state!=="certified"?
-        <Button size="sm" busy={probing===item.runner} disabled={!!probing} onClick={()=>onProbe(item.runner)}>Verify control</Button>
+        <Button size="sm" aria-busy={probing===item.runner} aria-disabled={!!probing||undefined} onClick={()=>{if(!probing)onProbe(item.runner);}}>Verify control</Button>
       :null}
     </SettingRow>
+    {status?.(item.runner,"probe")}
     {item.probeSupported?<CertificationSchedule item={item}/>:null}
     {!item.probeSupported&&item.state!=="certified"?
       <div className="u3-muted"><a className="pc-inline-link" href="#/settings/agents">View agents</a>, then refresh status.</div>
     :null}
-    {canConsent?<ConsentControl item={item} onConsent={onConsent}/>:null}
+    {canConsent?<ConsentControl item={item} busy={consenting} onConsent={(account,granted)=>onConsent(account,granted,item.runner)}/>:null}
+    {canConsent?status?.(item.runner,"consent"):null}
   </div>)}</>;
 }
 
@@ -336,56 +343,110 @@ function DispatcherContent({query,tab}:{query:RouteQuery;tab:"overview"|"rules"}
   </>;
 }
 
+/** What the last probe or consent answer said, per executor control, in the repository it was asked in. */
+interface EnforcementFeedback {repo:string;text:string;error?:unknown;verified?:boolean;since?:EnforcementReading}
+/** One action's claim on focus: honoured at most once, by the first reading after the action succeeds. */
+interface FocusClaim {slot:string;invoker:Element;settled:boolean;inView?:boolean;since?:EnforcementReading}
+const slotOf=(runner:string,control:EnforcementControl)=>`${control}:${runner}`;
+function inViewport(element:Element):boolean {
+  const box=element.getBoundingClientRect?.();
+  return !!box&&box.bottom>0&&box.top<window.innerHeight;
+}
+
 function DispatcherEnforcement({query}:{query:RouteQuery}){
   const {state,api}=useTaskContext();
   const repos=state.snapshot?.repos??[];
   const [repo,setRepo]=useState(query.repo??repos[0]?.key??"");
-  const reading=useResource<EnforcementReading>("dispatch.enforcement",repo?{repo}:{repo:"."});
-  const currentReading=scopedEnforcementReading(reading.data,repo,repos);
-  const [probing,setProbing]=useState<string|null>(null),[probeError,setProbeError]=useState<unknown>(),[probeNotice,setProbeNotice]=useState("");
+  const selected=repos.length?repo:"";
+  const reading=useResource<EnforcementReading>("dispatch.enforcement",{repo:selected},undefined,!!selected);
+  const currentReading=selected?scopedEnforcementReading(reading.data,selected,repos):undefined;
+  const [probing,setProbing]=useState<string|null>(null),[consenting,setConsenting]=useState(false),[feedback,setFeedback]=useState<Record<string,EnforcementFeedback>>({});
+  const latest=useRef(reading.data);latest.current=reading.data;
+  const probeInFlight=useRef(false),consentInFlight=useRef(false),claim=useRef<FocusClaim|null>(null),statuses=useRef(new Map<string,HTMLParagraphElement>());
   useEffect(()=>{if(!repo&&repos.length)setRepo(repos[0]!.key);},[repo,repos.length]);
-  // Probing disables its button and a consent answer replaces its buttons. Lost focus goes to the status, never to a button that could spend quota.
-  const notice=useRef<HTMLParagraphElement>(null);
-  useEffect(()=>{if(probeNotice&&(!document.activeElement||document.activeElement===document.body))notice.current?.focus();},[probeNotice,probing,reading.data]);
+  // A verified probe removes its button and a consent answer replaces its own. Focus that would be lost goes to
+  // the status beside them, never to another button that could spend quota.
+  const claimFocus=(slot:string):FocusClaim|null=>{
+    const active=document.activeElement;
+    return claim.current=active&&active!==document.body?{slot,invoker:active,settled:false}:null;
+  };
+  const settleFocus=(mine:FocusClaim|null,succeeded:boolean)=>{
+    if(!mine||claim.current!==mine)return;
+    if(!succeeded||document.activeElement!==mine.invoker){claim.current=null;return;}
+    mine.settled=true;mine.since=latest.current;mine.inView=inViewport(mine.invoker);
+  };
+  useEffect(()=>{
+    const mine=claim.current;
+    if(!mine?.settled||(reading.data===mine.since&&!reading.error))return;
+    claim.current=null;
+    const active=document.activeElement;
+    const target=statuses.current.get(mine.slot);
+    if(!target||mine.invoker.isConnected||(active&&active!==document.body&&active!==mine.invoker))return;
+    target.focus({preventScroll:true});
+    // Rows change height with the answer. Keep the focus visible, but never pull back a reader who scrolled away.
+    if(mine.inView)target.scrollIntoView?.({block:"nearest"});
+  },[reading.data,reading.error]);
+  // A later reading outranks "verified": drop the message once it says otherwise.
+  useEffect(()=>{
+    if(!currentReading)return;
+    setFeedback(all=>{
+      const stale=currentReading.runners.map(row=>({slot:slotOf(row.runner,"probe"),certified:row.state==="certified"}))
+        .filter(({slot,certified})=>!certified&&all[slot]?.verified&&all[slot].repo===selected&&all[slot].since!==currentReading).map(({slot})=>slot);
+      return stale.length?Object.fromEntries(Object.entries(all).filter(([slot])=>!stale.includes(slot))):all;
+    });
+  },[currentReading]);
   const probe=async(runner:string)=>{
-    if(probing||!repo)return;
-    setProbing(runner);setProbeError(undefined);setProbeNotice("");
+    if(probeInFlight.current||!selected)return;
+    probeInFlight.current=true;
+    const at=selected,slot=slotOf(runner,"probe"),mine=claimFocus(slot),name=executorLabel(runner);
+    const say=(next:Omit<EnforcementFeedback,"repo">)=>setFeedback(all=>({...all,[slot]:{repo:at,...next}}));
+    setProbing(runner);setFeedback({[slot]:{repo:at,text:""}});
     try{
-      const started=await api.call<{job:{id:string}}>("dispatch.enforcement.probe",{repo,runner});
-      setProbeNotice(`${executorLabel(runner)}: checking native child blocking…`);
+      const started=await api.call<{job:{id:string}}>("dispatch.enforcement.probe",{repo:at,runner});
+      say({text:`${name}: checking native child blocking…`});
       const deadline=Date.now()+300000;
       for(;;){
         const job=await api.call<{state:string;error?:{message:string}}>("job.get",{id:started.job.id});
         if(job.state!=="running"){
-          setProbeNotice(job.state==="passed"?`${executorLabel(runner)}: native child blocking verified.`:`${executorLabel(runner)}: verification could not complete. Review executor setup and try again.`);
-          reading.reload();break;
+          const verified=job.state==="passed";
+          say({text:verified?`${name}: native child blocking verified.`:`${name}: verification could not complete. Review executor setup and try again.`,verified,since:latest.current});
+          settleFocus(mine,verified);reading.reload();break;
         }
         if(Date.now()>deadline)throw new Error("Control verification is still running. Refresh the status to see its result.");
         await new Promise(resolve=>setTimeout(resolve,1500));
       }
     }
-    catch{setProbeError(new Error("Verification could not complete. Review executor setup and try again."));}finally{setProbing(null);}
+    catch{settleFocus(mine,false);say({text:"",error:new Error("Verification could not complete. Review executor setup and try again.")});}
+    finally{probeInFlight.current=false;setProbing(null);}
   };
-  const consent=async(account:string,granted:boolean)=>{
+  const consent=async(account:string,granted:boolean,runner:string)=>{
+    if(consentInFlight.current||!selected)return;
+    consentInFlight.current=true;
+    const at=selected,slot=slotOf(runner,"consent"),mine=claimFocus(slot);
+    const say=(next:Omit<EnforcementFeedback,"repo">)=>setFeedback(all=>({...all,[slot]:{repo:at,...next}}));
+    setConsenting(true);setFeedback({[slot]:{repo:at,text:`${granted?"Granting":"Declining"} consent for ${account}…`}});
     try{
-      setProbeNotice(`${granted?"Granting":"Declining"} consent for ${account}…`);
       await api.call("dispatch.enforcement.consent",{account,granted});
-      setProbeNotice(granted?`Consent granted for ${account}. The next schedule check will consider probes.`:`Consent declined for ${account}. No automatic probes will run.`);
-      reading.reload();
+      say({text:granted?`Consent granted for ${account}. The next schedule check will consider probes.`:`Consent declined for ${account}. No automatic probes will run.`});
+      settleFocus(mine,true);reading.reload();
     }catch(error){
-      setProbeError(error instanceof Error?error:new Error(String(error)));
-    }
+      settleFocus(mine,false);say({text:"",error:error instanceof Error?error:new Error(String(error))});
+    }finally{consentInFlight.current=false;setConsenting(false);}
+  };
+  const refresh=()=>{if(!probeInFlight.current&&!consentInFlight.current)setFeedback({});reading.reload();};
+  const status=(runner:string,control:EnforcementControl)=>{
+    const slot=slotOf(runner,control),item=feedback[slot]?.repo===selected?feedback[slot]:undefined;
+    return <><ActionStatus ref={(node:HTMLParagraphElement|null)=>{if(node)statuses.current.set(slot,node);}}>{item?.text}</ActionStatus><ErrorMessage error={item?.error}/></>;
   };
   return <Section id="native-control" title="Native subagent control" detail="Pacer checks native child blocking before admitting strict managed work.">
     <div className="pc-card pc-stack pc-stack--normal">
       <p>New managed work requires verified native subagent control. Executors can ask Pacer to delegate child work; Pacer selects and records it. This check covers supported native subagent tools when work starts, not arbitrary AI commands run through a shell.</p>
       {repos.length?<SettingRow variant="board" label="Repository"><ChoicePicker value={repo} searchable options={repos.map(item=>({value:item.key,label:item.label}))} onValueChange={setRepo}/></SettingRow>:<p>No repository is registered yet, so there is nothing to inspect.</p>}
-      {repo&&<div><Button size="sm" onClick={()=>reading.reload()}>Refresh status</Button></div>}
+      {selected&&<div><Button size="sm" onClick={refresh}>Refresh status</Button></div>}
       <DispatcherReadError error={reading.error&&currentReading?reading.error:undefined} reload={reading.reload} subject="native subagent control"/>
-      {currentReading&&<DispatcherEnforcementRows reading={currentReading} canProbe={state.features.ops.has("dispatch.enforcement.probe")&&!!repo} probing={probing} onProbe={runner=>void probe(runner)} canConsent={state.features.ops.has("dispatch.enforcement.consent")} onConsent={consent}/>}
-      {repo&&!currentReading&&<p role={reading.error?"alert":undefined}>{reading.error?"Native control status could not be loaded.":"Loading native control status…"}</p>}
+      {currentReading&&<DispatcherEnforcementRows reading={currentReading} canProbe={state.features.ops.has("dispatch.enforcement.probe")} probing={probing} consenting={consenting} status={status} onProbe={runner=>void probe(runner)} canConsent={state.features.ops.has("dispatch.enforcement.consent")} onConsent={(account,granted,runner)=>void consent(account,granted,runner)}/>}
+      {selected&&!currentReading&&<p role={reading.error?"alert":undefined}>{reading.error?"Native control status could not be loaded.":"Loading native control status…"}</p>}
       <p className="u3-muted">Verification starts the selected agent in a disposable repository and may use account quota.</p>
-      {probeNotice&&<p ref={notice} tabIndex={-1} role="status" aria-live="polite">{probeNotice}</p>}<ErrorMessage error={probeError}/>
     </div>
   </Section>;
 }

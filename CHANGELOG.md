@@ -6,7 +6,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
-- Settings › Dispatcher › Overview shows **Native subagent control** again: each executor's certification status, **Verify control** and the scheduled-probe consent buttons. The section had not been rendered since 0.13.0, so executors could only be certified or consent answered from the terminal. With no registered repository it now says so instead of reporting a failed read, the "View agents" link is underlined, and keyboard focus moves to the status line when an action disables or replaces its button. Consent and probing behave as before.
+- Settings › Dispatcher › Overview shows **Native subagent control** again: each executor's certification status, **Verify control** and the scheduled-probe consent buttons. The section had not been rendered since 0.13.0, so executors could only be certified or consent answered from the terminal. With no registered repository it now says so and reads nothing, and the "View agents" link is underlined. Each result appears beside its executor and only under the repository it came from; an in-progress line or an old error is cleared, and a "verified" message goes when a later reading says otherwise. Verify and consent buttons stay focusable and ignore repeat presses while a request runs. When an action removes the button that had focus, focus moves once to its result, which shows a focus ring. The probe and consent operations are unchanged.
 
 ## [0.18.8] - 2026-11-26
 

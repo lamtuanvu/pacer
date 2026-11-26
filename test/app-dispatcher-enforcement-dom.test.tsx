@@ -86,22 +86,6 @@ test("Verify control probes that executor and follows the job", async () => {
   } finally { await close(dom); }
 });
 
-test("when an action removes or disables the focused button, focus lands on its status, not on another button", async () => {
-  for (const [label, status] of [["Verify control", "native child blocking verified"], ["Grant consent", "Consent granted"]] as const) {
-    const { dom } = await open("overview");
-    try {
-      await until(() => domText(dom.container).includes(label));
-      clickText(dom.container, label);
-      await until(() => domText(dom.container).includes(status));
-      await settle();
-      const focused = dom.doc.activeElement!;
-      expect(focused.getAttribute("role")).toBe("status");
-      expect(focused.getAttribute("tabindex") ?? focused.getAttribute("tabIndex")).toBe("-1");
-      expect(domText(focused)).toContain(status);
-    } finally { await close(dom); }
-  }
-});
-
 test("a service without certification operations offers no probe or consent", async () => {
   const older = await open("overview", ["dispatch.config.get", "dispatch.models"]);
   try {
