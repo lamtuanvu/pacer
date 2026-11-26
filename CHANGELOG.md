@@ -10,6 +10,9 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 ### Fixed
 
 - `pacer service restart` and `pacer update` now hand running work to the new service instead of warning "running work was not handed over: pacer core is restarting".
+### Fixed
+
+- Settings › Updates no longer keeps showing a failed update after you install that release another way, such as by hand; pacer drops the installed offer and checks again.
 
 ## [0.18.6] - 2026-11-26
 

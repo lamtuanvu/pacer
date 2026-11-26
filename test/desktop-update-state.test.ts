@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, 
 import { join } from "node:path";
 import { CoreError } from "../src/core/errors";
 import { readUpdate, writeUpdate } from "../src/update/desktop/store";
-import { cancelRestart, checkDue, checksEnabled, rememberRequest, replayRequest, requestRestart, updateStatus } from "../src/update/desktop/policy";
+import { cancelRestart, checkDue, checksEnabled, reconcileStaleCandidate, rememberRequest, replayRequest, requestRestart, updateStatus } from "../src/update/desktop/policy";
 import type { Installation, RestartRequest, UpdateRecord } from "../src/update/desktop/types";
 import wire from "./fixtures/desktop-update/wire.json";
 import { fakeCtx, tmpDir } from "./helpers";
@@ -299,4 +299,46 @@ test("status advertises cancellable network and configurable live phases",()=>{
  }
  expect(updateStatus(installation,ready()).actions).toContain("configure");
  expect(updateStatus(installation,{...ready(),phase:"installing"}).actions).not.toContain("configure");
+});
+
+test("a candidate already installed by hand clears its stale error back to idle", () => {
+  const record: UpdateRecord = { ...ready(), phase: "error",
+    error: { code: "update_failed", message: "The update couldn't be installed" } };
+  const installed = { ...installation, version: record.candidate!.version };
+  const reconciled = reconcileStaleCandidate(installed, record);
+  expect(reconciled).toMatchObject({ phase: "idle", candidate: null, error: null, checkedAt: null });
+  expect(reconciled.revision).toBe(record.revision);
+  expect(record.phase).toBe("error");
+  const status = updateStatus(installed, record);
+  expect(status).toMatchObject({ phase: "idle", target: null, releaseNotes: null, error: null, current: "1.1.0" });
+  expect(status.actions).not.toContain("retry");
+});
+
+test("a candidate newer than the installed version is kept with its error", () => {
+  const record: UpdateRecord = { ...ready(), phase: "error",
+    error: { code: "update_failed", message: "The update couldn't be installed" } };
+  expect(reconcileStaleCandidate(installation, record)).toBe(record);
+  expect(updateStatus(installation, record)).toMatchObject({ phase: "error", target: "1.1.0",
+    error: { code: "update_failed", message: "The update couldn't be installed" } });
+});
+
+test("in-flight and recovery phases keep their candidate when the version has caught up", () => {
+  const record = ready(), installed = { ...installation, version: record.candidate!.version };
+  for (const phase of ["checking", "downloading", "waiting", "reserved", "installing", "verifying",
+    "rolling-back", "recovery-failed", "complete"] as const) {
+    const value: UpdateRecord = { ...record, phase };
+    expect(reconcileStaleCandidate(installed, value)).toBe(value);
+    expect(updateStatus(installed, value).target).toBe("1.1.0");
+  }
+});
+
+test("a record that still holds a transaction keeps its candidate until reconcile releases it", () => {
+  const record = ready(), installed = { ...installation, version: record.candidate!.version };
+  for (const phase of ["restored", "error", "ready", "idle"] as const) {
+    const value: UpdateRecord = { ...record, phase, transactionId: "tx-1",
+      error: phase === "error" ? { code: "pre_handoff", message: "x" } : record.error };
+    expect(reconcileStaleCandidate(installed, value)).toBe(value);
+  }
+  const released: UpdateRecord = { ...record, phase: "restored", transactionId: null };
+  expect(reconcileStaleCandidate(installed, released)).toMatchObject({ phase: "idle", candidate: null, error: null });
 });
