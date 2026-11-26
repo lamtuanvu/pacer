@@ -112,7 +112,9 @@ export function LiveBoard({ runId, query, outputPollMs }: { runId: string; query
   const lane: MessageChannel = channel ?? defaultLane ?? "planner";
   // The default is pinned once shown, so a later refresh cannot move a half-written message to another lane.
   useEffect(() => { if (channel === null && canMessage && defaultLane) setChannel(defaultLane); }, [channel, canMessage, defaultLane]);
+  // New words or a new lane make a new message: it gets new request ids.
   const chooseLane = (next: MessageChannel) => {
+    requests.current.clear();
     setChannel(next); setSendError(""); setSent("");
     if (next === "whisper" && !whisper) setWhisper(selectedAgent?.taskId ?? agents[0]?.taskId ?? "");
   };
@@ -138,7 +140,8 @@ export function LiveBoard({ runId, query, outputPollMs }: { runId: string; query
     const text = body.trim();
     if (!text || sendingRef.current) return;
     const targets = messageTargets(lane, targetContext);
-    if (!targets.ok) { setSendError(targets.reason); setSent(""); return; }
+    // The disabled button already says why.
+    if (!targets.ok) return;
     sendingRef.current = true;
     const typed = body;
     setSending(true); setSendError(""); setSent("");
@@ -156,7 +159,11 @@ export function LiveBoard({ runId, query, outputPollMs }: { runId: string; query
     // The text stays in the box while any recipient refused it; anything typed meanwhile stays too.
     if (outcome.results.every(r => !r.refusal)) {
       requests.current.clear();
-      setBody(current => current.startsWith(typed) ? current.slice(typed.length).trimStart() : current);
+      // Only words typed after the sent ones are separated out; an edit that changed the last word stays whole.
+      setBody(current => {
+        const rest = current.startsWith(typed) ? current.slice(typed.length) : null;
+        return rest !== null && /^(\s|$)/.test(rest) ? rest.trimStart() : current;
+      });
       // Send disables itself once the box is empty; focus goes back to the box, not nowhere.
       queueMicrotask(() => messageRef.current?.focus());
     }
@@ -268,18 +275,19 @@ export function LiveBoard({ runId, query, outputPollMs }: { runId: string; query
                 options={(["party", "whisper", "planner"] as const).map(c => ({ value: c, label: CHANNEL_LABELS[c], disabled: disabledLane[c] }))} />
               <p className="lb-cap">{CHANNEL_HINTS[lane]}</p>
               {lane === "whisper" && agents.length > 0 ? (
-                <RadioChoices label="Agent" name={`${markerId}-agent`} value={whisper} onChange={v => { setWhisper(v); setSendError(""); }}
+                <RadioChoices label="Agent" name={`${markerId}-agent`} value={whisper} onChange={v => { requests.current.clear(); setWhisper(v); setSendError(""); }}
                   options={agents.map(a => ({ value: a.taskId, label: `${a.name} · ${a.label}` }))} />
               ) : null}
               <Field label="Your message">
-                <TextArea ref={messageRef} value={body} rows={3} maxLength={4000} onInput={e => setBody((e.currentTarget as HTMLTextAreaElement).value)} />
+                <TextArea ref={messageRef} value={body} rows={3} maxLength={4000} onInput={e => { requests.current.clear(); setBody((e.currentTarget as HTMLTextAreaElement).value); }} />
               </Field>
               <div className="lb-row">
-                <Button type="submit" size="sm" variant="secondary" disabled={sending || !body.trim() || disabledLane[lane]}>
+                <Button type="submit" size="sm" variant="secondary" disabled={sending || !body.trim() || !laneTargets.ok}>
                   {sending ? "Sending…" : lane === "planner" ? "Send to planner" : lane === "whisper" ? "Send to agent" : "Send to everyone"}
                 </Button>
-                {disabledLane[lane] && !laneTargets.ok ? <span className="lb-cap">{laneTargets.reason}</span>
-                  : !body.trim() && !sending ? <span className="lb-cap">Write a message to send it</span> : null}
+                {/* Always present, so the reason is announced when it appears. */}
+                <span className={laneTargets.ok ? "sr-only" : "lb-cap"} role="status">{laneTargets.ok ? "" : laneTargets.reason}</span>
+                {laneTargets.ok && !body.trim() && !sending ? <span className="lb-cap">Write a message to send it</span> : null}
               </div>
               <p className="lb-cap" role="status" aria-live="polite">{sent}</p>
               {sendError ? <p className="lb-cap" role="alert">{sendError}</p> : null}

@@ -699,7 +699,7 @@ const sends = (calls: Calls) => calls.ops.filter(c => c.op === "msg.send").map(c
 const focusedNode = (dom: { doc: unknown }) => (dom.doc as { activeElement: Node | null }).activeElement;
 const person = (root: unknown) => text(must(all(root as Node).find(n => attr(n, "data-station") === "person"), "person station"));
 
-test("a whisper is never retargeted: when the chosen agent stops, the send is refused in words", async () => {
+test("a whisper is never retargeted: when the chosen agent stops, Send is disabled and says why", async () => {
   let get = liveFixture.get;
   const { dom, calls, refresh } = await live({ "msg.send": () => ({ delivery: "queued" }) }, () => get);
   try {
@@ -708,9 +708,11 @@ test("a whisper is never retargeted: when the chosen agent stops, the send is re
     await typeMessage(dom.container, "only for security");
     get = without("t_c");
     await refresh();
+    expect(attr(sendButton(dom.container), "disabled")).not.toBeNull();
+    const reason = must(all(dom.container as Node).find(n => attr(n, "role") === "status" && text(n) === "That agent is no longer working."), "reason");
+    expect(attr(reason, "class")).toBe("lb-cap");
     await submitMessage(dom.container);
     expect(sends(calls)).toEqual([]);
-    expect(domText(dom.container)).toContain("That agent is no longer working.");
   } finally { await done(dom); }
 });
 
@@ -722,9 +724,10 @@ test("a whisper picked by default is pinned too, and with no agent left the lane
     await typeMessage(dom.container, "for the first agent");
     get = without("t_a");
     await refresh();
+    expect(attr(sendButton(dom.container), "disabled")).not.toBeNull();
+    expect(domText(dom.container)).toContain("That agent is no longer working.");
     await submitMessage(dom.container);
     expect(sends(calls)).toEqual([]);
-    expect(domText(dom.container)).toContain("That agent is no longer working.");
     get = { ...liveFixture.get, steps: (without("t_a").steps as Array<Record<string, unknown>>).map(s => ({ ...s, status: s.status === "running" ? "done" : s.status })) };
     await refresh();
     expect(attr(sendButton(dom.container), "disabled")).not.toBeNull();
@@ -948,7 +951,12 @@ test("focus on a leaving agent that is not open goes to the title", async () => 
 });
 
 test("keyboard focus on an agent that was panned out of view brings it back", async () => {
-  const { dom } = await live();
+  const onWindow = new Map<string, () => void>();
+  const { dom } = await open(liveFixture, LIVE_OPS, {}, 20, () => {
+    const win = (globalThis as unknown as { window: Record<string, unknown> }).window;
+    win.addEventListener = (type: string, fn: () => void) => { onWindow.set(type, fn); };
+    win.removeEventListener = (type: string) => { onWindow.delete(type); };
+  });
   try {
     const board = viewport(dom.container);
     const start = viewOf(dom.container);
@@ -960,7 +968,15 @@ test("keyboard focus on an agent that was panned out of view brings it back", as
     await act(async () => { fire(target, "pointerdown", { button: 0 }); fire(target, "focusin"); await tick(); });
     await settle();
     expect(viewOf(dom.container)).toEqual(panned);
-    await act(async () => { fire(target, "pointerup"); });
+    // the release may land anywhere, and a key press means the next focus comes from the keyboard
+    for (const release of ["pointerup", "pointercancel", "keydown"]) {
+      await act(async () => { fire(board, "keydown", { key: "ArrowRight" }); fire(target, "pointerdown", { button: 0 }); });
+      const before = viewOf(dom.container);
+      await act(async () => { onWindow.get(release)!(); fire(target, "focusin"); await tick(); });
+      await settle();
+      expect(viewOf(dom.container).x).toBeGreaterThan(before.x);
+      for (let i = 0; i < 8; i++) await act(async () => { fire(board, "keydown", { key: "ArrowRight", shiftKey: true }); });
+    }
     await act(async () => { fire(target, "focusin"); await tick(); });
     await settle();
     const after = viewOf(dom.container);
@@ -1000,5 +1016,100 @@ test("station and zone notes are wrapped or clipped inside their boxes, with the
     expect(notes.map(n => n.childNodes!.filter(c => (c as Node).nodeType === 3).map(c => (c as Node).data).join(""))).toEqual(["Nothing waits", "on you"]);
     for (const n of notes) expect(attr(n, "clip-path")).toMatch(/^url\(#/);
     expect(notes).toHaveLength(2);
+  } finally { await done(dom); }
+});
+
+test("editing the text or changing the lane drops the old request ids", async () => {
+  let refuse = true;
+  const { dom, calls } = await live({ "msg.send": p => { if (refuse && (p as { to: string }).to === "task:t_c") throw new ApiError("not_allowed", "no", undefined, 403, { reason: "msg_node_closed" }); return { delivery: "queued" }; } });
+  const ids = (from: number) => sends(calls).slice(from).map(s => s.request_id);
+  try {
+    await act(async () => { fire(radio(dom.container, "party"), "change"); });
+    await typeMessage(dom.container, "same words");
+    await submitMessage(dom.container); await settle();
+    // edited and typed back
+    await typeMessage(dom.container, "same words!");
+    await typeMessage(dom.container, "same words");
+    await submitMessage(dom.container); await settle();
+    expect(ids(3).filter(id => ids(0).slice(0, 3).includes(id))).toEqual([]);
+    // another lane and back
+    await act(async () => { fire(radio(dom.container, "planner"), "change"); });
+    await act(async () => { fire(radio(dom.container, "party"), "change"); });
+    refuse = false;
+    await submitMessage(dom.container); await settle();
+    expect(ids(6).filter(id => ids(0).slice(0, 6).includes(id))).toEqual([]);
+  } finally { await done(dom); }
+});
+
+test("a sent prefix is removed only when what follows is separate words", async () => {
+  let release: (v: unknown) => void = () => {};
+  const { dom } = await live({ "msg.send": () => new Promise(r => { release = r; }) });
+  try {
+    const area = await typeMessage(dom.container, "stop");
+    await submitMessage(dom.container);
+    await typeMessage(dom.container, "stopwatch the build");
+    await act(async () => { release({ delivery: "queued" }); await tick(); });
+    await settle();
+    expect(area.value).toBe("stopwatch the build");
+  } finally { await done(dom); }
+});
+
+test("the default lane is pinned once shown: a planner that disappears does not move the message elsewhere", async () => {
+  let get = liveFixture.get;
+  const { dom, calls, refresh } = await live({}, () => get);
+  try {
+    await typeMessage(dom.container, "for the planner");
+    get = { ...liveFixture.get, run: run({ orchestratorTaskId: undefined }) };
+    await refresh();
+    expect(text(sendButton(dom.container))).toBe("Send to planner");
+    expect(attr(sendButton(dom.container), "disabled")).not.toBeNull();
+    expect(sends(calls)).toEqual([]);
+  } finally { await done(dom); }
+});
+
+test("the left-the-board notice has its live region before it has words", async () => {
+  let get = liveFixture.get;
+  const { dom, refresh } = await live({ "task.log": () => logChunk("", { next: { stdout: 0, stderr: 0 } }) }, () => get);
+  const statuses = () => all(dom.container as Node).filter(n => attr(n, "role") === "status" && attr(n, "class") === "sr-only" && text(n) === "" && n.tagName === "p");
+  try {
+    await act(async () => { clickEl(must(byAttr(dom.container, "data-agent", "t_a"), "agent")); });
+    await settle();
+    const empty = statuses();
+    get = without("t_a");
+    await refresh();
+    const notice = must(all(dom.container as Node).find(n => attr(n, "role") === "status" && text(n).startsWith("This agent is no longer working")), "notice");
+    expect(empty).toContain(notice);   // the same element, which was there and empty before
+  } finally { await done(dom); }
+});
+
+test("a finished task's pages are read one right after another, without waiting for the next poll", async () => {
+  const { dom } = await live({ "task.log": p => { const at = (p as { stdout: number }).stdout; return logChunk(at < 3 ? `page ${at}\n` : "", { done: true, next: { stdout: Math.min(at + 1, 3), stderr: 0 } }); } }, undefined, LIVE_OPS, 60_000);
+  try {
+    await act(async () => { clickEl(must(byAttr(dom.container, "data-agent", "t_a"), "agent")); });
+    await until(() => domText(dom.container).includes("full output"), 2000);
+    expect(domText(dom.container)).toContain("page 2");
+  } finally { await done(dom); }
+});
+
+test("a running task catches up at once while pages are full, then waits for the poll", async () => {
+  const { dom, calls } = await live({ "task.log": p => { const at = (p as { stdout: number }).stdout; const full = 256 * 1024; return logChunk(at < full * 2 ? `chunk at ${at}\n` : "tail\n", { next: { stdout: at < full * 2 ? at + full : at + 5, stderr: 0 } }); } }, undefined, LIVE_OPS, 60_000);
+  try {
+    await act(async () => { clickEl(must(byAttr(dom.container, "data-agent", "t_a"), "agent")); });
+    await until(() => domText(dom.container).includes("tail"), 2000);
+    await settle();
+    expect(calls.ops.filter(c => c.op === "task.log")).toHaveLength(3);
+  } finally { await done(dom); }
+});
+
+test("a zone note too long for its zone ends in an ellipsis, with the whole line as its title", async () => {
+  const graphs = [{ stepId: "approve_spec", attempt: 1, version: 123456789, status: "superseded", stepCount: 123456789 }, { stepId: "approve_spec", attempt: 1, version: 1234567890, status: "superseded", stepCount: 123456789 }];
+  const { dom } = await live({}, () => ({ ...liveFixture.get, graphs }));
+  try {
+    const note = must(all(dom.container as Node).find(n => n.tagName === "text" && attr(n, "class") === "lb-zone-note"), "note");
+    const title = text(must(all(note).find(n => n.tagName === "title"), "title"));
+    const shown = note.childNodes!.filter(c => (c as Node).nodeType === 3).map(c => (c as Node).data).join("");
+    expect(title.length).toBeGreaterThan(60);
+    expect(shown.endsWith("…")).toBe(true);
+    expect(title.startsWith(shown.slice(0, -1))).toBe(true);
   } finally { await done(dom); }
 });

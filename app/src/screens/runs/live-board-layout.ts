@@ -17,7 +17,11 @@ export interface LayoutDefinition {
   steps: Record<string, { type: string; branches?: string[] }>;
 }
 /** A generated child run: its step rows fill the zone of the parent run's `parentStep`. */
-export interface LayoutChild { runId: string; parentStep?: string; createdAt?: number; steps: RunStepRow[]; definition?: LayoutDefinition }
+export interface LayoutChild {
+  runId: string; parentStep?: string; createdAt?: number; steps: RunStepRow[]; definition?: LayoutDefinition;
+  /** The child run's definition id, status and last change, used by the replay. */
+  workflow?: string; status?: string; updatedAt?: number;
+}
 export interface LayoutInput {
   steps: RunStepRow[];
   definition?: LayoutDefinition;
@@ -243,7 +247,7 @@ function dedupeVersions(graphs: LayoutInput["graphs"], stepId: string): ZoneVers
 }
 
 /** The child run that fills a zone: one with live steps first, then the newest, then by id. */
-export function childFor(children: LayoutChild[], stepId: string): LayoutChild | undefined {
+function childFor(children: LayoutChild[], stepId: string): LayoutChild | undefined {
   const live = (c: LayoutChild) => c.steps.some(s => s.status === "running" || s.status === "waiting") ? 1 : 0;
   return children.filter(c => c.parentStep === stepId)
     .sort((a, b) => live(b) - live(a) || (b.createdAt ?? 0) - (a.createdAt ?? 0) || a.runId.localeCompare(b.runId))[0];

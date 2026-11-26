@@ -297,6 +297,7 @@ test("a run whose detail was never read claims neither steps nor a summary", asy
     expect(unread).toContain("Not loaded.");
     expect(unread).not.toContain("No steps yet");
     expect(unread).not.toContain("No summary yet.");
+    expect(all(row(dom.container, "data-run", "run_m9")).filter(n => n.tagName === "p" && attr(n, "class") === "lb-cap" && text(n) === "")).toEqual([]);
     const read = text(row(dom.container, "data-run", "run_m0"));
     expect(read).toContain("No steps yet");
     expect(read).toContain("No summary yet.");
@@ -399,4 +400,14 @@ test("a detail that fails says so on that run only", async () => {
     expect(text(row(dom.container, "data-run", "run_a"))).toContain("The summary couldn't be loaded.");
     expect(text(row(dom.container, "data-run", "run_b"))).toContain("fine");
   } finally { await unmount(dom); dom.restore(); }
+});
+
+test("Try again that fails again leaves focus where it was", async () => {
+  const { dom } = await open({ "run.list": () => { throw new ApiError("internal", "raw"); } }, ALL_OPS, { runs: [], attention: [] });
+  try {
+    const again = button(dom.container as Node, "Try again");
+    await act(async () => { (again as unknown as { focus(): void }).focus(); (again as unknown as { click(): void }).click(); });
+    await new Promise(resolve => setTimeout(resolve, 100));
+    expect(text((dom.doc as unknown as { activeElement: Node }).activeElement)).toBe("Try again");
+  } finally { await done(dom); }
 });

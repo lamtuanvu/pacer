@@ -90,7 +90,8 @@ export function AgentOutput({ api, taskId, executor, stepLabel, sessionHref, onC
         <span className="lb-cap">{executor} · {stepLabel}</span>
       </div>
       <p className="lb-cap" role="status" aria-live="polite">{status}</p>
-      {left ? <p className="lb-cap" role="status">This agent is no longer working on this step. Its output stays here until you close it.</p> : null}
+      {/* Always present, so the notice is announced when it appears. */}
+      <p className={left ? "lb-cap" : "sr-only"} role="status">{left ? "This agent is no longer working on this step. Its output stays here until you close it." : ""}</p>
       {out.truncated ? <p className="lb-cap">Earlier output is not shown here. Open the session to read it all.</p> : null}
       {out.phase === "error" ? (
         <Alert tone="error" title="Couldn't read the output">

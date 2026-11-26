@@ -1,10 +1,10 @@
 /** The drawing of a board: stations, zones, bands, edges, desks, the person and the agents. Used by the Live board and the playback. */
-import { useRef } from "preact/hooks";
+import { useEffect, useRef } from "preact/hooks";
 import { stepMarkerFor, stepMarkerGlyph, runStatus } from "../../../../src/view-model/runs";
 import { sentenceCase } from "../../../../src/view-model/run-board";
 import { Creature, PersonFigure, creatureHeight } from "./MascotArt";
 import { FIGURE, GAP_X, STATION_H, STATION_W, type BoardNode, type BoardZone, type LiveBoardLayout } from "./live-board-layout";
-import { graphStatusLabel, nodeLabel } from "./live-board-model";
+import { graphStatusLabel, nodeLabel, shortLabel } from "./live-board-model";
 
 /** `executor` is the identity that seeds the creature; `name` is what the screen says. */
 export interface CanvasAgent { taskId: string; nodeId: string; x: number; y: number; executor: string; name: string; label: string }
@@ -61,6 +61,8 @@ function StationNote({ id, text }: { id: string; text: string }) {
   </>;
 }
 const NOTE_CHARS = 13;
+/** A generous width per caption character, used to cut a zone note with an ellipsis before it reaches the edge. */
+const NOTE_CHAR_W = 6;
 
 export interface CanvasProps {
   layout: LiveBoardLayout;
@@ -86,6 +88,14 @@ export interface CanvasProps {
 export function BoardCanvas(p: CanvasProps) {
   /** A press focuses the agent too; only focus that arrives another way pans the board to it. */
   const pressed = useRef(false);
+  // The press can end off the agent, and a key press means focus is coming from the keyboard.
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.addEventListener) return;
+    const release = () => { pressed.current = false; };
+    const events = ["pointerup", "pointercancel", "keydown"] as const;
+    events.forEach(e => window.addEventListener(e, release, true));
+    return () => events.forEach(e => window.removeEventListener(e, release, true));
+  }, []);
   const { layout } = p;
   const visible = p.visible ?? (() => true);
   const statusOf = p.statusOf ?? ((n: BoardNode) => ({ status: n.status, waitsOnYou: n.waitsOnYou }));
@@ -121,7 +131,7 @@ export function BoardCanvas(p: CanvasProps) {
           <g key={z.id} data-zone={z.id}>
             <rect className={`lb-zone${(p.zoneApproved ? p.zoneApproved(z) : z.approved > 0) ? " lb-zone--filled" : ""}`} x={z.x} y={z.y} width={z.w} height={z.h} rx="8" />
             <ClippedText id={`${p.markerId}-clip-zone-${z.id}`} className="lb-zone-label" x={z.x + 12} y={z.y + 20} width={z.w - 24} text={`Generated plan · ${z.stepId}`} />
-            <ClippedText id={`${p.markerId}-clip-note-${z.id}`} className="lb-zone-note" x={z.x + 12} y={z.y + 38} width={z.w - 24} text={line} />
+            <ClippedText id={`${p.markerId}-clip-note-${z.id}`} className="lb-zone-note" x={z.x + 12} y={z.y + 38} width={z.w - 24} text={shortLabel(line, Math.floor((z.w - 24) / NOTE_CHAR_W))} title={line} />
           </g>
         );
       })}
@@ -163,8 +173,6 @@ export function BoardCanvas(p: CanvasProps) {
           aria-label={`${a.name} working on ${a.label}. Open live output`}
           onClick={() => p.onOpenAgent!(a.taskId)}
           onPointerDown={() => { pressed.current = true; }}
-          onPointerUp={() => { pressed.current = false; }}
-          onPointerCancel={() => { pressed.current = false; }}
           onFocus={() => { if (!pressed.current) p.onFocusAgent?.(a.taskId); }}
           onKeyDown={(e: KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); p.onOpenAgent!(a.taskId); } }}
         >

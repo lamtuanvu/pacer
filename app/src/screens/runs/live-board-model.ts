@@ -29,6 +29,9 @@ export function layoutInputFromDetail(detail: Pick<RunDetailState, "steps" | "de
     runId,
     ...(typeof c.run.parentStep === "string" ? { parentStep: c.run.parentStep } : {}),
     ...(typeof c.run.createdAt === "number" ? { createdAt: c.run.createdAt } : {}),
+    ...(typeof c.run.workflow === "string" ? { workflow: c.run.workflow } : {}),
+    ...(typeof c.run.status === "string" ? { status: c.run.status } : {}),
+    ...(typeof c.run.updatedAt === "number" ? { updatedAt: c.run.updatedAt } : {}),
     steps: stepRows(c.steps),
     ...(definitionOf(c.definition) ? { definition: definitionOf(c.definition)! } : {}),
   }));

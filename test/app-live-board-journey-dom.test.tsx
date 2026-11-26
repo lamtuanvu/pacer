@@ -315,3 +315,23 @@ test("a refresh that shortens the journey never leaves the position past its end
     expect(at).toBe(of);
   } finally { await unmount(dom); dom.restore(); }
 });
+
+test("the replay screen walks both child runs of a replanned step", async () => {
+  const base = journeyFixture();
+  const child = (id: string, createdAt: number, version: number, stepId: string, taskId: string) => ({
+    run: run({ id, parentRunId: "run_1", parentStep: "plan", createdAt, workflow: `gen/run_1/plan/a1/v${version}` }),
+    steps: [row(stepId, "done", { runId: id, startedAt: createdAt + 1, endedAt: createdAt + 5, taskId })], definition: { entry: stepId, edges: [], steps: { [stepId]: { type: "agent" } } },
+  });
+  const fixture: Fixture = {
+    ...base,
+    list: [base.list![0]!, ...["kid_1", "kid_2"].map((id, i) => ({ id, workflow: "generated", title: "Plan", status: "done", priority: "normal", createdAt: 930 + i * 20, parentRunId: "run_1" }))],
+    children: { kid_1: child("kid_1", 930, 1, "first_try", "t_api"), kid_2: child("kid_2", 950, 2, "second_try", "t_ui") },
+  };
+  const { dom } = await open(fixture);
+  try {
+    expect(domText(dom.container)).toContain("takes first_try (plan v1)");
+    expect(domText(dom.container)).toContain("second_try (plan v2)");
+    await click(dom.container, "Jump to end");
+    expect(nodes(dom.container)).toEqual(expect.arrayContaining(["zone:plan/first_try", "zone:plan/second_try"]));
+  } finally { await done(dom); }
+});

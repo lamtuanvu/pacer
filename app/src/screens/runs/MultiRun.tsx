@@ -199,7 +199,7 @@ export function MultiRun({ query }: { query: RouteQuery }) {
                       <span className="lb-cap">{line.priorityLabel} priority · Waits on {line.waitsOn} · {line.age}</span>
                     </div>
                     {line.counts ? <StepBar letter={line.letter} counts={line.counts} /> : null}
-                    <p className="lb-cap">{[line.counts ? countWords(line.counts) : "", line.questions ? `${line.questions} ${line.questions === 1 ? "question" : "questions"} for you` : ""].filter(Boolean).join(" · ")}</p>
+                    {line.counts || line.questions ? <p className="lb-cap" data-counts>{[line.counts ? countWords(line.counts) : "", line.questions ? `${line.questions} ${line.questions === 1 ? "question" : "questions"} for you` : ""].filter(Boolean).join(" · ")}</p> : null}
                     <p className="mr-since"><strong>Since you last looked: </strong>{line.summary
                       ? <>{line.summary.text}{line.summary.at ? <span className="lb-cap"> · written {runAge(line.summary.at, now)}</span> : null}</>
                       : line.read ? "No summary yet." : store.details[line.id]?.error ? "The summary couldn't be loaded." : "Not loaded."}</p>
