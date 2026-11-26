@@ -147,6 +147,44 @@ fn internal(error: impl std::fmt::Display) -> CoreError {
     CoreError::new(Code::Internal, error.to_string())
 }
 
+fn marker_path(ctx: &Ctx, id: &str) -> PathBuf {
+    root(ctx).join(id).join("published.json")
+}
+
+/// The "last published" marker, in the same format the TypeScript registry writes. It lives
+/// beside `record.json` so the TypeScript liveness pump, another front door and a restarted
+/// service all compare against the same baseline. `rev` comes from the authoritative stored
+/// record; liveness comes from Core's presentation.
+fn present_marker(stored: &Map<String, Value>, presented: &Value) -> Value {
+    json!({
+        "live": presented.get("live").and_then(Value::as_bool).unwrap_or(false),
+        "exit": presented.get("exit").filter(|value| value.is_null() || value.is_number()).cloned().unwrap_or(Value::Null),
+        "rev": stored.get("rev").cloned().unwrap_or_else(|| json!(1)),
+    })
+}
+
+/// Publishes the same `terminal` entity event the TypeScript registry does: the presented
+/// record for a create, rename or liveness/state change, and `{ removed: true }` on close.
+/// The marker advances only after the event reached the outbox, so a failed publish is retried
+/// by the liveness check instead of losing the change.
+fn publish_terminal(ctx: &Ctx, id: &str, value: Option<&Value>, marker: &Value) {
+    let data = match value {
+        Some(record) => json!({"kind": "terminal", "id": id, "value": record}),
+        None => json!({"kind": "terminal", "id": id, "removed": true}),
+    };
+    let event = json!({"type": "entity", "data": data});
+    let errors = pacer_store::publish(ctx, &[event]).errors;
+    if errors.is_empty() {
+        let text = quoted::stringify(marker);
+        if let Err(error) = write_private(&marker_path(ctx, id), text.as_bytes()) {
+            eprintln!("pacer: terminal marker write failed: {error}");
+        }
+    }
+    for error in errors {
+        eprintln!("pacer: terminal publication failed: {error}");
+    }
+}
+
 /// Zod's name for a parsed value's type.
 fn received(value: Option<&Value>) -> &'static str {
     match value {
@@ -390,7 +428,14 @@ async fn rename(
         stored.insert("title".into(), quoted::from_utf8(json!(next)));
         advance(&mut stored, expect);
         write_stored(ctx, id, &stored)?;
-        present(bridge, id).await
+        let presented = present(bridge, id).await?;
+        publish_terminal(
+            ctx,
+            id,
+            Some(&presented),
+            &present_marker(&stored, &presented),
+        );
+        Ok(presented)
     })
     .await
     .map_err(locked)?
@@ -413,6 +458,7 @@ async fn close(
         stored.insert("state".into(), json!("closed"));
         advance(&mut stored, expect);
         write_stored(ctx, id, &stored)?;
+        publish_terminal(ctx, id, None, &json!({"removed": true}));
         Ok(json!({"closed": true}))
     })
     .await
@@ -581,12 +627,27 @@ async fn create(
             record.insert("state".into(), json!("failed"));
             record.insert("error".into(), quoted::from_utf8(json!(error)));
             write_stored(ctx, &id, &record)?;
+            if let Ok(presented) = present(bridge, &id).await {
+                publish_terminal(
+                    ctx,
+                    &id,
+                    Some(&presented),
+                    &present_marker(&record, &presented),
+                );
+            }
             started?;
             return Err(CoreError::new(Code::NotAllowed, "Could not start terminal").hint(error));
         }
         record.insert("state".into(), json!("running"));
         write_stored(ctx, &id, &record)?;
-        present(bridge, &id).await
+        let presented = present(bridge, &id).await?;
+        publish_terminal(
+            ctx,
+            &id,
+            Some(&presented),
+            &present_marker(&record, &presented),
+        );
+        Ok(presented)
     })
     .await
     .map_err(locked)?
@@ -772,5 +833,106 @@ mod tests {
         .await
         .unwrap_err();
         assert_eq!(listed.code, Code::InvalidInput);
+    }
+
+    struct EventBridge;
+    impl TerminalBridge for EventBridge {
+        fn parts(&mut self, request: Value) -> OpFuture<'_> {
+            Box::pin(async move {
+                match request["kind"].as_str() {
+                    Some("terminal.shell") => Ok(json!({"argv": ["/bin/sh", "-l"]})),
+                    Some("terminal.present") => Ok(json!({
+                        "id": request["id"], "kind": "shell", "title": "shell", "rev": 1,
+                        "live": true, "exit": null, "cwd": "/", "createdAt": 1,
+                        "cols": 120, "rows": 40, "attach": {"ws": "/v3/terminals/x/session"}
+                    })),
+                    Some("terminal.live") => Ok(json!({"live": 0})),
+                    Some("terminal.start") => Ok(json!({"pid": 1})),
+                    Some("terminal.stop") => Ok(json!({"stopped": true})),
+                    _ => Ok(json!({})),
+                }
+            })
+        }
+    }
+
+    /// The marker is the on-disk baseline the TypeScript liveness pump reads; its format must
+    /// stay in sync with `src/terminal/workspace.ts`.
+    fn marker(c: &Ctx, id: &str) -> Value {
+        let bytes = fs::read(marker_path(c, id)).unwrap();
+        quoted::parse_file(&bytes).unwrap()
+    }
+
+    #[tokio::test]
+    async fn create_rename_and_close_publish_terminal_entity_events() {
+        let dir = tempfile::tempdir().unwrap();
+        let c = ctx(&dir, &[]);
+        let mut bridge = EventBridge;
+        call(
+            &c,
+            "terminal.create",
+            json!({"request_id": "events", "kind": "shell", "cwd": "/"}),
+            &mut bridge,
+        )
+        .await
+        .unwrap();
+        let id = fs::read_dir(c.pacer_home.join("terminals"))
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .find(|name| terminal_id(name))
+            .unwrap();
+        let events = pacer_store::read_outbox_since(&c, 0.0).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0]["envelope"]["type"], "entity");
+        assert_eq!(events[0]["envelope"]["data"]["kind"], "terminal");
+        assert_eq!(events[0]["envelope"]["data"]["id"], id);
+        assert!(events[0]["envelope"]["data"]["value"].is_object());
+        assert_eq!(
+            marker(&c, &id),
+            json!({"live": true, "exit": Value::Null, "rev": 1})
+        );
+
+        call(
+            &c,
+            "terminal.rename",
+            json!({"id": id, "title": "Renamed", "expect_rev": 1}),
+            &mut bridge,
+        )
+        .await
+        .unwrap();
+        let events = pacer_store::read_outbox_since(&c, 0.0).unwrap();
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[1]["envelope"]["data"]["kind"], "terminal");
+        assert_eq!(events[1]["envelope"]["data"]["id"], id);
+        assert_eq!(events[1]["envelope"]["data"]["value"]["title"], "shell"); // the bridge's presentation
+        assert_eq!(
+            marker(&c, &id),
+            json!({"live": true, "exit": Value::Null, "rev": 2})
+        );
+
+        call(
+            &c,
+            "terminal.close",
+            json!({"id": id, "expect_rev": 2}),
+            &mut bridge,
+        )
+        .await
+        .unwrap();
+        let events = pacer_store::read_outbox_since(&c, 0.0).unwrap();
+        assert_eq!(events.len(), 3);
+        assert_eq!(
+            events[2]["envelope"]["data"],
+            json!({"kind": "terminal", "id": id, "removed": true})
+        );
+        assert_eq!(marker(&c, &id), json!({"removed": true}));
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            fs::metadata(marker_path(&c, &id))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
     }
 }
