@@ -826,7 +826,7 @@ test("a finished task's pages are all read before it is called done, and clipped
   const { dom, calls } = await live({ "task.log": p => {
     const at = (p as { stdout: number }).stdout;
     return { stdout: pages[at] ?? "", stderr: "", next: { stdout: Math.min(at + 1, pages.length), stderr: 0 }, done: true, source: "s1" };
-  } }, undefined, LIVE_OPS, 10_000);
+  } });
   try {
     await act(async () => { clickEl(must(byAttr(dom.container, "data-agent", "t_a"), "agent")); });
     await until(() => domText(dom.container).includes("Task finished; showing the end of its output"), 3000);
