@@ -67,7 +67,8 @@ async function open(options: { world?: Partial<World>; repos?: typeof REPOS; que
     features: { readModel: true, ops: new Set(OPS) } } as never }}>
     <DispatcherSection query={options.query ?? { repo: null, scope: null }} tab="overview" />
   </TaskContext.Provider>;
-  const settle = () => act(async () => { for (let i = 0; i < 4; i++) await tick(); });
+  /** Several separate acts: a passive effect (such as a reload) runs when its act ends, and its read settles in the next. */
+  const settle = async () => { for (let i = 0; i < 3; i++) await act(async () => { await tick(); await tick(); }); };
   await mount(dom, node());
   await settle();
   const section = () => all(dom.container).find(n => n.attrs.id === "native-control")!;
@@ -215,6 +216,153 @@ test("a claim ends when the reading after success keeps the button", () => withP
   const grant = await page.press("Grant consent");
   expect(page.focused()).toBe(grant);
   page.world.consent = "granted";
+  await page.refetch();
+  expect(page.focused()).toBeNull();
+}));
+
+/** A status that holds focus is always readable: shown, with words in it. */
+const readableFocus = (page: Page, where: string) => {
+  const node = page.focused();
+  if (node?.attrs.role !== "status") return;
+  expect({ where, class: node.attrs.class, empty: !domText(node).trim() }).toEqual({ where, class: "pc-action-status", empty: false });
+};
+
+test("a verified message that expires while focused stays readable", () => withPage({}, async page => {
+  await page.press("Verify control");
+  const status = resultBesideRow(page, "native child blocking verified");
+  page.world.certified["repo-a"] = "stale";
+  await page.refetch();
+  expect(page.focused()).toBe(status);
+  readableFocus(page, "expired");
+  expect(domText(status)).toBe("Claude Code: verification expired.");
+  page.blur();
+  await page.refetch();
+  expect(status.attrs.class).toBe("sr-only");
+}));
+
+test("a progress line that holds focus stays readable when the job read fails", () => withPage({}, async page => {
+  const job = deferred<unknown>();
+  page.world.handlers["job.get"] = () => job.promise;
+  await page.press("Verify control");
+  page.world.certified["repo-a"] = "certified";
+  await page.refetch();
+  const status = resultBesideRow(page, "checking native child blocking");
+  await act(async () => { job.reject(new Error("gone")); });
+  await page.settle();
+  expect(page.focused()).toBe(status);
+  readableFocus(page, "job read failed");
+  expect(domText(status)).toBe("Claude Code: the last request did not complete.");
+  expect(page.text()).toContain("Verification could not complete");
+}));
+
+test("a focused result stays readable when Refresh status clears it without taking focus", () => withPage({}, async page => {
+  await page.press("Grant consent");
+  const status = resultBesideRow(page, "Consent granted");
+  // Safari does not focus a clicked button, so the status keeps focus.
+  await page.press("Refresh status", false);
+  expect(page.focused()).toBe(status);
+  readableFocus(page, "refreshed");
+  expect(domText(status)).toBe("Claude Code: consent granted.");
+}));
+
+test("starting a check, answering consent and returning to Verify still ends on the check's status", () => withPage({}, async page => {
+  const job = deferred<unknown>();
+  page.world.handlers["job.get"] = () => job.promise;
+  const verify = await page.press("Verify control");
+  await page.press("Grant consent");
+  verify.focus();
+  await act(async () => { page.world.certified["repo-a"] = "certified"; job.resolve({ state: "passed" }); });
+  await page.settle();
+  resultBesideRow(page, "native child blocking verified");
+}));
+
+/**
+ * Every ordering of one action, with or without a second one, a service event before its reply, where the
+ * user's focus is, and how it ends. Focus goes to a status only when the button holding it goes away
+ * while its own action is running or just succeeded.
+ */
+type First = "probe" | "consent";
+type Outcome = "success" | "failed" | "error";
+type Second = "none" | "early" | "late";
+type Where = "first" | "second" | "awayAndBack" | "refresh" | "nowhere";
+interface Row { first: First; second: Second; where: Where; event: boolean; outcome: Outcome }
+const TABLE: Row[] = (["probe", "consent"] as const).flatMap(first => (["none", "early", "late"] as const).flatMap(second =>
+  ((second === "none" ? ["first", "awayAndBack", "refresh", "nowhere"] : ["first", "second", "refresh", "nowhere"]) as Where[]).flatMap(where =>
+    [false, true].flatMap(event => ((first === "probe" ? ["success", "failed", "error"] : ["success", "error"]) as Outcome[])
+      .map(outcome => ({ first, second, where, event, outcome }))))));
+const LABEL: Record<First, string> = { probe: "Verify control", consent: "Grant consent" };
+
+async function order(row: Row) {
+  await withPage({}, async page => {
+    const job = deferred<unknown>(), answer = deferred<unknown>();
+    page.world.handlers["job.get"] = () => job.promise;
+    page.world.handlers["dispatch.enforcement.consent"] = () => answer.promise;
+    const apply = (kind: First) => { if (kind === "probe") page.world.certified["repo-a"] = "certified"; else page.world.consent = "granted"; };
+    const finish = async (kind: First, outcome: Outcome) => {
+      await act(async () => {
+        if (outcome === "success") apply(kind);
+        const reply = kind === "probe" ? job : answer;
+        if (outcome === "error") reply.reject(new Error("refused"));
+        else reply.resolve(kind === "probe" ? { state: outcome === "success" ? "passed" : "failed" } : {});
+      });
+      await page.settle();
+      readableFocus(page, `${kind} replied`);
+    };
+    const other: First = row.first === "probe" ? "consent" : "probe";
+    const first = await page.press(LABEL[row.first]);
+    const second = row.second === "none" ? null : await page.press(LABEL[other]);
+    if (row.where === "first") first.focus();
+    if (row.where === "second") second!.focus();
+    if (row.where === "awayAndBack") { page.button("Refresh status").focus(); await page.refetch(); first.focus(); }
+    const refresh = page.button("Refresh status");
+    if (row.where === "refresh") refresh.focus();
+    if (row.where === "nowhere") page.blur();
+    if (row.second === "early") await finish(other, "success");
+    if (row.event) { apply(row.first); await page.refetch(); readableFocus(page, "event"); }
+    await finish(row.first, row.outcome);
+    if (row.second === "late") await finish(other, "success");
+
+    const onStatus = (kind: First) => {
+      const node = page.focused();
+      expect(node?.attrs.role).toBe("status");
+      const siblings = node.parentNode.childNodes.filter((n: Node) => n.nodeType === 1);
+      const before = siblings.slice(0, siblings.indexOf(node)).reverse().find((n: Node) => n.attrs.role !== "status" && !String(n.attrs.class).includes("sr-only") && !String(n.attrs.class).includes("pc-alert"));
+      expect(String(before.attrs.class)).toContain(kind === "probe" ? "pc-setting-row" : "u3-setting-consent");
+    };
+    if (row.where === "refresh") expect(page.focused()).toBe(refresh);
+    else if (row.where === "nowhere") expect(page.focused()).toBeNull();
+    else if (row.where === "second") onStatus(other);
+    else if (row.event || row.outcome === "success") onStatus(row.first);
+    else expect(page.focused()).toBe(first);
+
+    // Settled: a later reading moves nothing and hides nothing that holds focus.
+    const settled = page.focused();
+    await page.refetch();
+    expect(page.focused()).toBe(settled);
+    readableFocus(page, "later reading");
+    expect(page.spending()).toHaveLength(second ? 2 : 1);
+  });
+}
+
+test(`focus follows the rule in all ${TABLE.length} orderings`, async () => {
+  const failures: string[] = [];
+  for (const row of TABLE) {
+    try { await order(row); }
+    catch (error) { failures.push(`${row.first}/${row.outcome} second=${row.second} focus=${row.where} event=${row.event}: ${String((error as Error).message).split("\n")[0]}`); }
+  }
+  expect(failures).toEqual([]);
+}, 120000);
+
+test("one action moves focus once, even if its button comes back and goes again while it runs", () => withPage({}, async page => {
+  page.world.handlers["job.get"] = () => deferred<unknown>().promise;
+  await page.press("Verify control");
+  page.world.certified["repo-a"] = "certified";
+  await page.refetch();
+  resultBesideRow(page, "checking native child blocking");
+  page.world.certified["repo-a"] = "stale";
+  await page.refetch();
+  page.button("Verify control").focus();
+  page.world.certified["repo-a"] = "certified";
   await page.refetch();
   expect(page.focused()).toBeNull();
 }));

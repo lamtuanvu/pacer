@@ -144,12 +144,13 @@ function ConsentControl({item,busy,onConsent}:{item:EnforcementRunner;busy?:bool
       Probes start only when the account's measured headroom is above the certification headroom floor.
     </div>}
     <div className="pc-cluster">
-      {actions.map(action=><Button key={action.label} size="sm" variant={action.variant}
+      {actions.map(action=><Button key={action.label} size="sm" variant={action.variant} {...{[SLOT_ATTRIBUTE]:slotOf(item.runner,"consent")}}
         aria-disabled={busy||undefined} onClick={()=>{if(!busy)onConsent(...action.send);}} aria-label={action.ariaLabel}>{action.label}</Button>)}
     </div>
   </div>;
 }
 type EnforcementControl="probe"|"consent";
+const slotOf=(runner:string,control:EnforcementControl)=>`${control}:${runner}`;
 export function DispatcherEnforcementRows({reading,canProbe,canConsent=true,probing,probingElsewhere,consenting,status,onProbe,onConsent}:{
   reading:EnforcementReading;canProbe:boolean;canConsent?:boolean;probing:string|null;probingElsewhere?:boolean;consenting?:boolean;
   /** What the last action on one of this executor's controls said, shown beside that control. */
@@ -161,7 +162,7 @@ export function DispatcherEnforcementRows({reading,canProbe,canConsent=true,prob
       description={<>Account {item.account} · {item.version??"version unknown"}{item.reason?` · ${nativeControlReasonCopy(item.reason,item.probeSupported)}`:""}</>}
       status={{tone:item.state==="certified"?"good":"neutral",label:!item.probeSupported&&item.state!=="certified"?"Unavailable":enforcementStateCopy[item.state]}}>
       {canProbe&&item.probeSupported&&item.state!=="certified"?
-        <Button size="sm" aria-busy={probing===item.runner&&!probingElsewhere} aria-disabled={!!probing||undefined} onClick={()=>{if(!probing)onProbe(item.runner);}}>Verify control</Button>
+        <Button size="sm" {...{[SLOT_ATTRIBUTE]:slotOf(item.runner,"probe")}} aria-busy={probing===item.runner&&!probingElsewhere} aria-disabled={!!probing||undefined} onClick={()=>{if(!probing)onProbe(item.runner);}}>Verify control</Button>
       :null}
     </SettingRow>
     {status?.(item.runner,"probe")}
@@ -347,13 +348,24 @@ function DispatcherContent({query,tab}:{query:RouteQuery;tab:"overview"|"rules"}
 interface EnforcementFeedback {repo:string;text:string;running?:boolean;error?:unknown;verified?:boolean;since?:EnforcementReading}
 /** A new action or a refresh clears what has settled, never the line of a request still running. */
 const stillRunning=(all:Record<string,EnforcementFeedback>)=>Object.fromEntries(Object.entries(all).filter(([,item])=>item.running));
-/**
- * One action's claim on focus, honoured at most once: when a render removes the button that still holds it,
- * whether that reading arrives before or after the reply. A failure, or a first reading after success that
- * keeps the button, ends the claim.
+/*
+ * Focus, per control (`slot`), as a small state machine:
+ *
+ *   idle    -- action starts --------------------------------------> running
+ *   running -- reply succeeds -------------------------------------> settled
+ *   running -- reply fails ----------------------------------------> idle
+ *   settled -- first reading (or read error) after the reply -------> idle
+ *   running or settled -- a render removes the button of this
+ *             slot while it holds focus: focus its status ---------> idle
+ *
+ * Which control holds focus is read during render, before the DOM changes, because a browser drops focus as
+ * soon as a button is removed. So it does not matter whether the removing reading arrives before or after the
+ * reply, or what was pressed in between; and a reader who moved elsewhere is left there. Focus never moves to
+ * a button, and a status that holds focus is never emptied or hidden.
  */
-interface FocusClaim {slot:string;invoker:Element;settled:boolean;held?:boolean;inView?:boolean;since?:EnforcementReading}
-const slotOf=(runner:string,control:EnforcementControl)=>`${control}:${runner}`;
+interface FocusClaim {repo:string;settled:boolean;since?:EnforcementReading}
+interface FocusedControl {element:Element;slot:string;inView:boolean}
+const SLOT_ATTRIBUTE="data-enforcement-slot";
 function inViewport(element:Element):boolean {
   const box=element.getBoundingClientRect?.();
   return !!box&&box.bottom>0&&box.top<window.innerHeight;
@@ -368,35 +380,34 @@ function DispatcherEnforcement({query}:{query:RouteQuery}){
   const currentReading=selected?scopedEnforcementReading(reading.data,selected,repos):undefined;
   const [probing,setProbing]=useState<{runner:string;repo:string}|null>(null),[consenting,setConsenting]=useState(false),[feedback,setFeedback]=useState<Record<string,EnforcementFeedback>>({});
   const latest=useRef(reading.data);latest.current=reading.data;
-  const probeInFlight=useRef(false),consentInFlight=useRef(false),claim=useRef<FocusClaim|null>(null),statuses=useRef(new Map<string,HTMLParagraphElement>());
+  const probeInFlight=useRef(false),consentInFlight=useRef(false),statuses=useRef(new Map<string,HTMLParagraphElement>());
+  const claims=useRef(new Map<string,FocusClaim>()),focusedControl=useRef<FocusedControl|null>(null);
   useEffect(()=>{if(!repo&&repos.length)setRepo(repos[0]!.key);},[repo,repos.length]);
-  // A verified probe removes its button and a consent answer replaces its own. Focus that would be lost goes to
-  // the status beside them, never to another button that could spend quota.
-  // Read during render, before the DOM changes: a browser drops focus as soon as the button is removed.
-  const claimed=claim.current;
-  if(claimed?.invoker.isConnected){claimed.held=document.activeElement===claimed.invoker;claimed.inView=inViewport(claimed.invoker);}
-  const claimFocus=(slot:string):FocusClaim|null=>{
-    const active=document.activeElement;
-    return claim.current=active&&active!==document.body?{slot,invoker:active,settled:false}:null;
+  const activeElement=typeof document==="undefined"?null:document.activeElement;
+  const activeSlot=activeElement?.getAttribute?.(SLOT_ATTRIBUTE);
+  focusedControl.current=activeElement&&activeSlot?{element:activeElement,slot:activeSlot,inView:inViewport(activeElement)}:null;
+  const beginClaim=(slot:string,at:string):FocusClaim=>{
+    const claim:FocusClaim={repo:at,settled:false};claims.current.set(slot,claim);return claim;
   };
-  const settleFocus=(mine:FocusClaim|null,succeeded:boolean)=>{
-    if(!mine||claim.current!==mine)return;
-    if(!succeeded){claim.current=null;return;}
-    mine.settled=true;mine.since=latest.current;
+  const endClaim=(slot:string,claim:FocusClaim,succeeded:boolean)=>{
+    if(claims.current.get(slot)!==claim)return;
+    if(!succeeded){claims.current.delete(slot);return;}
+    claim.settled=true;claim.since=latest.current;
   };
   useLayoutEffect(()=>{
-    const mine=claim.current;
-    if(!mine||mine.invoker.isConnected)return;
-    claim.current=null;
-    const active=document.activeElement,target=statuses.current.get(mine.slot);
-    if(!mine.held||!target||(active&&active!==document.body&&active!==mine.invoker))return;
+    const was=focusedControl.current;
+    if(!was||was.element.isConnected)return;
+    focusedControl.current=null;
+    if(claims.current.get(was.slot)?.repo!==selected)return;
+    claims.current.delete(was.slot);
+    const target=statuses.current.get(was.slot);
+    if(!target)return;
     target.focus({preventScroll:true});
     // Rows change height with the answer. Keep the focus visible, but never pull back a reader who scrolled away.
-    if(mine.inView)target.scrollIntoView?.({block:"nearest"});
+    if(was.inView)target.scrollIntoView?.({block:"nearest"});
   });
   useEffect(()=>{
-    const mine=claim.current;
-    if(mine?.settled&&(reading.data!==mine.since||reading.error))claim.current=null;
+    for(const [slot,claim] of claims.current)if(claim.settled&&(reading.data!==claim.since||reading.error))claims.current.delete(slot);
   },[reading.data,reading.error]);
   // A later reading outranks "verified": drop the message once it says otherwise.
   useEffect(()=>{
@@ -410,7 +421,7 @@ function DispatcherEnforcement({query}:{query:RouteQuery}){
   const probe=async(runner:string)=>{
     if(probeInFlight.current||!selected)return;
     probeInFlight.current=true;
-    const at=selected,slot=slotOf(runner,"probe"),mine=claimFocus(slot),name=executorLabel(runner);
+    const at=selected,slot=slotOf(runner,"probe"),claim=beginClaim(slot,at),name=executorLabel(runner);
     const say=(next:Omit<EnforcementFeedback,"repo">)=>setFeedback(all=>({...all,[slot]:{repo:at,...next}}));
     const checking={text:`${name}: checking native child blocking…`,running:true};
     setProbing({runner,repo:at});setFeedback(all=>({...stillRunning(all),[slot]:{repo:at,...checking}}));
@@ -422,27 +433,27 @@ function DispatcherEnforcement({query}:{query:RouteQuery}){
         if(job.state!=="running"){
           const verified=job.state==="passed";
           say({text:verified?`${name}: native child blocking verified.`:`${name}: verification could not complete. Review executor setup and try again.`,verified,since:latest.current});
-          settleFocus(mine,verified);reading.reload();break;
+          endClaim(slot,claim,verified);reading.reload();break;
         }
         if(Date.now()>deadline)throw new Error("Control verification is still running. Refresh the status to see its result.");
         await new Promise(resolve=>setTimeout(resolve,1500));
       }
     }
-    catch{settleFocus(mine,false);say({text:"",error:new Error("Verification could not complete. Review executor setup and try again.")});}
+    catch{endClaim(slot,claim,false);say({text:"",error:new Error("Verification could not complete. Review executor setup and try again.")});}
     finally{probeInFlight.current=false;setProbing(null);}
   };
   const consent=async(account:string,granted:boolean,runner:string)=>{
     if(consentInFlight.current||!selected)return;
     consentInFlight.current=true;
-    const at=selected,slot=slotOf(runner,"consent"),mine=claimFocus(slot);
+    const at=selected,slot=slotOf(runner,"consent"),claim=beginClaim(slot,at);
     const say=(next:Omit<EnforcementFeedback,"repo">)=>setFeedback(all=>({...all,[slot]:{repo:at,...next}}));
     setConsenting(true);setFeedback(all=>({...stillRunning(all),[slot]:{repo:at,text:`${granted?"Granting":"Declining"} consent for ${account}…`,running:true}}));
     try{
       await api.call("dispatch.enforcement.consent",{account,granted});
       say({text:granted?`Consent granted for ${account}. The next schedule check will consider probes.`:`Consent declined for ${account}. No automatic probes will run.`});
-      settleFocus(mine,true);reading.reload();
+      endClaim(slot,claim,true);reading.reload();
     }catch(error){
-      settleFocus(mine,false);say({text:"",error:error instanceof Error?error:new Error(String(error))});
+      endClaim(slot,claim,false);say({text:"",error:error instanceof Error?error:new Error(String(error))});
     }finally{consentInFlight.current=false;setConsenting(false);}
   };
   const refresh=()=>{setFeedback(stillRunning);reading.reload();};
@@ -455,9 +466,19 @@ function DispatcherEnforcement({query}:{query:RouteQuery}){
     const where=repos.find(item=>item.key===probing.repo)?.label??"another repository";
     return `A check of ${executorLabel(probing.runner)} in ${where} is running. Verify control is available when it finishes.`;
   };
+  /** What a status that holds focus says once it has no message: the row as it reads now. */
+  const standIn=(runner:string,control:EnforcementControl,failed:boolean):string=>{
+    const name=executorLabel(runner),row=currentReading?.runners.find(item=>item.runner===runner);
+    if(failed)return `${name}: the last request did not complete.`;
+    if(!row)return `${name}: status is not available.`;
+    return control==="probe"?`${name}: ${enforcementStateCopy[row.state].toLowerCase()}.`
+      :`${name}: consent ${row.consent==="unasked"?"not answered":row.consent}.`;
+  };
   const status=(runner:string,control:EnforcementControl)=>{
     const slot=slotOf(runner,control),item=feedback[slot]?.repo===selected?feedback[slot]:undefined;
-    return <><ActionStatus ref={(node:HTMLParagraphElement|null)=>{if(node)statuses.current.set(slot,node);}}>{item?item.text:waiting(runner,control)}</ActionStatus><ErrorMessage error={item?.error}/></>;
+    const node=statuses.current.get(slot),held=!!node&&node===activeElement;
+    const text=(item?item.text:waiting(runner,control))||(held?standIn(runner,control,!!item?.error):undefined);
+    return <><ActionStatus ref={(node:HTMLParagraphElement|null)=>{if(node)statuses.current.set(slot,node);}}>{text}</ActionStatus><ErrorMessage error={item?.error}/></>;
   };
   return <Section id="native-control" title="Native subagent control" detail="Pacer checks native child blocking before admitting strict managed work.">
     <div className="pc-card pc-stack pc-stack--normal">
