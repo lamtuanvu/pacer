@@ -161,7 +161,7 @@ export function DispatcherEnforcementRows({reading,canProbe,canConsent=true,prob
     </SettingRow>
     {item.probeSupported?<CertificationSchedule item={item}/>:null}
     {!item.probeSupported&&item.state!=="certified"?
-      <div className="u3-muted"><TextAction href="#/settings/agents">View agents</TextAction>, then refresh status.</div>
+      <div className="u3-muted"><a className="pc-inline-link" href="#/settings/agents">View agents</a>, then refresh status.</div>
     :null}
     {canConsent?<ConsentControl item={item} onConsent={onConsent}/>:null}
   </div>)}</>;
@@ -332,6 +332,7 @@ function DispatcherContent({query,tab}:{query:RouteQuery;tab:"overview"|"rules"}
       <DispatcherModelChoice initialConfig={config.data} initialInventory={models.data} onSaved={()=>{config.reload();models.reload();}}/></>
       :<DispatcherGuidedSetup view={config.data} onLadderDraft={setLadderDraft} onSaved={()=>{config.reload();models.reload();}}/>}
     {preview}
+    {tab==="overview"&&(state.features.ops.has("dispatch.enforcement")?<DispatcherEnforcement query={query}/>:<Section id="native-control" title="Native subagent control"><p>Update the service to inspect managed delegation enforcement.</p></Section>)}
   </>;
 }
 
@@ -343,6 +344,9 @@ function DispatcherEnforcement({query}:{query:RouteQuery}){
   const currentReading=scopedEnforcementReading(reading.data,repo,repos);
   const [probing,setProbing]=useState<string|null>(null),[probeError,setProbeError]=useState<unknown>(),[probeNotice,setProbeNotice]=useState("");
   useEffect(()=>{if(!repo&&repos.length)setRepo(repos[0]!.key);},[repo,repos.length]);
+  // Probing disables its button and a consent answer replaces its buttons. Lost focus goes to the status, never to a button that could spend quota.
+  const notice=useRef<HTMLParagraphElement>(null);
+  useEffect(()=>{if(probeNotice&&(!document.activeElement||document.activeElement===document.body))notice.current?.focus();},[probeNotice,probing,reading.data]);
   const probe=async(runner:string)=>{
     if(probing||!repo)return;
     setProbing(runner);setProbeError(undefined);setProbeNotice("");
@@ -375,13 +379,13 @@ function DispatcherEnforcement({query}:{query:RouteQuery}){
   return <Section id="native-control" title="Native subagent control" detail="Pacer checks native child blocking before admitting strict managed work.">
     <div className="pc-card pc-stack pc-stack--normal">
       <p>New managed work requires verified native subagent control. Executors can ask Pacer to delegate child work; Pacer selects and records it. This check covers supported native subagent tools when work starts, not arbitrary AI commands run through a shell.</p>
-      {repos.length?<SettingRow variant="board" label="Repository"><ChoicePicker value={repo} searchable options={repos.map(item=>({value:item.key,label:item.label}))} onValueChange={setRepo}/></SettingRow>:<p>Select a repository to inspect its executor controls.</p>}
-      <div><Button size="sm" onClick={()=>reading.reload()} disabled={!repo}>Refresh status</Button></div>
+      {repos.length?<SettingRow variant="board" label="Repository"><ChoicePicker value={repo} searchable options={repos.map(item=>({value:item.key,label:item.label}))} onValueChange={setRepo}/></SettingRow>:<p>No repository is registered yet, so there is nothing to inspect.</p>}
+      {repo&&<div><Button size="sm" onClick={()=>reading.reload()}>Refresh status</Button></div>}
       <DispatcherReadError error={reading.error&&currentReading?reading.error:undefined} reload={reading.reload} subject="native subagent control"/>
       {currentReading&&<DispatcherEnforcementRows reading={currentReading} canProbe={state.features.ops.has("dispatch.enforcement.probe")&&!!repo} probing={probing} onProbe={runner=>void probe(runner)} canConsent={state.features.ops.has("dispatch.enforcement.consent")} onConsent={consent}/>}
-      {!currentReading&&<p role={reading.error?"alert":undefined}>{reading.error?"Native control status could not be loaded.":"Loading native control status…"}</p>}
+      {repo&&!currentReading&&<p role={reading.error?"alert":undefined}>{reading.error?"Native control status could not be loaded.":"Loading native control status…"}</p>}
       <p className="u3-muted">Verification starts the selected agent in a disposable repository and may use account quota.</p>
-      {probeNotice&&<p role="status" aria-live="polite">{probeNotice}</p>}<ErrorMessage error={probeError}/>
+      {probeNotice&&<p ref={notice} tabIndex={-1} role="status" aria-live="polite">{probeNotice}</p>}<ErrorMessage error={probeError}/>
     </div>
   </Section>;
 }
