@@ -6,7 +6,7 @@ import type { ExecutionCfg } from "../config/execution";
 import { parseRunnerId } from "../config/runner-id";
 import { STRICT_INTERACTIVE_REASON, planStrictClaudeLaunch } from "../dispatch/enforcement";
 import { mcpNotApproved, preapproveClaudeTrust, projectMcpAnswers } from "../exec/direct";
-import { EXECUTOR_ARGV_BYTES, INTERACTIVE_PROMPT_BYTES, launchFor, launchModeFor, promptFileInstruction,
+import { EXECUTOR_ARGV_BYTES, INTERACTIVE_PROMPT_BYTES, launchFor, launchModeFor, taskLaunchChoice, promptFileInstruction,
   providerEnv, resumeHeadlessFor, type Launch, type LaunchModeChoice } from "../exec/launch";
 import { executorEnv, execProcess } from "../exec/process";
 import { profileColor, profileKeys, strictServiceEnv, terminalEnv, terminalEnvNote, terminalUmask } from "../exec/login-env";
@@ -34,7 +34,7 @@ export async function planOwnedLaunch(ctx: Ctx, input: { cfg: ProviderCfg; task:
   repoRoots: string[]; trustRoot?: string }): Promise<OwnedLaunchPlan> {
   const { task, workdir, dir, brief } = input;
   const strict = ctx.env.PACER_ENFORCEMENT_MODE === "strict";
-  let choice: LaunchModeChoice = task.interactive === false ? {mode: "headless", explicit: true} : launchModeFor(input.cfg, input.execution, { managed: strict });
+  let choice: LaunchModeChoice = taskLaunchChoice(task) ?? launchModeFor(input.cfg, input.execution, { managed: strict });
   let cfg: ProviderCfg = { ...input.cfg, session: choice.mode };
   // Certification covers headless launches only; an explicit interactive runner set after admission must not slip through.
   if (strict && choice.mode === "interactive") return { refused: STRICT_INTERACTIVE_REASON, cfg };

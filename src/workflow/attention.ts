@@ -24,7 +24,9 @@ import {
 import { readTask, taskDatabase } from "../tasks/store";
 import { isBudgetBlocked, parseBudget, parseSpent } from "./budget";
 import { resolveRunLetters } from "./letters";
-import { canSendBack, mergeConflictFor, reviewDueTask } from "./review";
+import { canSendBack, fanoutJoined, isHeldBranch, mergeConflictFor, reviewDueTask } from "./review";
+import { stepRetriesSpent } from "./retries";
+import { hasOpenWakeup, liveTurn, stepWakeRef } from "./wakeups";
 
 /** Person-facing cue so human-step / planner / executor questions differ on Dispatch. */
 function askerCue(kind: QuestionAskerKind): string {
@@ -562,6 +564,48 @@ function adoptionItems(ctx: Ctx, run: RunRow, letters: Map<string, string>): Att
   });
 }
 
+/** One item per failed step that nobody is about to act on: the planner had its turn
+ *  and left it, so the person can retry or skip it. A blocked or retrying planner has
+ *  its own item (or retries by itself). */
+function failedStepItems(ctx: Ctx, run: RunRow, letters: Map<string, string>): AttentionItem[] {
+  const root = run.parentRunId ? getRun(ctx, rootRunId(ctx, run.id)) ?? run : run;
+  if (root.orchestratorState === "blocked" || root.orchestratorState === "retrying" || liveTurn(ctx, root.id)) return [];
+  const rows = stepsOfRun(ctx, run.id);
+  return rows.flatMap(row => {
+    if (row.status !== "failed") return [];
+    if (rows.some(s => s.stepId === row.stepId && s.branch === row.branch && s.attempt > row.attempt)) return [];
+    // A fan-out branch is actionable only while its join waits for it.
+    if (row.branch !== undefined && (!isHeldBranch(row) || fanoutJoined(rows, row))) return [];
+    const ref = stepWakeRef(row.runId, row.stepId, row.attempt, row.branch);
+    if ((["step_failed", "step_invalid"] as const)
+      .some(cause => hasOpenWakeup(ctx, root.id, cause, ref))) return [];
+    const name = row.branch ? `${row.stepId}/${row.branch}` : row.stepId;
+    const at = row.endedAt ?? row.startedAt;
+    const waitingOn = runExternalCaller(root);
+    const params = { id: run.id, step: row.stepId, expect_rev: run.rev };
+    const skip: Action = {
+      label: "Skip step", op: "step.skip", params, confirm: "Skip this step? The run continues as if it had finished.",
+    };
+    return [{
+      id: `step_failed:${run.id}:${row.stepId}#${row.attempt}${row.branch ? `/${row.branch}` : ""}`,
+      kind: "orchestrator_failed" as const,
+      severity: "blocked" as const,
+      repo: null,
+      title: clipCodePoints(`Step "${name}" failed`, QUESTION_TITLE_CLIP, true),
+      detail: `${runDetailSubject(root)}. ${clipCodePoints(collapseNewlines(row.error ?? "failed"), RUN_DETAIL_CLIP, true)}. Retry it, or skip it to continue.`,
+      raisedAt: at,
+      since: at,
+      notify: notifyLevelForRun("question", root, ctx.now, { since: at, unblocks: "run" }),
+      ...(waitingOn ? { waitingOn } : {}),
+      actions: stepRetriesSpent(rows, row)
+        ? [skip]
+        : [{ label: "Retry step", op: "step.retry", params, style: "primary" as const }, skip],
+      unblocks: "run" as const,
+      run: attentionRunRef(root, letters),
+    }];
+  });
+}
+
 /** Attention items for live runs: blocked orchestrator, budget thresholds, and person questions. */
 export function deriveWorkflowAttention(ctx: Ctx): AttentionItem[] {
   const items: AttentionItem[] = [];
@@ -576,6 +620,7 @@ export function deriveWorkflowAttention(ctx: Ctx): AttentionItem[] {
   for (const run of live) {
     items.push(
       ...reviewItems(ctx, run, letters), ...branchConflictItems(ctx, run, letters), ...adoptionItems(ctx, run, letters),
+      ...failedStepItems(ctx, run, letters),
     );
     // Child runs share the root's orchestrator/budget attention.
     if (run.parentRunId) continue;

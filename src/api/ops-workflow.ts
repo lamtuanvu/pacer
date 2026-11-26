@@ -32,7 +32,7 @@ import { syncBase } from "../workflow/branch";
 import { publishRun } from "../workflow/publish";
 import { assertStepCommitted } from "../workflow/review";
 import { cleanupRun } from "../workflow/cleanup";
-import { canAutoApproveGenerate, canAutoDecide } from "../workflow/auto";
+import { canAutoDecide, orchestratorMayApprove } from "../workflow/auto";
 import { applyBudgetRaise, isBudgetBlocked, parseSpent, serializeSpent } from "../workflow/budget";
 import { listGraphSummaries, noteGenerateSubmitErrors, submitGraph } from "../workflow/generate";
 import {
@@ -89,6 +89,38 @@ function requireStepResultCaller(ctx: Ctx): string {
     return id;
   }
   return requireStepWorker(ctx);
+}
+
+/** `step.skip` / `step.retry`: a live run grant for the run, or the person with the
+ *  run's rev (P2). Executors and every other scoped credential are refused. */
+async function resolveFailedStep(
+  ctx: Ctx, kind: "skip" | "retry", p: { id: string; step: string; expect_rev?: number }, deps: OpDeps,
+) {
+  const granted = !!ctx.env.PACER_RUN_GRANT || isOrchestratorSession(ctx);
+  if (granted) {
+    const grant = ctx.env.PACER_RUN_GRANT ? verifyRunGrant(ctx, ctx.env.PACER_RUN_GRANT) : null;
+    if (!grant || rootRunId(ctx, p.id) !== grant.runId) {
+      throw new CoreError("not_allowed", `step.${kind} requires a live run grant for this run`);
+    }
+  } else {
+    assertPersonCaller(ctx);
+    if (ctx.env.PACER_WORK_GRANT || ctx.env.PACER_ENFORCEMENT_TOKEN || ctx.env.PACER_ASSISTANT_GRANT) {
+      throw new CoreError("not_allowed", `step.${kind} is for the person and the run's planner`);
+    }
+    if (p.expect_rev === undefined) throw new CoreError("invalid_input", "expect_rev is required");
+  }
+  const { deps: engine, spawn } = engineDeps(deps);
+  const apply = kind === "skip" ? skipFailedStep : retryFailedStep;
+  const run = await apply(ctx, {
+    runId: p.id, stepId: p.step, ...(granted ? {} : { expectRev: p.expect_rev! }),
+  }, spawn, engine);
+  if (!granted) {
+    recordDecision(ctx, {
+      runId: p.id, stepId: p.step, attempt: 0, actor: "person", kind, choice: p.step,
+      reason: `the person chose to ${kind} the failed step`,
+    });
+  }
+  return runEntityValue(run);
 }
 
 /** callOp deps → engine deps: tests stub delegation through OpDeps. */
@@ -322,28 +354,14 @@ export const workflowOps: Record<string, OpDef> = {
     },
   }),
   "step.skip": op({
-    description: "Skip a failed step under a live run grant: mark it done as skipped and advance the run.",
-    params: z.object({ id: runId, step: z.string().min(1).max(128) }),
-    handler: async (ctx, p, deps) => {
-      const grant = ctx.env.PACER_RUN_GRANT ? verifyRunGrant(ctx, ctx.env.PACER_RUN_GRANT) : null;
-      if (!grant || rootRunId(ctx, p.id) !== grant.runId) {
-        throw new CoreError("not_allowed", "step.skip requires a live run grant for this run");
-      }
-      const { deps: engine, spawn } = engineDeps(deps);
-      return runEntityValue(await skipFailedStep(ctx, { runId: p.id, stepId: p.step }, spawn, engine));
-    },
+    description: "Skip a failed step: mark it done as skipped and advance the run. The person passes the run's current rev; a live run grant may skip a step of its own run.",
+    params: z.object({ id: runId, step: z.string().min(1).max(128), expect_rev: z.number().int().positive().optional() }),
+    handler: (ctx, p, deps) => resolveFailedStep(ctx, "skip", p, deps),
   }),
   "step.retry": op({
-    description: "Retry a failed step under a live run grant: start a new attempt of the same step.",
-    params: z.object({ id: runId, step: z.string().min(1).max(128) }),
-    handler: async (ctx, p, deps) => {
-      const grant = ctx.env.PACER_RUN_GRANT ? verifyRunGrant(ctx, ctx.env.PACER_RUN_GRANT) : null;
-      if (!grant || rootRunId(ctx, p.id) !== grant.runId) {
-        throw new CoreError("not_allowed", "step.retry requires a live run grant for this run");
-      }
-      const { deps: engine, spawn } = engineDeps(deps);
-      return runEntityValue(await retryFailedStep(ctx, { runId: p.id, stepId: p.step }, spawn, engine));
-    },
+    description: "Retry a failed step, or a rejected fan-out branch, with a new attempt. The person passes the run's current rev; a live run grant may retry a step of its own run.",
+    params: z.object({ id: runId, step: z.string().min(1).max(128), expect_rev: z.number().int().positive().optional() }),
+    handler: (ctx, p, deps) => resolveFailedStep(ctx, "retry", p, deps),
   }),
   "run.set_auto": op({
     description: "Turn auto mode on or off for a run, or mark auto steps must for this run. Person only; there is no way to loosen a must.",
@@ -690,7 +708,7 @@ export const workflowOps: Record<string, OpDef> = {
       const root = getRun(ctx, rootRunId(ctx, p.id)) ?? run;
       const { deps: engine, spawn } = engineDeps(deps);
       if (stepDef?.type === "generate") {
-        if (!canAutoApproveGenerate(root, step, stepDef as GenerateStep)) {
+        if (!orchestratorMayApprove(root, step, stepDef as GenerateStep, row?.result)) {
           recordDecision(ctx, {
             runId: p.id, stepId: step, attempt, actor: "orchestrator",
             kind: "refused", choice, reason,

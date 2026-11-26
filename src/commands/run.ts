@@ -12,7 +12,7 @@ import { commandArgs } from "./accounts";
 import type { Command, Result } from "./types";
 import type { Ctx } from "../types";
 
-const USAGE = "usage: pacer run start <workflow|auto> --brief <text> [--repo <path>] [--title <t>] [--priority urgent|normal|background] [--publish draft] | list [--status <s>] | show <id> | graph <id> [--version N] | submit-graph --file <path> --id <run> --step <step> | answer <id> <step> <answer> | stop <id> | sync <id> | publish <id> --title <t> --body-file <path> [--draft] | cleanup <id> [--delete-branch] [--yes] | auto <id> on|off | planner <id> <agent> | budget <id> [--turns N] [--messages N] | priority <id> urgent|normal|background | pause <id> | resume <id> | seen <id> | decide <id> <step> <choice> --reason <text> | decide --json '{\"id\",\"kind\":\"summary\",\"summary\":\"…\"}' | decide <id> --json '{\"kind\":\"summary\",\"summary\":\"…\"}' | choose <id> <step> <workflow> --reason <text> [--json]";
+const USAGE = "usage: pacer run start <workflow|auto> --brief <text> [--repo <path>] [--title <t>] [--priority urgent|normal|background] [--publish draft] | list [--status <s>] | show <id> | graph <id> [--version N] | submit-graph --file <path> --id <run> --step <step> | answer <id> <step> <answer> | stop <id> | retry-orchestrator <id> | sync <id> | publish <id> --title <t> --body-file <path> [--draft] | cleanup <id> [--delete-branch] [--yes] | auto <id> on|off | planner <id> <agent> | budget <id> [--turns N] [--messages N] | priority <id> urgent|normal|background | pause <id> | resume <id> | seen <id> | decide <id> <step> <choice> --reason <text> | decide --json '{\"id\",\"kind\":\"summary\",\"summary\":\"…\"}' | decide <id> --json '{\"kind\":\"summary\",\"summary\":\"…\"}' | choose <id> <step> <workflow> --reason <text> [--json]";
 const STEP_USAGE = "usage: pacer step result --json '<JSON object>' | --file <path> | artifact <path> --label <text> | skip <id> <step> | retry <id> <step>";
 
 async function call(ctx: Ctx, op: string, params: Record<string, unknown>, deps: OpDeps): Promise<unknown> {
@@ -23,6 +23,28 @@ async function call(ctx: Ctx, op: string, params: Record<string, unknown>, deps:
   try {
     return client.kind === "inprocess" ? await callOp(ctx, op, params, deps) : await client.call(op, params);
   } finally { client.close(); }
+}
+
+interface OpenQuestion { id: string; stepId: string; text: string; answerer: string; answerType: string }
+
+/** What a live run waits on that can be acted on from here: open questions, and
+ *  failed steps with no later attempt. */
+function nextActions(run: RunLike, steps: StepLike[], questions: OpenQuestion[]): string[] {
+  if (!["running", "waiting"].includes(run.status)) return [];
+  const lines: string[] = [];
+  for (const q of questions) {
+    const who = q.answerer === "person" ? "waits on you" : "waits on the planner";
+    const text = q.text.replace(/\s+/g, " ");
+    lines.push(`question ${q.id}  step ${q.stepId}  ${who}`, `  ${text}`,
+      `  answer: pacer answer ${q.id} ${q.answerType === "approve_revise" ? "approve|revise [--note <text>]" : '"<answer>"'}`);
+  }
+  const failed = new Set(steps.filter(s => s.status === "failed"
+    && !steps.some(later => later.stepId === s.stepId && later.branch === s.branch && later.attempt > s.attempt))
+    .map(s => s.stepId));
+  for (const step of failed) {
+    lines.push(`failed step ${step}: pacer step retry ${run.id} ${step}  or  pacer step skip ${run.id} ${step}`);
+  }
+  return lines;
 }
 
 /** `--repo` defaults to the repository the CLI runs in (its git top-level). */
@@ -103,7 +125,8 @@ export async function runCmd(args: string[], ctx: Ctx, deps: OpDeps = {}): Promi
       if (pos.length !== 1) throw Error(USAGE);
       const got = await call(ctx, "run.get", { id: pos[0] }, deps) as { run: RunLike; steps: StepLike[] };
       if (json) return { code: 0, out: JSON.stringify(got, null, 2), err: "" };
-      return { code: 0, out: renderRun(got.run, got.steps), err: "" };
+      const questions = await call(ctx, "question.list", { run: pos[0], status: "open" }, deps) as OpenQuestion[];
+      return { code: 0, out: [renderRun(got.run, got.steps), ...nextActions(got.run, got.steps, questions)].join("\n"), err: "" };
     }
     if (sub === "answer" || sub === "stop") {
       const { pos } = commandArgs(rest, [], ["json"]);
@@ -115,6 +138,14 @@ export async function runCmd(args: string[], ctx: Ctx, deps: OpDeps = {}): Promi
       const run = await call(ctx, sub === "answer" ? "run.answer" : "run.stop", params, deps) as RunLike;
       if (json) return { code: 0, out: JSON.stringify(run, null, 2), err: "" };
       return { code: 0, out: `${run.id}  ${run.status}${run.reason ? `  ${run.reason}` : ""}`, err: "" };
+    }
+    if (sub === "retry-orchestrator") {
+      const { pos } = commandArgs(rest, [], ["json"]);
+      if (pos.length !== 1) throw Error(USAGE);
+      const got = await call(ctx, "run.get", { id: pos[0] }, deps) as { run: RunLike };
+      const run = await call(ctx, "run.retry_orchestrator", { id: pos[0], expect_rev: got.run.rev }, deps) as RunLike;
+      if (json) return { code: 0, out: JSON.stringify(run, null, 2), err: "" };
+      return { code: 0, out: `${run.id}  planner will be retried`, err: "" };
     }
     if (sub === "sync") {
       const { pos, flags } = commandArgs(rest, [], ["json"]);
@@ -313,15 +344,18 @@ export async function runCmd(args: string[], ctx: Ctx, deps: OpDeps = {}): Promi
 /** `pacer step result`: the executor-facing report of its workflow step's
  *  structured result. Runs in-process like `pacer ask`, because a delegated
  *  executor session holds no service client; identity is the op's
- *  `requireAskingExecutor`. `step skip|retry` are orchestrator grant ops. */
+ *  `requireAskingExecutor`. `step skip|retry` are for the person and the run grant. */
 export async function stepCmd(args: string[], ctx: Ctx, deps: OpDeps = {}): Promise<Result> {
   const [sub, ...rest] = args;
   try {
     if (sub === "skip" || sub === "retry") {
       const { pos, flags } = commandArgs(rest, [], ["json"]);
       if (pos.length !== 2) throw Error(STEP_USAGE);
+      // The person's change carries the run's current rev; a run grant's does not.
+      const rev = ctx.env.PACER_RUN_GRANT ? undefined
+        : (await call(ctx, "run.get", { id: pos[0] }, deps) as { run: RunLike }).run.rev;
       const run = await call(ctx, sub === "skip" ? "step.skip" : "step.retry", {
-        id: pos[0], step: pos[1],
+        id: pos[0], step: pos[1], ...(rev !== undefined ? { expect_rev: rev } : {}),
       }, deps) as RunLike;
       if (flags.json) return { code: 0, out: JSON.stringify(run, null, 2), err: "" };
       return { code: 0, out: `${run.id}  ${sub} ${pos[1]}`, err: "" };
@@ -356,6 +390,6 @@ export async function stepCmd(args: string[], ctx: Ctx, deps: OpDeps = {}): Prom
 }
 
 export const COMMANDS: Command[] = [
-  { name: "run", usage: "run start|list|show|graph|submit-graph|answer|stop|sync|publish|cleanup|auto|planner|budget|priority|pause|resume|seen|decide|choose    start and follow runs", run: (args, ctx) => runCmd(args, ctx) },
+  { name: "run", usage: "run start|list|show|graph|submit-graph|answer|stop|retry-orchestrator|sync|publish|cleanup|auto|planner|budget|priority|pause|resume|seen|decide|choose    start and follow runs", run: (args, ctx) => runCmd(args, ctx) },
   { name: "step", usage: "step result --json <object> | --file <path> | artifact <path> --label <text> | skip <id> <step> | retry <id> <step>    report or resolve a workflow step", run: (args, ctx) => stepCmd(args, ctx) },
 ];

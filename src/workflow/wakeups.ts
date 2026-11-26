@@ -3,7 +3,7 @@
 // scan when a wake-up is lost (spec "Wake-ups and turns are durable").
 import type { Database } from "bun:sqlite";
 import type { Ctx } from "../types";
-import { canAutoApproveGenerate, canAutoDecide } from "./auto";
+import { canAutoDecide, orchestratorMayApprove } from "./auto";
 import { reviewDueTask, waitsOnPerson } from "./review";
 import {
   getDefinition, getRun, liveRuns, rootRunId, stepsOfRun, updateStep, workflowDatabase,
@@ -150,7 +150,7 @@ export function enqueueWakeup(
 }
 
 /** Open wake-up already exists for this root key (claimed or unclaimed). */
-function hasOpenWakeup(ctx: Ctx, runId: string, cause: WakeCause, ref: string): boolean {
+export function hasOpenWakeup(ctx: Ctx, runId: string, cause: WakeCause, ref: string): boolean {
   return !!workflowDatabase(ctx).query(
     "SELECT 1 FROM workflow_wakeups WHERE run_id = ? AND cause = ? AND ref = ? AND done_at IS NULL LIMIT 1",
   ).get(runId, cause, ref);
@@ -197,6 +197,48 @@ export function completeWakeups(ctx: Ctx, turnId: string): void {
   ).run(ctx.now, turnId);
 }
 
+type HeldRow = Pick<StepRow, "runId" | "stepId" | "attempt" | "branch">;
+
+/** The orchestrator's own questions that block this step instance. */
+const BLOCKING_ASK = `q.run_id = ? AND q.step_id = ? AND q.attempt = ? AND COALESCE(q.branch, '') = ?
+  AND q.asker_kind = 'orchestrator' AND q.blocks IN ('step', 'branch')`;
+
+const askBindings = (row: HeldRow): [string, string, number, string] =>
+  [row.runId, row.stepId, row.attempt, row.branch ?? ""];
+
+/** The orchestrator asked a blocking question on this step and nobody answered it yet:
+ *  the step is held, and no turn is owed for it. */
+export function openBlockingAsk(ctx: Ctx, row: HeldRow): boolean {
+  return !!workflowDatabase(ctx).query(
+    `SELECT 1 FROM workflow_questions q WHERE ${BLOCKING_ASK} AND q.status = 'open' LIMIT 1`,
+  ).get(...askBindings(row));
+}
+
+/** A blocking question was answered and no turn has claimed the answer yet. */
+function unseenAnswer(ctx: Ctx, row: HeldRow): boolean {
+  return !!workflowDatabase(ctx).query(
+    `SELECT 1 FROM workflow_questions q
+     JOIN workflow_wakeups w ON w.run_id = ? AND w.cause = 'question' AND w.ref = q.id
+     WHERE ${BLOCKING_ASK} AND q.status = 'answered' AND w.done_at IS NULL AND w.turn_id IS NULL LIMIT 1`,
+  ).get(rootRunId(ctx, row.runId), ...askBindings(row));
+}
+
+/** Whether a turn that ends now without a result leaves this step held for a question,
+ *  not failed: the question is open, or its answer has not reached a turn. */
+export function heldByQuestion(ctx: Ctx, row: HeldRow): boolean {
+  return openBlockingAsk(ctx, row) || unseenAnswer(ctx, row);
+}
+
+/** The open question a human step or a plan approval raised for this step instance. */
+function openStepQuestion(ctx: Ctx, row: HeldRow): { answerer: string } | null {
+  return workflowDatabase(ctx).query<{ answerer: string }, [string, string, number]>(
+    `SELECT answerer FROM workflow_questions
+     WHERE run_id = ? AND step_id = ? AND attempt = ? AND status = 'open'
+       AND asker_kind = 'human_step'
+     ORDER BY created_at DESC, id DESC LIMIT 1`,
+  ).get(row.runId, row.stepId, row.attempt);
+}
+
 /** Whether the underlying decision for a wake key is still open after a done turn. */
 export function wakeCauseStillOpen(ctx: Ctx, runId: string, cause: WakeCause, ref: string): boolean {
   // Phase 4 executor/orchestrator questions use the question id as the wake ref.
@@ -225,6 +267,8 @@ export function wakeCauseStillOpen(ctx: Ctx, runId: string, cause: WakeCause, re
       && (branch === undefined ? s.branch === undefined : s.branch === branch),
     );
     if (!step) continue;
+    // The planner asked about this step and waits for the answer: nothing is owed now.
+    if (heldByQuestion(ctx, step)) return false;
     if (cause === "step_failed" || cause === "step_invalid") {
       if (step.status !== "failed" || step.advancedAt) return false;
       const later = steps.some(s =>
@@ -261,15 +305,7 @@ export function wakeCauseStillOpen(ctx: Ctx, runId: string, cause: WakeCause, re
       if (step.status !== "waiting") return false;
       // Human-step / generate auto wakes use stepWakeRef. After escalate the open
       // question's answerer is the person — do not keep the orchestrator cause open.
-      const openHuman = workflowDatabase(ctx).query<
-        { answerer: string },
-        [string, string, number]
-      >(
-        `SELECT answerer FROM workflow_questions
-         WHERE run_id = ? AND step_id = ? AND attempt = ? AND status = 'open'
-           AND asker_kind = 'human_step'
-         ORDER BY created_at DESC, id DESC LIMIT 1`,
-      ).get(id, stepId, attempt);
+      const openHuman = openStepQuestion(ctx, step);
       if (openHuman) return openHuman.answerer === "orchestrator";
       return true;
     }
@@ -590,6 +626,9 @@ export function needsOrchestrator(ctx: Ctx): NeedsOrchestrator[] {
   for (const row of failed) {
     const root = rootRunId(ctx, row.run_id);
     if (liveTurn(ctx, root)) continue;
+    if (openBlockingAsk(ctx, {
+      runId: row.run_id, stepId: row.step_id, attempt: row.attempt, branch: row.branch || undefined,
+    })) continue;
     const ref = stepWakeRef(row.run_id, row.step_id, row.attempt, row.branch ?? undefined);
     const cause: WakeCause = row.error === "no step result" ? "step_invalid" : "step_failed";
     if (hasOpenWakeup(ctx, root, cause, ref)) continue;
@@ -605,16 +644,13 @@ export function needsOrchestrator(ctx: Ctx): NeedsOrchestrator[] {
     for (const step of stepsOfRun(ctx, run.id)) {
       const stepDef = def.steps[step.stepId];
       if (!stepDef) continue;
+      // Held for the orchestrator's own question: the answer wakes the next turn.
+      if (stepDef.type !== "human" && openBlockingAsk(ctx, step)) continue;
       if (step.status === "waiting" && stepDef.type === "human") {
         if (!canAutoDecide(rootRun, step.stepId, stepDef)) continue;
         // Prefer the open question row's answerer: escalate flips it to person while
         // the step stays waiting; do not recreate the orchestrator wake.
-        const openHuman = db.query<{ answerer: string }, [string, string, number]>(
-          `SELECT answerer FROM workflow_questions
-           WHERE run_id = ? AND step_id = ? AND attempt = ? AND status = 'open'
-             AND asker_kind = 'human_step'
-           ORDER BY created_at DESC, id DESC LIMIT 1`,
-        ).get(run.id, step.stepId, step.attempt);
+        const openHuman = openStepQuestion(ctx, step);
         if (openHuman && openHuman.answerer !== "orchestrator") continue;
         const ref = stepWakeRef(run.id, step.stepId, step.attempt, step.branch);
         if (hasOpenWakeup(ctx, root, "question", ref)) continue;
@@ -638,7 +674,8 @@ export function needsOrchestrator(ctx: Ctx): NeedsOrchestrator[] {
         const pending = prior.pendingApproval === true;
         const ref = stepWakeRef(run.id, step.stepId, step.attempt, step.branch);
         if (pending) {
-          if (canAutoApproveGenerate(rootRun, step.stepId, stepDef)) {
+          if (orchestratorMayApprove(rootRun, step.stepId, stepDef, step.result)
+            && openStepQuestion(ctx, step)?.answerer !== "person") {
             if (!hasOpenWakeup(ctx, root, "question", ref)) {
               push(root, "question", ref, step.startedAt);
             }

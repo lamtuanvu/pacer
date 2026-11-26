@@ -4,6 +4,16 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Fixed
+
+- **A blocking question now holds a workflow's planner step.** When the planner asks a question that blocks the step or branch, the step waits instead of failing with "no step result", and the answer starts a new turn that carries it.
+- **You can recover a failed workflow step.** `pacer step retry` and `pacer step skip` now work for you as well as for the planner, including for a rejected fan-out branch. A failed step nobody is working on appears in Needs you with both actions. `pacer run show` lists open questions and failed steps with the command to use.
+- **Plan approvals are visible.** A generated plan that needs approval now raises an approve-or-revise question, shown in Needs you, `pacer question list` and `pacer run show`; with auto mode on, the planner is asked for `approval: auto` steps. A re-plan that asks always goes to you.
+- Planner turns are headless unless a step they perform is `interactive: true`; an interactive turn keeps the two-hour deadline.
+- A planner blocked on something you have since resolved continues without "Retry now". `pacer run retry-orchestrator <run>` retries a blocked planner from the command line.
+- In the terminal dashboard, Enter on a workflow question in Home or Review opens the answer form instead of picking the first answer.
+- Live validation: the guarded `pacer` lets a sandbox planner turn send a task back (`pacer review <task> --send-back`), and still refuses `--retry-on` and other delegation.
+
 ### Changed
 
 - **Desktop updates no longer wait for handover-capable work.** Runners that advertise the handover protocol, their executor sessions and session hosts started by this version are marked as survivors. When the installed app and the update both support it (0.18.7 or later), an in-app update installs while they run: the update helper checks each survivor's code signature against the release signer before installing, and the new service asks older runners to hand over once the update commits (never during the rollback window). Other work, such as queue drains, launches, Orca sessions, remote runs and work started on older versions, still makes the update wait. While an update can still roll back, `service.handover` signals nothing and returns `deferred: true` ([ADR 2026-11-25](docs/decisions/2026-11-25-desktop-update-with-running-work.md)).

@@ -92,7 +92,8 @@ export function parentOfTask(ctx: Ctx, t: { id: string; origin?: string | null; 
  * parent, or a work parent) and headless roots keep today's auto-completion.
  */
 export function heldOpenForHuman(ctx: Ctx, t: TaskRecord, parent = parentOf(ctx, `task:${t.id}`)): boolean {
-  return (t.interactionMode === "conversation" || t.interactive === true) && parent === "human";
+  // An orchestrator turn is never held open: it must settle for the run to move on.
+  return t.kind !== "orchestrate" && (t.interactionMode === "conversation" || t.interactive === true) && parent === "human";
 }
 
 function ancestors(ctx: Ctx, p: string): string[] {

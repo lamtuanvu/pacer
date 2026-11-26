@@ -71,6 +71,14 @@ export function launchModeFor(cfg: Pick<ProviderCfg, "id" | "via" | "session">, 
   return {mode: cfg.session ?? exec.launchMode ?? "interactive", explicit: cfg.session !== undefined};
 }
 
+/** The mode a task asks for over the runner's configuration: headless when it says so,
+ *  and interactive for an orchestrator turn of an interactive workflow step. */
+export function taskLaunchChoice(task: { kind?: string | null; interactive?: boolean }): LaunchModeChoice | undefined {
+  if (task.interactive === false) return {mode: "headless", explicit: true};
+  if (task.kind === "orchestrate" && task.interactive === true) return {mode: "interactive", explicit: true};
+  return undefined;
+}
+
 export interface Launch { argv: string[]; cwd: string; stdin?: string; lastMessageFile?: string }
 
 /** An idle agent for Orca to attach to; Orca injects the task prompt after startup. */

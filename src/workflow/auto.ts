@@ -24,3 +24,10 @@ export function canAutoApproveGenerate(run: RunRow, stepId: string, step: Genera
   if (run.strictSteps?.includes(stepId)) return false;
   return step.approval === "auto";
 }
+
+/** Whether the orchestrator may answer a pending plan approval. A re-plan the policy
+ *  sends to the person stays theirs, whatever the step's approval says. */
+export function orchestratorMayApprove(run: RunRow, stepId: string, step: GenerateStep, result: unknown): boolean {
+  if ((result as { replanMode?: unknown } | null | undefined)?.replanMode === "ask") return false;
+  return canAutoApproveGenerate(run, stepId, step);
+}

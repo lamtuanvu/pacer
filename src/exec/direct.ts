@@ -34,7 +34,7 @@ import { hasCommittedWork } from "../remote/committed-work";
 import { pluginRegistry } from "../plugins";
 import { issueConfiguredHostReadFrom } from "../plugins/host-read-from-issuer";
 import { issueConfiguredHostAttemptPreflight } from "../plugins/host-attempt-preflight-issuer";
-import { headlessTurnPath, launchFor, launchModeFor, providerEnv, resumeHeadlessFor, resumeLaunchFor, type LaunchModeChoice } from "./launch";
+import { headlessTurnPath, launchFor, launchModeFor, providerEnv, taskLaunchChoice, resumeHeadlessFor, resumeLaunchFor, type LaunchModeChoice } from "./launch";
 import { claimTurnMessages, renderReplayThread, renderTurnPrompt } from "../messaging/turns";
 import { liveTick } from "../messaging/live";
 import { heldOpenForHuman } from "../messaging/participants";
@@ -506,7 +506,7 @@ export async function runAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, o
 async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, onSpawn?: (pid: number) => void): Promise<AttemptOutcome> {
   const conversation = task.interactionMode === "conversation";
   const ex = loadExec(ctx);
-  let choice: LaunchModeChoice = task.interactive === false ? {mode: "headless", explicit: true} : conversation ? {mode: "interactive", explicit: true} : launchModeFor(cfg, ex, {managed: ctx.env.PACER_ENFORCEMENT_MODE === "strict"});
+  let choice: LaunchModeChoice = taskLaunchChoice(task) ?? (conversation ? {mode: "interactive", explicit: true} : launchModeFor(cfg, ex, {managed: ctx.env.PACER_ENFORCEMENT_MODE === "strict"}));
   const pendingTurn = conversation ? undefined : task.pendingTurn;
   cfg = {...cfg, session: choice.mode};
   const alias = parseRunnerId(cfg.id)?.host;

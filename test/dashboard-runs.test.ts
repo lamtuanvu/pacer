@@ -6,6 +6,9 @@ import { detectTheme, PLAIN_THEME } from "../src/dashboard/theme";
 import { fit, glyph, span } from "../src/dashboard/frame";
 import { computeTabBudget, fitTabBar, tabs } from "../src/dashboard/screens/shell";
 import { questionFromAttention } from "../src/dashboard/screens/runs";
+import { homeScreen } from "../src/dashboard/screens/home";
+import { reviewScreen } from "../src/dashboard/screens/review";
+import { initialState } from "../src/dashboard/state";
 import { RUNS_EMPTY, RUNS_UNAVAILABLE, runLetter } from "../src/view-model/runs";
 import type { ClientSnapshot } from "../src/view-model/snapshot";
 import type { DashData, RunSummary } from "../src/dashboard/screens/types";
@@ -254,4 +257,27 @@ describe("Runs screen list", () => {
     expect(footer).toMatch(/n\/Esc\s+Cancel/);
     expect(footer).not.toMatch(/Answer/i);
   });
+});
+
+describe("a run question from Home or Review", () => {
+  const asking = (): AttentionItem => ({
+    ...runQuestionAttention(),
+    actions: [{ label: "Approve", op: "question.answer", params: { id: "q-1", expect_rev: 1, answer: "approve" }, style: "primary" }],
+  });
+  for (const screen of ["home", "review"] as const) {
+    test(`Enter on ${screen} opens the answer form instead of answering`, () => {
+      const s = snapshot();
+      s.attention = [asking()];
+      s.tasks = [];
+      const ctx = {
+        s, state: initialState(screen), data: data(), theme: PLAIN_THEME, width: 120, height: 40, wide: true,
+        now: now(), timeZone: "UTC", supports: () => true,
+      } as unknown as Parameters<typeof homeScreen>[0];
+      const view = screen === "home" ? homeScreen(ctx) : reviewScreen(ctx);
+      const item = view.items.find(i => i.id === "attention:question:q-1")!;
+      expect(item.primary?.effect.type).toBe("answer-form");
+      // The one-key answer stays available, but only as a chosen action.
+      expect(item.actions.map(a => a.label)).toContain("Approve");
+    });
+  }
 });
