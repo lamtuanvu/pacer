@@ -177,3 +177,38 @@ fn typed_projection_strips_unknown_members_and_preserves_lone_surrogates_exactly
     assert!(raw.contains("\\ud800"));
     assert!(raw.contains("\"state\":\"pending\""));
 }
+
+#[test]
+fn native_writes_keep_survivor_class_and_reservation_flag_in_shape_order() {
+    let home = Home::new();
+    let _init = WorkLease::begin(&home.0, "init", "init").unwrap();
+    let survivor = uuid::Uuid::new_v4().to_string();
+    let seed = format!(
+        r#"{{"schema":1,"reservation":"tx","leases":[{{"id":"{survivor}","blocker":{{"kind":"task","id":"t","label":"Task t"}},"owner":"{survivor}","process":{{"pid":4242,"bootId":"b","birth":"1:2"}},"state":"active","runDir":"/r","class":"survivor"}}],"survivors":true}}"#
+    );
+    let db = rusqlite::Connection::open(home.0.join("desktop-updates/admission.sqlite")).unwrap();
+    db.execute("UPDATE admission SET state=?", [seed.clone()])
+        .unwrap();
+    let absent = "ffffffff-ffff-ffff-ffff-ffffffffffff".to_string();
+    WorkLease::complete_remote(&home.0, &absent, "a", "/r").unwrap();
+    let raw: String = db
+        .query_row("SELECT state FROM admission", [], |r| r.get(0))
+        .unwrap();
+    // Byte-identical to TypeScript's JSON.stringify of the parsed row.
+    assert_eq!(raw, seed);
+    // New native work never starts while the reservation is held.
+    assert!(WorkLease::begin(&home.0, "late", "late").is_err());
+    // Anything but the exact literals is invalid state, as in the zod schema.
+    for bad in [
+        r#""class":"other""#.to_string(),
+        r#""survivors":false"#.to_string(),
+    ] {
+        let text = if bad.contains("class") {
+            seed.replace(r#""class":"survivor""#, &bad)
+        } else {
+            seed.replace(r#""survivors":true"#, &bad)
+        };
+        db.execute("UPDATE admission SET state=?", [text]).unwrap();
+        assert!(WorkLease::complete_remote(&home.0, &absent, "a", "/r").is_err());
+    }
+}

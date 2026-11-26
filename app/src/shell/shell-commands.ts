@@ -20,6 +20,7 @@ export function registerShellCommands(commands: CommandRegistry, keys: KeyRegist
     ...section(() => deps.go("#/"), { id: "go.dispatch", title: "Go to Dispatch", group: "Go to", icon: "command-nav", keys: "g o" }, mod("1")),
     ...section(() => deps.go("#/needs-you"), { id: "go.needs-you", title: "Go to Needs you", group: "Go to", icon: "command-nav", keys: "g r" }, mod("2")),
     ...section(() => deps.go("#/tasks"), { id: "go.tasks", title: "Go to Tasks", group: "Go to", icon: "command-nav", keys: "g t" }, mod("3")),
+    commands.register({ id: "go.live", title: "Go to Several runs", sub: "Live boards for every run", group: "Go to", icon: "command-nav", keywords: "live board runs replay", keys: "g l", run: () => deps.go("#/live") }),
     commands.register({ id: "go.settings", title: "Open Settings", group: "Go to", icon: "settings", keys: mod(","), allowInControl: deps.apple, run: () => deps.go("#/settings") }),
     commands.register({ id: "go.back", title: "Back", group: "Go to", keys: mod("["), allowInControl: deps.apple, run: () => deps.back() }),
     commands.register({ id: "go.forward", title: "Forward", group: "Go to", keys: mod("]"), allowInControl: deps.apple, run: () => deps.forward() }),

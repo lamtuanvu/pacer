@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
 import { readinessProofSchema } from "../../src/update/desktop/native-record";
 import { sameProcess, type ProcessIdentity } from "../../src/update/desktop/process-identity";
-import { MANAGED_SCENARIOS } from "./ota-exercise-record";
+import { MANAGED_SCENARIOS, managedExpectedPhase } from "./ota-exercise-record";
 /** Cross-checks evidence; the public terminal phase alone never establishes success. */
 export function verifyExerciseOutcome(scenario: string, installationId: string, transactionId: string, phase: string | undefined, manifestBytes: Buffer, journal: any): void {
   if (!(MANAGED_SCENARIOS as readonly string[]).includes(scenario)) throw Error("Unknown fixed scenario");
-  const expected = scenario === "upgrade" ? "complete" : scenario === "restore-failure" ? "recovery-failed" : "restored";
+  const expected = managedExpectedPhase(scenario);
+  if (expected === null) throw Error("This fixed scenario must not reach a native outcome");
   const manifest = JSON.parse(manifestBytes.toString("utf8"));
   const offlineFailure = scenario === "restore-failure" && phase === undefined;
   if ((!offlineFailure && phase !== expected) || journal.state !== (expected === "complete" ? "committed" : expected) || manifest.binding?.transactionId !== transactionId || manifest.binding?.installationId !== installationId || journal.manifestSha256 !== createHash("sha256").update(manifestBytes).digest("hex")) throw Error("Native journal completion differs from public outcome");

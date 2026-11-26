@@ -2,7 +2,7 @@ import { assertNoPendingAdoption } from "./adoption-state";
 import { withDesktopCoordinator } from "./coordinator";
 import {
   closeSync, constants, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync,
-  readFileSync, renameSync, unlinkSync, writeFileSync,
+  readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync,
 } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
@@ -127,4 +127,28 @@ export function writeUpdate(ctx: Ctx, next: UpdateRecord, expectRevision: number
     } catch (error) { throw boundaryError(error); }
     finally { if (tempPath) unlinkSync(tempPath); }
   });
+}
+
+/**
+ * Phases where a desktop install may still roll back or still holds the admission reservation.
+ * `recovery-failed` stays open: with `handoff_uncertain` an independent recovery helper can still
+ * restore the old bundle, and neither failure code releases the reservation until recovery or
+ * repair, so replacement runners could not start. Callers report the deferral honestly.
+ */
+const OPEN_TRANSACTION_PHASES = new Set<UpdateRecord["phase"]>(["reserved", "installing", "verifying", "rolling-back", "recovery-failed"]);
+/**
+ * True while any desktop update transaction may still roll back. An unreadable record counts as open,
+ * so callers that must not act inside the rollback window stay conservative.
+ */
+export function desktopTransactionOpen(ctx: Ctx): boolean {
+  let names: string[];
+  try { names = readdirSync(join(ctx.pacerHome, "desktop-updates")).filter(name => name.endsWith(".json")); }
+  catch (error) { return !hasCode(error, "ENOENT"); }
+  for (const name of names) {
+    const id = name.slice(0, -5);
+    try { assertIdentifier(id); } catch { continue; }
+    try { if (OPEN_TRANSACTION_PHASES.has(readUpdate(ctx, id).phase)) return true; }
+    catch { return true; }
+  }
+  return false;
 }

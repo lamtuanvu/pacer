@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Changed
+
+- **Desktop updates no longer wait for handover-capable work.** Runners that advertise the handover protocol, their executor sessions and session hosts started by this version are marked as survivors. When the installed app and the update both support it (0.18.7 or later), an in-app update installs while they run: the update helper checks each survivor's code signature against the release signer before installing, and the new service asks older runners to hand over once the update commits (never during the rollback window). Other work, such as queue drains, launches, Orca sessions, remote runs and work started on older versions, still makes the update wait. While an update can still roll back, `service.handover` signals nothing and returns `deferred: true` ([ADR 2026-11-25](docs/decisions/2026-11-25-desktop-update-with-running-work.md)).
+
 ### Fixed
 
 - **Workflow orchestrator turns run only on the run's planner.** A turn queued for a busy planner is now started when the planner has a free slot instead of waiting out its deadline. When the planner is unavailable the turn stays queued with the reason, and no executor receives it or its run grant. `task.retry` refuses orchestrator tasks.

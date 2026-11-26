@@ -44,11 +44,15 @@ enum Scenario {
     ConsentUseAppRestart,
     OwnLinkRepair,
     OwnLinkRepairFailure,
+    ActiveWork,
+    ActiveWorkRollback,
+    ActiveWorkForeign,
 }
 impl Scenario {
     fn points(self) -> &'static [Point] {
         match self {
-            Self::Upgrade => &[],
+            Self::Upgrade | Self::ActiveWork | Self::ActiveWorkForeign => &[],
+            Self::ActiveWorkRollback => &[Point::CandidateStartup],
             Self::StartupFailure => &[Point::CandidateStartup],
             Self::HelperCrash => &[Point::Authorized],
             Self::InterruptedInstall => &[Point::Installed],
@@ -414,6 +418,16 @@ mod tests {
         let f = Fixture::new("upgrade", &[]);
         assert_eq!(f.consume(Point::Authorized, "0.2.3", true), Ok(false));
         assert_eq!(f.read()["exercise"]["transactionId"], "transaction-1");
+    }
+    #[test]
+    fn active_work_scenarios_bind_like_upgrade_and_rollback_fires_candidate_startup() {
+        for scenario in ["active-work", "active-work-foreign"] {
+            let f = Fixture::new(scenario, &[]);
+            assert_eq!(f.consume(Point::Authorized, "0.2.3", true), Ok(false));
+            assert_eq!(f.read()["exercise"]["transactionId"], "transaction-1");
+        }
+        let f = Fixture::new("active-work-rollback", &["candidate-startup"]);
+        assert_eq!(f.consume(Point::CandidateStartup, "0.2.4", true), Ok(true));
     }
     #[test]
     fn adoption_failure_fires_once_and_adopt_only_binds_its_transaction() {
