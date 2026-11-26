@@ -299,12 +299,12 @@ async fn wait_returns_unread_messages_and_consumes_them() {
 }
 
 #[tokio::test]
-async fn duplicate_answer_race_forwards_without_effects() {
+async fn duplicate_answer_race_is_delivered_natively() {
     let (_dir, ctx) = home();
     let mut store = TaskStore::open(&ctx.pacer_home).unwrap();
     let message = json!({"kind":"answer", "replyTo":"q", "status":"pending"});
     let mut bridge = Fake::default();
-    let error = duplicate(
+    let result = duplicate(
         &ctx,
         &mut store,
         (message, None),
@@ -312,7 +312,8 @@ async fn duplicate_answer_race_forwards_without_effects() {
         &mut bridge,
     )
     .await
-    .unwrap_err();
-    assert_eq!(error.message, FORWARD_DUPLICATE_ANSWER);
-    assert!(bridge.requests.is_empty());
+    .unwrap();
+    assert_eq!(result["delivery"], "pull");
+    assert_eq!(bridge.requests.len(), 1);
+    assert_eq!(bridge.requests[0]["kind"], "answer");
 }

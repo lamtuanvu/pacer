@@ -1532,6 +1532,7 @@ dependencies = [
  "pacer-models",
  "pacer-repos",
  "pacer-store",
+ "pacer-work",
  "rand 0.9.5",
  "regex",
  "ryu-js",
@@ -1556,6 +1557,31 @@ dependencies = [
  "pacer-messaging-ops",
  "rand 0.9.5",
  "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
+name = "pacer-delegation"
+version = "0.0.0"
+dependencies = [
+ "pacer-config",
+ "pacer-dispatch",
+ "pacer-foundation",
+ "pacer-js-json",
+ "pacer-lifecycle",
+ "pacer-messaging-ops",
+ "pacer-models",
+ "pacer-plugin-host",
+ "pacer-read-model",
+ "pacer-repos",
+ "pacer-sessions",
+ "pacer-store",
+ "pacer-work",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
  "tempfile",
  "tokio",
 ]
@@ -1596,14 +1622,17 @@ dependencies = [
 name = "pacer-dispatch"
 version = "0.0.0"
 dependencies = [
+ "pacer-config",
  "pacer-engine",
  "pacer-foundation",
  "pacer-js-json",
+ "pacer-repos",
  "pacer-store",
  "rusqlite",
  "serde_json",
  "sha2",
  "tempfile",
+ "tokio",
 ]
 
 [[package]]
@@ -1620,6 +1649,7 @@ dependencies = [
  "pacer-lifecycle",
  "pacer-repos",
  "pacer-store",
+ "pacer-work",
  "rusqlite",
  "ryu-js",
  "serde_json",
@@ -1677,6 +1707,7 @@ version = "0.0.0"
 dependencies = [
  "hex",
  "pacer-foundation",
+ "pacer-work",
  "rusqlite",
  "serde_json",
  "sha2",
@@ -1779,6 +1810,7 @@ dependencies = [
  "pacer-config",
  "pacer-foundation",
  "pacer-store",
+ "pacer-work",
  "rusqlite",
  "serde_json",
  "tempfile",
@@ -2060,7 +2092,9 @@ dependencies = [
  "pacer-config",
  "pacer-config-ops",
  "pacer-core-bridge",
+ "pacer-delegation",
  "pacer-discovery-ops",
+ "pacer-dispatch",
  "pacer-dispatch-ops",
  "pacer-engine",
  "pacer-foundation",
@@ -2078,6 +2112,7 @@ dependencies = [
  "pacer-store",
  "pacer-task-ops",
  "pacer-update",
+ "pacer-work",
  "rand 0.9.5",
  "ryu-js",
  "security-framework",
@@ -2109,6 +2144,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
+ "tokio",
 ]
 
 [[package]]
@@ -2152,6 +2188,7 @@ dependencies = [
  "pacer-repos",
  "pacer-sessions",
  "pacer-store",
+ "pacer-work",
  "rand 0.9.5",
  "serde_json",
  "sha2",
@@ -2206,6 +2243,18 @@ dependencies = [
  "tokio",
  "ureq",
  "url",
+]
+
+[[package]]
+name = "pacer-work"
+version = "0.1.0"
+dependencies = [
+ "pacer-foundation",
+ "pacer-store",
+ "rusqlite",
+ "serde_json",
+ "sha2",
+ "tempfile",
 ]
 
 [[package]]

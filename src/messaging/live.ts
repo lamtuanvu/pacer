@@ -22,6 +22,8 @@ import type { Message } from "./types";
 import { agentReport, beginTurn, isClosed, notifyMessage, renderTurnPrompt, report, reportHold, reportReader } from "./turns";
 
 const PASTE_START = "\x1b[200~", PASTE_END = "\x1b[201~";
+/** An ESC in message content could close the paste early and inject the rest as keystrokes. */
+const pasteBody = (body: string) => body.replace(/\x1b/g, "");
 /** pacer's own viewer: its hello, and the controller label the session host records for it. */
 const PACER_VIEWER = { client: "cli", label: "pacer" } as const;
 export const PACER_CONTROLLER = viewerLabel(PACER_VIEWER);
@@ -198,7 +200,7 @@ export async function typeIntoSession(path: string, body: string, deps: LiveDeps
   const send = (bytes: Buffer) => new Promise<void>((resolve, reject) => socket.write(bytes, e => e ? reject(e) : resolve()));
   const type = async () => {
     inputAttempted = true;
-    await send(wire(FrameType.input, Buffer.from(`${PASTE_START}${body}${PASTE_END}`)));
+    await send(wire(FrameType.input, Buffer.from(`${PASTE_START}${pasteBody(body)}${PASTE_END}`)));
     // Give the agent's input box a moment to take the paste before it is submitted.
     if (deps.submitDelayMs ?? 150) await Bun.sleep(deps.submitDelayMs ?? 150);
     await send(wire(FrameType.input, Buffer.from("\r")));

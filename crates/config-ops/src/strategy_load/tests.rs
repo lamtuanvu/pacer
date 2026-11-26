@@ -97,3 +97,54 @@ fn yaml_shapes_bun_reads_differently() {
         assert!(!yaml_may_differ(text), "{text:?}");
     }
 }
+
+#[test]
+fn load_native_answers_every_bun_yaml_shape() {
+    let home = tempfile::tempdir().unwrap();
+    let cases: &[(&str, &str)] = &[
+        ("", "top level must be a mapping"),
+        ("# nothing\n", "top level must be a mapping"),
+        ("a: 1\n---\nb: 2\n", "top level must be a mapping"),
+        ("a: 1\r---\rb: 2\r", "top level must be a mapping"),
+        ("---\n---\na: 1\n", "top level must be a mapping"),
+        ("%YAML 1.2\n---\nplanner: nobody\n", "runner nobody: invalid runner id or unknown agent"),
+        ("planner: [\n", "YAML syntax error: YAML Parse error: Unexpected token"),
+        ("\tplanner: x\n", "YAML Parse error: Tab characters cannot be used as indentation"),
+        ("{a: |}\n", "YAML Parse error: Unexpected token"),
+        ("a: [>]\n", "YAML Parse error: Unexpected token"),
+        ("{a: !}\n", "YAML Parse error: Unexpected character"),
+        ("base: &b {planner: nobody}\n<<: *b\n", "runner nobody: invalid runner id or unknown agent"),
+        ("\"<<\": {planner: nobody}\n", "runner nobody: invalid runner id or unknown agent"),
+    ];
+    for (text, expected) in cases {
+        fs::write(home.path().join("strategy.yaml"), text).unwrap();
+        let error = load_native(home.path()).unwrap_err().to_string();
+        assert!(error.contains(expected), "{text:?}: {error}");
+    }
+}
+
+#[test]
+fn load_native_uses_node_path_join_and_node_io_text() {
+    let home = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    fs::write(outside.path().join("work.yaml"), "planner: nobody\n").unwrap();
+    for active in [
+        outside.path().join("work").display().to_string(),
+        "x/../work".into(),
+        ".//work".into(),
+    ] {
+        fs::write(home.path().join("active"), &active).unwrap();
+        let error = load_native(home.path()).unwrap_err().to_string();
+        assert!(error.starts_with("no strategy found at "), "{active}: {error}");
+        assert!(error.contains("strategies/"), "{active}: {error}");
+    }
+    fs::remove_file(home.path().join("active")).unwrap();
+    fs::create_dir(home.path().join("strategy.yaml")).unwrap();
+    assert_eq!(
+        load_native(home.path()).unwrap_err().to_string(),
+        "EISDIR: illegal operation on a directory, read"
+    );
+    fs::remove_dir(home.path().join("strategy.yaml")).unwrap();
+    fs::write(home.path().join("strategy.yaml"), b"planner: claude-code\n# \xff\n").unwrap();
+    assert!(load_native(home.path()).is_err());
+}

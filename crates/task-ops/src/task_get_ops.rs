@@ -55,16 +55,26 @@ fn parse_id(params: &Value) -> Result<&str, CoreError> {
     Ok(text)
 }
 
-fn merge_enrichment(detail: &mut Map<String, Value>, enrichment: &Value) {
+/// Match TypeScript `taskDetail`: enrichment overlay keys first, then api/store
+/// fields, with overlay values winning on overlap (`src/core/task-detail.ts`).
+fn merge_enrichment(detail: Map<String, Value>, enrichment: &Value) -> Map<String, Value> {
     let Some(enrich) = enrichment.as_object() else {
-        return;
+        return detail;
     };
+    let mut out = Map::new();
     for (key, value) in enrich {
         if key == "omitResultAcceptance" {
             continue;
         }
-        detail.insert(key.clone(), value.clone());
+        out.insert(key.clone(), value.clone());
     }
+    for (key, value) in detail {
+        out.entry(key).or_insert(value);
+    }
+    if let Some(work) = enrich.get("work") {
+        out.insert("work".into(), work.clone());
+    }
+    out
 }
 
 pub fn task_get_stub(_: &Ctx, _: Value) -> pacer_foundation::api::OpFuture<'_> {
@@ -77,6 +87,8 @@ pub fn task_get_stub(_: &Ctx, _: Value) -> pacer_foundation::api::OpFuture<'_> {
 }
 
 pub async fn task_get(ctx: &Ctx, params: Value, read_parts: Value) -> Result<Value, CoreError> {
+    let is_executor = ctx.env.get("PACER_ROLE").map(String::as_str) == Some("executor");
+    pacer_work::authorize_work_operation(ctx, "task.get", &params, is_executor)?;
     let id = parse_id(&params)?;
     let probe = parse_probe_parts(read_parts.clone())?;
     let enrichment = read_parts.get("enrichment").cloned().unwrap_or(Value::Null);
@@ -114,7 +126,7 @@ fn task_get_native(
         .map_err(|error| CoreError::new(Code::Internal, error.to_string()))?;
     let alive_pids = probe.alive_pids;
     let alive = move |pid: i64| alive_pids.contains(&pid);
-    let mut detail = task_detail_by_id(
+    let detail = task_detail_by_id(
         ctx,
         &probe.active,
         &mut store,
@@ -128,9 +140,10 @@ fn task_get_native(
         }
         other => CoreError::new(Code::Internal, other.to_string()),
     })?;
-    if let Value::Object(map) = &mut detail {
-        merge_enrichment(map, &enrichment);
-    }
+    let detail = match detail {
+        Value::Object(map) => Value::Object(merge_enrichment(map, &enrichment)),
+        other => other,
+    };
     Ok(detail)
 }
 

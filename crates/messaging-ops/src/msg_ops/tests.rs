@@ -13,29 +13,25 @@ fn ctx(env: &[(&str, &str)]) -> Ctx {
     )
 }
 
-fn id(env: &[(&str, &str)], cwd: &str) -> Caller {
+fn id(env: &[(&str, &str)], cwd: &str) -> String {
     caller(&ctx(env), Some(cwd)).unwrap()
 }
 
 #[test]
 fn caller_follows_typescript_precedence() {
-    let local = Caller::Id("external:local".into());
-    let human = Caller::Id("human".into());
+    let local = "external:local".to_owned();
+    let human = "human".to_owned();
     assert_eq!(id(&[], "/tmp"), local);
-    assert_eq!(
-        id(&[("PACER_WORK_GRANT", "pwg_x")], "/tmp"),
-        Caller::Forward
-    );
-    assert_eq!(
-        id(&[("PACER_ENFORCEMENT_TOKEN", "pet_x")], "/tmp"),
-        Caller::Forward
-    );
+    // A malformed work grant is refused (never treated as another identity).
+    let grant_err = caller(&ctx(&[("PACER_WORK_GRANT", "pwg_x")]), Some("/tmp")).unwrap_err();
+    assert_eq!(grant_err.code, Code::NotAllowed);
+    assert_eq!(grant_err.message, "Invalid work grant");
     assert_eq!(
         id(
             &[("PACER_ROLE", "executor"), ("PACER_TASK_ID", "t-1")],
             "/tmp"
         ),
-        Caller::Id("task:t-1".into())
+        "task:t-1"
     );
     let error = caller(&ctx(&[("PACER_ROLE", "executor")]), Some("/tmp")).unwrap_err();
     assert_eq!(error.code, Code::NotAllowed);
@@ -48,7 +44,7 @@ fn caller_follows_typescript_precedence() {
     );
     assert_eq!(
         id(&[(CALLER_AUTH_ENV, "session"), ("CLAUDECODE", "1")], "/tmp"),
-        Caller::Id("external:claude-code".into())
+        "external:claude-code"
     );
     assert_eq!(id(&[(CALLER_AUTH_ENV, "session")], "/tmp"), human);
     assert_eq!(
@@ -60,7 +56,7 @@ fn caller_follows_typescript_precedence() {
             ],
             "/tmp"
         ),
-        Caller::Id("task:t".into())
+        "task:t"
     );
 }
 
@@ -72,24 +68,26 @@ fn executor_and_orca_worktrees_follow_cwd_rules() {
             &[("PACER_TASK_ID", task)],
             &format!("/home/u/.pacer/worktrees/repo/{task}/src")
         ),
-        Caller::Id(format!("task:{task}"))
+        format!("task:{task}")
     );
     assert_eq!(
         id(&[], &format!("/home/u/.pacer/worktrees/{task}")),
-        Caller::Id("external:local".into())
+        "external:local"
     );
     assert_eq!(
         id(&[], &format!("/x/orca/workspaces/ws/pacer-{task}-codex/a")),
-        Caller::Forward
+        "external:local"
     );
     assert_eq!(
         id(&[], &format!("/x/orca/workspaces/ws/pacer-{task}-")),
-        Caller::Id("external:local".into())
+        "external:local"
     );
     assert_eq!(
         id(&[], "/x/orca/workspaces/pacer/pinfish"),
-        Caller::Id("external:local".into())
+        "external:local"
     );
+    assert_eq!(orca_worktree_name("claude-code#claude2"), "claude-code-claude2");
+    assert_eq!(orca_worktree_name("a..b--c😀d"), "a.b-c-d");
 }
 
 #[test]
@@ -174,23 +172,35 @@ fn params_match_zod_issue_order() {
 }
 
 #[test]
-fn human_receipts_and_grants_stay_forwarded() {
-    assert!(msg_stays_forwarded(
-        "msg.read",
-        &ctx(&[(CALLER_AUTH_ENV, "app")])
-    ));
-    assert!(!msg_stays_forwarded(
-        "msg.inbox",
-        &ctx(&[(CALLER_AUTH_ENV, "app")])
-    ));
-    assert!(msg_stays_forwarded(
-        "msg.log",
-        &ctx(&[("PACER_WORK_GRANT", "pwg_x")])
-    ));
-    assert!(!msg_stays_forwarded(
-        "msg.send",
-        &ctx(&[(CALLER_AUTH_ENV, "app")])
-    ));
+fn every_msg_caller_is_admitted_natively() {
+    // An ordinary human caller needs no identity gate and does not open the task store.
+    assert!(authorize(&ctx(&[(CALLER_AUTH_ENV, "app")]), "msg.read", &json!({})).is_ok());
+    assert!(authorize(&ctx(&[]), "msg.inbox", &json!({})).is_ok());
+    // A malformed grant is refused by the native gate, as TypeScript's parseOpParams does.
+    let dir = tempfile::tempdir().unwrap();
+    let at = |env: &[(&str, &str)]| {
+        Ctx::with(
+            dir.path().into(),
+            dir.path().into(),
+            env.iter()
+                .map(|(k, v)| ((*k).into(), (*v).into()))
+                .collect::<HashMap<_, _>>(),
+            1.0,
+        )
+    };
+    let error = authorize(&at(&[("PACER_WORK_GRANT", "pwg_x")]), "msg.policy", &json!({}))
+        .unwrap_err();
+    assert_eq!(error.message, "Invalid work grant");
+    assert_eq!(
+        authorize(
+            &at(&[("PACER_ENFORCEMENT_TOKEN", "pet_x")]),
+            "msg.policy",
+            &json!({}),
+        )
+        .unwrap_err()
+        .message,
+        "Enforcement identity only reports a native child denial"
+    );
 }
 
 #[tokio::test]
@@ -264,37 +274,15 @@ async fn tree_status_lists_the_root_first_and_reads_turn_state() {
             .code,
         Code::NotAllowed
     );
-    assert!(msg_stays_forwarded(
-        "tree.status",
-        &ctx(&[("PACER_ENFORCEMENT_TOKEN", "x")])
-    ));
-}
-
-#[test]
-fn answers_with_reply_targets_forward_before_native_effects() {
-    assert!(msg_answer_stays_forwarded(
-        "msg.send",
-        &ctx(&[]),
-        &json!({"kind": "answer", "reply_to": "q"})
-    ));
-    assert!(msg_answer_stays_forwarded(
-        "msg.send",
-        &ctx(&[]),
-        &json!({"kind": "answer", "reply_to": ""})
-    ));
-    assert!(!msg_answer_stays_forwarded(
-        "msg.send",
-        &ctx(&[]),
-        &json!({"kind": "answer"})
-    ));
-    assert!(!msg_answer_stays_forwarded(
-        "msg.send",
-        &ctx(&[]),
-        &json!({"kind": "message", "reply_to": "q"})
-    ));
-    assert!(!msg_answer_stays_forwarded(
-        "msg.read",
-        &ctx(&[]),
-        &json!({"kind": "answer", "reply_to": "q"})
-    ));
+    let dir = tempfile::tempdir().unwrap();
+    let at = Ctx::with(
+        dir.path().into(),
+        dir.path().into(),
+        HashMap::from([("PACER_ENFORCEMENT_TOKEN".into(), "x".into())]),
+        1.0,
+    );
+    assert_eq!(
+        authorize(&at, "tree.status", &json!({})).unwrap_err().message,
+        "Enforcement identity only reports a native child denial"
+    );
 }

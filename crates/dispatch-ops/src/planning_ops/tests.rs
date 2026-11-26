@@ -75,17 +75,26 @@ fn ctx_with_token(home: &std::path::Path) -> Ctx {
     ctx(home, &[("PACER_ENFORCEMENT_TOKEN", "pet_x")])
 }
 
+struct TestEffects;
+impl RefreshEffects for TestEffects {
+    fn status(&mut self) -> OpFuture<'_> {
+        Box::pin(async { Ok(json!({"generatedAt": 1.0, "providers": [], "accounts": []})) })
+    }
+    fn observe(&mut self, _: &str, _: Value) -> OpFuture<'_> {
+        Box::pin(async { Ok(json!([])) })
+    }
+    fn observation_plugins(&self) -> Vec<String> {
+        Vec::new()
+    }
+}
+
 #[tokio::test]
-async fn refresh_answers_backoff_and_forwards_a_due_refresh() {
+async fn refresh_answers_backoff_and_runs_a_due_refresh() {
     let dir = tempfile::tempdir().unwrap();
     let ctx = ctx(dir.path(), &[]);
     seed(&ctx, "planner: codex\nproviders: {codex: {}}\n", &[]);
-    assert!(planning_stays_forwarded(
-        &ctx,
-        "dispatch.refresh",
-        &json!({})
-    ));
-    let err = dispatch_refresh(&ctx, json!({"runner": "nope"}))
+    let mut effects = TestEffects;
+    let err = dispatch_refresh(&ctx, json!({"runner": "nope"}), &mut effects)
         .await
         .unwrap_err();
     assert_eq!(
@@ -99,20 +108,21 @@ async fn refresh_answers_backoff_and_forwards_a_due_refresh() {
         .unwrap()
         .execute("INSERT INTO work_refresh(scope,attempted,retry_at,failures) VALUES('all',1,1800000000.5,0)", [])
         .unwrap();
-    assert!(!planning_stays_forwarded(
-        &ctx,
-        "dispatch.refresh",
-        &json!({})
-    ));
     assert_eq!(
-        dispatch_refresh(&ctx, json!({})).await.unwrap(),
+        dispatch_refresh(&ctx, json!({}), &mut effects).await.unwrap(),
         json!({"state": "backoff", "retryAt": 1_800_000_000.5, "observations": 0})
     );
-    assert!(planning_stays_forwarded(
-        &ctx,
-        "dispatch.refresh",
-        &json!({"force": true})
-    ));
+    let due = dispatch_refresh(&ctx, json!({"force": true}), &mut effects)
+        .await
+        .unwrap();
+    assert_eq!(due["state"], json!("ok"));
+    let mut state = open(&ctx).unwrap();
+    let retry: f64 = state.tasks.connection().unwrap().query_row(
+        "SELECT retry_at FROM work_refresh WHERE scope='all'",
+        [],
+        |row| row.get(0),
+    ).unwrap();
+    assert!(retry > 1_700_000_000.0);
 }
 
 #[tokio::test]
@@ -131,15 +141,7 @@ async fn consent_rewrites_the_schedule_with_javascript_bytes() {
         r#"{"consent":{"7":"granted","b":"declined","a":"granted"},"attempts":{"k":{"lastCostPct":1,"at":1e+21}}}"#
     );
     std::fs::write(&path, r#"{"consent":"text"}"#).unwrap();
-    assert!(planning_stays_forwarded(
-        &ctx,
-        "dispatch.enforcement.consent",
-        &json!({})
-    ));
+    assert!(planning_stays_forwarded(&ctx, "dispatch.enforcement.consent"));
     std::fs::write(&path, "[1]").unwrap();
-    assert!(!planning_stays_forwarded(
-        &ctx,
-        "dispatch.enforcement.consent",
-        &json!({})
-    ));
+    assert!(!planning_stays_forwarded(&ctx, "dispatch.enforcement.consent"));
 }

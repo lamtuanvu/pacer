@@ -47,6 +47,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::any,
 };
+use pacer_dispatch::VersionCache;
 use pacer_foundation::{
     Ctx,
     api::{Code, CoreError, Registry},
@@ -84,6 +85,8 @@ struct Listener {
     plugins: crate::native::plugins::Service,
     forward_log_follow: bool,
     forward_events: bool,
+    /// Native dispatch-parts `--version` checks share this cache across requests.
+    versions: VersionCache,
 }
 async fn forward_plugin_read(
     state: &Listener,
@@ -124,14 +127,15 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
         auth::Decision::AppAuth => auth::AuthKind::Bearer,
         auth::Decision::Forward { auth } => auth,
     };
-    // The core remains authoritative for task grants and scoped work sessions.
+    // The core remains authoritative for assistant (`pag_`) task grants. Work/enforcement
+    // grants (`AuthKind::Grant`) and ordinary callers run the native predicate chain.
     if !state.scoped_work
-        && auth != auth::AuthKind::Task
+        && !matches!(auth, auth::AuthKind::Task)
         && req.method() == axum::http::Method::POST
         && let Some(name) = req.uri().path().strip_prefix("/v3/ops/")
         && let Some(op) = state.registry.get(name)
     {
-        let ctx = if crate::native::msg_ops::is_msg_caller_op(op.name) {
+        let mut ctx = if crate::native::msg_ops::is_msg_caller_op(op.name) {
             let human_session = auth == auth::AuthKind::Bearer
                 && header_value(req.headers(), "x-pacer-session").is_some_and(|session| {
                     session.len() == 64
@@ -148,6 +152,36 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
         } else {
             ctx
         };
+        if let auth::AuthKind::Grant(token) = &auth {
+            if token.starts_with("pet_") {
+                ctx.env
+                    .insert("PACER_ENFORCEMENT_TOKEN".into(), token.clone());
+            } else {
+                ctx.env.insert("PACER_WORK_GRANT".into(), token.clone());
+            }
+        }
+        // Grant callers: refuse ops outside the work-grant allow-list before any forward predicate.
+        if ctx.env.contains_key("PACER_WORK_GRANT")
+            || ctx.env.contains_key("PACER_ENFORCEMENT_TOKEN")
+        {
+            let allowed = pacer_work::WORK_GRANT_OPS.contains(&op.name)
+                || op.name == "dispatch.submit"
+                || (op.name == "dispatch.enforcement.denied"
+                    && ctx.env.contains_key("PACER_ENFORCEMENT_TOKEN"));
+            if !allowed {
+                let is_executor = ctx.env.get("PACER_ROLE").map(String::as_str) == Some("executor");
+                let empty = serde_json::json!({});
+                return native_error(
+                    match pacer_work::authorize_work_operation(&ctx, op.name, &empty, is_executor) {
+                        Err(error) => error,
+                        Ok(()) => pacer_foundation::api::CoreError::new(
+                            pacer_foundation::api::Code::NotAllowed,
+                            "Operation is not allowed by this work grant",
+                        ),
+                    },
+                );
+            }
+        }
         let max = 256 * 1024;
         if header_value(req.headers(), "content-length")
             .and_then(|v| v.parse::<usize>().ok())
@@ -188,16 +222,13 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             || crate::native::status_residue_stays_forwarded(&ctx, op.name, &params)
             || (op.name == "repo.remove"
                 && crate::native::repo_remove_stays_forwarded(&ctx, &params))
-            || crate::native::project_messaging_stays_forwarded(&ctx, op.name, &params)
-            || crate::native::msg_stays_forwarded(op.name, &ctx)
-            || crate::native::msg_answer_stays_forwarded(op.name, &ctx, &params)
             || crate::native::repo_registry_stays_forwarded(&ctx, op.name, &params)
             || crate::native::discovery_stays_forwarded(&ctx, op.name, &params)
             || crate::native::desktop_reconcile_stays_forwarded(op.name)
             || crate::native::assistant_stays_forwarded(&ctx, op.name, &params)
             || crate::native::dependencies_waive_stays_forwarded(op.name, &params)
             || crate::native::insights_stays_forwarded(op.name, &params)
-            || crate::native::planning_stays_forwarded(&ctx, op.name, &params)
+            || crate::native::planning_stays_forwarded(&ctx, op.name)
             || crate::native::dispatch_lifecycle_stays_forwarded(&ctx, op.name, &params)
             || crate::native::job_strategy_setup_stays_forwarded(&ctx, op.name, &params)
             || crate::native::runner_attention_stays_forwarded(&ctx, op.name, &params)
@@ -206,7 +237,6 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             || crate::native::host_stays_forwarded(&ctx, op.name, &params)
             || crate::native::strategy_settings_stays_forwarded(&ctx, op.name, &params)
             || crate::native::dispatch_preview_stays_forwarded(&ctx, op.name, &params)
-            || crate::native::dispatch_enforcement_stays_forwarded(&ctx, op.name, &params)
             || crate::native::session_lifecycle_stays_forwarded(&ctx, op.name, &params)
             || crate::native::client_stays_forwarded(&ctx, op.name)
             || crate::native::terminal_stays_forwarded(&ctx, op.name, &params)
@@ -236,12 +266,12 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                 }
                 Err(error) => native_error(error),
             };
-            crate::native::msg_write_sync::trace(op.name, None);
+            crate::native::trace(op.name, None);
             return reply;
         }
         if crate::native::client_ops::is_client_op(op.name) {
             use crate::native::{client_control_sync::HttpBridge, client_ops};
-            crate::native::msg_write_sync::trace(op.name, None);
+            crate::native::trace(op.name, None);
             let target = state.core.target().await;
             if target.is_none() && client_ops::needs_core(op.name, &params) {
                 return proxy::unavailable(false);
@@ -263,27 +293,19 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             };
         }
         if crate::native::msg_writes::uses_bridge(op.name) {
-            crate::native::msg_write_sync::trace(op.name, None);
-            let mut bridge = crate::native::msg_write_sync::HttpBridge {
+            crate::native::trace(op.name, None);
+            let mut inner = crate::native::msg_effects::HttpEffects {
                 target: state.core.target().await,
             };
+            let mut bridge = crate::native::msg_effects::NativeMsgEffects::with_read_model_schema(ctx.at_now(), &mut inner);
             return match crate::native::msg_writes::call(&ctx, op.name, params, &mut bridge).await {
                 Ok(result) => native_json(StatusCode::OK, serde_json::json!({"result":result})),
-                Err(error)
-                    if error.message == crate::native::msg_writes::FORWARD_DUPLICATE_ANSWER =>
-                {
-                    let Some(target) = state.core.target().await else {
-                        return proxy::unavailable(false);
-                    };
-                    proxy::forward(Request::from_parts(parts, Body::from(bytes)), target, auth)
-                        .await
-                }
                 Err(error) => native_error(error),
             };
         }
         if crate::native::session_lifecycle_ops::uses_admission(op.name) {
             use crate::native::session_lifecycle_ops::{Admission, admit, bridge_request};
-            crate::native::msg_write_sync::trace(op.name, None);
+            crate::native::trace(op.name, None);
             let result = match admit(&ctx, op.name, &params) {
                 Ok(Admission::Native(reply)) => Ok(reply),
                 Ok(Admission::Core) => {
@@ -308,7 +330,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             };
         }
         if crate::native::assistant_turn_sync::needs_bridge(op.name) {
-            crate::native::msg_write_sync::trace(op.name, None);
+            crate::native::trace(op.name, None);
             let mut bridge = crate::native::assistant_turn_sync::HttpBridge {
                 target: state.core.target().await,
             };
@@ -320,7 +342,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             };
         }
         if crate::native::task_send_ops::needs_task_send_bridge(op.name) {
-            crate::native::msg_write_sync::trace(op.name, None);
+            crate::native::trace(op.name, None);
             let by = crate::native::task_send_ops::caller_identity(
                 &ctx,
                 header_value(&parts.headers, "x-pacer-client").as_deref(),
@@ -337,9 +359,11 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             };
         }
         if crate::native::preview_ops::needs_dispatch_parts(op.name) {
-            crate::native::msg_write_sync::trace(op.name, None);
-            let mut bridge = crate::native::dispatch_preview_sync::HttpBridge {
+            crate::native::trace(op.name, None);
+            let mut bridge = crate::native::dispatch_preview::NativeParts {
                 target: state.core.target().await,
+                ctx: &ctx,
+                cache: &state.versions,
             };
             let result =
                 crate::native::preview_ops::dispatch_preview(&ctx, op.name, params, &mut bridge);
@@ -348,10 +372,56 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                 Err(error) => native_error(error),
             };
         }
+        if op.name == "dispatch.refresh" {
+            crate::native::trace(op.name, None);
+            let Some(core) = crate::native::plugins::http_link(&state.core).await else {
+                return proxy::unavailable(false);
+            };
+            let timeout = pacer_config::strategy::load_strategy(&ctx.pacer_home)
+                .ok()
+                .and_then(|strategy| strategy["dispatch"]["timeoutMs"].as_f64())
+                .unwrap_or(1000.0);
+            let mut effects = crate::native::dispatch_refresh_effects::NativeRefreshEffects::new(
+                crate::native::dispatch_refresh_effects::StatusSource::<tokio::io::Sink>::Http(
+                    state.core.target().await,
+                ),
+                &state.plugins,
+                core,
+                Vec::new(),
+                std::time::Duration::from_millis(timeout as u64),
+            );
+            let result =
+                pacer_dispatch_ops::planning_ops::dispatch_refresh(&ctx, params, &mut effects)
+                    .await;
+            return match result {
+                Ok(result) => native_json(StatusCode::OK, serde_json::json!({"result":result})),
+                Err(error) => native_error(error),
+            };
+        }
+        if op.name == "dispatch.enforcement.probe" {
+            crate::native::trace(op.name, None);
+            let Some(core) = crate::native::plugins::http_link(&state.core).await else {
+                return proxy::unavailable(false);
+            };
+            let mut effects = crate::native::dispatch_probe_effects::NativeProbeEffects::new(
+                &state.plugins,
+                core,
+                &state.versions,
+            );
+            let result = pacer_dispatch_ops::enforcement_ops::dispatch_enforcement_probe(
+                &ctx, params, &mut effects,
+            )
+            .await;
+            return match result {
+                Ok(result) => native_json(StatusCode::OK, serde_json::json!({"result":result})),
+                Err(error) => native_error(error),
+            };
+        }
         if crate::native::enforcement_ops::needs_dispatch_parts(op.name) {
-            crate::native::msg_write_sync::trace(op.name, None);
-            let mut bridge = crate::native::dispatch_enforcement_sync::HttpBridge {
-                target: state.core.target().await,
+            crate::native::trace(op.name, None);
+            let mut bridge = crate::native::dispatch_preview::EnforcementParts {
+                ctx: &ctx,
+                cache: &state.versions,
             };
             let result = match op.name {
                 "dispatch.enforcement" => {
@@ -369,7 +439,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             };
         }
         if crate::native::terminal_ops::uses_bridge(op.name) {
-            crate::native::msg_write_sync::trace(op.name, None);
+            crate::native::trace(op.name, None);
             let mut bridge = crate::native::terminal_sync::HttpBridge {
                 target: state.core.target().await,
             };
@@ -380,7 +450,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             };
         }
         if pacer_config_ops::setup_effects::uses_effects(op.name) {
-            crate::native::msg_write_sync::trace(op.name, None);
+            crate::native::trace(op.name, None);
             let mut effects = crate::native::setup_effects_sync::HttpEffects {
                 target: state.core.target().await,
             };
@@ -393,7 +463,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             };
         }
         if crate::native::install_apply_sync::uses_effects(op.name) {
-            crate::native::msg_write_sync::trace(op.name, None);
+            crate::native::trace(op.name, None);
             let mut effects = crate::native::install_apply_sync::HttpEffects {
                 target: state.core.target().await,
             };
@@ -405,7 +475,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             };
         }
         if crate::native::handover_sync::uses_effects(op.name) {
-            crate::native::msg_write_sync::trace(op.name, None);
+            crate::native::trace(op.name, None);
             let mut effects = crate::native::handover_sync::HttpEffects {
                 target: state.core.target().await,
             };
@@ -416,7 +486,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             };
         }
         if crate::native::onboarding_sync::uses_effects(op.name) {
-            crate::native::msg_write_sync::trace(op.name, None);
+            crate::native::trace(op.name, None);
             let mut effects = crate::native::onboarding_sync::HttpEffects {
                 target: state.core.target().await,
             };
@@ -427,7 +497,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             };
         }
         if crate::native::agent_apply_sync::uses_effects(op.name) {
-            crate::native::msg_write_sync::trace(op.name, None);
+            crate::native::trace(op.name, None);
             let mut effects = crate::native::agent_apply_sync::HttpEffects {
                 target: state.core.target().await,
             };
@@ -790,7 +860,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
     }
     if !state.scoped_work
         && !state.forward_log_follow
-        && auth != auth::AuthKind::Task
+        && !matches!(auth, auth::AuthKind::Task)
         && req.uri().path().starts_with("/v3/tasks/")
         && req.uri().path().ends_with("/log")
         && req.uri().query().is_some_and(|query| {
@@ -822,7 +892,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
     let path = req.uri().path();
     if !state.scoped_work
         && !state.forward_events
-        && auth != auth::AuthKind::Task
+        && !matches!(auth, auth::AuthKind::Task)
         && (path == "/v3/events" || path == "/v2/events")
     {
         if req.method() != axum::http::Method::GET {
@@ -910,7 +980,9 @@ pub async fn run_serve(
     if !forward.is_empty() {
         eprintln!("pacer: PACER_FORWARD_OPS={forward}");
     }
-    let registry = service_registry(if scoped_work { "*" } else { forward });
+    // Scoped work grants no longer force a full-forward registry; grant refusals
+    // and allow-listed ops run natively (B2-1).
+    let registry = service_registry(forward);
     let forward_log_follow = forward.split(',').any(|name| {
         js_trim::js_trim(name) == "*" || js_trim::js_trim(name) == "http.task_log_follow"
     });
@@ -933,6 +1005,10 @@ pub async fn run_serve(
     };
     // Native operations and the core must observe the same configuration environment.
     ctx.env = env.clone();
+    // B2-9: install the native submit/child lifecycle effects once at startup.
+    pacer_dispatch_ops::lifecycle_ops::install_lifecycle_effects(std::sync::Arc::new(
+        crate::native::dispatch_lifecycle_effects::NativeDispatchEffects::new(),
+    ));
     // Runtime environment cannot turn a generic front door into a native owner.
     env.remove("PACER_INTERNAL_NATIVE_BOOTSTRAP");
     // The owner's credential reaches the Core child alone, on its stdin.
@@ -988,6 +1064,7 @@ pub async fn run_serve(
         plugins,
         forward_log_follow,
         forward_events,
+        versions: VersionCache::default(),
     });
     let app = Router::new()
         .fallback(any(handle))

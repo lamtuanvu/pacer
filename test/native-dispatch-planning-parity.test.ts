@@ -12,7 +12,7 @@ const OPS = "dispatch.models,dispatch.refresh,dispatch.enforcement.consent";
 
 const rawLines = new WeakMap<object, string[]>();
 /** `native` lists the request indexes the front door must answer itself; `null` means all of them. */
-async function exchange(home: string, requests: string[], forward: boolean, extra: Record<string, string> = {}, native: number[] | null = null) {
+async function exchange(home: string, requests: string[], forward: boolean, extra: Record<string, string> = {}, native: number[] | null = null, forwardNative: number[] | null = null) {
   const child = Bun.spawn([front!, "api", "--stdio"], {
     cwd: home,
     env: { ...childEnv(home), PATH: process.env.PATH ?? "/usr/bin:/bin",
@@ -33,8 +33,8 @@ async function exchange(home: string, requests: string[], forward: boolean, extr
       const match = /^native (\S+) \d+$/.exec(line);
       return match != null && ops.has(match[1]!);
     });
-    const expected = forward ? [] : requests.map((request, index) => ({ request, index }))
-      .filter(({ index }) => native === null || native.includes(index))
+    const expected = requests.map((request, index) => ({ request, index }))
+      .filter(({ index }) => (forward ? (forwardNative ?? []).includes(index) : (native === null || native.includes(index))))
       .map(({ request, index }) => `native ${JSON.parse(request).method} ${index + 2}`);
     expect(markers).toEqual(expected);
     const result = replies.slice(1).sort((a, b) => a.id - b.id);
@@ -113,9 +113,14 @@ test.skipIf(!front)("caller identities, a missing strategy and a due refresh fol
   const ctx = fakeCtx();
   seed(ctx);
   const requests = [request(2, "dispatch.models", {}), request(3, "dispatch.refresh", {}), request(4, "dispatch.enforcement.consent", { account: "a", granted: true })];
-  for (const env of [{ PACER_ROLE: "executor" }, { PACER_ENFORCEMENT_TOKEN: "pet_x" }] as Record<string, string>[]) {
+  // A `pet_` identity is refused by the front door's grant gate before either
+  // route, so even a forced-forward run emits native markers for that caller.
+  for (const [env, forwardNative] of [
+    [{ PACER_ROLE: "executor" }, null],
+    [{ PACER_ENFORCEMENT_TOKEN: "pet_x" }, [0, 1, 2]],
+  ] as [Record<string, string>, number[] | null][]) {
     const native = await exchange(ctx.home, requests, false, env);
-    expect(wire(native)).toEqual(wire(await exchange(ctx.home, requests, true, env)));
+    expect(wire(native)).toEqual(wire(await exchange(ctx.home, requests, true, env, null, forwardNative)));
     expect(native.every(reply => reply.error?.data?.code === "not_allowed")).toBe(true);
   }
   const empty = fakeCtx();
@@ -136,10 +141,29 @@ runners:
   const models = await exchange(endpoint.home, missing, false);
   expect(wire(models)).toEqual(wire(await exchange(endpoint.home, missing, true)));
   expect(models[0].result.models.map((m: { tools?: boolean; context?: number }) => [m.tools, m.context])).toEqual([[undefined, undefined], [false, 4096], [false, 8192], [true, 2048]]);
-  // A due refresh reads status and observation plugins, so it stays with TypeScript; the backoff answer is native.
+  // B2-12: a due refresh runs natively (full status through the owner's
+  // bridge, plugin observations, then the immediate work_* writes). Only the
+  // backoff answer short-circuits.
   const due = [request(2, "dispatch.refresh", { runner: "codex" }), request(3, "dispatch.refresh", { force: true }), request(4, "dispatch.refresh", {})];
-  const routed = await exchange(ctx.home, due, false, {}, [2]);
-  expect(routed[0].result.state).not.toBe("backoff");
+  // A running refresh writes work_refresh, so compare two identically seeded
+  // homes rather than mutating the one the forwarding run reads.
+  const homes = [fakeCtx(), fakeCtx()];
+  homes.forEach((home) => seed(home));
+  const routed = await exchange(homes[0]!.home, due, false);
+  const forwarded = await exchange(homes[1]!.home, due, true);
+  // A refresh writes work_observations; the row ids are the deterministic
+  // decisionHash of (source, scope, method). `at` carries wall-clock time, so
+  // compare the ids the two routes collected rather than the timestamps.
+  const rowIds = (home: string) => {
+    const storeCtx = fakeCtx({ home, pacerHome: join(home, ".pacer") });
+    return (dispatchDatabase(storeCtx)
+      .query("SELECT id FROM work_observations ORDER BY id")
+      .all() as { id: string }[])
+      .map((row) => row.id);
+  };
+  expect(rowIds(homes[0]!.home)).toEqual(rowIds(homes[1]!.home));
+  expect(routed[0].result.observations).toBeGreaterThan(0);
+  expect(forwarded[0].result.observations).toBeGreaterThan(0);
   expect(routed[2].result.state).toBe("backoff");
 }, 60000);
 
