@@ -5,6 +5,7 @@ import { toApiError } from "../api/errors";
 import { CoreError } from "../core/errors";
 import { publishConfigChange } from "../core/events";
 import { pluginRegistry } from "../plugins";
+import { usageReadExtension } from "../plugins/usage-broker";
 import { appendPluginLog } from "../plugins/host";
 import { POLICY_EVENT_TYPES } from "../plugins/policy-protocol";
 import type { Ctx } from "../types";
@@ -62,9 +63,12 @@ const callResources = z.object({
  * Extension-point calls the host itself originates, addressed to one plugin. The
  * shared interface for B4/B6/B12: consumers register the `method` names they
  * call here (G2). A method outside the table is refused as an unknown private
- * request; none are registered in this slice.
+ * request. B12-4 registers `usage.read`, which re-derives and checks the whole
+ * private body before reaching a plugin.
  */
-const EXTENSION_CALLS: Record<string, (ctx: Ctx, id: string, params: unknown) => Promise<unknown>> = {};
+const EXTENSION_CALLS: Record<string, (ctx: Ctx, id: string, params: unknown) => Promise<unknown>> = {
+  "usage.read": usageReadExtension,
+};
 
 const request = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("prepare"), op: operation, params: z.unknown() }).strict(),
