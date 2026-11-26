@@ -159,3 +159,14 @@ test("service.handover also defers while an admission reservation is held", asyn
   expect(admissionReserved(ctx)).toBe(false);
   expect((await callOp(ctx, "service.handover", { wait_s: 0 }) as { deferred?: boolean }).deferred).toBeUndefined();
 });
+
+test("service.handover also defers while a reconciliation fence holds a transaction", async () => {
+  const { admissionReserved } = await import("../src/update/desktop/admission");
+  const { readFence, reserveFence, releaseFence } = await import("../src/update/desktop/reconciliation-fence");
+  const ctx = fakeCtx({ now: Date.now() / 1000 });
+  const fence = reserveFence(ctx, readFence(ctx).epoch, "reconcile-1");
+  expect(admissionReserved(ctx)).toBe(true);
+  expect(await callOp(ctx, "service.handover", { wait_s: 0 })).toMatchObject({ deferred: true, handed_over: 0 });
+  releaseFence(ctx, fence);
+  expect(admissionReserved(ctx)).toBe(false);
+});

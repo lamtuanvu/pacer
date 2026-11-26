@@ -208,7 +208,7 @@ export function hasReservation(ctx: Ctx, transactionId: string): boolean {
 }
 
 /**
- * True while any update or maintenance reservation is held. Replacement runners cannot start then,
+ * True while any update reservation or reconciliation fence is held. Replacement runners cannot start then,
  * so `service.handover` defers. Unreadable admission evidence counts as held (conservative).
  */
 export function admissionReserved(ctx: Ctx): boolean {
@@ -217,6 +217,8 @@ export function admissionReserved(ctx: Ctx): boolean {
     return withDesktopCoordinator(ctx, db => {
       const table = db.query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type='table' AND name='admission'").get();
       if (!table) return false;
+      // A reconciliation fence holds maintenance the same way an update reservation does.
+      if (optionalFence(db)?.transaction) return true;
       const row = db.query<{ state: string }, []>("SELECT state FROM admission WHERE id = 1").get();
       return !!row && stateSchema.parse(JSON.parse(row.state)).reservation !== null;
     });
