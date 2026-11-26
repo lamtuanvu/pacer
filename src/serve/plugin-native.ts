@@ -58,6 +58,14 @@ const callResources = z.object({
   }).strict().optional(),
 }).passthrough();
 
+/**
+ * Extension-point calls the host itself originates, addressed to one plugin. The
+ * shared interface for B4/B6/B12: consumers register the `method` names they
+ * call here (G2). A method outside the table is refused as an unknown private
+ * request; none are registered in this slice.
+ */
+const EXTENSION_CALLS: Record<string, (ctx: Ctx, id: string, params: unknown) => Promise<unknown>> = {};
+
 const request = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("prepare"), op: operation, params: z.unknown() }).strict(),
   z.object({ kind: z.literal("call"), id: z.string(), method: pluginMethod, params: z.unknown() }).strict(),
@@ -110,6 +118,13 @@ const request = z.discriminatedUnion("kind", [
     pluginId: z.string().min(1),
     method: z.string().min(1),
     params: z.record(z.string(), z.unknown()).default({}),
+  }).strict(),
+  z.object({ kind: z.literal("snapshot") }).strict(),
+  z.object({
+    kind: z.literal("extension"),
+    id: z.string().min(1),
+    method: z.string().min(1),
+    params: z.unknown(),
   }).strict(),
 ]);
 
@@ -233,6 +248,17 @@ export async function pluginNativeRequest(ctx: Ctx, raw: unknown, o: { stdio?: b
       case "orca_bridge":
         value = await reg.nativeAnswerOrcaBridge(p.token, p.pluginId, p.method, p.params);
         break;
+      case "snapshot":
+        // The registry snapshot, with no value: `null` as the plan seals.
+        break;
+      case "extension": {
+        // Host-originated extension-point call. No methods are registered yet,
+        // so any method is refused until a consumer adds it (G2).
+        const call = EXTENSION_CALLS[p.method];
+        if (!call) throw new CoreError("invalid_input", "invalid private plugin request");
+        value = await call(ctx, p.id, p.params);
+        break;
+      }
     }
     return { value, entries: reg.nativeSnapshot(ctx) };
   } catch (error) {
