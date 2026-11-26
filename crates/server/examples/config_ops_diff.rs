@@ -64,6 +64,55 @@ impl pacer_install::agent_ops::AgentEffects for Effects {
     }
 }
 
+/// A check job decided from the case snapshot the parity test supplies.
+struct CaseStarter {
+    case: Value,
+}
+
+impl pacer_config_ops::runner_check_ops::JobStarter for CaseStarter {
+    fn start<'a>(&'a self, ctx: &'a Ctx, _: &'a Value) -> OpFuture<'a> {
+        let case = self.case.clone();
+        Box::pin(async move { pacer_delegation::runner_check::run_case(ctx, &case) })
+    }
+}
+
+/// Records the argv an interactive `runner.add` would open.
+struct RecordingTerminal;
+
+impl pacer_config_ops::runner_ops::TerminalOpener for RecordingTerminal {
+    fn open<'a>(
+        &'a self,
+        ctx: &'a Ctx,
+        argv: &[String],
+        title: &str,
+        _worktree: Option<&str>,
+    ) -> OpFuture<'a> {
+        let line = serde_json::to_string(argv).unwrap_or_default();
+        let argv = argv.to_vec();
+        let title = title.to_string();
+        Box::pin(async move {
+            use std::io::Write;
+            let mut file = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(ctx.pacer_home.join("terminal-open.log"))
+                .map_err(|error| {
+                    pacer_foundation::api::CoreError::new(
+                        pacer_foundation::api::Code::Internal,
+                        error.to_string(),
+                    )
+                })?;
+            writeln!(file, "{line}").map_err(|error| {
+                pacer_foundation::api::CoreError::new(
+                    pacer_foundation::api::Code::Internal,
+                    error.to_string(),
+                )
+            })?;
+            Ok(json!({"opened": true, "argv": argv, "title": title}))
+        })
+    }
+}
+
 /// Answers `dispatch.preview`/`dispatch.explain` bridge requests from the parts TypeScript
 /// computed for every runner (`dispatchParts`), keeping the runners asked for, and records them.
 struct Preview {
@@ -189,9 +238,36 @@ async fn main() -> io::Result<()> {
         let op = registry
             .get(name)
             .ok_or_else(|| io::Error::other("missing native op"))?;
+        if name == "runner.check" || name == "runner.add" {
+            let starter = CaseStarter {
+                case: input["runnerCheckCase"].clone(),
+            };
+            let result = if name == "runner.check" {
+                pacer_config_ops::runner_check_ops::runner_check_native(
+                    &ctx,
+                    input["params"].clone(),
+                    &starter,
+                )
+                .await
+            } else {
+                pacer_config_ops::runner_ops::runner_add_native(
+                    &ctx,
+                    input["params"].clone(),
+                    &starter,
+                    &RecordingTerminal,
+                )
+                .await
+            };
+            let output = match result {
+                Ok(value) => json!({"result":value}),
+                Err(error) => error.body(),
+            };
+            serde_json::to_writer(&mut stdout, &output)?;
+            stdout.write_all(b"\n")?;
+            continue;
+        }
         if pacer_server::native::assistant_stays_forwarded(&ctx, name, &input["params"])
             || pacer_server::native::repo_registry_stays_forwarded(&ctx, name, &input["params"])
-            || pacer_server::native::runner_attention_stays_forwarded(&ctx, name, &input["params"])
             || pacer_server::native::service_agent_stays_forwarded(&ctx, name, &input["params"])
             || pacer_server::native::status_residue_stays_forwarded(&ctx, name, &input["params"])
             || (name == "config.set"

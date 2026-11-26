@@ -201,7 +201,6 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             || crate::native::planning_stays_forwarded(&ctx, op.name, &params)
             || crate::native::dispatch_lifecycle_stays_forwarded(&ctx, op.name, &params)
             || crate::native::job_strategy_setup_stays_forwarded(&ctx, op.name, &params)
-            || crate::native::runner_attention_stays_forwarded(&ctx, op.name, &params)
             || crate::native::service_agent_stays_forwarded(&ctx, op.name, &params)
             || crate::native::account_stays_forwarded(&ctx, op.name, &params)
             || crate::native::host_stays_forwarded(&ctx, op.name, &params)

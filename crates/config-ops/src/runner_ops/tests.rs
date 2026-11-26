@@ -121,37 +121,26 @@ async fn list_composes_blocks_breaks_and_eligibility() {
 }
 
 #[test]
-fn add_forwards_check_jobs_terminals_invalid_params_and_unparsable_strategies() {
-    let dir = tempfile::tempdir().unwrap();
-    let c = ctx(&dir, &[]);
-    fs::write(dir.path().join("strategy.yaml"), STRATEGY).unwrap();
-    assert!(!runner_stays_forwarded(
-        &c,
-        "runner.add",
-        &json!({"agent":"codex","test":false,"kinds":["docs"],"rank":0})
-    ));
+fn add_params_accepts_interactive_and_check_jobs() {
     for params in [
         json!({"agent":"codex"}),
         json!({"agent":"codex","test":true}),
-        json!({"agent":"codex","test":false,"interactive":"runner-add"}),
+        json!({"agent":"codex","test":false}),
+        json!({"agent":"codex","interactive":"runner-add"}),
+        json!({"agent":"codex","test":false,"kinds":["docs"],"rank":0}),
+    ] {
+        assert!(add_params(&params).is_some(), "{params}");
+    }
+    for params in [
         json!({"agent":"nope","test":false}),
         json!({"agent":"codex","test":false,"rank":-1}),
         json!({"agent":"codex","test":false,"kinds":[]}),
         json!({"agent":"codex","test":false,"account":""}),
+        json!({"agent":"codex","interactive":"account-add"}),
         json!("x"),
     ] {
-        assert!(
-            runner_stays_forwarded(&c, "runner.add", &params),
-            "{params}"
-        );
+        assert!(add_params(&params).is_none(), "{params}");
     }
-    assert!(!runner_stays_forwarded(&c, "runner.list", &json!("x")));
-    fs::write(dir.path().join("strategy.yaml"), "planner: [").unwrap();
-    assert!(runner_stays_forwarded(
-        &c,
-        "runner.add",
-        &json!({"agent":"codex","test":false})
-    ));
 }
 
 const MODELS: &str = "planner: claude-code
@@ -196,47 +185,6 @@ fn listing(models: &str, fetched_at: f64) -> String {
     format!(
         r#"{{"runner":"opencode#oc","source":"opencode","models":{models},"fetchedAt":{fetched_at}}}"#
     )
-}
-
-#[test]
-fn runner_set_with_model_and_invalid_params_stays_native() {
-    // Params failing the native runner.set validation keep failing natively
-    // with the identical invalid_input error TypeScript produces.
-    let long_id = "😀".repeat(65);
-    let dir = tempfile::tempdir().unwrap();
-    let c = models_ctx(&dir);
-    for params in [
-        json!({"id": long_id, "model": "", "enabled": null, "max_tasks": 0, "rank": -1}),
-        json!({"id": "opencode#oc", "model": ""}),
-        json!({"id": "opencode#oc", "model": "acme/b", "max_tasks": 0}),
-        json!({"id": "opencode#oc", "model": "acme/b", "rank": 1.5}),
-    ] {
-        assert!(!runner_stays_forwarded(&c, "runner.set", &params), "{params}");
-    }
-    // Even a model only OpenCode lists is checked natively now.
-    assert!(!runner_stays_forwarded(
-        &c,
-        "runner.set",
-        &json!({"id": "opencode#oc", "model": "acme/b"})
-    ));
-}
-
-#[test]
-fn runner_set_without_model_stays_native() {
-    let dir = tempfile::tempdir().unwrap();
-    let c = models_ctx(&dir);
-    for params in [
-        json!({"id": "opencode#oc"}),
-        json!({"id": "opencode#oc", "model": null}),
-        json!({"id": "opencode#oc", "model": 1}),
-        json!({"id": "opencode#oc", "enabled": false}),
-        json!({"id": "opencode#oc", "max_tasks": 2}),
-    ] {
-        assert!(
-            !runner_stays_forwarded(&c, "runner.set", &params),
-            "{params}"
-        );
-    }
 }
 
 #[tokio::test]

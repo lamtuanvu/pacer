@@ -3,7 +3,7 @@ use pacer_assistant_ops::assistant_ops;
 use pacer_config_ops::config_get_ops;
 use pacer_foundation::{
     Ctx,
-    api::{CoreError, NativeOp, Registry},
+    api::{Code, CoreError, NativeOp, Registry},
 };
 use serde_json::Value;
 pub(crate) mod account_list_sync;
@@ -64,6 +64,7 @@ pub(crate) use pacer_core_bridge::msg_write_sync;
 pub(crate) use pacer_messaging_ops::msg_ops;
 pub(crate) use pacer_messaging_ops::msg_writes;
 pub mod plugins;
+mod runner_check;
 use pacer_config_ops::available_ops;
 use pacer_config_ops::project_messaging_ops;
 use pacer_config_ops::repo_ops;
@@ -162,12 +163,6 @@ pub fn service_agent_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> boo
         "service.handover" | "service.work" => handover_sync::stays_forwarded(ctx),
         _ => pacer_update::service_update_stays_forwarded(ctx, op),
     }
-}
-
-/// `runner.add` and `runner.check` inputs whose effects only the TypeScript core owns.
-pub fn runner_attention_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
-    runner_ops::runner_stays_forwarded(ctx, op, params)
-        || runner_check_ops::runner_check_stays_forwarded(ctx, op, params)
 }
 
 pub(crate) use session_ops::needs_session_probe;
@@ -1212,7 +1207,20 @@ pub async fn call_native(
         ));
     }
     let mut host_set_alias: Option<String> = None;
-    let result = if op.name == "host.set" {
+    let result = if op.name == "runner.check" {
+        let runtime = runtime.ok_or_else(|| {
+            CoreError::new(Code::Unavailable, "task delegation runtime unavailable")
+        })?;
+        let starter = runner_check::DelegatingJobStarter::new(runtime);
+        runner_check_ops::runner_check_native(ctx, params, &starter).await?
+    } else if op.name == "runner.add" {
+        let runtime = runtime.ok_or_else(|| {
+            CoreError::new(Code::Unavailable, "task delegation runtime unavailable")
+        })?;
+        let starter = runner_check::DelegatingJobStarter::new(runtime);
+        runner_ops::runner_add_native(ctx, params, &starter, &runner_check::NativeTerminalOpener)
+            .await?
+    } else if op.name == "host.set" {
         host_set_alias = Some(host_mut_ops::host_set_write(ctx, params).await?);
         Value::Null
     } else if op.name == "mode.hold" {

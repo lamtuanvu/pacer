@@ -365,7 +365,6 @@ async fn forward_input<
                     op.name,
                     &params,
                 )
-                && !crate::native::runner_attention_stays_forwarded(&ctx.at_now(), op.name, &params)
                 && !crate::native::service_agent_stays_forwarded(&ctx.at_now(), op.name, &params)
                 && !crate::native::account_stays_forwarded(&ctx.at_now(), op.name, &params)
                 && !crate::native::host_stays_forwarded(&ctx.at_now(), op.name, &params)
@@ -1166,7 +1165,7 @@ async fn forward_input<
                         None,
                         None,
                         None,
-                    None,
+                    Some(&plugins.delegation),
                     )
                     .await
                 };

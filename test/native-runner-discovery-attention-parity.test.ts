@@ -38,7 +38,7 @@ const PROBE: Record<string, string> = {
   ])),
 };
 
-type Options = {setup?: (home: string) => void; env?: Record<string, string>; probe?: Record<string, string>; bridge?: (ctx: Ctx) => Promise<Record<string, unknown>>; files?: string[]};
+type Options = {setup?: (home: string) => void; env?: Record<string, string>; probe?: Record<string, string>; bridge?: (ctx: Ctx) => Promise<Record<string, unknown>>; files?: string[]; opDeps?: Record<string, unknown>; case?: unknown};
 const write = (path: string, text: string) => (home: string) => { mkdirSync(join(home, path, ".."), {recursive: true}); writeFileSync(join(home, path), text, {mode: 0o600}); };
 const all = (...steps: ((home: string) => void)[]) => (home: string) => steps.forEach(step => step(home));
 const strategy = (text = STRATEGY) => write("strategy.yaml", text);
@@ -49,6 +49,10 @@ const ctxFor = (home: string, o: Options) => fakeCtx({pacerHome: home, home, now
 // Plugin lifecycle entities come from the TypeScript bridges (usage broker, endpoint sync), which the driver stubs.
 // Wall-clock fields (askedAt), reset discovery ids and generated machine names are the only nondeterministic bytes.
 const stable = (text: string, home: string) => text.replaceAll(home, "$HOME")
+  .replace(/"id":"[0-9a-f-]{36}"/g, '"id":"JOB"')
+  .replace(/"id":"rc-[0-9-]+"/g, '"id":"JOB"')
+  .replace(/"pid":\d+/g, '"pid":"PID"')
+  .replace(/"endedAt":\d+(?:\.\d+)?/g, '"endedAt":"END"')
   .replace(/"name":"pacer-[a-z0-9]{4}"/g, '"name":"MACHINE"')
   .replace(/\b\d{10}\b/g, n => Math.abs(Number(n) - Date.now() / 1000) < 60 ? "NOW" : n)
   .replace(/"discoveryId": "([a-z2-7]{26})"/g, (match, id) => id === ID || id === OTHER ? match : `"discoveryId": "RESET"`);
@@ -61,19 +65,50 @@ async function compare(op: string, params: unknown, o: Options = {}) {
   o.setup?.(rs); o.setup?.(ts);
   setIdentityPlatformForTests("linux"); clearIdentityCache(); resetNetworkForTests(); resetRadioForTests();
   let expected: unknown;
-  try { expected = {result: await callOp(ctxFor(ts, o), op, params)}; } catch (error) { expected = {error: toApiError(error)}; }
+  try { expected = {result: await callOp(ctxFor(ts, o), op, params, o.opDeps ?? {})}; } catch (error) { expected = {error: toApiError(error)}; }
   clearIdentityCache(); resetNetworkForTests();
   const bridge = o.bridge ? JSON.parse(JSON.stringify(await o.bridge(ctxFor(rs, o)))) : {};
-  const input = {op, params, home: rs, now: NOW, env: o.env ?? {}, identityPlatform: "linux", probeOutputs: o.probe ?? {}, ...bridge};
+  const input = {op, params, home: rs, now: NOW, env: o.env ?? {}, identityPlatform: "linux", probeOutputs: o.probe ?? {}, runnerCheckCase: o.case ?? null, ...bridge};
   const actual = JSON.parse(execFileSync(driver, [], {input: JSON.stringify(input) + "\n"}).toString());
   const label = `${op} ${JSON.stringify(params)}`;
-  expect(stable(JSON.stringify(actual), rs), label).toBe(stable(JSON.stringify(expected), ts));
+  const normalizeJob = (value: any) => {
+    const copy = JSON.parse(JSON.stringify(value));
+    const job = copy?.result?.job;
+    if (job) { delete job.id; delete job.pid; delete job.startedAt; delete job.endedAt; }
+    return JSON.stringify(copy);
+  };
+  expect(stable(normalizeJob(actual), rs), label).toBe(stable(normalizeJob(expected), ts));
   for (const file of o.files ?? []) {
     const read = (home: string) => existsSync(join(home, file)) ? stable(readFileSync(join(home, file), "utf8"), home) : null;
     expect(read(rs), `${label}: ${file}`).toBe(read(ts));
   }
   expect(stable(JSON.stringify(events(rs)), rs), `${label}: events`).toBe(stable(JSON.stringify(events(ts)), ts));
   return expected as {result?: unknown; error?: {code: string}};
+}
+
+/** Shared readiness inputs for native `runner.add` check jobs. */
+function checkCase(id: string) {
+  return {
+    id, now: NOW,
+    runner: {id, agent: "cursor", model: null, account: null, host: null},
+    account: {name: "cursor", kind: "cursor", usage: "reactive", provider: null, source: "opencode"},
+    found: {found: true, install_hint: "install cursor"},
+    status: {signedIn: true}, signInReason: null,
+    row: null,
+    models: {source: "none", offered: null, closest: []},
+    testError: false, refreshed: null, env: {}, raw: {},
+  };
+}
+function checkDeps(id: string): Record<string, unknown> {
+  return {
+    runnerCheck: {
+      detectAgents: async () => [{agent: "cursor", found: true, version: "1.0", path: "/bin/cursor", install_hint: "install cursor"}],
+      listAccounts: async () => [{name: "cursor", signedIn: true}],
+      checkLimits: async () => [],
+      availableModels: async () => ({runner: id, source: "none", models: null, fetchedAt: NOW}),
+      runTestTask: async () => {},
+    },
+  };
 }
 
 function forwarded(op: string, params: unknown, setup: (home: string) => void) {
@@ -105,7 +140,7 @@ test("runner.list composes blocks, breaks and broker eligibility like TypeScript
     await compare("runner.list", params, {setup, bridge});
 }, 120_000);
 
-test("runner.add declares runners and routing like TypeScript; check jobs and terminals stay forwarded", async () => {
+test("runner.add declares runners, routing and check jobs like TypeScript", async () => {
   const files = ["strategy.yaml"];
   const block = strategy(`${STRATEGY}routing:\n  - kinds: [tests]\n    executors: [codex]\n  - default: [codex]\n`);
   const hosts = strategy(`${STRATEGY}hosts:\n  box: {ssh: box}\n`);
@@ -121,9 +156,14 @@ test("runner.add declares runners and routing like TypeScript; check jobs and te
     [{agent: "cursor", host: "nope", test: false}, hosts],
     [{agent: "cursor", test: false, kinds: ["docs", "docs"]}, strategy()],
   ] as const) await compare("runner.add", params, {setup, files});
-  for (const params of [{agent: "cursor"}, {agent: "cursor", test: true}, {interactive: "runner-add"}, {agent: "nope", test: false}, {agent: "cursor", test: false, rank: -1}])
-    forwarded("runner.add", params, strategy());
-  forwarded("runner.add", {agent: "cursor", test: false}, strategy("planner: ["));
+  for (const params of [{agent: "cursor"}, {agent: "cursor", test: true}] as const)
+    await compare("runner.add", params, {setup: strategy(), opDeps: checkDeps("cursor"), case: checkCase("cursor")});
+  const opened = {opened: true, argv: ["pacer", "runner", "add"], title: "pacer settings"};
+  await compare("runner.add", {interactive: "runner-add"}, {setup: strategy(), env: {PACER_BIN: "pacer"},
+    opDeps: {openTerminal: async () => opened}});
+  for (const params of [{agent: "nope", test: false}, {agent: "cursor", test: false, rank: -1}])
+    await compare("runner.add", params, {setup: strategy()});
+  await compare("runner.add", {agent: "cursor", test: false}, {setup: strategy("planner: [")});
 }, 120_000);
 
 test("discovery reads and network.set use the Rust network probe with TypeScript bytes", async () => {

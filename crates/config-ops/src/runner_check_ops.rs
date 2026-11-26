@@ -1,14 +1,12 @@
-//! Native `runner.check` refusals (`checkRunner` in `src/core/runner-check.ts`).
+//! Native `runner.check` validation and the `JobStarter` seam.
 //!
-//! The public schema is `z.object({id})`: unknown keys such as `test` are
-//! stripped, so every accepted input starts the check job. Rust answers what
-//! TypeScript refuses before `startJob` (the enforcement identity, params and
-//! unknown runners). A configured runner forwards, because its check steps
-//! (CLI detection, sign-in, usage and the scratch test task) run in the
-//! TypeScript job registry. An unloadable strategy and prototype-key ids
-//! forward too, so TypeScript reports them in its own words.
-#![allow(clippy::result_large_err)] // CoreError is the shared public operation ABI.
-use crate::limits_refresh_ops::PROTOTYPE_KEYS;
+//! `checkRunner` (`src/core/runner-check.ts`) starts a job for every accepted
+//! runner. The decision steps themselves live in
+//! `pacer_lifecycle::runner_check::check`; the server implements [`JobStarter`]
+//! over the delegation runtime, which gathers the case and starts the job.
+//! This crate owns only the public schema, caller policy and the errors
+//! TypeScript reports before a job starts.
+#![allow(clippy::result_large_err)]
 use crate::runner_ops::{authorize, invalid, params_object, type_name};
 use pacer_config::strategy::load_strategy;
 use pacer_foundation::{
@@ -18,41 +16,64 @@ use pacer_foundation::{
 use pacer_lifecycle::resolve_runner;
 use serde_json::Value;
 
-enum Plan {
-    Refuse(CoreError),
-    Forward,
+/// Starts a runner-check job. Implemented in `pacer-server` over the
+/// `pacer-delegation` runtime; the parity driver supplies a case-backed double.
+pub trait JobStarter: Send + Sync {
+    fn start<'a>(&'a self, ctx: &'a Ctx, params: &'a Value) -> OpFuture<'a>;
 }
 
-/// Inputs that start the check job, or that only TypeScript reports.
-pub fn runner_check_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
-    op == "runner.check" && matches!(plan(ctx, params), Plan::Forward)
-}
-
+/// The registry handler. Both doors answer `runner.check` through the
+/// [`JobStarter`] branch in `call_native`; this entry keeps the op discoverable
+/// and gives a direct caller a clear error instead of a silent forward.
 pub fn runner_check(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
-        match plan(ctx, &params) {
-            Plan::Refuse(error) => Err(error),
-            Plan::Forward => Err(CoreError::new(
-                Code::Unavailable,
-                "runner.check runs its check job in the forwarded operation",
-            )
-            .hint("Retry runner.check.")),
+        validate(ctx, &params)?;
+        Err(CoreError::new(
+            Code::Unavailable,
+            "runner.check requires a job starter",
+        ))
+    })
+}
+
+/// Validate the public input and start the job through `starter`.
+pub fn runner_check_native<'a>(
+    ctx: &'a Ctx,
+    params: Value,
+    starter: &'a (dyn JobStarter + 'a),
+) -> OpFuture<'a> {
+    Box::pin(async move {
+        check_id(ctx, &params)?;
+        match load_strategy(&ctx.pacer_home) {
+            Err(error) => Err(CoreError::new(Code::Internal, error.to_string())),
+            Ok(strategy) => {
+                let id = params["id"].as_str().unwrap_or_default();
+                if resolve_runner(&strategy, id).is_none() {
+                    return Err(CoreError::new(
+                        Code::UnknownExecutor,
+                        format!("unknown runner {id}"),
+                    ));
+                }
+                starter.start(ctx, &params).await
+            }
         }
     })
 }
 
-fn plan(ctx: &Ctx, params: &Value) -> Plan {
-    match check_id(ctx, params) {
-        Err(error) => Plan::Refuse(error),
-        Ok(id) if PROTOTYPE_KEYS.contains(&id.as_str()) => Plan::Forward,
-        Ok(id) => match load_strategy(&ctx.pacer_home) {
-            Err(_) => Plan::Forward,
-            Ok(strategy) if resolve_runner(&strategy, &id).is_some() => Plan::Forward,
-            Ok(_) => Plan::Refuse(CoreError::new(
-                Code::UnknownExecutor,
-                format!("unknown runner {id}"),
-            )),
-        },
+fn validate(ctx: &Ctx, params: &Value) -> Result<(), CoreError> {
+    check_id(ctx, params)?;
+    match load_strategy(&ctx.pacer_home) {
+        Err(error) => Err(CoreError::new(Code::Internal, error.to_string())),
+        Ok(strategy) => {
+            let id = params["id"].as_str().unwrap_or_default();
+            if resolve_runner(&strategy, id).is_none() {
+                Err(CoreError::new(
+                    Code::UnknownExecutor,
+                    format!("unknown runner {id}"),
+                ))
+            } else {
+                Ok(())
+            }
+        }
     }
 }
 
@@ -94,75 +115,57 @@ mod tests {
         Ctx::with(dir.into(), dir.into(), env, 1.0)
     }
 
-    fn refusal(ctx: &Ctx, params: Value) -> CoreError {
-        match plan(ctx, &params) {
-            Plan::Refuse(error) => error,
-            Plan::Forward => panic!("{params} forwarded"),
+    struct Starter(bool);
+    impl JobStarter for Starter {
+        fn start<'a>(&'a self, _: &'a Ctx, _: &'a Value) -> OpFuture<'a> {
+            let started = self.0;
+            Box::pin(async move {
+                if started {
+                    Ok(json!({"kind":"runner.check","state":"passed"}))
+                } else {
+                    Err(CoreError::new(Code::Unavailable, "not started"))
+                }
+            })
         }
     }
 
-    #[test]
-    fn validates_id_like_the_public_schema() {
+    #[tokio::test]
+    async fn validates_id_like_the_public_schema() {
         let dir = tempfile::tempdir().unwrap();
         let ctx = ctx_with(dir.path(), &[]);
-        assert_eq!(
-            refusal(&ctx, json!({})).message,
-            "id: Invalid input: expected string, received undefined"
-        );
-        assert_eq!(
-            refusal(&ctx, json!({"id": 1})).message,
-            "id: Invalid input: expected string, received number"
-        );
-        assert_eq!(
-            refusal(&ctx, json!({"id": ""})).message,
-            "id: Too small: expected string to have >=1 characters"
-        );
-        assert_eq!(
-            refusal(&ctx, json!({"id": "😀".repeat(129)})).message,
-            "id: Too big: expected string to have <=128 characters"
-        );
-        assert_eq!(
-            check_id(&ctx, &json!({"id": "😀".repeat(128)})).unwrap(),
-            "😀".repeat(128)
-        );
-        assert_eq!(
-            refusal(&ctx, json!([])).message,
-            "params: Invalid input: expected object, received array"
-        );
+        let starter = Starter(true);
+        for (params, message) in [
+            (json!({}), "id: Invalid input: expected string, received undefined"),
+            (json!({"id": 1}), "id: Invalid input: expected string, received number"),
+            (json!({"id": ""}), "id: Too small: expected string to have >=1 characters"),
+        ] {
+            let error = runner_check_native(&ctx, params, &starter).await.unwrap_err();
+            assert_eq!(error.message, message);
+        }
         let token = ctx_with(dir.path(), &[("PACER_ENFORCEMENT_TOKEN", "t")]);
         assert_eq!(
-            refusal(&token, json!({"id": "codex"})).code,
+            runner_check_native(&token, json!({"id":"codex"}), &starter)
+                .await
+                .unwrap_err()
+                .code,
             Code::NotAllowed
         );
     }
 
-    #[test]
-    fn refuses_unknown_runners_and_forwards_the_check_job() {
+    #[tokio::test]
+    async fn starts_a_configured_runner_and_refuses_unknown_ones() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("strategy.yaml"), STRATEGY).unwrap();
         let ctx = ctx_with(dir.path(), &[]);
-        let unknown = refusal(&ctx, json!({"id": "cursor", "test": false}));
-        assert_eq!(unknown.code, Code::UnknownExecutor);
-        assert_eq!(unknown.message, "unknown runner cursor");
-        assert!(unknown.hint.is_none());
-        for params in [
-            json!({"id": "codex"}),
-            json!({"id": "codex", "test": false}),
-            json!({"id": "codex#codex@local"}),
-            json!({"id": "constructor"}),
-        ] {
-            assert!(runner_check_stays_forwarded(&ctx, "runner.check", &params));
-        }
-        assert!(!runner_check_stays_forwarded(
-            &ctx,
-            "runner.add",
-            &json!({"id": "codex"})
-        ));
-        std::fs::write(dir.path().join("strategy.yaml"), "planner: [\n").unwrap();
-        assert!(runner_check_stays_forwarded(
-            &ctx,
-            "runner.check",
-            &json!({"id": "nope"})
-        ));
+        let started = Starter(true);
+        let job = runner_check_native(&ctx, json!({"id":"codex"}), &started)
+            .await
+            .unwrap();
+        assert_eq!(job["kind"], "runner.check");
+        let error = runner_check_native(&ctx, json!({"id":"cursor"}), &started)
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, Code::UnknownExecutor);
+        assert_eq!(error.message, "unknown runner cursor");
     }
 }

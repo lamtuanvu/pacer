@@ -4,14 +4,13 @@
 //!
 //! `runner.list` composes rows from `blocked.json`, `broken.json` and the live
 //! provider eligibility the usage-broker bridge supplies. `runner.add` is
-//! native when it starts no scratch check job (`test: false`); the check job
-//! (`runner.check`, and `runner.add` without `test: false`) runs in the
-//! TypeScript job registry, so those inputs stay forwarded.
+//! native for every input: interactive runs open a terminal through
+//! [`TerminalOpener`], and a check job (`test !== false`) starts through
+//! [`JobStarter`] (`crate::runner_check_ops`).
 #![allow(clippy::result_large_err)]
 use pacer_config::{
     config_writes::{default_account, edit, ensure_migrated, move_rank, parse_runner_ref},
-    doc::parse_value,
-    strategy::{StrategyError, load_strategy, strategy_path},
+    strategy::{StrategyError, load_strategy},
 };
 use pacer_foundation::{
     Ctx,
@@ -448,7 +447,8 @@ pub async fn runner_list(
     Ok(Value::Array(rows))
 }
 
-/// The non-interactive `runner.add` params, when they parse with `test: false`.
+/// The `runner.add` params. `interactive` and `test` are accepted here and
+/// performed by the caller through [`TerminalOpener`] and [`JobStarter`].
 fn add_params(params: &Value) -> Option<&Map<String, Value>> {
     let p = params.as_object()?;
     let id = |v: &Value| v.as_str().is_some_and(|s| !s.is_empty() && units(s) <= 128);
@@ -465,9 +465,11 @@ fn add_params(params: &Value) -> Option<&Map<String, Value>> {
                 })
         })
     };
-    let fine = !p.contains_key("interactive")
-        && p.get("test") == Some(&Value::Bool(false))
-        && p["agent"].as_str().is_some_and(|a| AGENTS.contains(&a))
+    let interactive = p.get("interactive").and_then(Value::as_str) == Some("runner-add");
+    let fine = p.get("interactive").is_none_or(|v| v.as_str() == Some("runner-add"))
+        && p.get("test").is_none_or(|v| v.is_boolean())
+        && (interactive
+            || p.get("agent").and_then(Value::as_str).is_some_and(|a| AGENTS.contains(&a)))
         && ["account", "host"]
             .iter()
             .all(|key| p.get(*key).is_none_or(id))
@@ -479,25 +481,16 @@ fn add_params(params: &Value) -> Option<&Map<String, Value>> {
     fine.then_some(p)
 }
 
+/// Opens the interactive shell for `runner.add` (`interactiveTerminal` in
+/// `src/api/ops.ts`). The server implements this over the B5 terminal open.
+pub trait TerminalOpener: Send + Sync {
+    fn open<'a>(&'a self, ctx: &'a Ctx, argv: &[String], title: &str, worktree: Option<&str>) -> OpFuture<'a>;
+}
+
 /// The `runner.set` model check, run against the migrated strategy the caller
 /// loaded. Discovery now runs in the front door, so no listing needs Core.
 pub(crate) async fn model_check(ctx: &Ctx, strategy: &Value, id: &str, model: &str) -> Validation {
     validate_runner_model(&ctx.pacer_home, ctx.now, strategy, id, model).await
-}
-
-/// `runner.add` with an interactive terminal, a check job or params outside
-/// the non-interactive schema stays with TypeScript, as does an unreadable or
-/// syntactically invalid strategy file: TypeScript reports it in its own
-/// parser's words. `runner.set` answers every input natively.
-pub fn runner_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
-    op == "runner.add" && (add_params(params).is_none() || !strategy_parses(ctx))
-}
-
-fn strategy_parses(ctx: &Ctx) -> bool {
-    strategy_path(&ctx.pacer_home)
-        .ok()
-        .and_then(|(path, _)| std::fs::read_to_string(path).ok())
-        .is_some_and(|text| parse_value(&text).is_ok())
 }
 
 fn add_error(error: StrategyError) -> CoreError {
@@ -508,15 +501,7 @@ fn add_error(error: StrategyError) -> CoreError {
     if message.contains(" needs a model: ") {
         return invalid(&message).hint("Choose a model, then add the agent again.");
     }
-    let strategy = message.starts_with("invalid strategy ")
-        || message.starts_with("bad YAML:")
-        || message.contains(" at line ")
-        || message.starts_with("while parsing ");
-    invalid(&message).hint(if strategy {
-        "Check the strategy values and retry."
-    } else {
-        RUNNER_HINT
-    })
+    invalid(&message).hint(RUNNER_HINT)
 }
 
 /// `missingProviderModel` (`src/core/runners-config.ts`): an OpenCode provider
@@ -684,10 +669,7 @@ pub fn runner_add(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
         authorize(ctx)?;
         let p = add_params(&params).ok_or_else(|| {
-            CoreError::new(
-                Code::Unavailable,
-                "runner.add with a check job requires the forwarded operation",
-            )
+            CoreError::new(Code::InvalidInput, "params: Invalid input")
         })?;
         if let Some(kinds) = p.get("kinds").and_then(Value::as_array) {
             let mut seen = std::collections::HashSet::new();
@@ -696,5 +678,65 @@ pub fn runner_add(ctx: &Ctx, params: Value) -> OpFuture<'_> {
             }
         }
         add_runner(ctx, p).map_err(add_error)
+    })
+}
+
+/// Full native `runner.add`: an interactive request opens `pacer runner add`
+/// in a terminal; otherwise the runner is committed and a check job starts
+/// unless `test: false` was requested.
+pub fn runner_add_native<'a>(
+    ctx: &'a Ctx,
+    params: Value,
+    starter: &'a (dyn crate::runner_check_ops::JobStarter + 'a),
+    opener: &'a (dyn TerminalOpener + 'a),
+) -> OpFuture<'a> {
+    Box::pin(async move {
+        authorize(ctx)?;
+        if let Some(rank) = params.get("rank").and_then(Value::as_f64)
+            && rank < 0.0
+        {
+            return Err(invalid("rank: Too small: expected number to be >=0"));
+        }
+        if let Some(max) = params.get("max_tasks").and_then(Value::as_f64)
+            && max < 1.0
+        {
+            return Err(invalid("max_tasks: Too small: expected number to be >=1"));
+        }
+        let p = add_params(&params)
+            .ok_or_else(|| invalid("params: Invalid input"))?
+            .clone();
+        if let Some(interactive) = p.get("interactive").and_then(Value::as_str) {
+            if interactive != "runner-add" {
+                return Err(invalid("interactive: Invalid input: expected \"runner-add\""));
+            }
+            let mut argv = vec![ctx
+                .env
+                .get("PACER_BIN")
+                .cloned()
+                .unwrap_or_else(|| "pacer".to_string())];
+            argv.extend(["runner".into(), "add".into()]);
+            return opener
+                .open(ctx, &argv, "pacer settings", p.get("worktree").and_then(Value::as_str))
+                .await;
+        }
+        if let Some(kinds) = p.get("kinds").and_then(Value::as_array) {
+            let mut seen = std::collections::HashSet::new();
+            if !kinds.iter().all(|k| seen.insert(k.as_str())) {
+                return Err(invalid("kinds must be a nonempty set"));
+            }
+        }
+        let mut result = add_runner(ctx, &p).map_err(add_error)?;
+        if p.get("test") != Some(&Value::Bool(false)) {
+            let id = result["id"].as_str().unwrap_or_default().to_string();
+            let job = crate::runner_check_ops::runner_check_native(
+                ctx,
+                json!({"id": id}),
+                starter,
+            )
+            .await?;
+            result["job"] = job;
+        }
+        crate::config_writes::publish(ctx, "runners")?;
+        Ok(result)
     })
 }
