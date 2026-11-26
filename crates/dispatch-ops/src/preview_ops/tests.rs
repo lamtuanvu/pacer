@@ -106,34 +106,37 @@ fn parse_applies_zod_defaults_and_refuses_what_rust_might_misjudge() {
         json!({"repo": "/r", "goal": "g", "via": "dispatch"}),
         json!({"repo": "/r", "goal": "x".repeat(8001)}),
         json!({"repo": "/r", "goal": "g", "kind": null}),
-        json!({"repo": "/r", "goal": "g", "requirements": {"context": 5.0}}),
+        json!({"repo": "/r", "goal": "g", "requirements": {"context": 5.5}}),
         json!({"repo": "/r", "goal": "g", "requirements": {"context": 0}}),
         json!({"repo": "/r", "goal": "g", "preferences": {"models": [""]}}),
         json!({"repo": "/r", "goal": "g", "delegationEnforcement": "loose"}),
     ] {
-        assert!(parse("dispatch.preview", &params).is_none(), "{params}");
+        assert!(parse("dispatch.preview", &params).is_err(), "{params}");
     }
     assert!(
         parse(
             "dispatch.preview",
             &json!({"repo": "/r", "goal": "😀".repeat(8000)})
         )
-        .is_some()
+        .is_ok()
     );
     assert!(
         parse(
             "dispatch.explain",
             &json!({"repo": "/r", "goal": "g", "strategyDraft": {"from": "default", "extra": 1}})
         )
-        .is_none()
+        .is_err()
     );
-    let big = json!({"from": "default", "description": "x", "set": {"a": "x".repeat(61_000)}});
+    // The draft schema's `<64 KiB` refine keeps a 60 KiB draft, and rejects one past it.
+    let keep = json!({"from": "default", "description": "x", "set": {"a": "x".repeat(60_000)}});
+    assert!(parse("dispatch.explain", &json!({"repo": "/r", "goal": "g", "strategyDraft": keep})).is_ok());
+    let big = json!({"from": "default", "description": "x", "set": {"a": "x".repeat(65_600)}});
     assert!(
         parse(
             "dispatch.explain",
             &json!({"repo": "/r", "goal": "g", "strategyDraft": big})
         )
-        .is_none()
+        .is_err()
     );
 }
 
@@ -155,7 +158,7 @@ fn forwards_inputs_only_typescript_answers() {
         json!({"via": "dispatch", "interactionMode": "conversation"})
     ));
     assert!(explain(json!({"interactionMode": "conversation"})));
-    assert!(explain(json!({"kind": null})));
+    assert!(!explain(json!({"kind": null})));
     assert!(explain(json!({"repo": "not/registered"})));
     assert!(!explain(json!({"strategyDraft": {"from": "missing"}})));
     let preview = json!({"repo": repo, "goal": "g"});
@@ -164,13 +167,6 @@ fn forwards_inputs_only_typescript_answers() {
         &ctx,
         "dispatch.explain",
         &json!({"repo": repo, "goal": "g"})
-    ));
-    let mut grant = ctx.clone();
-    grant.env.insert("PACER_WORK_GRANT".into(), "g".into());
-    assert!(stays_forwarded(
-        &grant,
-        "dispatch.explain",
-        &json!({"repo": repo, "goal": "g", "kind": "tests"})
     ));
 
     let plugin = format!("{STRATEGY}dispatch: {{engine: 'plugin:demo'}}\n");
@@ -342,6 +338,23 @@ async fn explain_errors_match_typescript() {
         .await
         .unwrap_err();
     assert_eq!(denied.code, Code::NotAllowed);
+    // A PACER_WORK_GRANT caller is refused natively, before the strategy or kind is read:
+    // a malformed `pwg_` is rejected by the work-grant gate, matching `authorizeWorkGrant`.
+    let mut granted = ctx.clone();
+    granted
+        .env
+        .insert("PACER_WORK_GRANT".into(), "grant".into());
+    let mut fake = Fake::default();
+    let refused = dispatch_preview(
+        &granted,
+        "dispatch.explain",
+        json!({"repo": repo, "goal": "g", "kind": "tests"}),
+        &mut fake,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(refused.message, "Invalid work grant");
+    assert!(fake.calls.is_empty());
 }
 
 #[tokio::test]

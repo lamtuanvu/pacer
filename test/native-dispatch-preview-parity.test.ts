@@ -195,14 +195,14 @@ function scenarios(): Case[] {
   add("explain with a relative repository forwards", home, E, explain({ repo: "app" }), { forwarded: true });
   add("host runner with cached reachability forwards", seed({ strategy: REMOTE, registered: true, setup: hostSeen(NOW - 10) }), P,
     goal({ delegationEnforcement: "cooperative" }), { forwarded: true });
-  add("work-grant caller on explain forwards", home, E, explain(), { forwarded: true, env: { PACER_WORK_GRANT: "grant" } });
+  add("work-grant caller on explain", home, E, explain(), { env: { PACER_WORK_GRANT: "grant" } });
   const sessions = seed({ strategy: LADDER, registered: true, setup: agentSession(NOW - 10) });
   add("a live agent session holds a slot on preview", sessions, P, goal({ kind: "debug", delegationEnforcement: "cooperative" }));
   add("a live agent session holds a slot on explain", sessions, E, explain({ delegationEnforcement: "cooperative" }));
   add("unloadable strategy forwards", seed({ strategy: "planner: [\n" }), P, goal(), { forwarded: true });
   add("conversation explain forwards", home, E, goal({ kind: "debug", interactionMode: "conversation" }), { forwarded: true });
-  add("input only TypeScript describes forwards", home, P, goal({ requirements: { tools: ["shell"] } }), { forwarded: true });
-  add("refused input forwards", home, P, { repo: APP, goal: "" }, { forwarded: true });
+  add("input only TypeScript describes", home, P, goal({ requirements: { tools: ["shell"] } }));
+  add("refused input", home, P, { repo: APP, goal: "" });
   return cases;
 }
 
@@ -503,7 +503,8 @@ const FRONT: Step[] = [
   { op: E, params: explain({ strategyDraft: { from: "default", set: { dispatch: { onNoMatch: "fail" } } } }), native: true },
   { op: E, params: explain({ kind: "nope" }), native: true },
   { op: P, params: { repo: "app", goal: "g" }, native: false },
-  { op: P, params: { repo: APP, goal: "" }, native: false },
+  // Zod-rejected input is answered natively (the strict parse mirrors the schema).
+  { op: P, params: { repo: APP, goal: "" }, native: true },
 ];
 
 for (const transport of ["stdio", "http"] as const) {
@@ -534,10 +535,10 @@ for (const transport of ["stdio", "http"] as const) {
 }
 
 for (const transport of ["stdio", "http"] as const) {
-  test.skipIf(!front)(`${transport}: a live agent session keeps preview and explain forwarded`, async () => {
+  test.skipIf(!front)(`${transport}: a live agent session keeps preview and explain native`, async () => {
     const replies = await compare(transport, { strategy: LADDER, registered: true, setup: agentSession(Date.now() / 1000) }, [
-      { op: P, params: goal({ kind: "debug", delegationEnforcement: "cooperative" }), native: false },
-      { op: E, params: explain({ delegationEnforcement: "cooperative" }), native: false },
+      { op: P, params: goal({ kind: "debug", delegationEnforcement: "cooperative" }), native: true },
+      { op: E, params: explain({ delegationEnforcement: "cooperative" }), native: true },
     ]);
     for (const reply of replies) expect(reply).toMatch(SESSION_SLOT);
   }, 180_000);

@@ -369,7 +369,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
         }
         if crate::native::preview_ops::needs_dispatch_parts(op.name) {
             crate::native::msg_write_sync::trace(op.name, None);
-            let mut bridge = crate::native::dispatch_preview_sync::NativeParts {
+            let mut bridge = crate::native::dispatch_preview::NativeParts {
                 target: state.core.target().await,
                 ctx: &ctx,
                 cache: &state.versions,

@@ -589,7 +589,7 @@ async fn forward_input<
                 }
                 if crate::native::preview_ops::needs_dispatch_parts(op.name) {
                     crate::native::msg_write_sync::trace(op.name, request.get("id"));
-                    let mut bridge = crate::native::dispatch_preview_sync::NativeStdioParts {
+                    let mut bridge = crate::native::dispatch_preview::NativeStdioParts {
                         core: &mut core,
                         prefix: sync.0,
                         key: sync.1,

@@ -166,6 +166,12 @@ pub fn authorize_work_operation(
         }
         return Ok(());
     };
+    // Validate the token shape before opening the grant store: `authorizeWorkGrant`
+    // refuses a malformed `pwg_` first and never touches the home filesystem, so a
+    // refused grant must not open (and checkpoint) `state/tasks.db`.
+    if !crate::grants::is_pwg(token) {
+        return Err(CoreError::new(Code::NotAllowed, "Invalid work grant"));
+    }
     let mut store = crate::grants::open(ctx)?;
     let db = store.connection().map_err(crate::grants::store_err)?;
     // msg allow-list: the grant's validity is enough; no subtree scope is required.

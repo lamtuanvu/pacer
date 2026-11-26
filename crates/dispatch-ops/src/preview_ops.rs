@@ -58,16 +58,10 @@ pub fn preview_stub(_: &Ctx, _: Value) -> OpFuture<'_> {
     })
 }
 
-const MAX_SAFE: u64 = 9_007_199_254_740_991;
-
 fn chars(value: &Value, min: usize, max: usize) -> bool {
     value
         .as_str()
         .is_some_and(|s| (min..=max).contains(&s.chars().count()))
-}
-
-fn one_of(value: &Value, options: &[&str]) -> bool {
-    value.as_str().is_some_and(|s| options.contains(&s))
 }
 
 fn names(value: &Value, max: usize) -> bool {
@@ -76,39 +70,146 @@ fn names(value: &Value, max: usize) -> bool {
         .is_some_and(|items| items.len() <= max && items.iter().all(|n| chars(n, 1, 256)))
 }
 
-/// `requirementsSchema`, in its key order.
-fn requirements(value: &Value) -> Option<Value> {
-    let given = value.as_object()?;
+/// `received` strings match zod's `utilZodIssue` type names verbatim.
+fn zod_type(value: &Value) -> &'static str {
+    match value {
+        Value::Null => "null",
+        Value::Bool(_) => "boolean",
+        Value::Number(n) if n.as_f64().is_some_and(f64::is_nan) => "NaN",
+        Value::Number(_) => "number",
+        Value::String(_) => "string",
+        Value::Array(_) => "array",
+        Value::Object(_) => "object",
+    }
+}
+
+/// `z.enum(options)`, in zod v4's wording: `Invalid option: expected one of "a"|"b"`.
+fn issue_enum(name: &str, value: &Value, options: &[&str]) -> Vec<String> {
+    if let Some(s) = value.as_str() && options.contains(&s) {
+        return vec![];
+    }
+    let expected = options
+        .iter()
+        .map(|o| format!("\"{o}\""))
+        .collect::<Vec<_>>()
+        .join("|");
+    vec![format!("{name}: Invalid option: expected one of {expected}")]
+}
+
+/// `z.string().min(min).max(max)`, in zod v4's wording.
+fn issue_string(name: &str, value: &Value, min: usize, max: usize) -> Vec<String> {
+    match value.as_str() {
+        None => vec![format!(
+            "{name}: Invalid input: expected string, received {}",
+            zod_type(value)
+        )],
+        Some(s) => {
+            let len = s.chars().count();
+            let mut out = Vec::new();
+            if len < min {
+                out.push(format!(
+                    "{name}: Too small: expected string to have >={min} characters"
+                ));
+            }
+            if len > max {
+                out.push(format!(
+                    "{name}: Too big: expected string to have <={max} characters"
+                ));
+            }
+            out
+        }
+    }
+}
+
+/// `z.boolean()`, in zod's wording.
+fn issue_bool(name: &str, value: &Value) -> Vec<String> {
+    if value.is_boolean() {
+        vec![]
+    } else {
+        vec![format!(
+            "{name}: Invalid input: expected boolean, received {}",
+            zod_type(value)
+        )]
+    }
+}
+
+/// `z.number().int().positive()`, in zod v4's wording.
+fn issue_number(name: &str, value: &Value) -> Vec<String> {
+    let Some(n) = value.as_f64() else {
+        return vec![format!(
+            "{name}: Invalid input: expected number, received {}",
+            zod_type(value)
+        )];
+    };
+    let mut out = Vec::new();
+    if n.fract() != 0.0 {
+        out.push(format!("{name}: Invalid input: expected int, received number"));
+    }
+    if n <= 0.0 {
+        out.push(format!("{name}: Too small: expected number to be >0"));
+    }
+    out
+}
+
+/// `requirementsSchema`, in zod's key order; `.strict()` rejects unknown keys.
+fn requirements(issues: &mut Vec<String>, name: &str, value: &Value) -> Option<Value> {
+    let Some(given) = value.as_object() else {
+        issues.push(format!("{name}: Invalid input: expected object, received {}", zod_type(value)));
+        return None;
+    };
+    for key in given.keys() {
+        if !["minTier", "tools", "context"].contains(&key.as_str()) {
+            issues.push(format!("{name}: Unrecognized key: \"{key}\""));
+        }
+    }
+    for (key, v) in [
+        ("minTier", given.get("minTier")),
+        ("tools", given.get("tools")),
+        ("context", given.get("context")),
+    ] {
+        let Some(v) = v else { continue };
+        let fname = format!("{name}.{key}");
+        match key {
+            "minTier" => issues.extend(issue_enum(&fname, v, &["small", "medium", "frontier"])),
+            "tools" => issues.extend(issue_bool(&fname, v)),
+            "context" => issues.extend(issue_number(&fname, v)),
+            _ => unreachable!(),
+        }
+    }
     let out: Object = ["minTier", "tools", "context"]
         .iter()
         .filter_map(|k| Some(((*k).to_owned(), given.get(*k)?.clone())))
         .collect();
-    let valid = out.len() == given.len()
-        && out
-            .get("minTier")
-            .is_none_or(|t| one_of(t, &["small", "medium", "frontier"]))
-        && out.get("tools").is_none_or(Value::is_boolean)
-        && out
-            .get("context")
-            .is_none_or(|c| c.as_u64().is_some_and(|c| (1..=MAX_SAFE).contains(&c)));
-    valid.then_some(Value::Object(out))
+    Some(Value::Object(out))
 }
 
-/// `preferencesSchema` with its defaults.
-fn preferences(value: &Value) -> Option<Value> {
-    let given = value.as_object()?;
+/// `preferencesSchema` with its defaults, in zod's wording.
+fn preferences(issues: &mut Vec<String>, name: &str, value: &Value) -> Option<Value> {
+    let Some(given) = value.as_object() else {
+        issues.push(format!("{name}: Invalid input: expected object, received {}", zod_type(value)));
+        return None;
+    };
+    for key in given.keys() {
+        if key != "models" && key != "strengths" {
+            issues.push(format!("{name}: Unrecognized key: \"{key}\""));
+        }
+    }
     let models = given.get("models").cloned().unwrap_or(json!([]));
     let strengths = given.get("strengths").cloned().unwrap_or(json!([]));
-    let valid = given.keys().all(|k| k == "models" || k == "strengths")
-        && names(&models, 256)
-        && names(&strengths, 64);
-    valid.then(|| json!({"models": models, "strengths": strengths}))
+    if !names(&models, 256) {
+        issues.push(format!("{name}.models: Invalid input"));
+    }
+    if !names(&strengths, 64) {
+        issues.push(format!("{name}.strengths: Invalid input"));
+    }
+    Some(json!({"models": models, "strengths": strengths}))
 }
 
-/// `strategyDraft`, without the keys zod would strip. Rust's serialization may differ from
-/// `JSON.stringify` in length, so drafts near the 64 KiB limit forward.
-fn draft(value: &Value) -> bool {
+/// `strategyDraft`; Rust's serialization may differ from `JSON.stringify`, so drafts past the
+/// 64 KiB zod limit report the same issue natively.
+fn draft(issues: &mut Vec<String>, name: &str, value: &Value) -> bool {
     let Some(draft) = value.as_object() else {
+        issues.push(format!("{name}: Invalid input: expected object, received {}", zod_type(value)));
         return false;
     };
     let fields = draft.iter().all(|(key, v)| match key.as_str() {
@@ -121,51 +222,82 @@ fn draft(value: &Value) -> bool {
             .is_some_and(|keys| keys.len() <= 256 && keys.iter().all(|k| chars(k, 0, 256))),
         "description" => chars(v, 0, 1000),
         _ => false,
-    });
+    }) && draft.contains_key("from");
+    if !fields {
+        issues.push(format!("{name}: Invalid strategy draft"));
+    } else if let Ok(text) = serde_json::to_string(value) {
+        if text.encode_utf16().count() > 64 * 1024 {
+            issues.push(format!("{name}: strategyDraft exceeds 64 KiB"));
+        }
+    }
     fields
-        && draft.contains_key("from")
-        && serde_json::to_string(value).is_ok_and(|text| text.encode_utf16().count() <= 60_000)
 }
 
-/// The input as zod parses it, with its defaults, or `None` where Rust might not agree with
-/// zod: such input forwards, so TypeScript reports the issues.
-fn parse(op: &str, params: &Value) -> Option<Object> {
+/// The input as zod parses it (`previewInputSchema`/`explainInputSchema`), with its defaults.
+/// `Ok` is the input zod would accept; `Err` reproduces the `callOp` issue message.
+fn parse(op: &str, params: &Value) -> Result<Object, CoreError> {
     let explain = op == "dispatch.explain";
+    let mut issues: Vec<String> = Vec::new();
     let mut input = match params {
         Value::Null => Object::new(),
         Value::Object(map) => map.clone(),
-        _ => return None,
+        other => {
+            issues.push(format!(
+                "params: Invalid input: expected object, received {}",
+                zod_type(other)
+            ));
+            Object::new()
+        }
     };
     let goal = if explain { 20_000 } else { 8_000 };
-    let fields = input.iter().all(|(key, v)| match key.as_str() {
-        "repo" => chars(v, 1, 4096),
-        "goal" => chars(v, 1, goal),
-        "kind" | "model" => chars(v, 1, 256),
-        "requirements" | "preferences" => true,
-        "delegationEnforcement" => one_of(v, &["strict", "cooperative"]),
-        "executor" if explain => chars(v, 1, 128),
-        "difficulty" if explain => one_of(v, &["simple", "standard", "complex"]),
-        "via" if explain => one_of(v, &["dispatch", "delegate"]),
-        "interactionMode" if explain => one_of(v, &["delegated", "conversation"]),
-        "allowDelegation" if explain => v.is_boolean(),
-        "strategyDraft" if explain => draft(v),
-        _ => false,
-    });
-    if !fields || !input.contains_key("repo") || !input.contains_key("goal") {
-        return None;
+    for (key, v) in &input {
+        let fname = key.clone();
+        match key.as_str() {
+            "repo" => issues.extend(issue_string(&fname, v, 1, 4096)),
+            "goal" => issues.extend(issue_string(&fname, v, 1, goal)),
+            "kind" | "model" => issues.extend(issue_string(&fname, v, 1, 256)),
+            "requirements" => {
+                let _ = requirements(&mut issues, &fname, v);
+            }
+            "preferences" => {
+                let _ = preferences(&mut issues, &fname, v);
+            }
+            "delegationEnforcement" => {
+                issues.extend(issue_enum(&fname, v, &["strict", "cooperative"]));
+            }
+            "executor" if explain => issues.extend(issue_string(&fname, v, 1, 128)),
+            "difficulty" if explain => {
+                issues.extend(issue_enum(&fname, v, &["simple", "standard", "complex"]));
+            }
+            "via" if explain => issues.extend(issue_enum(&fname, v, &["dispatch", "delegate"])),
+            "interactionMode" if explain => {
+                issues.extend(issue_enum(&fname, v, &["delegated", "conversation"]));
+            }
+            "allowDelegation" if explain => issues.extend(issue_bool(&fname, v)),
+            "strategyDraft" if explain => {
+                let _ = draft(&mut issues, &fname, v);
+            }
+            _ => issues.push(format!("params: Unrecognized key: \"{key}\"")),
+        }
     }
-    let requirements = input
-        .get("requirements")
-        .map_or(Some(json!({})), requirements)?;
-    let preferences = input
-        .get("preferences")
-        .map_or(Some(json!({"models": [], "strengths": []})), preferences)?;
+    if !input.contains_key("repo") {
+        issues.push("repo: Invalid input: expected string, received undefined".into());
+    }
+    if !input.contains_key("goal") {
+        issues.push("goal: Invalid input: expected string, received undefined".into());
+    }
+    let requirements = input.get("requirements").cloned().unwrap_or(json!({}));
+    let preferences = input.get("preferences").cloned().unwrap_or(json!({"models": [], "strengths": []}));
     input.insert("requirements".into(), requirements);
     input.insert("preferences".into(), preferences);
     if explain && !input.contains_key("via") {
         input.insert("via".into(), json!("delegate"));
     }
-    Some(input)
+    if issues.is_empty() {
+        Ok(input)
+    } else {
+        Err(CoreError::new(Code::InvalidInput, issues.join("; ")))
+    }
 }
 
 fn text<'a>(input: &'a Object, key: &str) -> Option<&'a str> {
@@ -195,8 +327,9 @@ fn strategy_of(ctx: &Ctx, input: &Object) -> Option<Result<Value, CoreError>> {
 /// policy or registry only TypeScript reads; live agent sessions holding slots. The caller
 /// checks that Rust loads the strategy Bun loads and reads a `strategyDraft` alike.
 pub fn stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
-    let Some(input) = parse(op, params) else {
-        return true;
+    let Ok(input) = parse(op, params) else {
+        // Input zod would reject as invalid: let `dispatch_preview` surface the issue.
+        return false;
     };
     let explain = op == "dispatch.explain";
     let ranked = explain && text(&input, "via") == Some("delegate");
@@ -213,7 +346,6 @@ pub fn stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
         };
         if !input.contains_key("kind")
             || ranked && text(&input, "interactionMode") == Some("conversation")
-            || ctx.env.contains_key("PACER_WORK_GRANT")
             || std::env::current_dir().map_or(true, |cwd| executor_session(ctx, &cwd, providers))
         {
             return true;
@@ -709,14 +841,17 @@ pub async fn dispatch_preview(
         now: now(ctx),
         ..ctx.clone()
     };
-    let unavailable = || {
-        CoreError::new(
-            Code::Unavailable,
-            "dispatch preview input needs the forwarded operation",
-        )
-    };
-    let input = parse(op, &params).ok_or_else(unavailable)?;
+    let input = parse(op, &params)?;
     let explain = op == "dispatch.explain";
+    // `explainDispatch` refuses executor sessions and PACER_WORK_GRANT callers after
+    // the work-grant gate but before reading the strategy or the request's kind.
+    // (`authorize` already refused a malformed `pwg_` before touching the store.)
+    if explain && ctx.env.contains_key("PACER_WORK_GRANT") {
+        return Err(CoreError::new(
+            Code::NotAllowed,
+            "Route explanations are not available to executor sessions",
+        ));
+    }
     let kind = text(&input, "kind");
     if explain && let Some(kind) = kind.filter(|k| !TASK_KINDS.contains(k)) {
         return Err(
@@ -724,7 +859,9 @@ pub async fn dispatch_preview(
                 .hint(format!("Allowed kinds: {}", TASK_KINDS.join(", "))),
         );
     }
-    let strategy = strategy_of(ctx, &input).ok_or_else(unavailable)??;
+    let strategy = strategy_of(ctx, &input).ok_or_else(|| {
+        CoreError::new(Code::Unavailable, "the active strategy could not be loaded")
+    })??;
     let r = Request {
         input: &input,
         strategy: &strategy,
