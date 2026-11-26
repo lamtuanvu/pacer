@@ -161,15 +161,15 @@ export function addModel(rows: MatrixRow[], id: string): MatrixRow[] {
 export const CLAUDE_CODE_ALIASES = ["opus", "sonnet", "haiku"] as const;
 
 /**
- * Ids offered in a runner's Add-model picker: its live listing when pacer has one, otherwise the
- * Claude Code aliases for a claude-code runner. Ids already on the row are left out. The picker
- * only suggests; any id can still be typed, and none of this feeds the "offered" checks.
+ * Ids offered in a runner's Add-model pick list. The Add field only shows when pacer has no model
+ * listing for the runner, so the list is the Claude Code aliases for a claude-code runner and empty
+ * otherwise; ids already on the row are left out. It only suggests: any id can still be typed, and
+ * none of this feeds the service's "offered" checks.
  */
-export function addModelOptions(runnerId: string, listing: { id: string }[] | null | undefined, rows: MatrixRow[]): string[] {
-  const agent = runnerId.split(/[#@]/)[0];
-  const ids = listing?.length ? listing.map(m => m.id) : agent === "claude-code" ? [...CLAUDE_CODE_ALIASES] : [];
+export function addModelOptions(runnerId: string, rows: MatrixRow[]): string[] {
+  if (runnerId.split(/[#@]/)[0] !== "claude-code") return [];
   const taken = new Set(rows.map(row => row.id));
-  return [...new Set(ids)].filter(id => !taken.has(id));
+  return CLAUDE_CODE_ALIASES.filter(id => !taken.has(id));
 }
 
 export function removeModel(rows: MatrixRow[], id: string): MatrixRow[] {

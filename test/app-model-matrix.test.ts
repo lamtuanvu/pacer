@@ -247,12 +247,11 @@ test("rebaseSavedDrafts leaves dirty edits that happened during the save untouch
   expect(out.baseDrafts[0]!.rows).toEqual([]);
 });
 
-test("addModelOptions offers the live listing, else Claude Code aliases, minus ids already on the row", async () => {
+test("addModelOptions offers the Claude Code aliases to a claude-code runner, minus ids already on the row", async () => {
   const { addModelOptions } = await import("../app/src/model/model-matrix");
   const row = (id: string) => ({ id, on: true, tier: "unknown" as const, isDefault: false, takes: [] });
-  expect(addModelOptions("opencode#oc", [{ id: "a" }, { id: "b" }, { id: "a" }], [row("b")])).toEqual(["a"]);
-  expect(addModelOptions("claude-code", null, [])).toEqual(["opus", "sonnet", "haiku"]);
-  expect(addModelOptions("claude-code#work@mini", [], [row("opus")])).toEqual(["sonnet", "haiku"]);
-  expect(addModelOptions("claude-code", [{ id: "claude-opus-5-5" }], [])).toEqual(["claude-opus-5-5"]);
-  expect(addModelOptions("codex", null, [])).toEqual([]);
+  expect(addModelOptions("claude-code", [])).toEqual(["opus", "sonnet", "haiku"]);
+  expect(addModelOptions("claude-code#work@mini", [row("opus")])).toEqual(["sonnet", "haiku"]);
+  expect(addModelOptions("codex", [])).toEqual([]);
+  expect(addModelOptions("opencode#claude-code", [])).toEqual([]);
 });

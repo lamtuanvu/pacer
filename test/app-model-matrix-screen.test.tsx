@@ -966,14 +966,17 @@ test("the Add model field offers Claude Code aliases for a claude-code runner an
   });
 });
 
-test("an OpenCode runner lists every listed model as a row, so its Add model field offers no picker", async () => {
+test("the planner's Claude Code row offers the aliases too, while Suggest leaves the row alone", async () => {
   await withMatrix(async (container) => {
-    expect(textOf(container)).toContain("listed-only");
-    expect(findNode(container, n => n.tagName === "datalist")).toBeFalsy();
+    const list = findNode(container, n => n.tagName === "datalist");
+    expect(list?.attrs.id).toBe("pc-model-options-claude-code");
+    expect(allNodes(list!, n => n.tagName === "option").map(n => n.attrs.value)).toEqual(["opus", "sonnet", "haiku"]);
+    expect(textOf(container)).toContain("To let the planner take complex tasks, add a model and set its size to Frontier.");
   }, {
-    config: configView(),
-    inventory: inventory([record("codex", "work", "codex", "codex-default", { kind: "executor-default" })]),
-    models: { codex: declarationsCodex },
-    available: { codex: { runner: "codex", source: "opencode", fetchedAt: 1, models: [{ id: "codex-default" }, { id: "listed-only" }] } },
+    config: configView("claude-code"),
+    settings: { keys: { "pacing.planner_tier_fallback": { value: "on" } }, planners: ["claude-code"] },
+    inventory: inventory([record("claude-code", "claude-code", "claude-code", "default-model", { kind: "executor-default" })]),
+    models: { "claude-code": { runner: "claude-code", revision: "r-empty", default: null, models: [] } },
+    available: { "claude-code": { ...unknown, runner: "claude-code" } },
   });
 });
