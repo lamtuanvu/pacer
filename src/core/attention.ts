@@ -17,6 +17,7 @@ import {
   openBlockingPersonQuestionAskerIds,
   suppressOrdinaryQuestionItems,
 } from "../workflow/attention";
+import { assertDismissable } from "../workflow/review";
 
 /** Ordinary attention never surfaces engine-owned tasks (D2.12). */
 function attentionTasks(ctx: Ctx) {
@@ -43,7 +44,7 @@ async function raisedItems(ctx: Ctx) {
 }
 export async function dismiss(ctx: Ctx, id: string) {
   let pending: ReturnType<typeof dismissTasks> | undefined;
-  const result = dismissItem(ctx,id,await raisedItems(ctx),item=>{if(item.taskId)pending=dismissTasks(ctx,[item.taskId]);});
+  const result = dismissItem(ctx,id,await raisedItems(ctx),item=>{if(item.taskId){assertDismissable(ctx,item.taskId);pending=dismissTasks(ctx,[item.taskId]);}});
   await pending;
   return result;
 }

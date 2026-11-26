@@ -332,7 +332,7 @@ fn session_item(ctx: &Ctx, t: &V) -> Item {
             },
         );
     }
-    if !active && ctx.supports("task.dismiss") {
+    if !active && ctx.supports("task.dismiss") && !holds_task(ctx.s, text(&t["id"])) {
         add("x", "Dismiss");
     }
     for (k, l) in thread_keys(ctx, t, d) {
@@ -617,7 +617,7 @@ fn session_detail(ctx: &Ctx, t: &V, w: usize) -> Vec<Row> {
     }
     if !d["work"].is_null() {
         rows.push(blank());
-        rows.extend(crate::work::rows(d, w));
+        rows.extend(crate::work::rows(ctx.s, d, w));
     }
     if ctx.supports("msg.log") && !d["messages"].is_null() {
         rows.extend(thread(ctx, d, w));
@@ -847,7 +847,7 @@ pub fn review_detail(ctx: &Ctx, a: &V, resource: &V, w: usize) -> Vec<Row> {
     );
     if !d["work"].is_null() {
         rows.push(blank());
-        rows.extend(crate::work::rows(d, w));
+        rows.extend(crate::work::rows(ctx.s, d, w));
     }
     if ctx.supports("msg.log") && !d["messages"].is_null() {
         rows.extend(thread(ctx, d, w));

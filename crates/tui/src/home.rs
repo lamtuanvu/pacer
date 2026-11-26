@@ -28,7 +28,9 @@ pub fn build(ctx: &Ctx) -> View {
             .iter()
             .filter(|a| a["op"] == "ui.open" || ctx.supports(text(&a["op"])))
             .collect();
-        let dismiss = ctx.supports("attention.dismiss");
+        // A review gate stays until its work is decided.
+        let dismiss =
+            ctx.supports("attention.dismiss") && !text(&a["id"]).starts_with("run_review:");
         let review = a["kind"] == "review" && truth(&a["taskId"]);
         let mut keys = vec![];
         if dismiss {
@@ -369,15 +371,12 @@ pub fn build(ctx: &Ctx) -> View {
         let waiting = attention
             .iter()
             .any(|a| a["kind"] == "review" && a["taskId"] == t["id"]);
+        let dismiss = ctx.supports("task.dismiss") && !holds_task(s, text(&t["id"]));
         v.items.push(Item::new(
             &id,
             Some(if waiting { "Review" } else { "Open in Tasks" }),
-            usize::from(waiting) + usize::from(ctx.supports("task.dismiss")),
-            if ctx.supports("task.dismiss") {
-                &[("x", "Dismiss")]
-            } else {
-                &[]
-            },
+            usize::from(waiting) + usize::from(dismiss),
+            if dismiss { &[("x", "Dismiss")] } else { &[] },
         ));
         let ws = if wide {
             flex(

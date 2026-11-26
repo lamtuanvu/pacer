@@ -1,7 +1,7 @@
 /** Home: the app's Overview — Needs you, Running, Capacity, Done today, in that order. */
 import { capacity, counts, doneToday, needsYou, otherReposNeedingYou, reviewQueue, running } from "../../view-model/selectors";
 import { attentionStatus, taskOutcome } from "../../view-model/words";
-import { isReviewGate, taskStatusIn } from "../../view-model/run-gate";
+import { isReviewGate, taskStatusIn, holdsTask } from "../../view-model/run-gate";
 import { executorEligibility, executorPace, queueWait } from "../../view-model/capacity";
 import { displayTitle } from "../../view-model/titles";
 import { ago, elapsed } from "../../view-model/time";
@@ -138,7 +138,7 @@ export function taskItem(ctx: ScreenCtx, t: ClientTask): Item {
 function doneItem(ctx: ScreenCtx, t: ClientTask, waiting: boolean): Item {
   const review: Act | undefined = waiting ? { label: "Review", effect: { type: "navigate", screen: "review", id: t.id } } : undefined;
   const details: Act = { label: "Open in Tasks", effect: { type: "navigate", screen: "sessions", id: t.id } };
-  const dismiss = opAct(ctx, "Dismiss", "task.dismiss", { ids: [t.id], ...(typeof t.rev === "number" ? { expect_rev: t.rev } : {}) });
+  const dismiss = holdsTask(ctx.s.attention, t.id) ? undefined : opAct(ctx, "Dismiss", "task.dismiss", { ids: [t.id], ...(typeof t.rev === "number" ? { expect_rev: t.rev } : {}) });
   return { id: `task:${t.id}`, primary: review ?? details, actions: defined([review ? details : undefined, dismiss]), keys: dismiss ? { x: dismiss } : {} };
 }
 

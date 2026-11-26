@@ -14,6 +14,19 @@ pub fn needs_task_clean_bridge(op: &str) -> bool {
     matches!(op, "task.dismiss")
 }
 
+/// A workflow review may hold one of these tasks: Core decides, and refuses if so.
+pub fn task_dismiss_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
+    if op != "task.dismiss" {
+        return false;
+    }
+    let Ok(ids) = ids_from_params(params) else {
+        return false;
+    };
+    TaskStore::open(&ctx.pacer_home)
+        .and_then(|mut store| store.in_workflow(&ids))
+        .unwrap_or(true)
+}
+
 pub fn ids_from_params(params: &Value) -> Result<Vec<String>, CoreError> {
     let p = object(params)?;
     let ids_value = p
@@ -177,4 +190,44 @@ pub fn task_dismiss<'a>(ctx: &'a Ctx, params: Value, clean: OpFuture<'a>) -> OpF
             "unknown": batch.unknown,
         }))
     })
+}
+
+#[cfg(test)]
+mod forward_tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+
+    #[test]
+    fn a_task_a_workflow_names_is_forwarded() {
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = Ctx::with(
+            dir.path().into(),
+            dir.path().join(".pacer"),
+            Default::default(),
+            1.0,
+        );
+        let forwarded =
+            |id: &str| task_dismiss_stays_forwarded(&ctx, "task.dismiss", &json!({"ids": [id]}));
+        assert!(!forwarded("t-step"));
+        TaskStore::open(&ctx.pacer_home)
+            .unwrap()
+            .connection()
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE workflow_steps(task_id TEXT);
+                 CREATE TABLE workflow_runs(conflict TEXT);
+                 INSERT INTO workflow_steps VALUES ('t-step');
+                 INSERT INTO workflow_runs VALUES ('[{\"taskId\":\"t-conflict\",\"resolutionTaskId\":\"t-record\"}]');",
+            )
+            .unwrap();
+        for id in ["t-step", "t-conflict", "t-record"] {
+            assert!(forwarded(id), "{id}");
+        }
+        assert!(!forwarded("t-other"));
+        assert!(!task_dismiss_stays_forwarded(
+            &ctx,
+            "task.list",
+            &json!({"ids": ["t-step"]})
+        ));
+    }
 }

@@ -15,6 +15,7 @@ import { ReviewView } from "../app/src/screens/Review";
 import { TaskResultView } from "../app/src/screens/TaskResult";
 import { TaskContext } from "../app/src/screens/task-shared";
 import { TaskActions } from "../app/src/screens/trace/TaskActions";
+import { ResultPage } from "../app/src/screens/review/ResultPage";
 import { Workspace } from "../app/src/screens/workspace/Workspace";
 import { FrameContext } from "../app/src/shell/slots";
 import { Tray } from "../app/src/tray/Tray";
@@ -176,4 +177,27 @@ test("the terminal's run view marks a parked step as waiting for review", async 
   // The list marks the step and says why it waits; the step's own pane gives the shared status line.
   expect(frame).toMatch(/◐ impl +waiting for review/);
   expect(frame).toContain("◐ Waiting for review");
+});
+
+// A task dismissed by an earlier version still holds its review: its pages offer the verdicts.
+const held: AttentionItem = { id: `run_review:${TASK}`, kind: "review", severity: "decide", repo: null, taskId: TASK, title: "Review the step", detail: "Ship it.", raisedAt: 1, since: 1, notify: "all", gate: { kind: "step_review" }, actions: [accept, { label: "Reject", op: "task.review", params: { id: TASK, verdict: "reject", expect_rev: 1 } }] };
+const dismissed = { ...taskGet, id: TASK, state: "done", review: null, resolved: null, dismissed: true, retriedBy: null, work: undefined, acceptance: { state: "passed" } };
+const verdicts = (container: Node) => ["Accept", "Reject"].filter(label => find(container, n => n.tagName?.toLowerCase() === "button" && text(n).trim() === label));
+
+test("the trace page of a dismissed task keeps its gate's verdicts", async () => {
+  const view = await mount(inApp(storeWith([held], []), <TaskActions task={dismissed as never} query={{ repo: null, scope: null }} reload={() => {}} />));
+  try { expect(verdicts(view.container)).toEqual(["Accept", "Reject"]); }
+  finally { await view.done(); }
+});
+
+test("the result page of a dismissed task keeps its gate's verdicts", async () => {
+  const service = { call: async (op: string) => { await new Promise(resolve => setTimeout(resolve, 5)); return op === "task.get" ? dismissed : { nodes: [], files: [] }; } } as unknown as BrowserApi;
+  const container = (document as unknown as { createElement: (t: string) => Node }).createElement("div");
+  render(<ActionContext.Provider value={runner}><TaskContext.Provider value={{ state: storeWith([held], []) as never, api: service }}>
+    <ResultPage id={TASK} query={{ repo: null, scope: null }} />
+  </TaskContext.Provider></ActionContext.Provider>, container as unknown as Element);
+  try {
+    await until(() => verdicts(container).length === 2);
+    expect(verdicts(container)).toEqual(["Accept", "Reject"]);
+  } finally { render(null, container as unknown as Element); }
 });

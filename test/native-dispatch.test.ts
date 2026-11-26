@@ -6,6 +6,9 @@ import { closedPort, pinnedEnv as pinnedPort, spawnPinned } from "./pinned-port"
 
 import golden from "./fixtures/config-writes-goldens.json";
 import { pinnedEnv } from "./pinned-port";
+import { createTask, readTask } from "../src/tasks/store";
+import { addDefinition, insertRun, setRunConflict, workflowDatabase } from "../src/workflow/store";
+import { fakeCtx } from "./helpers";
 
 const front = process.env.PACER_TEST_NATIVE_FRONT_DOOR;
 const productionFront = process.env.PACER_TEST_FRONT_DOOR;
@@ -231,3 +234,28 @@ test.skipIf(!productionFront)("HTTP config environment matches the forwarded cor
     expect(outputs[0]).toEqual(outputs[1]);
   }
 }, 120_000);
+
+test.skipIf(!front)("task.dismiss for a task a workflow review holds is decided by Core and refused", async () => {
+  const fixture = setup();
+  const ctx = fakeCtx({ home: fixture.home, pacerHome: fixture.env.PACER_HOME!, now: Math.floor(Date.now() / 1000) });
+  const make = () => createTask(ctx, { brief: { goal: "step", repo: fixture.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  const held = make(), free = make();
+  workflowDatabase(ctx);
+  const def = { id: "t/one", version: 1, entry: "done", steps: { done: { type: "end" as const } }, edges: [] };
+  addDefinition(ctx, def, JSON.stringify(def), { prompts: {} });
+  const run = insertRun(ctx, { workflow: def.id, version: 1, repo: fixture.home, brief: "b" });
+  setRunConflict(ctx, run.id, { taskId: held.id, branch: `pacer/${held.id}`, resolutionTaskId: held.id } as never);
+  const child = spawnPinned([front!, "api", "--stdio"], { env: fixture.env, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+  try {
+    await child.stdin.write([rpc(1, "hello", { protocol: 3 }), rpc(2, "task.dismiss", { ids: [held.id] }), rpc(3, "task.dismiss", { ids: [free.id] })].join("\n") + "\n");
+    await child.stdin.end();
+    const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    expect(exit, stderr).toBe(0);
+    const replies = new Map(stdout.trim().split("\n").map(line => JSON.parse(line)).map(reply => [reply.id, reply]));
+    expect(replies.get(2).error.data.code).toBe("not_allowed");
+    expect(replies.get(3).result.dismissed).toEqual([free.id]);
+    expect(stderr).toContain("native task.dismiss 3");
+    expect(stderr).not.toContain("native task.dismiss 2");
+    expect(readTask(ctx, held.id)!.dismissed).toBeUndefined();
+  } finally { if (child.exitCode === null) { child.kill("SIGTERM"); await child.exited; } fixture.cleanup(); }
+}, 60000);

@@ -44,6 +44,8 @@ export function TaskActions({task:t,query,reload,embedded=false}:{task:TaskDetai
   catch(e){setSendError(e);}finally{setSending(false);}
  };
  return <>{!embedded&&<ButtonLink href={hrefFor(routes.workspace(t.id))}>Open workspace</ButtonLink>}
+{/* A task dismissed by an earlier version still owes its verdict. */}
+ {gate&&t.dismissed&&gate.actions.map(a=><ActionButton key={a.label} runner={runner} id={`gate:${gate.id}:${a.label}`} action={a}/>)}
  {gate&&reviewable&&(isConflictGate(gate)?gate.actions.filter(a=>sendBackOnly(a.op,a.params.verdict)).map(a=><ActionButton key={a.label} runner={runner} id={`gate:${gate.id}:${a.label}`} action={a} strong/>):<span className="pc-trace__cap">{MERGE_ON_ACCEPT_WORDS}</span>)}
  {active&&!record&&<><Button disabled={!!action.unavailable} title={action.unavailable} busy={action.busy} onClick={()=>void action.run(t.work?'dispatch.stop':'task.stop',{id:t.id,expect_rev:t.rev},reload)}>Stop</Button>{offersTakeover(session.data,shared)&&<ButtonLink variant="primary" href={`${hrefFor(routes.workspace(t.id,'session'))}&takeover=1`}>Take over</ButtonLink>}</>}
  {reviewable&&<><Button onClick={()=>setReject(true)}>Reject</Button>{userRoot&&(t.executor||t.attempts.at(-1)?.executor)&&<Button onClick={()=>setSendBack(true)}>Send back</Button>}{ready?<Button variant={isConflictGate(gate)?'secondary':'primary'} disabled={!!action.unavailable} title={action.unavailable} busy={action.busy} onClick={()=>submit(true)}>Accept result</Button>:<span className="pc-trace__cap">Review required child work before accepting.</span>}</>}

@@ -2,11 +2,14 @@
 // git, the real engine and tick, and the real review op: no step row is written by
 // hand and no verdict is recorded around the engine, so the ordering is covered.
 import { expect, test } from "bun:test";
-import { chmodSync, mkdirSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fakeCtx, gitRepo, realRun, tmpDir } from "./helpers";
 import { callOp } from "../src/api/ops";
 import * as tasks from "../src/core/tasks";
+import * as attention from "../src/core/attention";
+import { autoCleanTask, cleanTask } from "../src/tasks/cleanup";
+import { insertMessage } from "../src/messaging/store";
 import { CoreError } from "../src/core/errors";
 import { gitInfo } from "../src/core/git";
 import { buildPrompt } from "../src/exec/prompt";
@@ -1670,4 +1673,108 @@ test("a file named like a data marker stays inside the record's fence and visibl
   expect(shown).toContain(`Conflicting files:\n${name}\n`);
   expect(shown).not.toContain(nonce);
   expect(shown).not.toContain("--- data ");
+});
+
+/** Two fan-out branches that conflict: x merged, y parked with an open record. */
+async function heldConflict() {
+  const w = world();
+  const run = await startChain(w, fan);
+  const x = w.taskOf(run.id, "build", "x"), y = w.taskOf(run.id, "build", "y");
+  await w.checkout(x);
+  await w.checkout(y);
+  await w.execute(x, { file: "same.txt", body: "from x\n" });
+  await w.execute(y, { file: "same.txt", body: "from y\n" });
+  w.resumable(y);
+  return { w, run, x, y, tree: readTask(w.ctx, y)!.worktree!, conflict: async () => {
+    await w.accept(x);
+    return (await w.accept(y)).resolution_task!;
+  } };
+}
+
+test("a task a review holds cannot be dismissed, alone or among others, and nothing removes its worktree", async () => {
+  const { w, run, x, y, tree, conflict } = await heldConflict();
+  // Waiting for a verdict is already a hold.
+  await expect(tasks.dismiss(w.ctx, [x])).rejects.toMatchObject({ code: "not_allowed" });
+  const record = await conflict();
+  for (const id of [y, record]) {
+    await expect(tasks.dismiss(w.ctx, [id])).rejects.toThrow(`${id} cannot be dismissed: a workflow review is waiting on it`);
+    await expect(callOp(w.ctx, "task.dismiss", { ids: [id] }, {})).rejects.toMatchObject({ code: "not_allowed" });
+    expect(readTask(w.ctx, id)!.dismissed).toBeUndefined();
+  }
+  // Nothing is dismissed when one of the list is held.
+  await expect(tasks.dismiss(w.ctx, [x, y])).rejects.toMatchObject({ code: "not_allowed" });
+  expect(readTask(w.ctx, x)!.dismissed).toBeUndefined();
+  // Neither a resolved task nor one dismissed by an earlier version loses its worktree.
+  for (const mark of [(t: TaskRecord) => { t.resolved = "merged"; }, (t: TaskRecord) => { t.dismissed = true; }]) {
+    updateTask(w.ctx, y, mark);
+    await autoCleanTask(w.ctx, y);
+    await cleanTask(w.ctx, y, { force: true });
+    expect(existsSync(tree)).toBe(true);
+  }
+  expect(getRun(w.ctx, run.id)!.conflict).toHaveLength(1);
+  // A verdict ends the hold.
+  await w.reject(y);
+  await expect(tasks.dismiss(w.ctx, [y])).resolves.toMatchObject({ unknown: [] });
+});
+
+test("a task sent back and running again is still held", async () => {
+  const { w, y, conflict } = await heldConflict();
+  await conflict();
+  await w.sendBack(y);
+  await expect(tasks.dismiss(w.ctx, [y])).rejects.toMatchObject({ code: "not_allowed" });
+});
+
+test("dismissing another attention item about a held task refuses and stores nothing", async () => {
+  const { w, y, conflict } = await heldConflict();
+  await conflict();
+  insertMessage(w.ctx, { taskId: y, rootId: y, from: `task:${y}`, to: "human", kind: "message", body: "Note.", replyTo: null, requestId: "note" });
+  const store = join(w.ctx.pacerHome, "state", "attention.json");
+  await expect(attention.dismiss(w.ctx, `message:${y}`)).rejects.toMatchObject({ code: "not_allowed" });
+  expect(existsSync(store) ? readFileSync(store, "utf8") : "").not.toContain("dismissedSince");
+  expect(readTask(w.ctx, y)!.dismissed).toBeUndefined();
+});
+
+for (const [state, spoil, words] of [
+  ["dismissed", (t: TaskRecord) => { t.dismissed = true; }, "was dismissed"],
+  ["without its worktree", (t: TaskRecord) => { rmSync(t.worktree!, { recursive: true, force: true }); }, "its worktree was removed"],
+] as const) {
+  test(`send back on a held task ${state} says so each time and keeps the conflict and record`, async () => {
+    const { w, run, y, conflict } = await heldConflict();
+    const record = await conflict();
+    updateTask(w.ctx, y, spoil);
+    for (let press = 0; press < 2; press++) {
+      const refused = tasks.review(w.ctx, y, { verdict: "send_back", note: "merge" }, w.reviewDeps);
+      await expect(refused).rejects.toThrow(words);
+      await expect(tasks.review(w.ctx, y, { verdict: "send_back", note: "merge" }, w.reviewDeps)).rejects.toThrow("reject it and retry the step");
+    }
+    expect(w.spawned.filter(s => s.id === y)).toEqual([]);
+    expect(getRun(w.ctx, run.id)!.conflict).toHaveLength(1);
+    expect(readTask(w.ctx, record)!.dismissed).toBeUndefined();
+    // Only what can work is offered.
+    const item = deriveWorkflowAttention(w.ctx).find(i => i.id === `run_review:${y}`)!;
+    expect(item.actions.map(a => a.label)).toEqual(["Accept", "Reject"]);
+    if (state === "without its worktree") {
+      expect(item.gate!.commands).toEqual([
+        `git worktree add ../resolve-${y} pacer/${y}`, `git -C ../resolve-${y} merge ${getRun(w.ctx, run.id)!.branch}`,
+        `git -C ../resolve-${y} commit`, `pacer review ${y} --accept`,
+      ]);
+      expect(item.detail).toContain("The task's worktree was removed");
+    }
+  });
+}
+
+test("a send back that could not resume the session is not reported as sent when pressed again", async () => {
+  const { w, run, y, conflict } = await heldConflict();
+  const record = await conflict();
+  registerWork(w.ctx, y, { allowDelegation: false });
+  updateTask(w.ctx, y, t => { t.msgClosed = true; });
+  const rev = readTask(w.ctx, y)!.rev;
+  for (let press = 0; press < 2; press++) {
+    await expect(tasks.review(w.ctx, y, { verdict: "send_back", note: "merge" }, w.reviewDeps)).rejects.toThrow("could not continue its session");
+  }
+  expect(readTask(w.ctx, y)!.rev).toBe(rev);
+  expect(getRun(w.ctx, run.id)!.conflict).toHaveLength(1);
+  expect(readTask(w.ctx, record)!.dismissed).toBeUndefined();
+  // Once the session can resume, the same press works.
+  updateTask(w.ctx, y, t => { delete t.msgClosed; });
 });

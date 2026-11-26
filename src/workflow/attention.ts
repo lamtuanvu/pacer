@@ -3,6 +3,7 @@
 // concrete run.set_budget / run.set_planner params. since/raisedAt are stable via
 // spent.attention_at (no orchestrator-attention.json / budget-attention.json).
 // Phase 4 also raises /v3-only items for open person-answerer structured questions (D10).
+import { basename } from "node:path";
 import type { Ctx } from "../types";
 import type { Action, AttentionItem, AttentionUnblocks } from "../attention/types";
 import { notifyLevelForRun, runExternalCaller, sortItems } from "../attention/rules";
@@ -24,7 +25,7 @@ import {
 import { readTask, taskDatabase } from "../tasks/store";
 import { isBudgetBlocked, parseBudget, parseSpent } from "./budget";
 import { resolveRunLetters } from "./letters";
-import { canSendBack, mergeConflictFor, reviewDueTask } from "./review";
+import { canSendBack, mergeConflictFor, removedWorktree, reviewDueTask } from "./review";
 
 /** Person-facing cue so human-step / planner / executor questions differ on Dispatch. */
 function askerCue(kind: QuestionAskerKind): string {
@@ -459,6 +460,11 @@ function reviewItems(ctx: Ctx, run: RunRow, letters: Map<string, string>): Atten
     });
     const sendable = !!conflict && canSendBack(ctx, task);
     const branch = branchOwner(ctx, run).branch;
+    const gone = removedWorktree(task);
+    const own = gone ? `pacer/${basename(gone)}` : "", dir = `../resolve-${task.id}`;
+    const byHand = gone
+      ? "The task's worktree was removed: add one for its branch, merge the run branch there and commit"
+      : "Merge the run branch in the task's worktree and commit";
     items.push({
       id: `run_review:${task.id}`,
       kind: "review",
@@ -467,10 +473,13 @@ function reviewItems(ctx: Ctx, run: RunRow, letters: Map<string, string>): Atten
       taskId: task.id,
       title: gateTitle(conflict ? `Merge conflict in step "${name}"` : `Review the changes from step "${name}"`, root, letters),
       detail: conflict
-        ? `${runDetailSubject(root)}. Accepting hit a merge conflict, so nothing was merged. ${sendable ? "Send it back to resolve it, or merge the run branch in the task's worktree and commit" : "Merge the run branch in the task's worktree and commit"}, then accept.`
+        ? `${runDetailSubject(root)}. Accepting hit a merge conflict, so nothing was merged. ${sendable ? "Send it back to resolve it, or merge the run branch in the task's worktree and commit" : byHand}, then accept.`
         : `${runDetailSubject(root)}. Accepting merges the changes into the run branch and the run continues. Uncommitted work is refused.`,
       gate: conflict
-        ? { kind: "step_conflict", recordId: conflict, commands: [`git merge ${branch}`, "git commit", `pacer review ${task.id} --accept`] }
+        ? { kind: "step_conflict", recordId: conflict, commands: [
+          ...(gone ? [`git worktree add ${dir} ${own}`, `git -C ${dir} merge ${branch}`, `git -C ${dir} commit`] : [`git merge ${branch}`, "git commit"]),
+          `pacer review ${task.id} --accept`,
+        ] }
         : { kind: "step_review" },
       raisedAt: at,
       since: at,

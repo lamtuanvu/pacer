@@ -727,6 +727,32 @@ impl TaskStore {
         self.refresh()?;
         Ok(&self.db)
     }
+    /// Whether a workflow step holds one of these tasks, or a run's conflict names it.
+    pub fn in_workflow(&mut self, ids: &[String]) -> Result<bool> {
+        let db = self.connection()?;
+        let has = |table: &str| -> rusqlite::Result<bool> {
+            db.query_row(
+                "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type = 'table' AND name = ?",
+                [table],
+                |r| r.get(0),
+            )
+        };
+        if !has("workflow_steps")? || !has("workflow_runs")? {
+            return Ok(false);
+        }
+        for id in ids {
+            let found: bool = db.query_row(
+                "SELECT EXISTS (SELECT 1 FROM workflow_steps WHERE task_id = ?1)
+                     OR EXISTS (SELECT 1 FROM workflow_runs WHERE instr(conflict, ?1) > 0)",
+                [id],
+                |r| r.get(0),
+            )?;
+            if found {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
     pub fn read(&mut self, id: &str) -> Result<Option<Value>> {
         if !is_task_id(id) {
             return Ok(None);

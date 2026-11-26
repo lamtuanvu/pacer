@@ -39,6 +39,7 @@ export { canContinue };
 export { taskActivity } from "../tasks/activity";
 import { taskActivity } from "../tasks/activity";
 import { autoCleanTask } from "../tasks/cleanup";
+import { assertDismissable, resumeBlocked } from "../workflow/review";
 
 /** A work root a person started. It keeps the usual task controls; managed children and planner roots use dispatch.*. */
 export function userStartedRoot(ctx: Ctx, t: TaskRecord): boolean {
@@ -201,7 +202,12 @@ async function continueWithMessage(ctx: Ctx, task: TaskRecord, m: { kind: "answe
   const id = task.id, to = `task:${id}`;
   const from = callerParticipant(ctx, { appAuthenticated: deps.appAuthenticated, participant: deps.participant }).id;
   const r = msgStore.insertMessage(ctx, { taskId: id, rootId: rootOf(ctx, to), from, to, kind: m.kind, body: m.body, replyTo: m.replyTo, requestId: m.requestId });
-  if (r.duplicate) return apiTask(ctx, readTask(ctx, id)!); // A retried request: the first one already acted.
+  if (r.duplicate) {
+    // Read without a turn: that attempt started nothing, so this one is made again.
+    if (r.message.status !== "read" || r.message.turnId) return apiTask(ctx, readTask(ctx, id)!); // The first one acted.
+    msgStore.releaseRequest(ctx, r.message.id);
+    return continueWithMessage(ctx, task, m, deps, before, undo);
+  }
   void notifyMessage(ctx, r.message);
   before?.();
   // A policy hold falls back to the legacy retry, which project policy admits as a new attempt (a veto refuses it there).
@@ -296,6 +302,8 @@ export async function review(
   });
   if (verdict === "send_back" || verdict === "retry") {
     const current = readTask(ctx, id);
+    const blocked = verdict === "send_back" && current ? resumeBlocked(ctx, current) : null;
+    if (blocked) throw new CoreError("conflict", blocked);
     if (verdict === "send_back" && current && canContinue(ctx, current)) {
       // The same checks as the legacy path: revision, policy admission, and no active retry.
       validateReview();
@@ -371,6 +379,7 @@ export async function review(
 
 /** Dismisses every known id; unknown ids are returned, never thrown, so one bad id can't stop the rest. */
 export async function dismiss(ctx: Ctx, ids: string[]): Promise<{ dismissed: TaskRecord[]; unknown: string[] }> {
+  for (const id of ids) assertDismissable(ctx, id);
   const dismissed: TaskRecord[] = [], missing: string[] = [];
   for (const id of ids) {
     const t = taskDismiss(ctx, id);

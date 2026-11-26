@@ -13,6 +13,9 @@ export const gateFor = (attention: Items, taskId: string): AttentionItem | undef
 /** The gate item whose conflict this task records. A record is not work: nothing runs it and it asks nothing. */
 export const conflictRecordFor = (attention: Items, taskId: string): AttentionItem | undefined =>
   attention?.find(item => item.gate?.recordId === taskId);
+/** A task a gate holds, itself or as its conflict record: it cannot be dismissed. */
+export const holdsTask = (attention: Items, taskId: string): boolean =>
+  !!gateFor(attention, taskId) || !!conflictRecordFor(attention, taskId);
 /** What a gate says about a task, when one holds it: a conflict record asks nothing. */
 export function gateStatus(attention: Items, task: TaskStatusInput & { id: string }): Status | undefined {
   if (conflictRecordFor(attention, task.id) && task.state === "needs_input") return mergeConflictStatus;

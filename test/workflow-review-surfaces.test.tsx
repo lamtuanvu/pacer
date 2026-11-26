@@ -16,6 +16,7 @@ import { performAction, rowLabel } from "../app/src/tray/Tray";
 import { actionError, actionRoute } from "../app/src/tray/model";
 import type { ApiClient } from "../src/api/client";
 import type { AttentionItem } from "../src/attention/types";
+import { workRows } from "../src/dashboard/screens/work";
 import { Dashboard } from "../src/dashboard/controller";
 import { PLAIN_THEME } from "../src/dashboard/theme";
 import type { ClientSnapshot } from "../src/view-model/snapshot";
@@ -161,11 +162,12 @@ test("a fan-out with a retried branch and no join keeps the fan-out's attempt nu
   expect(tree[0]).toMatchObject({ id: "step:fan:1:", attempt: 1 });
 });
 
-function dashboard(attention: AttentionItem[], respond: (op: string) => unknown) {
-  const s = snapshotWith(attention), calls: { op: string; params: unknown }[] = [], frames: string[] = [];
+function dashboard(attention: AttentionItem[], respond: (op: string) => unknown, tune: (s: ClientSnapshot) => void = () => {}) {
+  const s = snapshotWith(attention); tune(s);
+  const calls: { op: string; params: unknown }[] = [], frames: string[] = [];
   const client: ApiClient = {
     kind: "http",
-    hello: async () => ({ protocol: "3.0.0", pacer: "0", ops: ["task.review", "task.get", "run.stop", "run.sync_base", "run.get", "attention.dismiss"], events: [] }),
+    hello: async () => ({ protocol: "3.0.0", pacer: "0", ops: ["task.review", "task.get", "run.stop", "run.sync_base", "run.get", "attention.dismiss", "task.dismiss"], events: [] }),
     snapshot: async () => ({ protocol: "3.0.0", seq: 1, snapshot: s }),
     call: async <T,>(op: string, params?: unknown) => {
       calls.push({ op, params });
@@ -363,4 +365,42 @@ test("the web dismiss shortcut leaves a review gate alone", async () => {
   await app.run("s", { label: "Snooze", op: "attention.snooze", params: { id: stepReview.id, for: "1h" } });
   await app.run("o", { label: "Dismiss", op: "attention.dismiss", params: { id: "review:t-1" } });
   expect(calls).toEqual(["attention.dismiss"]);
+});
+
+test("the terminal offers no dismiss for a task a review holds", async () => {
+  for (const gate of [stepReview, stepConflict]) {
+    const t = dashboard([gate], () => undefined);
+    await t.dash.refresh();
+    await t.keys("3");
+    expect(t.last()).toContain(gate === stepReview ? "Waiting for review" : "Merge conflict");
+    expect(t.last()).not.toContain("x dismiss");
+    await t.keys("x", "1", "down", "x", "down", "x");
+    expect(t.calls.filter(c => c.op === "task.dismiss")).toEqual([]);
+  }
+  const free = dashboard([], () => undefined);
+  await free.dash.refresh();
+  await free.keys("3");
+  expect(free.last()).toContain("x dismiss");
+});
+
+test("the terminal's home offers no dismiss on a held task finished today", async () => {
+  // The finished-today row is the last one: walk down to it.
+  const today = (s: ClientSnapshot) => { s.today = { ...s.today!, since: s.at - 3600 }; s.tasks[0]!.updatedAt = s.at; s.tasks[0]!.source = "cli" as never; };
+  for (const [attention, offered] of [[[stepReview], false], [[], true]] as const) {
+    const t = dashboard([...attention], () => undefined, today);
+    await t.dash.refresh();
+    await t.keys("1", ...Array<string>(12).fill("down"));
+    expect(t.last()).toMatch(/› 08:00 .*Implement it/);
+    expect(t.last().includes("x dismiss")).toBe(offered);
+    await t.keys("x");
+    expect(t.calls.filter(c => c.op === "task.dismiss").length).toBe(offered ? 1 : 0);
+  }
+});
+
+test("the terminal's work tree line says what the list says about a held task", () => {
+  const node = { taskId: TASK, id: TASK, title: "Implement it", state: "done", depth: 0, dependencies: [], decisions: [], attempts: [] };
+  const detail = { work: {}, workTree: { totals: { tasks: 1, running: 0, queued: 0, executionSeconds: 1 }, nodes: [node] } };
+  const rows = workRows({ s: snapshotWith([stepReview]), theme: PLAIN_THEME } as never, detail as never, 100);
+  const shown = rows.map(row => row.line?.map(span => span.text).join("") ?? "").join("\n");
+  expect(shown).toContain("Implement it · Waiting for review");
 });

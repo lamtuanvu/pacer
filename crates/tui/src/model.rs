@@ -227,6 +227,13 @@ pub fn title(t: &V) -> String {
     crate::titles::title(t)
 }
 
+/// A task a gate holds, itself or as its conflict record (`holdsTask`): it cannot be dismissed.
+pub fn holds_task(s: &V, id: &str) -> bool {
+    arr(&s["attention"]).iter().any(|a| {
+        !a["gate"].is_null() && (text(&a["taskId"]) == id || text(&a["gate"]["recordId"]) == id)
+    })
+}
+
 /// What a workflow gate says about a task it holds (`gateStatus`,
 /// `src/view-model/run-gate.ts`): it beats the task's own "completed".
 pub fn held_status(s: &V, t: &V) -> Line {
