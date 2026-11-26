@@ -1202,3 +1202,27 @@ test("a foreign or dev pacer under a survivor's tree is foreign, not covered by 
   expect(() => assertNativeProcessCoverage(processes, id(10), [id(20)], front)).toThrow("Another pacer CLI process prevents desktop update");
   expect(() => assertNativeProcessCoverage(processes.filter(p => p.process.pid !== 50), id(10), [id(20)], front)).not.toThrow();
 });
+
+test("fixture scope limits only judgements outside the trees; a foreign pacer under a survivor is still refused", async () => {
+  const { assertNativeProcessCoverage, classifyNativeProcessCoverage } = await import("../src/update/desktop/native-provider");
+  const id = (pid: number) => ({ pid, bootId: "boot", birth: `${pid}:1` });
+  const front = "/sandbox/ota/current.app/Contents/Resources/pacer";
+  const processes = [
+    { process: id(10), uid: 501, parentPid: 1, name: "pacer", executable: front },                    // fixture service
+    { process: id(20), uid: 501, parentPid: 10, name: "pacer", executable: front },                   // terminal session host (survivor)
+    { process: id(30), uid: 501, parentPid: 20, name: "zsh", executable: "/bin/zsh" },                // its shell, out of scope
+    { process: id(40), uid: 501, parentPid: 30, name: "pacer", executable: "/sandbox/evidence/foreign-pacer/pacer" }, // foreign, out of scope
+    { process: id(50), uid: 501, parentPid: 1, name: "pacer", executable: "/Applications/pacer.app/Contents/Resources/pacer" }, // real install, out of scope
+  ];
+  const inScope = (p: { executable: string | null }) => !!p.executable?.startsWith("/sandbox/ota/");
+  const decisions = classifyNativeProcessCoverage(processes, id(10), [id(20)], front, [], inScope);
+  expect(Object.fromEntries(decisions.map(d => [d.process.process.pid, [d.role, d.tree ?? null]])))
+    .toEqual({ 10: ["service", null], 20: ["lease", "lease"], 40: ["foreign", "lease"] });
+  const lines: string[] = [], info = console.info;
+  console.info = (line: string) => { lines.push(line); };
+  try { expect(() => assertNativeProcessCoverage(processes, id(10), [id(20)], front, [], inScope)).toThrow("Another pacer CLI process prevents desktop update"); }
+  finally { console.info = info; }
+  expect(lines).toContain("pacer: desktop update coverage refused: foreign=1 lease-tree=1");
+  // Without the survivor the foreign pacer is out of every tree and out of scope: ignored, as before.
+  expect(() => assertNativeProcessCoverage(processes.filter(p => p.process.pid !== 20), id(10), [], front, [], inScope)).not.toThrow();
+});

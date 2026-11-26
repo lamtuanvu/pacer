@@ -74,9 +74,19 @@ export function assertOneHandover(result: ReturnType<typeof handoverRuns>, commi
   if (result.runs.some(run => run.origin === "request" && run.signalled > 0)) throw Error("The desktop's step-0 call signalled runners a second time");
   return commits[0]!;
 }
-/** The coverage line the service logs when it refuses a foreign pacer process. */
-export function foreignCoverageLogged(pacerHome: string, offset: number): boolean {
-  return logSince(pacerHome, offset).some(line => /pacer: desktop update coverage .*foreign=\d+/.test(line));
+/**
+ * The refusal the service logs when coverage rejects a foreign pacer (`assertNativeProcessCoverage`),
+ * with how many of the refused processes sat inside a survivor's lease tree.
+ */
+export function coverageRefusals(lines: readonly string[]): { foreign: number; leaseTree: number }[] {
+  return lines.flatMap(line => {
+    const match = /pacer: desktop update coverage refused: foreign=(\d+) lease-tree=(\d+)/.exec(line);
+    return match ? [{ foreign: Number(match[1]), leaseTree: Number(match[2]) }] : [];
+  });
+}
+/** The service layer refused because of a pacer inside a survivor's process tree (ADR point 2). */
+export function leaseTreeRefusalLogged(pacerHome: string, offset: number): { foreign: number; leaseTree: number } | null {
+  return coverageRefusals(logSince(pacerHome, offset)).find(refusal => refusal.leaseTree > 0) ?? null;
 }
 
 function hostOf(pacerHome: string, id: string): ProcessIdentity | null {

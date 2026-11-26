@@ -429,8 +429,9 @@ export const OPS: Record<string, OpDef> = {
   "onboarding.skip": op({ description: "Skip the first delegation and record the onboarding choice.", params: z.object({}), handler: ctx => mutation(ctx, "setup", () => setup.onboardingSkip(ctx)) }),
   "service.status": op({ description: "Whether the login service is installed and running, with its process id when known.", params: z.object({}), handler: ctx => setup.serviceStatus(ctx) }),
   "service.handover": op({ description: "After an upgrade, ask older runners to hand their live attempts to this service's version. Waits up to wait_s seconds (default and maximum 60) and returns counts. Owner-only; refused for delegated callers.", params: z.object({wait_s: z.number().int().min(0).max(60).optional()}), handler: async (ctx, p) => {
-    // While a desktop update can still roll back, signal nothing: its commit hands over (ADR 2026-11-25).
-    if ((await import("../update/desktop/store")).desktopTransactionOpen(ctx)) {
+    // While a desktop update can still roll back, or any reservation still refuses new work, signal
+    // nothing: the update's commit (after release) or the caller's next try hands over (ADR 2026-11-25).
+    if ((await import("../update/desktop/store")).desktopTransactionOpen(ctx) || (await import("../update/desktop/admission")).admissionReserved(ctx)) {
       const w = await runningWork(ctx), c = workCounts(w);
       return {pacer: w.pacer, tasks: c.tasks, sessions: c.sessions, handed_over: 0, kept_on_previous_runner: 0, deferred: true,
         summary: "A desktop update is still finishing; running work hands over when it commits."};

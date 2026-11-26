@@ -397,8 +397,9 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
         } catch { /* Health stamp is best-effort after a committed desktop update. */ }
       }
       // Hand over only after the reservation is released, so replacement runners can start. If the
-      // release fails, nothing is signalled: runners keep running on old code (fail-safe) and the
-      // desktop's next-connect `service.handover` call hands over once the reservation is gone.
+      // release fails, nothing is signalled: runners keep running on old code (fail-safe), and
+      // `service.handover` keeps answering deferred while the reservation is held; the desktop calls
+      // again on its next connect, after reconciliation releases it.
       await release(id, transactionId);
       if (completed) signalCommitted(transactionId);
       recoveryAttempts.delete(id);

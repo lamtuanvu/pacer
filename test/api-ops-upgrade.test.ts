@@ -141,3 +141,21 @@ test("concurrent handovers in one service share a single run", async () => {
   await expect(sharedHandover(async () => { throw Error("boom"); }, "request", line => lines.push(line))).rejects.toThrow("boom");
   expect(lines.at(-1)).toBe("pacer: handover (request) failed: boom");
 });
+
+test("service.handover also defers while an admission reservation is held", async () => {
+  const { reserveIdle, releaseReservation, admissionReserved } = await import("../src/update/desktop/admission");
+  const { readTask } = await import("../src/tasks/store");
+  const ctx = fakeCtx({ now: Date.now() / 1000 });
+  expect(admissionReserved(ctx)).toBe(false);
+  // Reserve while idle (the record phase is already complete in this window), then record running work.
+  expect((await reserveIdle(ctx, "tx-r7")).reserved).toBe(true);
+  const t = createTask(ctx, { brief: { goal: "g", repo: tmpDir() }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  updateTask(ctx, t.id, x => { x.state = "running"; x.runnerPid = 4194302; x.runnerPacer = "0.10.0";
+    x.handover = { protocol: 1, pacer: "0.10.0", identity: { pid: 4194302, bootId: "b", birth: "1:2" } }; });
+  expect(admissionReserved(ctx)).toBe(true);
+  expect(await callOp(ctx, "service.handover", { wait_s: 0 })).toMatchObject({ deferred: true, handed_over: 0 });
+  expect(readTask(ctx, t.id)?.handover?.signalledAt).toBeUndefined();
+  await releaseReservation(ctx, "tx-r7");
+  expect(admissionReserved(ctx)).toBe(false);
+  expect((await callOp(ctx, "service.handover", { wait_s: 0 }) as { deferred?: boolean }).deferred).toBeUndefined();
+});

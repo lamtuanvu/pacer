@@ -83,3 +83,12 @@ test("handover evidence: one commit run that kept the sessions; failures and sec
   expect(assertOneHandover(handoverRuns([]), false, 2)).toBeNull();
   expect(() => assertOneHandover(handoverRuns([request]), false, 2)).toThrow("rolled-back");
 });
+
+test("coverage refusal evidence distinguishes the lease-tree rule from an out-of-tree foreign path", async () => {
+  const { coverageRefusals } = await import("../scripts/live/ota-active-work");
+  expect(coverageRefusals([
+    "pacer: desktop update coverage service=3 lease=2 foreign=1",
+    "pacer: desktop update coverage refused: foreign=1 lease-tree=0",
+    "pacer: desktop update coverage refused: foreign=2 lease-tree=1",
+  ])).toEqual([{ foreign: 1, leaseTree: 0 }, { foreign: 2, leaseTree: 1 }]);
+});

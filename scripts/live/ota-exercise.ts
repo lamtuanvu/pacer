@@ -12,7 +12,7 @@ import { healthy, loadSession, record, sourceServiceMatchesExecutable } from "./
 import { recordOtaEvent } from "./ota-evidence";
 import { assertFixtureLayoutScenario, readOtaRecord, resumeOtaStartup, updateOtaDriverRecord, type OtaOptions } from "./ota";
 import { ACTIVE_WORK_SCENARIOS, MANAGED_SCENARIOS, managedExpectedPhase, newExercise, resumableStartup } from "./ota-exercise-record";
-import { assertOneHandover, assertSurvivorReservation, assertSurvivorsAlive, closeSurvivorWork, foreignCoverageLogged, sampleAdmission, serviceHandoverRuns, startForeignPacerInTerminal, startSurvivorWork, type AdmissionSample, type SurvivorWork } from "./ota-active-work";
+import { assertOneHandover, assertSurvivorReservation, assertSurvivorsAlive, closeSurvivorWork, leaseTreeRefusalLogged, sampleAdmission, serviceHandoverRuns, startForeignPacerInTerminal, startSurvivorWork, type AdmissionSample, type SurvivorWork } from "./ota-active-work";
 import { verifyExerciseOutcome, verifyExerciseSurvivors } from "./ota-outcome";
 import { fixtureRequest, retryFixtureRevision } from "./ota-request";
 import { fixtureEnvironment, fixtureInstallation, inspectFixtureJobs, seedFixtureConsent, verifyFixtureBundle } from "./ota-native";
@@ -196,7 +196,10 @@ export async function runManagedExercise(id: string, scenario: string, options: 
       const tx = latest.transactionId;
       if (!tx) throw Error("No transaction was prepared, so survivors were never admitted");
       assertSurvivorReservation(admissionSamples, tx);
-      if (!foreignCoverageLogged(state.pacerHome, work!.logOffset)) throw Error("The service did not log a foreign coverage refusal");
+      // The refusing layer must be the service's coverage, for a pacer inside a survivor's lease tree
+      // (not the older out-of-tree foreign-path rule, and not a later helper refusal).
+      const refusal = leaseTreeRefusalLogged(state.pacerHome, work!.logOffset);
+      if (!refusal) throw Error("The service did not refuse a foreign pacer inside a survivor's lease tree");
       const ctx = makeCtx({ home: state.pacerHome, pacerHome: state.pacerHome, env: fixtureEnvironment(state) });
       const native = (() => { try { return readNativeTransaction(ctx, installationId!, tx); } catch { return null; } })();
       if (native?.authorization) throw Error("An install was authorized despite the foreign pacer process");
@@ -206,7 +209,7 @@ export async function runManagedExercise(id: string, scenario: string, options: 
       foreign?.stop(); foreign = null;
       clearInterval(admissionTrace); admissionTrace = undefined;
       writeFileSync(join(session.root, "evidence/active-work-admission.json"), JSON.stringify(admissionSamples.slice(-2000), null, 2) + "\n", { flag: "wx", mode: 0o600 });
-      record(session, { kind: "note", behavior: `OTA ${scenario}`, surface: "desktop / public API / native coverage", verdict: "PASS", text: `Survivors were admitted (reservation ${tx} with survivors: true), then a foreign pacer started inside a survivor terminal made the service's coverage refuse before authorization (${latest.error?.message ?? "pre_handoff"}). No native authorization, the fixture stayed on 0.2.3, ${work!.terminals.length} terminal hosts kept running and nothing was handed over.` });
+      record(session, { kind: "note", behavior: `OTA ${scenario}`, surface: "desktop / public API / native coverage", verdict: "PASS", text: `Survivors were admitted (reservation ${tx} with survivors: true), then a foreign pacer started inside a survivor terminal was refused by the service coverage layer (lease-tree rule: foreign=${refusal.foreign}, lease-tree=${refusal.leaseTree}) before authorization (${latest.error?.message ?? "pre_handoff"}). No native authorization, the fixture stayed on 0.2.3, ${work!.terminals.length} terminal hosts kept running and nothing was handed over.` });
       state = readOtaRecord(id, options);
       updateOtaDriverRecord(id, state, { runtime: { ...state.runtime!, request: null }, exercise: { ...state.exercise!, state: "complete" } }, options);
       return;

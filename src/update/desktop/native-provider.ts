@@ -1835,9 +1835,11 @@ export function configuredNativeBridge(
     }
     const fixture = compiledNativeFixture();
     if (fixture) verifyNativeFixture(fixture);
-    const processes = enumerateNativeProcesses().filter(
-      (process) => !fixture || fixtureProcessInScope(fixture, process.executable),
-    );
+    const inScope = (process: NativeProcess) => !fixture || fixtureProcessInScope(fixture, process.executable);
+    // Trees need every process (a survivor's agent and shell live outside the fixture sandbox);
+    // only signed-peer verification and judgements outside the trees are scoped to the fixture.
+    const all = enumerateNativeProcesses();
+    const processes = all.filter(inScope);
     for (const process of processes) {
       const role = process.executable?.endsWith(".app/Contents/MacOS/pacer")
         ? "desktop"
@@ -1848,7 +1850,7 @@ export function configuredNativeBridge(
       }
     }
     if (options?.coverage) {
-      assertNativeProcessCoverage(processes, service, enrolledWorkProcesses(ctx), executable, allowed);
+      assertNativeProcessCoverage(all, service, enrolledWorkProcesses(ctx), executable, allowed, inScope);
     }
     const status = await ctx.run(
       ["/bin/launchctl", "print", `gui/${process.getuid!()}/${registration.label}`], 5000,
@@ -1928,10 +1930,12 @@ export function classifyNativeProcessCoverage(
   enrolled: readonly ProcessIdentity[],
   registeredExecutable: string,
   verifiedNative: readonly ProcessIdentity[] = [],
-): { process: NativeProcess; role: NativeCoverageRole }[] {
+  /** Fixture builds judge only their own sandbox outside the trees; trees use every process. */
+  inScope: (process: NativeProcess) => boolean = () => true,
+): { process: NativeProcess; role: NativeCoverageRole; tree?: "lease" }[] {
   const serviceTree = nativeProcessTreePids([service], processes);
   const leaseTree = nativeProcessTreePids(enrolled, processes);
-  const decisions: { process: NativeProcess; role: NativeCoverageRole }[] = [];
+  const decisions: { process: NativeProcess; role: NativeCoverageRole; tree?: "lease" }[] = [];
   for (const process of processes) {
     if (!looksLikePacerProcess(process, registeredExecutable)) continue;
     if (sameProcess(process.process, service)) {
@@ -1946,13 +1950,14 @@ export function classifyNativeProcessCoverage(
       enrolled.some((identity) => sameProcess(identity, process.process)) ||
       leaseTree.has(process.process.pid)
     ) {
-      decisions.push({ process, role: registeredCliPair(process, registeredExecutable) ? "lease" : "foreign" });
+      decisions.push({ process, role: registeredCliPair(process, registeredExecutable) ? "lease" : "foreign", tree: "lease" });
       continue;
     }
     if (serviceTree.has(process.process.pid)) {
       decisions.push({ process, role: "service" });
       continue;
     }
+    if (!inScope(process)) continue;
     if (verifiedNative.some((identity) => sameProcess(identity, process.process))) {
       decisions.push({ process, role: "verified" });
       continue;
@@ -2004,6 +2009,7 @@ export function assertNativeProcessCoverage(
   enrolled: readonly ProcessIdentity[],
   registeredExecutable: string,
   verifiedNative: readonly ProcessIdentity[] = [],
+  inScope: (process: NativeProcess) => boolean = () => true,
 ): void {
   const decisions = classifyNativeProcessCoverage(
     processes,
@@ -2011,9 +2017,14 @@ export function assertNativeProcessCoverage(
     enrolled,
     registeredExecutable,
     verifiedNative,
+    inScope,
   );
   logCoverageDecision(decisions);
-  if (decisions.some((decision) => decision.role === "foreign")) {
+  const foreign = decisions.filter((decision) => decision.role === "foreign");
+  if (foreign.length) {
+    // Unthrottled: names the layer and rule that refused, never paths.
+    const inLease = foreign.filter((decision) => decision.tree === "lease").length;
+    console.info(`pacer: desktop update coverage refused: foreign=${foreign.length} lease-tree=${inLease}`);
     throw new CoreError(
       "not_allowed",
       "Another pacer CLI process prevents desktop update",

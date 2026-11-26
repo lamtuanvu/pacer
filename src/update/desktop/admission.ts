@@ -207,6 +207,22 @@ export function hasReservation(ctx: Ctx, transactionId: string): boolean {
   });
 }
 
+/**
+ * True while any update or maintenance reservation is held. Replacement runners cannot start then,
+ * so `service.handover` defers. Unreadable admission evidence counts as held (conservative).
+ */
+export function admissionReserved(ctx: Ctx): boolean {
+  if (!existsSync(join(ctx.pacerHome, "desktop-updates", "admission.sqlite"))) return false;
+  try {
+    return withDesktopCoordinator(ctx, db => {
+      const table = db.query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type='table' AND name='admission'").get();
+      if (!table) return false;
+      const row = db.query<{ state: string }, []>("SELECT state FROM admission WHERE id = 1").get();
+      return !!row && stateSchema.parse(JSON.parse(row.state)).reservation !== null;
+    });
+  } catch { return true; }
+}
+
 /** Private native coverage projection; these incarnations have durable work leases. */
 export function enrolledWorkProcesses(ctx: Ctx): import("./process-identity").ProcessIdentity[] {
   return mutate(ctx, state => {
