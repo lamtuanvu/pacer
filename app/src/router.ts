@@ -97,8 +97,8 @@ export function parentFor(route: Route): RouteTarget | null {
   if (route.name === "add-executor") return routes.settings(undefined, route.query);
   return null;
 }
-/** Insights and Runs carry their own in-page h1, so the top bar omits its title there (UI-9). */
-export function pageOwnsTitle(route: Route): boolean { return route.name === "insights" || route.name === "runs" || route.name === "task-failure" || route.name === "task-review" || (route.name === "sessions" && !!route.id); }
+/** Insights, Runs and the Live boards carry their own in-page h1, so the top bar omits its title there (UI-9). */
+export function pageOwnsTitle(route: Route): boolean { return route.name === "insights" || route.name === "runs" || route.name === "live" || route.name === "task-failure" || route.name === "task-review" || (route.name === "sessions" && !!route.id); }
 export function titleFor(route: Route, pluginTitle = "Plugin view"): string {
   if (route.name === "task-failure") return "Inspect failures";
   if (route.name === "task-review") return "Review result";

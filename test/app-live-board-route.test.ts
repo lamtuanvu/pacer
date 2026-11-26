@@ -62,3 +62,8 @@ test("the command palette offers Several runs, found by 'live board', and it ope
   // no other command already uses the same chord
   expect(commands.list().filter(c => c.keys === "g l")).toHaveLength(1);
 });
+
+test("each Live board route carries its own h1, so the top bar adds none (UI-9)", async () => {
+  const { pageOwnsTitle, resolveRoute } = await import("../app/src/router");
+  for (const hash of ["#/live", "#/live/run_1", "#/live/run_1/journey"]) expect(pageOwnsTitle(resolveRoute(hash) as never)).toBe(true);
+});
