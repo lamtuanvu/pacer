@@ -24,7 +24,6 @@ use std::collections::HashSet;
 
 use super::files_search_ops::providers;
 use super::lifecycle_ops::{invalid, type_name};
-use super::session_context_ops::authorize;
 
 pub const DELEGATION_OPS: &[&str] = &[
     "task.delegate",
@@ -442,10 +441,7 @@ pub fn admit(ctx: &Ctx, op: &str, params: &Value) -> Result<Admission, CoreError
         return Ok(Admission::Core);
     };
     // `authorizeWorkOperation` answers these identities before reading the params.
-    if env_set(ctx, "PACER_ASSISTANT_GRANT") {
-        return Ok(Admission::Core);
-    }
-    authorize(ctx)?;
+    pacer_work::authorize_work_operation(ctx, op, params, is_executor(ctx))?;
     if env_set(ctx, "PACER_WORK_GRANT") {
         return Ok(Admission::Core);
     }

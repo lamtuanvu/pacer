@@ -9,12 +9,11 @@ import { closedPort, fakeCtx, pinnedPort } from "./helpers";
 // answer the deterministically-native requests byte for byte exactly as forced
 // forwarding to the TypeScript core would.
 //
-// `dispatch.enforcement` has no callable store effects it can run without the
-// dispatch-parts bridge for a specific repository; in a fresh home no
-// repository is registered, so every request has a repo the policy says Core
-// must resolve and the front door forwards it just like `PACER_FORWARD_OPS`
-// would. `dispatch.enforcement.probe` answers its params and repo refusals
-// itself and defers a resolvable probe to Core. `denied` answers at its
+// B2-5 answers dispatch parts natively, so `dispatch.enforcement` no longer
+// forwards on `repo_needs_core`: a relative repo that names no registered repo
+// answers `invalid_input` in both the native and forced-forwarding runs.
+// `dispatch.enforcement.probe` answers its params and repo refusals itself and
+// defers a resolvable probe to Core. `denied` answers at its
 // enforcement-identity gate (no `pet_` identity here), which fires before
 // the params are validated.
 
@@ -91,13 +90,11 @@ test.skipIf(!front)("enforcement identity gate and repo refusals match forced fo
     request(16, "dispatch.enforcement", { repo: "" }),
   ];
 
-  // Refusals the front door answers itself: `denied` (0-7), each at its
-  // enforcement-identity gate, and `probe` (8-11), each at its params and
-  // repo validation. `dispatch.enforcement` (12-14) has no repo registered
-  // in a fresh home, so the front door forwards it to Core in both
-  // exchanges and it never carries a native marker here.
-  const native_idxs = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
-  const native = await exchange(ctx.home, denied_bad_agent.concat(denied_tokens, probes_no_grant, enforcement_forwarded), false, {}, native_idxs);
+  // B2-5: every request is native. `denied` answers at its enforcement-identity
+  // gate, `probe` at params/repo validation, and `dispatch.enforcement` with a
+  // relative repo that names no registered repo now answers natively too
+  // (`invalid_input`, the same bytes forced forwarding produced before).
+  const native = await exchange(ctx.home, denied_bad_agent.concat(denied_tokens, probes_no_grant, enforcement_forwarded), false, {}, null);
   const forwarded = await exchange(ctx.home, denied_bad_agent.concat(denied_tokens, probes_no_grant, enforcement_forwarded), true);
   expect(native).toEqual(forwarded);
   expect(wire(native)).toEqual(wire(forwarded));
@@ -139,18 +136,17 @@ async function serve(home: string, forward: boolean) {
 }
 
 test.skipIf(!front)("HTTP enforcement refusals match forced forwarding byte for byte", async () => {
-  // Over HTTP the `denied` identity gate and the `probe` params/repo validation
-  // fire before any store access, and `dispatch.enforcement` with no registered
-  // repository is forwarded; each reply must be byte-identical to forced
-  // forwarding to TypeScript.
+  // Over HTTP the `denied` identity gate, the `probe` params/repo validation and
+  // `dispatch.enforcement` with a relative unregistered repo are all answered
+  // natively; each reply must be byte-identical to forced forwarding to TypeScript.
   const cases: { op: string; body: string; native?: true }[] = [
     { op: "dispatch.enforcement.denied", body: JSON.stringify({}), native: true },
     { op: "dispatch.enforcement.denied", body: JSON.stringify({ agent: "gemini" }), native: true },
     { op: "dispatch.enforcement.denied", body: JSON.stringify({ agent: "claude-code", stray: true }), native: true },
-    // No repository is registered, so `dispatch.enforcement` is forwarded in both runs.
-    { op: "dispatch.enforcement", body: JSON.stringify({ repo: "anywhere" }) },
-    { op: "dispatch.enforcement", body: JSON.stringify({}) },
-    { op: "dispatch.enforcement", body: JSON.stringify({ repo: "" }) },
+    // A relative repo that names no registered repo is now answered natively.
+    { op: "dispatch.enforcement", body: JSON.stringify({ repo: "anywhere" }), native: true },
+    { op: "dispatch.enforcement", body: JSON.stringify({}), native: true },
+    { op: "dispatch.enforcement", body: JSON.stringify({ repo: "" }), native: true },
     // A valid-enough probe runs its params and repo validation natively.
     { op: "dispatch.enforcement.probe", body: JSON.stringify({ repo: "anywhere", runner: "r" }), native: true },
     { op: "dispatch.enforcement.probe", body: JSON.stringify({ repo: "" }), native: true },

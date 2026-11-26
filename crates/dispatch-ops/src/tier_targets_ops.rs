@@ -170,7 +170,7 @@ fn save_targets(ctx: &Ctx, expected: &str, targets: Value) -> Result<Value, Core
 
 pub fn dispatch_tier_targets_get(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
-        authorize(ctx)?;
+        authorize(ctx, "dispatch.tierTargets.get", &params)?;
         params_object(&params)?;
         read_targets(ctx)
     })
@@ -178,7 +178,7 @@ pub fn dispatch_tier_targets_get(ctx: &Ctx, params: Value) -> OpFuture<'_> {
 
 pub fn dispatch_tier_targets_set(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
-        authorize(ctx)?;
+        authorize(ctx, "dispatch.tierTargets.set", &params)?;
         let map = params_object(&params)?;
         let mut issues = Vec::new();
         string_issues(

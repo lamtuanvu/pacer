@@ -1,8 +1,8 @@
 //! `msg.send`, `msg.confirm`, `msg.close` and `msg.wait` from `src/api/ops-msg.ts` and
 //! `src/messaging/send.ts`. Rust owns validation, the caller, the guardrail and every store
 //! write. The Core [`Bridge`] runs only what needs the live TypeScript service: a task
-//! recipient's turn (`deliver`: project-policy admission and runner spawn), the human's task
-//! and attention republication, and worktree auto-clean.
+//! recipient's turn (`deliver`: project-policy admission and runner spawn) and worktree
+//! auto-clean. The human's task and attention republication is native (see `publish`).
 #![allow(clippy::result_large_err)] // CoreError is part of the public handler API by value.
 use crate::msg_ops::{
     MSG_KINDS, PARTICIPANT, Params, forbidden, is_closed, open, participant, participant_id,
@@ -18,7 +18,7 @@ use serde_json::{Map, Value, json};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// Core effects a message write cannot own. Requests are `{"kind":"deliver","to"}`,
-/// `{"kind":"notify","id"}`, `{"kind":"publish","taskIds"}` and `{"kind":"clean","id"}`.
+/// `{"kind":"notify","id"}` and `{"kind":"clean","id"}`.
 pub trait Bridge: Send {
     fn call(&mut self, request: Value) -> OpFuture<'_>;
 }
@@ -146,32 +146,30 @@ fn text<'v>(value: &'v Value, key: &str) -> Option<&'v str> {
     value.get(key).and_then(Value::as_str)
 }
 
-/// The human's messages changed: TypeScript republishes their tasks and attention items.
-async fn publish_for_human(store: &mut TaskStore, ids: &[&str], bridge: &mut dyn Bridge) {
-    let mut tasks = Vec::new();
-    for id in ids {
-        let task = messages::get(store, id)
-            .ok()
-            .flatten()
-            .and_then(|m| m.get("taskId").cloned())
-            .unwrap_or(Value::Null);
-        tasks.push(task);
-    }
+/// The human's messages changed: republish their tasks and attention items natively.
+fn publish_for_human(ctx: &Ctx, store: &mut TaskStore, ids: &[&str]) {
+    let tasks: Vec<String> = ids
+        .iter()
+        .filter_map(|id| messages::get(store, id).ok().flatten())
+        .filter_map(|m| m.get("taskId").and_then(Value::as_str).map(str::to_owned))
+        .collect();
     // `void publishTaskMessages(...)`: the receipts stand when publication fails.
-    best_effort(bridge, json!({"kind": "publish", "taskIds": tasks})).await;
+    if let Err(error) = crate::publish::publish_task_messages(ctx, store, &tasks) {
+        eprintln!("pacer: message publish effect failed: {}", error.message);
+    }
 }
 
 /// `readMessages`: marks the recipient's messages read; the human's update their tasks at once.
 async fn read_messages(
+    ctx: &Ctx,
     store: &mut TaskStore,
     to: &str,
     ids: &[&str],
     at: f64,
-    bridge: &mut dyn Bridge,
 ) -> Result<usize, CoreError> {
     let read = messages::mark_read(store, to, ids, at).map_err(store_error)?;
     if read > 0 && to == "human" {
-        publish_for_human(store, ids, bridge).await;
+        publish_for_human(ctx, store, ids);
     }
     Ok(read)
 }
@@ -287,13 +285,22 @@ fn undo_answer(ctx: &Ctx, store: &mut TaskStore, m: &Value) -> Result<(), CoreEr
     Ok(())
 }
 
-/// `deliverMessage`: an answer is recorded on the task's question before its turn starts.
+/// `deliverMessage`: an answer to a live question is typed into its session first;
+/// otherwise it is recorded on the task's question before its turn starts.
 async fn deliver_message(
     ctx: &Ctx,
     store: &mut TaskStore,
     m: &Value,
     bridge: &mut dyn Bridge,
 ) -> Result<Value, CoreError> {
+    if text(m, "kind") == Some("answer") && text(m, "replyTo").is_some() {
+        let live = bridge
+            .call(json!({"kind": "answer", "id": text(m, "id"), "replyTo": text(m, "replyTo")}))
+            .await?;
+        if text(&live, "delivery") == Some("live") {
+            return Ok(json!({"delivery": "live"}));
+        }
+    }
     let answered = record_answer(ctx, store, m)?;
     let result = match deliver(text(m, "to").unwrap_or_default(), bridge).await {
         Ok(result) => result,
@@ -321,7 +328,7 @@ async fn deliver_message(
         if delivery != "held" {
             let to = text(&question, "to").unwrap_or_default();
             let id = text(&question, "id").unwrap_or_default();
-            read_messages(store, to, &[id], ctx.now, bridge).await?;
+            read_messages(ctx, store, to, &[id], ctx.now).await?;
         }
     }
     Ok(result)
@@ -337,9 +344,6 @@ fn merged(mut out: Map<String, Value>, delivery: Value) -> Value {
     }
     Value::Object(out)
 }
-
-/// Internal signal: retry the original request in Core before any duplicate side effects.
-pub const FORWARD_DUPLICATE_ANSWER: &str = "forward duplicate answer to Core";
 
 /// `duplicate`: a retried request id returns what it stored before any check can refuse it.
 async fn duplicate(
@@ -358,9 +362,6 @@ async fn duplicate(
             "msg_request_mismatch",
         ));
     }
-    if text(&message, "kind") == Some("answer") && text(&message, "replyTo").is_some() {
-        return Err(CoreError::new(Code::Internal, FORWARD_DUPLICATE_ANSWER));
-    }
     let mut out = Map::new();
     out.insert("message".into(), message.clone());
     out.insert("duplicate".into(), json!(true));
@@ -373,20 +374,21 @@ async fn duplicate(
         _ => {}
     }
     if let (Some("answer"), Some(reply_to)) = (text(&message, "kind"), text(&message, "replyTo")) {
+        // A refused live answer stays read while its question stays open: retry it.
+        let live = bridge
+            .call(json!({"kind": "answer", "id": text(&message, "id"), "replyTo": reply_to}))
+            .await?;
+        if text(&live, "delivery") == Some("live") {
+            return Ok(merged(out, json!({"delivery": "live"})));
+        }
+        // Another turn already took the answer, so its question is read.
         let (from, to) = (
             text(&message, "from").unwrap_or_default(),
             text(&message, "to").unwrap_or_default(),
         );
         if let Some(q) = answered_question(store, from, to, reply_to)? {
             let id = text(&q, "id").unwrap_or_default();
-            read_messages(
-                store,
-                text(&q, "to").unwrap_or_default(),
-                &[id],
-                ctx.now,
-                bridge,
-            )
-            .await?;
+            read_messages(ctx, store, text(&q, "to").unwrap_or_default(), &[id], ctx.now).await?;
         }
     }
     Ok(merged(out, json!({"delivery": "queued"})))
@@ -693,7 +695,7 @@ fn ids(hits: &[Value]) -> Vec<&str> {
     hits.iter().filter_map(|m| text(m, "id")).collect()
 }
 
-async fn wait(ctx: &Ctx, params: Value, bridge: &mut dyn Bridge) -> Result<Value, CoreError> {
+async fn wait(ctx: &Ctx, params: Value, _bridge: &mut dyn Bridge) -> Result<Value, CoreError> {
     let mut store = open(ctx)?;
     let w = wait_for(ctx, &mut store, &params)?;
     let until = wall_ms() + u128::from(w.timeout_s) * 1000;
@@ -702,7 +704,7 @@ async fn wait(ctx: &Ctx, params: Value, bridge: &mut dyn Bridge) -> Result<Value
         if !hits.is_empty() {
             // Waiting consumes what it returns; msg.inbox does not.
             let at = wall_ms() as f64 / 1000.0;
-            read_messages(&mut store, &w.me, &ids(&hits), at, bridge).await?;
+            read_messages(ctx, &mut store, &w.me, &ids(&hits), at).await?;
             return waited(&mut store, &w.me, &hits);
         }
         if wall_ms() >= until {

@@ -172,7 +172,7 @@ fn check(ctx: &Ctx, op: &str, params: &Value) -> Result<(), CoreError> {
             format!("unknown operation \"{op}\""),
         ));
     };
-    authorize(ctx)?;
+    authorize(ctx, op, params)?;
     let p = params_object(params)?;
     if (matches!(op, "dispatch.submit" | "dispatch.child") && p.contains_key("options"))
         || (op == "dispatch.child" && (p.contains_key("difficulty") || p.contains_key("model")))

@@ -46,12 +46,17 @@ fn the_enforcement_identity_is_refused_before_the_params() {
 }
 
 #[test]
-fn grant_holders_stay_with_core() {
-    for name in ["PACER_ASSISTANT_GRANT", "PACER_WORK_GRANT"] {
-        let (_dir, ctx) = ctx_with(&[(name, "g")]);
-        for op in DELEGATION_OPS {
-            assert_eq!(admit(&ctx, op, &json!({})).unwrap(), Admission::Core);
-        }
+fn grant_holders_are_refused_natively() {
+    let (_dir, assistant) = ctx_with(&[("PACER_ASSISTANT_GRANT", "pag_bad")]);
+    for op in DELEGATION_OPS {
+        assert_eq!(
+            message(&assistant, op, json!({})),
+            "Invalid assistant grant"
+        );
+    }
+    let (_dir, work) = ctx_with(&[("PACER_WORK_GRANT", "pwg_x")]);
+    for op in DELEGATION_OPS {
+        assert_eq!(message(&work, op, json!({})), "Invalid work grant");
     }
 }
 

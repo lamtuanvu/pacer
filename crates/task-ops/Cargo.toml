@@ -20,6 +20,7 @@ pacer-store = { path = "../store" }
 pacer-lifecycle = { path = "../lifecycle" }
 pacer-read-model = { path = "../read-model" }
 pacer-sessions = { path = "../sessions" }
+pacer-work = { path = "../work" }
 chrono-tz = { version = "0.10.4", default-features = false, features = ["std"] }
 rand = "0.9"
 sha2 = "0.10"
