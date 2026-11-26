@@ -20,6 +20,9 @@ use serde_json::{Value, json};
 use crate::answer::{direct_input_available, session_socket};
 use crate::runtime::Runtime;
 
+#[cfg(test)]
+mod tests;
+
 /// `DRIVING_LEASE_S` (`src/session/send.ts:22`).
 const DRIVING_LEASE_S: f64 = 60.0;
 
@@ -83,27 +86,41 @@ fn is_live_backend(backend: &str) -> bool {
     matches!(backend, "orca")
 }
 
-/// The reader of a delivery result: `true` keeps the lease (returned to the caller as a
-/// success) and `false` rolls it back. The message and `input_attempted` mirror the shape
-/// `send` turns into a `CoreError` (`src/session/send.ts:66-90`).
-type Delivery = Result<(), (String, bool)>;
+/// The reader of a delivery result: `Ok` keeps the lease (returned to the caller as a
+/// success) and `Err((code, message))` rolls it back, surfacing the same `CoreError` a
+/// backend would deliver (`src/session/send.ts:66-90` maps `delivered.code`/`delivered.message`
+/// straight into `CoreError`). `session_error` maps a `SessionInputError` exactly as
+/// `sendDirectInput`'s catch does: `unavailable` when input was attempted, else `conflict`,
+/// and `live_send` returns `unavailable` for every live refusal as `executor-orca.ts` does.
+type Delivery = Result<(), (Code, String)>;
 
-fn session_error(error: SessionError) -> (String, bool) {
-    (error.message, error.input_attempted)
+fn session_error(error: SessionError) -> (Code, String) {
+    let code = if error.input_attempted {
+        Code::Unavailable
+    } else {
+        Code::Conflict
+    };
+    (code, format!("Interactive input failed: {}", error.message))
 }
 
-fn typed_result(result: TypeResult, attempted: bool) -> Delivery {
+fn typed_result(result: TypeResult) -> Delivery {
     match result {
         TypeResult::Typed => Ok(()),
         TypeResult::Busy => Err((
+            Code::Conflict,
             "session is busy delivering to another viewer; try again".to_owned(),
-            attempted,
         )),
         TypeResult::Refused { controller } => Err((
-            format!("delivery refused; {controller:?} is controlling the session"),
-            attempted,
+            Code::Conflict,
+            format!(
+                "The terminal is controlled from {}; nothing was typed",
+                controller.map_or_else(|| "another viewer".to_owned(), |c| c)
+            ),
         )),
-        TypeResult::Pending { reason } => Err((format!("delivery pending: {reason}"), attempted)),
+        TypeResult::Pending { reason } => Err((
+            Code::Conflict,
+            format!("Not delivered: {reason}. Nothing was typed; try again"),
+        )),
     }
 }
 
@@ -224,10 +241,10 @@ pub async fn send_to_task(
 
     let delivery: Delivery = match (claim.backend.as_deref(), claim.dir.as_deref()) {
         (Some(backend), _) => match claim.terminal.as_deref() {
-            Some(terminal) => live_send(backend, terminal, text).await,
+            Some(terminal) => live_send(ctx, backend, terminal, text).await,
             None => Err((
+                Code::Unavailable,
                 "the live worker has no terminal to send into".to_owned(),
-                false,
             )),
         },
         (None, Some(dir)) => {
@@ -238,11 +255,11 @@ pub async fn send_to_task(
             )
             .await
             {
-                Ok(result) => typed_result(result, true),
+                Ok(result) => typed_result(result),
                 Err(error) => Err(session_error(error)),
             }
         }
-        (None, None) => Err(("No interactive run".to_owned(), false)),
+        (None, None) => Err((Code::Unavailable, "No interactive run".to_owned())),
     };
 
     match delivery {
@@ -254,14 +271,9 @@ pub async fn send_to_task(
                 .map_err(|e| internal(e.to_string()))?
                 .ok_or_else(|| unknown(id))
         }
-        Err((message, input_attempted)) => {
+        Err((code, message)) => {
             rollback_lease(ctx, id, by, claim.claimed_at, claim.previous.as_ref());
-            let error = if input_attempted {
-                unavailable(format!("Interactive input failed: {message}"))
-            } else {
-                conflict(message)
-            };
-            Err(error)
+            Err(CoreError::new(code, message))
         }
     }
 }
@@ -269,33 +281,39 @@ pub async fn send_to_task(
 /// Deliver into a live (Orca) worker by running `orca terminal send`, as
 /// `src/exec/orca/client.ts:149` does. The Orca lane is unverified unless Orca is
 /// installed in the sandbox, but the front door owns the same subprocess here.
-async fn live_send(backend: &str, terminal: &str, text: &str) -> Delivery {
-    let output = match tokio::process::Command::new("orca")
-        .args([
-            "terminal",
-            "send",
-            "--terminal",
-            terminal,
-            "--text",
-            text,
-            "--enter",
-            "--json",
-        ])
-        .output()
-        .await
+async fn live_send(ctx: &Ctx, backend: &str, terminal: &str, text: &str) -> Delivery {
+    let mut command = tokio::process::Command::new("orca");
+    command.args([
+        "terminal",
+        "send",
+        "--terminal",
+        terminal,
+        "--text",
+        text,
+        "--enter",
+        "--json",
+    ]);
+    // Resolve `orca` consistently with the caller's environment (`Ctx::new`
+    // seeds `env` from the process environment, so this inherits PATH in
+    // production; tests override PATH to inject a fake local `orca`).
+    command.envs(ctx.env.iter());
+    let output = match command.output().await
     {
         Ok(output) => output,
         Err(error) => {
-            return Err((format!("{backend} terminal send failed: {error}"), false));
+            return Err((
+                Code::Unavailable,
+                format!("{backend} terminal send failed: {error}"),
+            ));
         }
     };
     if !output.status.success() {
         return Err((
+            Code::Unavailable,
             format!(
                 "{backend} terminal send failed: {}",
                 String::from_utf8_lossy(&output.stderr).trim()
             ),
-            false,
         ));
     }
     let body: Value = match serde_json::from_slice(&output.stdout) {
@@ -303,7 +321,7 @@ async fn live_send(backend: &str, terminal: &str, text: &str) -> Delivery {
         Err(_) => return Ok(()),
     };
     if let Some(error) = body.get("error") {
-        Err((format!("{backend} refused the send: {error}"), false))
+        Err((Code::Unavailable, format!("{backend} refused the send: {error}")))
     } else {
         Ok(())
     }
