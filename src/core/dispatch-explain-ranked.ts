@@ -7,6 +7,8 @@ import { slotTasksReadOnly, type ReadOnlyStore } from "../dispatch/readonly";
 import { exclusionReason, reason, type Reason } from "../dispatch/reasons";
 import { balanceByLoad } from "../engine/balance";
 import { conversationFallback, rankExecutors } from "../engine/rank";
+import { fallbackTier } from "../dispatch/tier-fallback";
+import { dispatchConfigSchema } from "../dispatch/types";
 import { slotBlock, slotUse } from "../engine/slots";
 import { computeStatus } from "../engine/status";
 import { executorExclusion } from "../executors/availability";
@@ -28,7 +30,8 @@ export async function explainRankedDispatch(
   // As in the runner, a conversation's requested executor is a preference, not a narrower candidate set.
   const byId = Object.fromEntries(status.providers.map(s => [s.id, s]));
   const ranking = rankExecutors(kind.value, strategy, byId,
-    selection && { executors: selection.executors, order: "configured" }, { includePlanner: p.interactionMode === "conversation" });
+    selection && { executors: selection.executors, order: "configured" }, { includePlanner: p.interactionMode === "conversation",
+      targetTier: fallbackTier(p.difficulty, (strategy.dispatch ?? dispatchConfigSchema.parse({})).tierTargets) });
   if (p.interactionMode === "conversation" && !selection) conversationFallback(ranking, kind.value, strategy, byId, requested);
   const exclusions = new Map(ranking.excluded.map(e => [e.id, exclusionReason(e.id, e.reason, e.eligibility)]));
   const use = slotUse(slotTasksReadOnly(store),ctx);

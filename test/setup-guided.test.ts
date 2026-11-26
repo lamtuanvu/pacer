@@ -167,7 +167,7 @@ test("TUI consent dialog leaves room for integration and status line details",as
  const act={label:"Connect",effect:{type:"local" as const,label:"",run(){}}};
  const text=renderDashboard({...emptySnapshot(),setup:{...checklist,open:1}},80,24,1,{selected:0,noColor:true,state:{overlay:{kind:"confirm",title:"Connect Claude Code?",body,yes:"Connect",act}}});
  expect(text).toContain("Connect Claude Code?");expect(text).toContain("status line will be left alone.");expect(text).toContain("include budgets.");expect(text).toContain("No MCP servers will be added.");
- expect(text).toContain("y Connect");expect(text).toContain("n Cancel");
+ expect(text).toContain("y/⏎ Connect");expect(text).toContain("n/Esc Cancel");
 });
 
 

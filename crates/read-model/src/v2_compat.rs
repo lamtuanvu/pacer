@@ -41,6 +41,17 @@ pub fn params(name: &str, value: &Value) -> Result<Value, &'static str> {
         "config.set" if value.get("key").is_some_and(|key| key == "update_channel") => {
             Err("key: \"update_channel\" requires protocol 3")
         }
+        // The planner tier fallback is a protocol 3 addition (setting and route difficulty).
+        "config.set"
+            if value
+                .get("key")
+                .is_some_and(|key| key == "pacing.planner_tier_fallback") =>
+        {
+            Err("key: \"pacing.planner_tier_fallback\" requires protocol 3")
+        }
+        "routing.route" if value.get("difficulty").is_some() => {
+            Err("params: Unrecognized key: \"difficulty\"")
+        }
         "task.review" => {
             let accepted = value.get("accepted");
             if accepted.is_some_and(|v| !v.is_boolean()) {
@@ -182,6 +193,7 @@ pub fn event(value: &Value, legacy: Option<&Value>) -> Value {
             | "question"
             | "discovery.found"
             | "control"
+            | "terminal"
     ) || kind == "config"
         && matches!(
             string(&value["data"]["area"]).as_str(),

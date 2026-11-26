@@ -4,7 +4,7 @@ import { renderFrame, screenView, type FrameInput } from "./screens/shell";
 import type { DashData } from "./screens/types";
 import { initialState, type UiState } from "./state";
 import { detectTheme, PLAIN_THEME, type TerminalTheme } from "./theme";
-export { cellWidth, clip, safeText } from "./frame";
+export { cellWidth, clip, clipEnd, safeText } from "./frame";
 
 export interface RenderOptions {
   /** Index of the selected row on the current screen. */
@@ -27,7 +27,13 @@ export function screenItems(s: ClientSnapshot, now: number, options: Pick<Render
   const state: UiState = { ...initialState(), ...options.state };
   return screenView({
     s, now, theme: PLAIN_THEME, state, width: 120, height: 40, ops: options.ops, version: "0.0.0-test", connection: "live",
-    data: { history: options.data?.history, details: options.data?.details ?? new Map(), settings: options.data?.settings ?? {} },
+    data: {
+      history: options.data?.history,
+      details: options.data?.details ?? new Map(),
+      settings: options.data?.settings ?? {},
+      runs: options.data?.runs,
+      runDetails: options.data?.runDetails ?? new Map(),
+    },
   }).view.items;
 }
 
@@ -36,7 +42,13 @@ export function renderDashboard(s: ClientSnapshot, width: number, height: number
   let state: UiState = { ...initialState(), ...options.state };
   const input: FrameInput = {
     s, now, theme, state, width, height, ops: options.ops, version: options.version ?? "0.0.0-test",
-    data: { history: options.data?.history, details: options.data?.details ?? new Map(), settings: options.data?.settings ?? {} },
+    data: {
+      history: options.data?.history,
+      details: options.data?.details ?? new Map(),
+      settings: options.data?.settings ?? {},
+      runs: options.data?.runs,
+      runDetails: options.data?.runDetails ?? new Map(),
+    },
     connection: options.connection ?? "live", timeZone: options.timeZone ?? "UTC",
     ...(options.message ? { message: options.message } : {}), ...(options.update ? { update: options.update } : {}),
   };

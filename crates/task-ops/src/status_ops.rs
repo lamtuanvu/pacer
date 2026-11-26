@@ -68,7 +68,7 @@ pub fn task_retry_options_stays_forwarded(ctx: &Ctx) -> bool {
     native_strategy(ctx).is_none_or(|strategy| has_host_runner(&strategy)) || policy_needs_core(ctx)
 }
 
-/// `routing.route` forwards for a `goal` (the classifier), a strategy Rust does not load as Bun
+/// `routing.route` forwards for a `goal` (the classifier), a `difficulty` (planner tier fallback), a strategy Rust does not load as Bun
 /// does, any runner on a host (remote eligibility), a relative `repo` that names no registered
 /// repository (Core's working directory), a policy or registry only TypeScript reads, and a
 /// least-loaded balance that live agent sessions may affect.
@@ -79,7 +79,8 @@ pub fn routing_route_stays_forwarded(ctx: &Ctx, params: &Value) -> bool {
             .and_then(Value::as_str)
             .filter(|s| !s.is_empty())
     };
-    if text("goal").is_some() {
+    // The classifier and the planner tier fallback (`difficulty`) run in TypeScript.
+    if text("goal").is_some() || params.get("difficulty").is_some() {
         return true;
     }
     let Some(strategy) = native_strategy(ctx) else {

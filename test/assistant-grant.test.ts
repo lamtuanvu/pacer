@@ -124,7 +124,7 @@ const fakeExecutor: BundledPlugin = {
   main: async () => ({ handlers: {} }),
 };
 
-function setup(backend: "pacer" | "executor", respond: unknown) {
+function setup(backend: "pacer" | "executor", reply: unknown) {
   // No opencode here: the fake plugin answers itself, and the host's issued ask-mode pins resolve nothing.
   const base = fakeCtx(), c = { ...base, which: (name: string) => name === "opencode" ? null : base.which(name) } as typeof base;
   pluginRegistry(c, {
@@ -136,7 +136,7 @@ function setup(backend: "pacer" | "executor", respond: unknown) {
   writeSettings(c, { runner: null, account: "ep", backend, expect_rev: readSettings(c).rev });
   const deps = {
     strategy: () => strategy(), status, keys: async () => [KEY], read, cards: { task: () => null },
-    respond: respond as never,
+    reply: reply as never,
       selfTest: () => ({ ok: true }),
   };
   return { ctx: c, deps };

@@ -26,18 +26,24 @@ tray for the common cases.
 
 ## Goals
 
-- A small Orca panel — one `status` bar item and one sidebar `panelTab` — that carries the part
-  of pacer you need while working in an Orca worktree, and lets you act on it without leaving
-  Orca. Revised 2026-11-22 after the maintainer approved the panel design (the "Pacer Orca Panel"
-  design canvas): the panel shows, in order, the planner's pace (usage meter, mode, advice); what
-  needs you (attention items, answering a question in place, accepting or rejecting a requested
-  review); delegating from the focused worktree; what is running, with stop, watch in Orca and
-  open its worktree as an Orca workspace; who runs next; and what finished today. A menu pauses
-  or resumes delegation and holds a mode. The status bar item states pace and how many items need
-  you.
-- Scoped to the Orca workspace currently focused by default: the lists and counts match the repo
-  that workspace is in, with an All repos view one tap away (counts per repo and every repo's
-  items, each labelled with its repo).
+- A small Orca panel — one `status` bar item and one sidebar `panelTab` — that shows the work
+  delegated from the Orca worktree you're focused on, and only that. Revised 2026-11-25 after the
+  maintainer found the wider panel unhelpful ("Simplified · this worktree, compact" board): a task
+  belongs to the worktree it was delegated from (its `repo.path`). The panel lists those tasks one
+  line each (glyph, title, short status), expands a row for details and its actions (watch in Orca,
+  open its worktree, stop, the service's retry and see-error actions), and collapses what finished.
+  An executor's question goes to the caller, the agent that delegated the task, so it reads "asked
+  caller"; answering it yourself is an override inside the expanded row. "Needs you" lists only
+  what is addressed to a person: a requested review (`task.request_review`) and messages for the
+  human. The header shows the planner's pace in one line.
+- Pacer-wide context stays small (maintainer request, 2026-11-25): an "All worktrees" box at the
+  bottom gives counts across every worktree (needs you, running, asked caller, queued, how many
+  worktrees), a pause if one is on, the enabled executors with their state, and an "Open pacer"
+  link. The status bar is pacer-wide too: the planner's usage, then needs-you and running across
+  every worktree ("pacer 94% · 3 need you · 6 running"), amber when something needs a person,
+  otherwise the pace tone.
+- Global lists (every repo's attention items, by-repo rows, who runs next, delegating from the
+  panel, pause and mode controls) are out: they live in the pacer app.
 - The worker is an ordinary pacer v3 client: HTTP to a running `pacer serve`, the same bearer-token
   auth every other client (CLI, TUI, app) already uses. No pacer-side plugin registration, no
   special-cased backend.
@@ -176,11 +182,11 @@ Would count as failure even if it technically runs:
   `orca`-free view-model that carries the actual tested logic), and their tests. No
   machine-specific paths in anything tracked.
 - **Scoping:** the worker calls `workspace.readContext` (capability `workspace:read`) for the
-  focused workspace, resolves its path via `workspace.list`/`project.list`, and matches it against
-  pacer's own `repos[].path` (from `snapshot.get`) to find that repo's `key`. Attention items,
-  counts and the status badge filter to that `key`. When no workspace is focused or its path
-  matches no known repo, the panel falls back to the global queue and says so (never a silent
-  empty list that looks like "nothing to do").
+  focused workspace and reads its path via `workspace.list`. A task belongs to the focused worktree
+  when its repo.path equals the focused Orca workspace path (trailing slashes normalised).
+  Attention items, counts and the status badge filter to that worktree. When no workspace is
+  focused, the panel asks the user to focus one (never a silent global queue that looks like
+  "nothing to do").
 - **Install UX:** pacer ships `pacer orca-panel install` / `pacer orca-panel update`, which shell
   out to `orca plugin install <this-plugin's-folder-or-repo>` / `orca plugin update <plugin-id>` on
   the user's behalf — the "convenience command" option, chosen over staying hands-off. This

@@ -9,12 +9,12 @@ import { createTask, readTask, TASK_DB_BUSY_TIMEOUT_MS, taskDatabase, updateTask
 import { TERMINAL_STATES } from "../tasks/types";
 import { stop as stopTaskCore } from "../core/tasks";
 import { appendActivity } from "../activity/log";
-import { resolveRunner } from "../config/runner-id";
+import { isPlannerRunner, resolveRunner } from "../config/runner-id";
 import { loadStrategy } from "../config/strategy";
 import { withoutPlannerSession } from "../exec/process";
 import { dataPreamble, renderPrompt, STEP_RESULT_INSTRUCTION } from "./template";
 import {
-  getDefinition, getQuestion, getRun, listDecisions, liveRuns, rootRunId, stepsOfRun, updateRun, workflowDatabase,
+  getDefinition, getQuestion, getRun, listDecisions, liveRuns, resolveWorkflowPrompt, rootRunId, stepsOfRun, updateRun, workflowDatabase,
   type RunRow, type StepRow,
 } from "./store";
 import {
@@ -40,6 +40,7 @@ import type { AgentStep, ChooseWorkflowStep, GenerateStep, WorkflowDef } from ".
 import { limitObservation } from "../usage/reactive";
 import { executorGuard, isRequestedExecutorBudgetRefusal } from "../executors/availability";
 import { runPriorityOf } from "./priority";
+import { plannerRunnerId } from "./turn-planner";
 import {
   readPacingMode, wakeAllowsStart, type ModeReader, type PacingMode,
 } from "./pacing";
@@ -65,21 +66,16 @@ export function isPlannerHoldReason(reason: string | null | undefined): boolean 
 /** Sync pacing from exhausted marks and the same local eligibility guard the runner uses. */
 export function defaultPlannerPacing(ctx: Ctx, planner: string): PlannerPacing {
   try {
-    const ids = new Set<string>([planner]);
     let strategy: ReturnType<typeof loadStrategy> | undefined;
     try {
       strategy = loadStrategy(ctx);
     } catch { /* strategy optional in tests */ }
 
-    if (strategy) {
-      // Only alias strategy planner marks onto the run planner when they resolve to the same runner.
-      const runRunner = resolveRunner(strategy, planner);
-      const strategyRunner = resolveRunner(strategy, strategy.planner.agent);
-      if (runRunner && strategyRunner && runRunner.id === strategyRunner.id) {
-        ids.add(strategy.planner.agent);
-        ids.add(strategy.planner.account);
-      }
-    }
+    // The same runner the turn is pinned to; the planner's account marks apply to it only.
+    const id = strategy ? plannerRunnerId(strategy, planner) : planner;
+    const ids = new Set<string>([id]);
+    const runner = strategy ? resolveRunner(strategy, id) : null;
+    if (strategy && runner && isPlannerRunner(strategy, runner)) ids.add(runner.account);
 
     for (const id of ids) {
       const obs = limitObservation(ctx, id);
@@ -87,7 +83,7 @@ export function defaultPlannerPacing(ctx: Ctx, planner: string): PlannerPacing {
     }
 
     // Guard only the resolved run planner — a strategy-planner exhaustion must not block a switch.
-    const guard = strategy ? executorGuard(ctx, strategy, planner) : undefined;
+    const guard = strategy ? executorGuard(ctx, strategy, id) : undefined;
     if (guard) {
       return {
         eligible: false,
@@ -140,11 +136,47 @@ function runIsTerminal(status: string | undefined): boolean {
   return status === "done" || status === "failed" || status === "stopped";
 }
 
+/** Terminalize the shared orchestrate task when a root run ends without a live turn. */
+export function settleOrchestratorTaskForEndedRun(
+  ctx: Ctx,
+  run: RunRow,
+  status: "done" | "failed" | "stopped",
+): void {
+  if (run.parentRunId || !run.orchestratorTaskId) return;
+  const task = readTask(ctx, run.orchestratorTaskId);
+  if (!task) return;
+  if (TERMINAL_STATES.includes(task.state)) return;
+  try {
+    updateTask(ctx, run.orchestratorTaskId, t => {
+      if (TERMINAL_STATES.includes(t.state)) return;
+      t.state = status === "failed" ? "failed" : status === "done" ? "done" : "stopped";
+      t.result = {
+        status: t.state as "done" | "stopped" | "failed",
+        executor: null,
+        model: null,
+        files: "",
+        report: `workflow orchestrator ${status}`,
+        backend: "direct",
+      };
+    });
+  } catch { /* */ }
+}
+
+/** After the last live turn of an ended root finishes, terminalize a leftover orch task (I4). */
+function settleOrchAfterLastTurn(ctx: Ctx, runId: string): void {
+  const run = getRun(ctx, rootRunId(ctx, runId));
+  if (!run || run.parentRunId || !runIsTerminal(run.status)) return;
+  if (liveTurn(ctx, run.id)) return;
+  const status = run.status === "failed" ? "failed" : run.status === "done" ? "done" : "stopped";
+  settleOrchestratorTaskForEndedRun(ctx, run, status);
+}
+
 /** Finish a live turn the way stopLiveTurnsForRun does when the task is already gone. */
 function finishTurnForEndedRun(ctx: Ctx, turn: TurnRow, reason: string): void {
   revokeRunGrant(ctx, turn.id);
   releaseWakeups(ctx, turn.id);
   updateTurn(ctx, turn.id, { status: "stopped", endedAt: ctx.now, reason });
+  settleOrchAfterLastTurn(ctx, turn.runId);
 }
 
 type StopAttemptResult =
@@ -209,7 +241,12 @@ function requestTurnTaskStop(
  *  task process (I7), and revoke every prg_ for the root.
  *  Owned attempts may only set stopPending; keep the turn running until the task
  *  is really terminal so a later tick can retry stop and the deadline can still reap. */
-export function stopLiveTurnsForRun(ctx: Ctx, runId: string, reason = "run ended"): void {
+export function stopLiveTurnsForRun(
+  ctx: Ctx,
+  runId: string,
+  reason = "run ended",
+  deps: OrchestratorDeps = {},
+): void {
   const root = rootRunId(ctx, runId);
   const live = workflowDatabase(ctx).query<{ id: string; task_id: string | null }, [string]>(
     "SELECT id, task_id FROM workflow_turns WHERE run_id = ? AND status IN ('starting', 'running')",
@@ -218,7 +255,7 @@ export function stopLiveTurnsForRun(ctx: Ctx, runId: string, reason = "run ended
     const turn = getTurn(ctx, row.id);
     if (!turn) continue;
     if (row.task_id) {
-      const result = requestTurnTaskStop(ctx, turn, row.task_id, reason);
+      const result = requestTurnTaskStop(ctx, turn, row.task_id, reason, deps);
       if (!result.ok) {
         if (result.gaveUp) finishTurnForEndedRun(ctx, getTurn(ctx, row.id) ?? turn, reason);
         continue;
@@ -580,7 +617,7 @@ function openOrchestratorBlocks(
       // Bound the RENDERED block (I2/J4): loop-halve per-substitution caps so
       // header + instruction always fit under BLOCK_CAP_BYTES. Never drop this
       // block before the brief; last resort truncates the body inside closed fences.
-      const rawTpl = (stepDef as AgentStep).prompt;
+      const rawTpl = resolveWorkflowPrompt(ctx, owningRun.workflow, owningRun.version, (stepDef as AgentStep).prompt);
       const tpl = capUtf8(rawTpl, BLOCK_CAP_BYTES);
       const placeholders = [...tpl.matchAll(/\{\{[^{}]*\}\}/g)].length;
       const header = [
@@ -639,7 +676,7 @@ function openOrchestratorBlocks(
         attempt: c.attempt,
         op: "run.submit_graph",
         runId: c.owningRunId,
-        prompt: gen.prompt,
+        prompt: resolveWorkflowPrompt(ctx, owningRun.workflow, owningRun.version, gen.prompt),
         limits: gen.limits,
         errors: prior.errors ?? [],
         reviseNote: prior.reviseNote ?? null,
@@ -1032,11 +1069,19 @@ export async function settleTurn(ctx: Ctx, turnId: string, outcome: TurnOutcome)
     completeWakeups(ctx, turnId);
     // An already-ended run must not be patched or get attention from settle.
     if (endedRun) {
-      return updateTurn(ctx, turnId, {
+      // Clear stale orchestratorState "turn" left when the run ended under a live turn.
+      patchRunBestEffort(ctx, turn.runId, {
+        orchestratorState: "idle",
+        nextWakeAt: null,
+        reason: null,
+      });
+      const stopped = updateTurn(ctx, turnId, {
         status: "stopped",
         endedAt: ctx.now,
         reason: `run ${owning!.status}`,
       });
+      settleOrchAfterLastTurn(ctx, turn.runId);
+      return stopped;
     }
     const unresolvedBlocked = noteUnresolvedAfterDone(ctx, turn.runId, claimed);
     const current = getRun(ctx, turn.runId);
@@ -1087,11 +1132,18 @@ export async function settleTurn(ctx: Ctx, turnId: string, outcome: TurnOutcome)
   releaseWakeups(ctx, turnId);
   // Defensive: never count failures / patch / raise attention on an already-ended run.
   if (endedRun) {
-    return updateTurn(ctx, turnId, {
+    patchRunBestEffort(ctx, turn.runId, {
+      orchestratorState: "idle",
+      nextWakeAt: null,
+      reason: null,
+    });
+    const stopped = updateTurn(ctx, turnId, {
       status: "stopped",
       endedAt: ctx.now,
       reason: `run ${owning!.status}`,
     });
+    settleOrchAfterLastTurn(ctx, turn.runId);
+    return stopped;
   }
 
   const countFailure = outcome.countFailure !== false;
@@ -1375,9 +1427,7 @@ export async function orchestrateRuns(ctx: Ctx, deps: OrchestratorDeps = {}): Pr
       const countFailure = task.state !== "limit" && !budgetRefusal;
       const turn = getTurn(ctx, row.id);
       const resetAt = (task.state === "limit" || budgetRefusal) && turn
-        ? (limitObservation(ctx, turn.planner)?.until
-          ?? defaultPlannerPacing(ctx, turn.planner).until
-          ?? ctx.now + 3600)
+        ? (defaultPlannerPacing(ctx, turn.planner).until ?? ctx.now + 3600)
         : undefined;
       await settleTurn(ctx, row.id, {
         outcome: "failed",

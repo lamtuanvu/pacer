@@ -42,7 +42,7 @@ test("settings panel lists the board destinations", () => {
   expect(html).toContain("<aside");
   expect(html).toContain('href="#/settings"');
   expect(html).toContain('href="#/settings/machine"');
-  expect(html).toContain('href="#/settings/executors"');
+  expect(html).toContain('href="#/settings/dispatcher"');
   expect(html).toContain("Machines");
   expect(html).not.toContain("1 needs setup");
 });
@@ -119,7 +119,7 @@ test("detail routes select exactly one primary and at most one settings destinat
 
 
 test("top bar calls the delegate action New task on every destination that offers it", () => {
-  for (const hash of ["#/needs-you", "#/tasks", "#/settings", "#/settings/dispatcher", "#/workspace"]) {
+  for (const hash of ["#/needs-you", "#/tasks", "#/settings", "#/settings/dispatcher", "#/workspace?task=t-0412"]) {
     const html = renderToString(<Layout route={at(hash)} state={ready()} title="Page">body</Layout>);
     expect(html).toMatch(/pc-btn[^>]*>New task<\/a>/);
     expect(html).not.toMatch(/>Delegate<\/button>/);
@@ -148,7 +148,7 @@ test('every settings destination has exactly one h1 in the real shell', async ()
   const { createActionRunner } = await import('../app/src/data/actions');
   const state = ready(), api = { call: async <T,>() => ({} as T) } as any;
   const runner = createActionRunner({ call: api.call, waitFor: async () => true, refetch() {}, navigate() {} });
-  for (const path of ['', '/executors', '/accounts', '/add-executor', '/dispatcher', '/planner', '/machine', '/hosts', '/hosts/devbox', '/app', '/updates', '/notifications', '/appearance', '/assistant', '/diagnostics', '/plugins']) {
+  for (const path of ['', '/agents', '/rules', '/profiles', '/add-executor', '/dispatcher', '/planner', '/machine', '/hosts', '/hosts/devbox', '/app', '/updates', '/notifications', '/appearance', '/assistant', '/diagnostics', '/plugins']) {
     const route = at(`#/settings${path}`);
     const section = route.name === 'settings' ? route.section : route.name === 'hosts' ? 'hosts' : 'add-executor';
     const html = renderToString(<ActionContext.Provider value={runner}><TaskContext.Provider value={{state, api}}>

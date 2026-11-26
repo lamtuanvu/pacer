@@ -1,17 +1,10 @@
 // The panel <-> worker contract, declared once: src/panel.ts and src/worker.ts both read it.
-import type { AttentionItem, PacerExecutor, PacerPause, PacerPlanner } from './pacer-client'
+import type { AttentionItem, PacerPause, PacerPlanner } from './pacer-client'
 
 /** An attention item as the panel sees it: the item's own repo's human label attached. */
 export type AttentionRow = AttentionItem & { repoLabel?: string }
 
 export type RepoRef = { key: string; label: string; path: string }
-
-export type PanelRepo = RepoRef & {
-  needsYou: number
-  running: number
-  doneToday: number
-  orcaWorkspaceId?: string
-}
 
 export type PanelTask = {
   id: string
@@ -28,6 +21,8 @@ export type PanelTask = {
   liveness?: { stalled: boolean; reason: string; since: number } | null
   worktree?: string | null
   orcaWorkspaceId?: string
+  question?: string | null
+  nextExecutor?: string | null
 }
 
 export type PanelPlanner = {
@@ -43,25 +38,33 @@ export type PanelPlanner = {
   stale: boolean
 }
 
-export type PanelExecutor = Pick<
-  PacerExecutor,
-  'id' | 'agent' | 'account' | 'rank' | 'state' | 'tone' | 'sub' | 'reason' | 'next' | 'slots' | 'enabled'
-> & { untested?: true }
+/** Pacer-wide counts, across every worktree (the status bar and the panel's "All worktrees" box). */
+export type PanelOverall = {
+  /** Reviews and messages addressed to a person. */
+  needsYou: number
+  running: number
+  /** Executor questions waiting on their caller. */
+  asked: number
+  queued: number
+  /** Worktrees with something active or waiting on a person. */
+  worktrees: number
+}
+
+/** One enabled executor, as the "All worktrees" box lists it. */
+export type PanelExecutor = { id: string; name: string; state: string; tone: 'good' | 'info' | 'warn' | 'bad' | 'muted' }
 
 /** Trimmed snapshot the worker builds from /v3/snapshot. The panel filters by scope. */
 export type PanelSnapshot = {
   connected: boolean
   at: number
-  focusedRepo: RepoRef | null
+  /** Focused Orca workspace (path + name) the panel is scoped to. */
+  focusedWorkspace?: { path: string; name: string } | null
   planner: PanelPlanner | null
   pause: PacerPause | null
-  repos: PanelRepo[]
   attention: AttentionRow[]
-  running: PanelTask[]
-  /** Queued tasks (state queued); shown in their own section, not inside Running. */
-  queued: PanelTask[]
-  doneToday: PanelTask[]
-  executors: PanelExecutor[]
+  tasks?: PanelTask[]
+  overall?: PanelOverall
+  executors?: PanelExecutor[]
 }
 
 export type ActResult =

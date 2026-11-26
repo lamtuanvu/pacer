@@ -1,3 +1,5 @@
+import { fallbackTier } from "../dispatch/tier-fallback";
+import { dispatchConfigSchema } from "../dispatch/types";
 import { authorizeRoute } from "./policy-route";
 import { policySummary } from "../plugins/policy";
 import { CoreError } from "../core/errors";
@@ -27,12 +29,13 @@ import type { Ctx } from "../types";
 import { spawnRunner, launchTaskRunner, type SpawnRunner } from "./api";
 import { listTasksWhere, readTask, updateTask } from "./store";
 import { resolvePlacement } from "./types";
+import { pinTurnPlanner, plannerWaitDetail, rankTurnPlanner } from "../workflow/turn-planner";
 
 export interface DrainDeps {
   now?: () => number;
   hooks?: DecisionHooks;
   loadStrategy(ctx: Ctx): Strategy;
-  computeStatus(ctx: Ctx, s: Strategy): Promise<Status>;
+  computeStatus(ctx: Ctx, s: Strategy, o?: {includePlannerSignIn?: boolean}): Promise<Status>;
 }
 const defaults: DrainDeps = {loadStrategy, computeStatus};
 
@@ -61,6 +64,18 @@ function refreshCapacityWait(ctx: Ctx, id: string, s: Strategy, executor: string
     const {since, position} = t.queue;
     t.queue = {reason: next.reason, since, position, limit: next.limit,
       ...(next.capacity ? {capacity: next.capacity} : {}), ...(next.detail ? {detail: next.detail} : {}), ...(next.machine ? {machine: next.machine} : {})};
+  });
+}
+
+/** An orchestrator turn says why it waits: its planner is unavailable, or the planner is at capacity. */
+function holdForPlanner(ctx: Ctx, id: string, s: Strategy, planner: string, unavailable: {reason?: string} | undefined, use: SlotUse): void {
+  const wait = unavailable ? {reason: "waiting_retry" as const, detail: plannerWaitDetail(planner, unavailable.reason)} : queueCapacity(s, planner, use);
+  const current = readTask(ctx, id)?.queue;
+  if (!wait || !current || current.reason === wait.reason && current.detail === wait.detail && !("capacity" in wait)) return;
+  updateTask(ctx, id, t => {
+    if (t.state !== "queued" || !t.queue) return;
+    const {since, position} = t.queue;
+    t.queue = {...wait, since, position};
   });
 }
 
@@ -99,7 +114,8 @@ export async function drainQueue(ctx: Ctx, spawn: SpawnRunner = spawnRunner, dep
     let policyChanges = 0;
     for (let index = 0; index < waiting.length; index++) {
       if(budgeted&&policyBudget<=0)break;
-      const task = waiting[index], s = deps.loadStrategy(ctx);
+      let task = waiting[index];
+      const s = deps.loadStrategy(ctx);
       const work=getWork(ctx,task.id);
       if(work?.options.expiresAt!==undefined&&work.options.expiresAt<=Date.now()/1000){
         updateTask(ctx,task.id,t=>{t.state="failed";delete t.queue;t.result={status:"failed",executor:null,model:null,files:"",report:"Work dispatch deadline expired",backend:"direct"};});
@@ -107,6 +123,8 @@ export async function drainQueue(ctx: Ctx, spawn: SpawnRunner = spawnRunner, dep
       }
       if(task.queue?.nextAt && task.queue.nextAt>Date.now()/1000)continue;
       if(work&&pendingDependencies(ctx,task.id).length)continue;
+      const orchTurn = task.kind === "orchestrate";
+      if (orchTurn) task = pinTurnPlanner(ctx, s, task);
       let snapshot: ReturnType<typeof projectSnapshot>;
       let repo: import("../api/read-model/types").RepoRef;
       try {
@@ -124,7 +142,8 @@ export async function drainQueue(ctx: Ctx, spawn: SpawnRunner = spawnRunner, dep
       }
       const selection = snapshot.selection;
       const req = task.requestedExecutor;
-      if (req && !resolveRunner(s, req)) {
+      // A planner missing from the strategy keeps its turn waiting below.
+      if (req && !orchTurn && !resolveRunner(s, req)) {
         updateTask(ctx, task.id, t => {
           if (t.state !== "queued" || !t.queue) return;
           t.state = "failed";
@@ -134,14 +153,15 @@ export async function drainQueue(ctx: Ctx, spawn: SpawnRunner = spawnRunner, dep
         continue;
       }
       if (readPause(ctx)) continue;
-      st = await deps.computeStatus({ ...ctx, now: Date.now() / 1000 }, s);
+      st = await deps.computeStatus({ ...ctx, now: Date.now() / 1000 }, s, {includePlannerSignIn: orchTurn});
       const blocked = readBlocked(ctx), broken = readBroken(ctx);
       const statuses = Object.fromEntries(st.providers.map(p => [p.id, {...p,
         ...(blocked[p.id] ? {blockedReason: blocked[p.id].reason} : {}),
         ...(broken[p.id] ? {brokenReason: broken[p.id].reason} : {}),
       }]));
       const kind = await Promise.resolve().then(() => hooks.taskKind(ctx, task)).catch(() => task.kind);
-      const ranking = rankExecutors(kind, s, statuses, selection && { executors: selection.executors, order: "configured" }, {includePlanner:getWork(ctx,task.id)?.options.allowDelegation});
+      const ranking = orchTurn ? rankTurnPlanner(req!, s, statuses) : rankExecutors(kind, s, statuses, selection && { executors: selection.executors, order: "configured" }, {includePlanner:getWork(ctx,task.id)?.options.allowDelegation,
+        targetTier: fallbackTier(task.difficulty, (s.dispatch ?? dispatchConfigSchema.parse({})).tierTargets)});
       let candidates = ranking.ranked.map(e => e.id);
       if (req) candidates = candidates.filter(id => id === req);
       else {
@@ -181,7 +201,7 @@ export async function drainQueue(ctx: Ctx, spawn: SpawnRunner = spawnRunner, dep
         if (projectRevision(readProjectStrategies(ctx), snapshot.repoKey) !== snapshot.rev) { policyChanged = true; return; }
         const current = readTask(ctx, task.id);
         if (current?.state !== "queued" || !current.queue || readPause(ctx)) return;
-        if (selection && !permitted.length && task.interactionMode !== "conversation") {
+        if (selection && !permitted.length && task.interactionMode !== "conversation" && !orchTurn) {
           updateTask(ctx, task.id, t => {
             routeAdmission.revalidate();
             t.state = "limit"; delete t.queue;
@@ -206,8 +226,19 @@ export async function drainQueue(ctx: Ctx, spawn: SpawnRunner = spawnRunner, dep
           }
           slotCandidates = [...balanceByLoad(rankedPermitted, s, use, statuses).map(e => e.id), ...rest];
         } else slotCandidates = permitted;
+        // A planner tier fallback pick waits for its own slot instead of falling to an executor below the tier.
+        // Managed work is ranked by its dispatch engine, which the runner follows instead.
+        const head = ranking.ranked[0];
+        const tierHead = !req && !getWork(ctx, task.id) && head?.tierFallback && slotCandidates.includes(head.id) && !executorExclusion(ctx, s, head.id) ? head.id : undefined;
+        if (tierHead) slotCandidates = [tierHead];
         const executor = slotCandidates.find(id => !executorExclusion(ctx, s, id) && !slotBlock(s, id, use, {guard: true}));
-        if (!executor) { refreshCapacityWait(ctx, task.id, s, permitted.find(id => !executorExclusion(ctx, s, id)), use); return; }
+        if (!executor) {
+          if (orchTurn) {
+            const why = ranking.excluded.find(e => e.id === req)?.reason ?? executorExclusion(ctx, s, req!);
+            holdForPlanner(ctx, task.id, s, req!, why !== undefined || !permitted.includes(req!) ? {reason: why} : undefined, use);
+          } else refreshCapacityWait(ctx, task.id, s, tierHead ?? permitted.find(id => !executorExclusion(ctx, s, id)), use);
+          return;
+        }
         // A running reservation is claimed by the spawned process before its first attempt.
         const selected=updateTask(ctx, task.id, t => {routeAdmission.revalidate();t.state = "running"; t.executor = executor; delete t.queue; delete t.runnerPid;});
         routeAdmission.checkpoint(selected);

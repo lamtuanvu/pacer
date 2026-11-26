@@ -107,9 +107,34 @@ fn operation_boundary_keeps_v3_private_and_maps_errors() {
     );
     assert_eq!(
         v2::op_schemas(
-            &json!({"config.set":{"params":{"properties":{"key":{"enum":["update_check","update_channel","terminal.app"]}}}}})
+            &json!({"config.set":{"params":{"properties":{"key":{"enum":["update_check","update_channel","pacing.planner_tier_fallback","terminal.app"]}}}}})
         )["config.set"]["params"]["properties"]["key"]["enum"],
         json!(["update_check", "terminal.app"])
+    );
+    assert_eq!(
+        v2::call_params(
+            "config.set",
+            &json!({"key":"pacing.planner_tier_fallback","value":"off"})
+        )
+        .unwrap_err()
+        .body(),
+        json!({"error":{"code":"invalid_input","message":"key: \"pacing.planner_tier_fallback\" requires protocol 3"}})
+    );
+    assert_eq!(
+        v2::call_params(
+            "routing.route",
+            &json!({"kind":"feature","difficulty":"complex"})
+        )
+        .unwrap_err()
+        .body(),
+        json!({"error":{"code":"invalid_input","message":"params: Unrecognized key: \"difficulty\""}})
+    );
+    assert!(
+        v2::op_schemas(
+            &json!({"routing.route":{"params":{"properties":{"kind":{},"difficulty":{}}}}})
+        )["routing.route"]["params"]["properties"]
+            .get("difficulty")
+            .is_none()
     );
     assert_eq!(
         v2::call_params("client.register", &json!(["a"])).unwrap(),

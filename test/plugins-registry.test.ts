@@ -8,6 +8,7 @@ import { eventsSince } from "../src/api/events";
 import { readActivity } from "../src/activity/log";
 import { CoreError } from "../src/core/errors";
 import { PluginRegistry } from "../src/plugins/registry";
+import { markServeRegistry, pluginRegistry, resetServeRegistryForTests } from "../src/plugins/index";
 import { PLUGIN_PROTOCOL_VERSION } from "../src/plugins/protocol";
 import { pluginLogPath } from "../src/plugins/host";
 import { fakeCtx } from "./helpers";
@@ -27,12 +28,67 @@ function home() {
 const live = (ctx: ReturnType<typeof fakeCtx>) => ({ ...ctx, now: Date.now() / 1000 });
 const registries: PluginRegistry[] = [];
 afterEach(async () => { await Promise.all(registries.splice(0).map(r => r.shutdown())); });
+// markServeRegistry is a process-local, irreversible opt-in; restore the default so each test starts clean.
+afterEach(resetServeRegistryForTests);
 const registry = (sleep?: (ms: number) => Promise<void>) => {
-  const r = new PluginRegistry({ bundled: [], spawnBundled: () => { throw new Error("no bundled plugins"); }, sleep });
+  const r = new PluginRegistry({ bundled: [], spawnBundled: () => { throw new Error("no bundled plugins"); }, sleep, publishRuntimeState: true });
   registries.push(r);
   return r;
 };
 const codeOf = async (x: Promise<unknown>) => { try { await x; return "no error"; } catch (e) { return e instanceof CoreError ? e.code : String(e); } };
+
+test("a passive (non-serve) registry does not publish plugin lifecycle events", async () => {
+  const ctx = home();
+  installFixture("good", join(ctx.pacerHome, "plugins"));
+  // Grant + enable the plugin as the serve process would, so a later passive read finds it enabled.
+  const serveReg = new PluginRegistry({ bundled: [], spawnBundled: () => { throw new Error("no bundled plugins"); }, sleep: async () => {}, publishRuntimeState: true });
+  registries.push(serveReg);
+  await serveReg.enable(ctx, "fx-good", true);
+  await serveReg.shutdown();
+  const before = eventsSince(ctx, 0, 3).last;
+  // Passive read path: a fresh non-serve registry refreshes and starts the plugin (as a usage read would).
+  const r = new PluginRegistry({ bundled: [], spawnBundled: () => { throw new Error("no bundled plugins"); }, sleep: async () => {} });
+  registries.push(r);
+  const [report] = await r.doctor(live(ctx), "fx-good");
+  expect(report).toMatchObject({ id: "fx-good", ok: true, state: "ready" });
+  await r.shutdown();
+  const pluginEvents = eventsSince(ctx, before, 3).events.filter(e => e.type === "plugin");
+  expect(pluginEvents).toHaveLength(0);
+});
+
+test("a registry from pluginRegistry(ctx) defaults to not publishing runtime state", async () => {
+  resetServeRegistryForTests();
+  const ctx = home();
+  installFixture("good", join(ctx.pacerHome, "plugins"));
+  const r = pluginRegistry(ctx);
+  await r.enable(live(ctx), "fx-good", true);
+  const [report] = await r.doctor(live(ctx), "fx-good");
+  expect(report).toMatchObject({ id: "fx-good", ok: true, state: "ready" });
+  await r.shutdown(); // drains any queued publish before reading the outbox
+  const states = eventsSince(ctx, 0, 3).events
+    .filter(e => e.type === "plugin" && (e.data as { id: string }).id === "fx-good")
+    .map(e => (e.data as { state: string }).state);
+  expect(states).not.toContain("idle");
+  expect(states).not.toContain("ready");
+});
+
+test("markServeRegistry() flips an already-created pluginRegistry(ctx) registry to publish", async () => {
+  resetServeRegistryForTests();
+  const ctx = home();
+  installFixture("good", join(ctx.pacerHome, "plugins"));
+  // The registry is created before the serve startup path marks this process.
+  const r = pluginRegistry(ctx);
+  expect(r).toBe(pluginRegistry(ctx)); // one registry per home in this process
+  markServeRegistry();
+  await r.enable(live(ctx), "fx-good", true);
+  const [report] = await r.doctor(live(ctx), "fx-good");
+  expect(report).toMatchObject({ id: "fx-good", ok: true, state: "ready" });
+  await r.shutdown(); // drains the queued publishes
+  const states = eventsSince(ctx, 0, 3).events
+    .filter(e => e.type === "plugin" && (e.data as { id: string }).id === "fx-good")
+    .map(e => (e.data as { state: string }).state);
+  expect(states).toContain("ready");
+});
 
 test("discovery lists installed plugins with their static states", async () => {
   const ctx = home();
@@ -85,7 +141,7 @@ test("enable needs a grant once, then starts lazily, answers declared capabiliti
   const published = Date.now() + 2000;
   while (eventsSince(ctx, 0, 3).events.filter(e => e.type === "plugin").length < 4 && Date.now() < published) await Bun.sleep(10);
   const types = eventsSince(ctx, 0, 3).events.filter(e => e.type === "plugin").map(e => (e.data as { state: string }).state);
-  expect(types).toEqual(["needs_grant", "idle", "starting", "ready"]);
+  expect(types).toEqual(["needs_grant", "idle", "ready"]);
   await r.disable(live(ctx), "fx-good");
   expect(r.list(ctx).find(p => p.id === "fx-good")).toMatchObject({ state: "disabled", pid: null });
   await r.shutdown();
@@ -151,12 +207,12 @@ test('only bundled peers receive the single host-issued source selector; install
   const captures:Record<string,string|undefined>[]=[];
   const capture=((file:string,args:string[],options:any)=>{captures.push({...options.env});return spawn(file,args,options);}) as typeof spawn;
   const bundle=BUNDLED.find(value=>value.manifest.id==='pacer-notify')!;
-  const r=new PluginRegistry({bundled:[bundle],spawn:capture,spawnBundled:()=>({argv:[process.execPath,join(import.meta.dir,'../plugins/pacer-notify/index.ts')],cwd:ctx.home,env:{PACER_CORE_ARGV:'host-issued-selector',SECRET:'private-env-marker'}})});registries.push(r);
+  const r=new PluginRegistry({bundled:[bundle],spawn:capture,spawnBundled:()=>({argv:[process.execPath,join(import.meta.dir,'../plugins/pacer-notify/index.ts')],cwd:ctx.home,env:{PACER_CORE_ARGV:'host-issued-selector',SECRET:'private-env-marker'}}),publishRuntimeState:true});registries.push(r);
   expect((await r.doctor(live(ctx),'pacer-notify'))[0]?.ok).toBe(true);
-  expect(captures[0]).toEqual({PATH:ctx.env.PATH,HOME:ctx.home,PACER_HOME:ctx.pacerHome,PACER_PLUGIN_ID:'pacer-notify',PACER_PLUGIN_PROTOCOL:'1.11.0',PACER_CORE_ARGV:'host-issued-selector',BUN_RUNTIME_TRANSPILER_CACHE_PATH:''});
+  expect(captures[0]).toEqual({PATH:ctx.env.PATH,HOME:ctx.home,PACER_HOME:ctx.pacerHome,PACER_PLUGIN_ID:'pacer-notify',PACER_PLUGIN_PROTOCOL:'1.12.0',PACER_CORE_ARGV:'host-issued-selector',BUN_RUNTIME_TRANSPILER_CACHE_PATH:''});
   await r.shutdown();
   installFixture('good',join(ctx.pacerHome,'plugins'));
-  const installed=new PluginRegistry({bundled:[],spawn:capture,spawnBundled:()=>{throw Error('installed peer used bundled launcher');}});registries.push(installed);
+  const installed=new PluginRegistry({bundled:[],spawn:capture,spawnBundled:()=>{throw Error('installed peer used bundled launcher');},publishRuntimeState:true});registries.push(installed);
   await installed.enable(live(ctx),'fx-good',true);expect((await installed.doctor(live(ctx),'fx-good'))[0]?.ok).toBe(true);
-  expect(captures[1]).toEqual({PATH:ctx.env.PATH,HOME:ctx.home,PACER_HOME:ctx.pacerHome,PACER_PLUGIN_ID:'fx-good',PACER_PLUGIN_PROTOCOL:'1.11.0',BUN_RUNTIME_TRANSPILER_CACHE_PATH:''});
+  expect(captures[1]).toEqual({PATH:ctx.env.PATH,HOME:ctx.home,PACER_HOME:ctx.pacerHome,PACER_PLUGIN_ID:'fx-good',PACER_PLUGIN_PROTOCOL:'1.12.0',BUN_RUNTIME_TRANSPILER_CACHE_PATH:''});
 });

@@ -1,23 +1,22 @@
 import { existsSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { type z } from "zod";
-import { appendActivity } from "../activity/log";
 import { ENDPOINT_DEFAULT_BASE_URL, type EndpointApi } from "../config/accounts";
 import { loadStrategy, type Strategy } from "../config/strategy";
 import { CoreError } from "../core/errors";
 import { taskTitle } from "../core/short-title";
 import { computeStatus, type Status } from "../engine/status";
 import { configuredSecrets, readKey } from "../endpoints/keys";
+import { readBlocked } from "../executors/blocked";
 import { publish } from "../link/publish";
 import { pluginRegistry } from "../plugins";
-import { ASSISTANT_PACER_EXECUTABLE, inspectBundledNativeExecutable } from "../plugins/native-bundled";
-import { assistantReplyResult, assistantRespondResult, ASSISTANT_MAX_DEADLINE_MS, type AssistantBackend } from "../plugins/protocol";
+import { assistantReplyResult, ASSISTANT_MAX_DEADLINE_MS, type AssistantBackend } from "../plugins/protocol";
 import { readTask } from "../tasks/store";
 import type { Ctx } from "../types";
 import { agentInfo } from "../view-model/agents";
 import { buildCard, type CardDeps, proposalSchema } from "./actions";
 import { setAssistantDeltaSink } from "./delta";
-import { ASK_CONFIG_REF, ASK_GRANT_REF, askAdapterFor, askAdapterLiveTools, askSystem, askTurnFor, claudeAskConfigDir, codexAskConfigDir, claudeNeedsGrant, type AskTurn } from "./ask-mode";
+import { ASK_CONFIG_REF, ASK_GRANT_REF, askAdapterFor, askAdapterLiveTools, askSystem, askTurnFor, claudeAskConfigDir, codexAskConfigDir, claudeNeedsGrant, type AskAdapter, type AskTurn } from "./ask-mode";
 
 import { runSelfTest, selfTestStatus, type SelfTestRecord } from "./selftest";
 import { buildDigest } from "./digest";
@@ -26,33 +25,12 @@ import { assistantDatabase, checkpoint, conversationWindow, deleteConversations 
 import { type ReadOp, READ_TOOLS, runReadTool, toolDefinitions } from "./tools";
 import { openAssistantTurnFor, type AssistantToolState, type AssistantToolTurn } from "./turn-tools";
 import { issueAssistantGrant, revokeAssistantGrants } from "../dispatch/work";
-import { type ActionCard, type AssistantMessage, type AssistantScope, type AssistantSettings, type AssistantUsage, type Citation, type ProposedCall, type TurnView, type Coverage, scopeSchema } from "./types";
+import { type ActionCard, type AssistantScope, type AssistantSettings, type AssistantUsage, type Citation, type ProposedCall, type TurnView, type Coverage, scopeSchema } from "./types";
 
-/** Homes that already logged the legacy `assistant.respond` fallback notice this process. */
-const legacyRespondNotices = new Set<string>();
-
-/**
- * One-time (per home) activity notice when a `backend: pacer` turn falls back to the deprecated
- * `assistant.respond` path because the native `pacer-assistant-pacer` binary is missing or outdated.
- */
-export function noticeLegacyRespondFallback(ctx: Ctx): void {
-  if (legacyRespondNotices.has(ctx.pacerHome)) return;
-  const sibling = inspectBundledNativeExecutable(ASSISTANT_PACER_EXECUTABLE, ctx.env);
-  if (sibling.status === "ready") return;
-  legacyRespondNotices.add(ctx.pacerHome);
-  const why = sibling.status === "missing"
-    ? `the native binary ${ASSISTANT_PACER_EXECUTABLE} is missing`
-    : `the native binary ${ASSISTANT_PACER_EXECUTABLE} is outdated (reports ${sibling.reported ?? "unknown"}, pacer is ${sibling.expected})`;
-  appendActivity(ctx, {
-    kind: "plugin_state",
-    level: "warn",
-    text: `assistant.respond is deprecated: falling back to the legacy pacer-assistant plugin because ${why}. A newer pacer release will install it.`,
-  });
+/** Plain reason shared by admission, status and candidates when the native reply plugin cannot serve a turn. */
+function nativePacerUnavailableReason(): string {
+  return "Pacer's assistant needs an update or repair: its native binary is missing or outdated.";
 }
-
-
-
-export const ASSISTANT_PLUGIN = "pacer-assistant";
 
 /** The only ops the read tools may call. A tool can never reach a write op through this list. */
 export const READ_OPS = ["snapshot.get", "dispatch.list", "task.list", "task.get", "dispatch.tree", "dispatch.events", "dispatch.analytics", "dispatch.explain", "activity.list", "strategy.list", "assistant.budget"] as const;
@@ -60,8 +38,9 @@ export const READ_OPS = ["snapshot.get", "dispatch.list", "task.list", "task.get
 export interface AssistantDeps {
   status?: (ctx: Ctx, strategy: Strategy) => Promise<Status>;
   read?: ReadOp;
-  respond?: (ctx: Ctx, params: unknown, deadlineMs: number, signal?: AbortSignal) => Promise<unknown>;
   cards?: CardDeps;
+  /** Test seam: answer an `assistant.reply` call in process instead of spawning the serving plugin. */
+  reply?: (ctx: Ctx, params: unknown, o: { assistantTurn: AssistantToolTurn; deadlineMs: number; signal?: AbortSignal }) => Promise<unknown>;
   keys?: (ctx: Ctx, strategy: Strategy) => Promise<string[]>;
   strategy?: (ctx: Ctx) => Strategy;
   /** Whether ask mode may run on an account; defaults to the recorded self-test (src/assistant/selftest.ts). */
@@ -143,15 +122,18 @@ export function assistantProvider(ctx: Ctx, backend: AssistantBackend): string |
   catch { return null; } // a plugin configuration this process cannot read serves no plugin
 }
 
-/** The plugin that answers this backend's turns with `assistant.reply`; null keeps today's loop. */
+/** The plugin that answers this backend's turns with `assistant.reply`; null means unavailable. */
 export function replyProvider(ctx: Ctx, backend: AssistantBackend): string | null {
   try {
     return pluginRegistry(ctx).findAll(ctx, "assistant", c => c.reply === true && backendOf(c) === backend)[0] ?? null;
   } catch { return null; }
 }
 
-/** Each round of the `assistant.respond` loop may ask for at most this many tool calls. */
-const MAX_TOOL_CALLS_PER_ROUND = 4;
+/** An injected reply function stands in for a plugin serving `backend: pacer` in unit tests. */
+function servingReply(ctx: Ctx, backend: AssistantBackend, deps: AssistantDeps): string | null {
+  return deps.reply && backend === "pacer" ? "(test reply)" : replyProvider(ctx, backend);
+}
+
 const TASK_ID = /\bt-\d{8}-\d{6}-[0-9a-f]{4}\b/g;
 
 /**
@@ -159,7 +141,7 @@ const TASK_ID = /\bt-\d{8}-\d{6}-[0-9a-f]{4}\b/g;
  * and every other call runs through the read pipeline (permitted op, parameter parsing, scope,
  * projection, redaction, size cap) and comes back as delimited data. The call is charged to the
  * turn's tool-round budget first, so one past `maxToolRounds` is refused. `capability.assistant.tool`
- * and the `assistant.respond` loop both end here, so a card, a citation and a log line look the same
+ * and the `assistant.tool` op both end here, so a card, a citation and a log line look the same
  * whichever backend asked for the tool.
  */
 export async function runAssistantTool(ctx: Ctx, call: ProposedCall, o: { read: ReadOp; scope: AssistantScope; redactor: Redactor; cards: CardDeps; state: AssistantToolState }): Promise<{ content: string; ok: boolean }> {
@@ -187,16 +169,15 @@ export interface Admission { ok: boolean; reason?: string; hint?: string }
 export async function admit(ctx: Ctx, deps: AssistantDeps = {}): Promise<Admission> {
   const settings = readSettings(ctx);
   if (!settings.account) return { ok: false, reason: "The assistant is not set up.", hint: "Choose an account in Settings › Assistant." };
-  // A stored executor backend needs a plugin that answers it with assistant.reply; otherwise the
-  // turn would fall back to pacer's own loop, which is the other backend (spec §Phases 1).
+  // Each backend needs a plugin that answers whole turns with assistant.reply; the host no longer
+  // drives a model loop itself, so a missing reply plugin makes the backend unavailable.
   if (settings.backend === "executor" && !replyProvider(ctx, "executor"))
     return { ok: false, reason: "No plugin answers the assistant's executor backend.", hint: "Choose pacer's agent in Settings › Assistant." };
   const strategy = (deps.strategy ?? loadStrategy)(ctx);
   const endpoint = endpointFor(ctx, strategy, settings);
   if (!endpoint) return { ok: false, reason: "The account chosen for the assistant is no longer available.", hint: "Choose another account in Settings › Assistant." };
-  // Anthropic/Gemini need the native assistant-pacer binary; never fall back to the legacy TS plugin.
-  if (settings.backend === "pacer" && needsNativePacer(endpoint.account.connection?.api) && !replyProvider(ctx, "pacer"))
-    return { ok: false, reason: nativePacerUnavailableReason(endpoint.account.connection!.api!), hint: "Install pacer's assistant binary, or choose an openai-compatible account." };
+  if (settings.backend === "pacer" && !servingReply(ctx, "pacer", deps))
+    return { ok: false, reason: nativePacerUnavailableReason(), hint: "Update or repair pacer to install its assistant binary." };
   // Ask mode runs only on an account that passed the fail-closed check with today's CLI (spec §3).
   if (settings.backend === "executor") {
     // The native plugin owner's bridge cannot carry the ask-mode config binding yet.
@@ -223,14 +204,25 @@ export async function assistantStatus(ctx: Ctx, deps: AssistantDeps = {}) {
   if (configured) { try { admission = await admit(ctx, deps); } catch (e) { admission = { ok: false, reason: e instanceof Error ? e.message : String(e) }; } }
   // liveTools needs the chosen candidate; match admit and never fail the status read when strategy is missing.
   let liveTools = false;
+  let cli: AskAdapter | undefined;
   if (configured) {
     try {
-      liveTools = candidates(ctx, deps).find(r => r.account === settings.account && r.backend === settings.backend)?.liveTools ?? false;
+      const chosen = candidates(ctx, deps).find(r => r.account === settings.account && r.backend === settings.backend);
+      liveTools = chosen?.liveTools ?? false;
+      if (chosen && "cli" in chosen && typeof chosen.cli === "string") cli = chosen.cli as AskAdapter;
     } catch { /* admission already recorded the failure */ }
+    // When the chosen executor row was filtered out (disabled/blocked), still name its CLI from the account.
+    if (!cli && settings.backend === "executor" && settings.account) {
+      try {
+        const account = (deps.strategy ?? loadStrategy)(ctx).accounts[settings.account];
+        cli = account ? askAdapterFor(ctx, account) ?? undefined : undefined;
+      } catch { /* strategy missing */ }
+    }
   }
   return {
     available: configured && admission.ok, configured, account: settings.account ?? undefined, runner: settings.runner ?? undefined,
     liveTools,
+    ...(cli ? { cli } : {}),
     ...(admission.ok ? {} : { reason: admission.reason, ...(admission.hint ? { hint: admission.hint } : {}) }),
     limits: settings.limits, retention: settings.retention, rev: settings.rev, today: usageToday(ctx),
   };
@@ -238,9 +230,8 @@ export async function assistantStatus(ctx: Ctx, deps: AssistantDeps = {}) {
 
 /** Answers `capability.secrets.resolve` for the pacer assistant backend: only the chosen endpoint account's key. */
 export async function assistantSecret(ctx: Ctx, pluginId: string, ref: string): Promise<string | null> {
-  // The legacy respond plugin and the native reply plugin (when enabled) may resolve the key.
-  const pacerReply = replyProvider(ctx, "pacer");
-  if (pluginId !== ASSISTANT_PLUGIN && pluginId !== pacerReply)
+  // Only the native reply plugin serving backend:pacer may resolve the account key.
+  if (pluginId !== replyProvider(ctx, "pacer"))
     throw new CoreError("capability_denied", `plugin ${pluginId} may not resolve assistant secrets`);
   const settings = readSettings(ctx);
   if (!settings.account || ![`endpoint:${settings.account}`, `endpoint/${settings.account}`].includes(ref)) throw new CoreError("capability_denied", "That secret is not the assistant's account key.");
@@ -314,7 +305,6 @@ const SYSTEM = (now: number, scope: AssistantScope) => [
   `Today is ${new Date(now * 1000).toISOString().slice(0, 10)}. Scope: ${scope.kind === "dispatch" ? `dispatch, last ${scope.days} days` : scope.kind === "task" ? `task ${scope.id}` : `repository ${scope.repo}`}.`,
 ].join("\n");
 
-const OMITTED = "[omitted: over the input limit]";
 const approxTokens = (text: string) => Math.ceil(text.length / 4);
 
 export interface AskInput { conversationId?: string; text: string; scope: AssistantScope; requestId: string }
@@ -380,7 +370,7 @@ async function runTurn(ctx: Ctx, turn: { conversationId: string; turnId: string 
   const cards: ActionCard[] = [], notes: string[] = [], toolLog: unknown[] = [], seenTasks = new Set<string>();
   const deadlineMs = Math.min(settings.limits.deadlineMs, ASSISTANT_MAX_DEADLINE_MS);
   const entry = live.get(turn.turnId)!;
-  let state: TurnView["state"] = "done", answer = "", error: string | null = null, measured = 0, calls = 0, reported: Coverage | null = null;
+  let state: TurnView["state"] = "done", answer = "", error: string | null = null, reported: Coverage | null = null;
   // Closers for the turn's tools and its `pag_` grant; both run the moment the turn ends.
   let closeTurn: (() => void) | null = null, grant: string | null = null, ask: AskTurn | null = null;
   try {
@@ -390,18 +380,18 @@ async function runTurn(ctx: Ctx, turn: { conversationId: string; turnId: string 
     const redactor = createRedactor(await (deps.keys ?? defaultKeys)(ctx, strategy), ctx.home);
     entry.redactor = redactor;
     const read = deps.read ?? defaultRead(deps);
-    const respond = deps.respond ?? (async (c: Ctx, params: unknown, deadlineMs: number, signal?: AbortSignal) => pluginRegistry(c).call(c, ASSISTANT_PLUGIN, "assistant.respond", params, { deadlineMs, signal }));
     const history = conversationWindow(ctx, turn.conversationId, turn.turnId);
     const system = SYSTEM(ctx.now, scope);
-    const replyTo = replyProvider(ctx, settings.backend);
-    // Anthropic/Gemini must never reach the legacy openai-compatible respond path.
-    if (!replyTo && settings.backend === "pacer" && needsNativePacer(endpoint.account.connection?.api)) {
-      throw new CoreError("not_allowed", nativePacerUnavailableReason(endpoint.account.connection!.api!), "Install pacer's assistant binary, or choose an openai-compatible account.");
-    }
-    // One tool state for the turn: a plugin backend is charged one call per round, the host's own
-    // loop rounds × calls. The same object is reachable through the reply call's authority and by
-    // turnId, so `capability.assistant.tool` and the `assistant.tool` op share one budget.
-    const toolState: AssistantToolState = { cards, notes, toolLog, seenTasks, rounds: { used: 0, max: replyTo || settings.backend === "executor" ? settings.limits.maxToolRounds : settings.limits.maxToolRounds * MAX_TOOL_CALLS_PER_ROUND } };
+    const replyTo = servingReply(ctx, settings.backend, deps);
+    // Admission refuses a backend without a reply plugin; recheck here so a setting changed mid-turn
+    // can never send a turn into a host model loop, which no longer exists.
+    if (!replyTo) throw new CoreError("not_allowed", settings.backend === "pacer"
+      ? nativePacerUnavailableReason()
+      : "No plugin answers the assistant's executor backend.");
+    // One tool state for the turn, charged one call per round. The same object is reachable through
+    // the reply call's authority and by turnId, so `capability.assistant.tool` and the `assistant.tool`
+    // op share one budget.
+    const toolState: AssistantToolState = { cards, notes, toolLog, seenTasks, rounds: { used: 0, max: settings.limits.maxToolRounds } };
     closeTurn = openAssistantTurnFor(turn.turnId, { turnId: turn.turnId, scope, read, redactor, cards: deps.cards ?? defaultCards, state: toolState });
     // Only the executor backend's CLI reaches the tools outside the plugin call, so only that
     // turn's backend is handed a `pag_` grant; it dies with the turn, its cancellation or this deadline.
@@ -474,14 +464,17 @@ async function runTurn(ctx: Ctx, turn: { conversationId: string; turnId: string 
         ...(grantBinding ? [{ ref: ASK_GRANT_REF, resolve: async () => grantBinding }] : []),
       ];
       emit(turn.turnId, { status: "Thinking…" });
+      const callOptions = {
+        deadlineMs, signal: entry.abort.signal, assistantTurn,
+        ...(ask ? {
+          resources: { reads: [], commands: pins, stores: [] },
+          ...(bindings.length ? { credentialBindings: bindings } : {}),
+        } : {}),
+      };
       const raw = await Promise.race([
-        pluginRegistry(ctx).call(ctx, replyTo, "assistant.reply", params, {
-          deadlineMs, signal: entry.abort.signal, assistantTurn,
-          ...(ask ? {
-            resources: { reads: [], commands: pins, stores: [] },
-            ...(bindings.length ? { credentialBindings: bindings } : {}),
-          } : {}),
-        }),
+        deps.reply && replyTo === "(test reply)"
+          ? deps.reply(ctx, params, callOptions)
+          : pluginRegistry(ctx).call(ctx, replyTo, "assistant.reply", params, callOptions),
         entry.stopped,
       ]);
       const parsed = assistantReplyResult.safeParse(raw);
@@ -497,52 +490,6 @@ async function runTurn(ctx: Ctx, turn: { conversationId: string; turnId: string 
         ? { handle: result.session, account: endpoint.name, backend: settings.backend } : null);
       if (entry.cancelled) state = "cancelled";
       else answer = redactor.text(result.message);
-    } else {
-      // Deprecated host loop: only when no plugin provides assistant.reply for this backend.
-      if (settings.backend === "pacer") noticeLegacyRespondFallback(ctx);
-      const messages: AssistantMessage[] = [...history.flatMap(h => [{ role: "user" as const, content: h.question }, { role: "assistant" as const, content: h.answer }]), { role: "user", content: question }];
-      // The input cap is the host's, enforced on the context it builds, before every call.
-      const inputTokens = () => approxTokens(system) + approxTokens(JSON.stringify(toolDefinitions())) + messages.reduce((n, m) => n + approxTokens(m.content) + (m.toolCalls ? approxTokens(JSON.stringify(m.toolCalls)) : 0), 0);
-      while (inputTokens() > settings.limits.maxInputTokens && messages.length > 1) messages.shift();
-      if (inputTokens() > settings.limits.maxInputTokens) throw new CoreError("invalid_input", "That question is longer than the assistant's input limit.");
-      const tools = toolDefinitions();
-      // Over the cap, the oldest tool results go first, then the oldest turns. The cap holds before every call.
-      const fit = () => {
-        while (inputTokens() > settings.limits.maxInputTokens) {
-          const tool = messages.find(m => m.role === "tool" && m.content !== OMITTED);
-          if (tool) { tool.content = OMITTED; continue; }
-          if (messages.length > 1) { messages.shift(); continue; }
-          break;
-        }
-      };
-      for (let round = 0; ; round++) {
-        if (entry.cancelled) { state = "cancelled"; break; }
-        fit();
-        if (inputTokens() > settings.limits.maxInputTokens) throw new CoreError("invalid_input", "That question is longer than the assistant's input limit.");
-        const final = round >= settings.limits.maxToolRounds || usage.output >= settings.limits.maxOutputTokens;
-        const params = {
-          conversationId: turn.conversationId, turnId: turn.turnId, messages, tools: final ? [] : tools,
-          context: { system, backend: { kind: "endpoint" as const, account: endpoint.name, model: endpoint.model, baseUrl: endpoint.baseUrl } },
-          limits: { maxOutputTokens: Math.max(100, settings.limits.maxOutputTokens - usage.output), maxToolRounds: final ? 0 : settings.limits.maxToolRounds - round, deadlineMs: Math.min(settings.limits.deadlineMs, ASSISTANT_MAX_DEADLINE_MS) },
-        };
-        emit(turn.turnId, { status: round === 0 ? "Thinking…" : "Reading…" });
-        const raw = await Promise.race([respond(ctx, params, params.limits.deadlineMs, entry.abort.signal), entry.stopped]);
-        const parsed = assistantRespondResult.safeParse(raw);
-        if (!parsed.success) throw new CoreError("plugin_refused", "The assistant backend returned an invalid answer.");
-        const result: z.infer<typeof assistantRespondResult> = parsed.data;
-        usage.input += result.usage.input; usage.output += result.usage.output;
-        if (result.usage.cacheRead !== undefined) usage.cacheRead = (usage.cacheRead ?? 0) + result.usage.cacheRead;
-        if (result.usage.coverage === "measured") measured++;
-        calls++;
-        if (entry.cancelled) { state = "cancelled"; break; }
-        const requested = final ? [] : (result.toolCalls ?? []).slice(0, MAX_TOOL_CALLS_PER_ROUND);
-        if (!requested.length) { answer = redactor.text(result.message); break; }
-        messages.push({ role: "assistant", content: result.message, toolCalls: requested as ProposedCall[] });
-        for (const call of requested) {
-          const out = await runAssistantTool(ctx, call, { read, scope, redactor, cards: deps.cards ?? defaultCards, state: toolState });
-          messages.push({ role: "tool", toolCallId: call.id, content: out.content });
-        }
-      }
     }
     if (state === "done" && !answer) answer = "I could not put an answer together within my limits. Try a narrower question.";
     if (state === "done" && usage.output >= settings.limits.maxOutputTokens) answer = `${answer}\n\n(I stopped here because I reached the ${settings.limits.maxOutputTokens}-token answer limit.)`;
@@ -558,7 +505,7 @@ async function runTurn(ctx: Ctx, turn: { conversationId: string; turnId: string 
   closeTurn?.();
   if (grant) { revokeAssistantGrants(ctx, turn.turnId); turnGrants.delete(turn.turnId); }
   ask?.cleanup();
-  usage.coverage = reported ?? (calls === 0 || measured === 0 ? "unknown" : measured === calls ? "measured" : "partial");
+  usage.coverage = reported ?? "unknown";
   const citations: Citation[] = [...seenTasks].filter(id => answer.includes(id)).slice(0, 6).map(id => ({ label: id, href: `#/tasks/${encodeURIComponent(id)}` }));
   if (state === "cancelled") answer = "";
   finishTurn(ctx, turn.turnId, { state, answer: answer || null, error, cards, citations, toolCalls: toolLog, usage });
@@ -605,6 +552,21 @@ export function refreshCard(ctx: Ctx, turnId: string, cardId: string, deps: Assi
   return updateCard(ctx, turnId, cardId, { state: "pending", result: undefined, params: { ...card.params, expect_rev: task.rev } });
 }
 
+/**
+ * Same gate as `pacer status` / rank for "Unavailable · Disabled" and user blocks: a runner with
+ * `enabled: false` or a live `blocked.json` mark is not offered as an executor assistant row.
+ */
+function executorAccountHidden(ctx: Ctx, strategy: Strategy, account: string): boolean {
+  const blocked = readBlocked(ctx);
+  if (blocked[account]) return true;
+  const runners = Object.values(strategy.runners).filter(r => r.account === account);
+  for (const runner of runners) {
+    if (runner.enabled === false) return true;
+    if (blocked[runner.id] || blocked[runner.name]) return true;
+  }
+  return false;
+}
+
 /** Endpoint accounts the assistant could run on, with the models each offers. Phase 1 offers only
  * the `pacer` backend; an executor row arrives with the plugin that can serve it (spec §5). */
 export function candidates(ctx: Ctx, deps: AssistantDeps = {}) {
@@ -613,6 +575,8 @@ export function candidates(ctx: Ctx, deps: AssistantDeps = {}) {
   // Executor rows (spec §5): every account the executor backend's agent CLI drives, available only
   // after it passed the ask-mode check with today's CLI.
   const executor = replyProvider(ctx, "executor") ? Object.entries(strategy.accounts).flatMap(([name, account]) => {
+    // Disabled / blocked runners stay off the picker (same signals as status "Unavailable · Disabled").
+    if (executorAccountHidden(ctx, strategy, name)) return [];
     const row = {
       account: name, backend: "executor" as AssistantBackend,
       models: account.connection?.models.map(m => ({ id: m.id, name: m.name ?? m.id })) ?? (account.model ? [{ id: account.model, name: account.model }] : []),
@@ -620,27 +584,18 @@ export function candidates(ctx: Ctx, deps: AssistantDeps = {}) {
     };
     // A non-default Claude/Codex account without its own config dir must not fall back to the default.
     if (account.kind === "claude" && !claudeAskConfigDir(ctx, account)) {
-      return [{ ...row, available: false, liveTools: false, reason: `${name} has no Claude config directory.` }];
+      return [{ ...row, cli: "claude-code" as const, available: false, liveTools: false, reason: `${name} has no Claude config directory.` }];
     }
     if (account.kind === "codex" && !codexAskConfigDir(ctx, account)) {
-      return [{ ...row, available: false, liveTools: false, reason: `${name} has no Codex home.` }];
+      return [{ ...row, cli: "codex" as const, available: false, liveTools: false, reason: `${name} has no Codex home.` }];
     }
     const adapter = askAdapterFor(ctx, account);
     if (!adapter) return [];
     const check = deps.selfTest ? deps.selfTest(ctx, name) : selfTestStatus(ctx, name, adapter);
     const liveTools = check.ok && (check.liveTools ?? askAdapterLiveTools(adapter));
-    return [{ ...row, available: check.ok, liveTools, ...(check.ok ? {} : { reason: check.reason }) }];
+    return [{ ...row, cli: adapter, available: check.ok, liveTools, ...(check.ok ? {} : { reason: check.reason }) }];
   }) : [];
-  return [...pacerRows(ctx, strategy), ...executor];
-}
-
-/** Anthropic and Gemini need assistant-pacer; the legacy TS plugin only speaks openai-compatible. */
-function needsNativePacer(api: EndpointApi | undefined): boolean {
-  return api === "anthropic" || api === "gemini";
-}
-
-function nativePacerUnavailableReason(api: EndpointApi): string {
-  return `pacer's agent needs its native binary for ${api} accounts.`;
+  return [...pacerRows(ctx, strategy, deps), ...executor];
 }
 
 /** Build the additive `endpoint` object for `assistant.reply` (api + optional baseUrl + keyless). */
@@ -659,18 +614,19 @@ function pacerEndpointParams(api: EndpointApi, baseUrl: string, key: string): {
   };
 }
 
-function pacerRows(ctx: Ctx, strategy: Strategy) {
-  const native = !!replyProvider(ctx, "pacer");
+function pacerRows(ctx: Ctx, strategy: Strategy, deps: AssistantDeps = {}) {
+  const native = !!servingReply(ctx, "pacer", deps);
   return Object.entries(strategy.accounts).flatMap(([name, account]) => {
     if (account.kind !== "endpoint" || !account.connection) return [];
-    const needsNative = needsNativePacer(account.connection.api);
-    const available = !needsNative || native;
+    // Every endpoint account needs the native reply plugin, whatever its API: there is no host
+    // model loop left. A disabled runner still keeps its row; the plugin uses the API connection.
+    const available = native;
     return [{
       account: name,
       backend: "pacer" as AssistantBackend,
       available,
       liveTools: available,
-      ...(available ? {} : { reason: nativePacerUnavailableReason(account.connection.api) }),
+      ...(available ? {} : { reason: nativePacerUnavailableReason() }),
       models: account.connection.models.map(m => ({ id: m.id, name: m.name ?? m.id })),
       runners: Object.values(strategy.runners).filter(r => r.account === name).map(r => ({ id: r.id, model: r.model })),
       isPlanner: strategy.planner.account === name,

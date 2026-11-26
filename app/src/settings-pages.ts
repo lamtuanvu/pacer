@@ -15,9 +15,7 @@ export const SETTINGS_GROUPS: readonly { id: SettingsGroupId; label: string }[] 
 /** One navigation catalog for the settings menu, the Overview page and shell page titles, in menu order. */
 export const SETTINGS_PAGES: readonly SettingsPage[] = [
   { id: '', label: 'Overview', icon: 'settings-home', group: 'dispatch' },
-  { id: 'executors', label: 'Agents', icon: 'settings-agents', group: 'dispatch', description: 'Agents that take delegated work, their order and limits.' },
-  { id: 'dispatcher', label: 'Dispatcher', icon: 'settings-routing', group: 'dispatch', description: 'Saved profiles and the rules that choose an executor.' },
-  { id: 'models', label: 'Model matrix', icon: 'layers', group: 'dispatch', description: 'Rate and enable models per executor; difficulty steers which model runs.' },
+  { id: 'dispatcher', label: 'Dispatcher', icon: 'settings-routing', group: 'dispatch', description: 'Agents and their models, who can run what, and saved profiles.' },
   { id: 'planner', label: 'Budget & pacing', icon: 'settings-budget', group: 'dispatch', description: 'The planner, how work spreads and the reserve kept for planning.' },
   { id: 'machine', label: 'Machines', icon: 'settings-machines', group: 'dispatch', description: 'Parallel tasks and the terminal used on this machine.' },
   { id: 'plugins', label: 'Plugins', icon: 'settings-plugins', group: 'extend', description: 'Add capabilities and choose where they appear.' },
@@ -27,7 +25,7 @@ export const SETTINGS_PAGES: readonly SettingsPage[] = [
 ];
 
 /** Sections that are now part of another page; their deep links keep working. */
-const SETTINGS_PAGE_OF: Readonly<Record<string, string>> = { updates: 'app', notifications: 'app', appearance: 'app' };
+const SETTINGS_PAGE_OF: Readonly<Record<string, string>> = { updates: 'app', notifications: 'app', appearance: 'app', agents: 'dispatcher', rules: 'dispatcher', profiles: 'dispatcher' };
 
 export function settingsPageId(section = ''): string {
   return SETTINGS_PAGE_OF[section] ?? section;
@@ -35,7 +33,7 @@ export function settingsPageId(section = ''): string {
 
 /** Secondary pages keep their routes and select their parent navigation category. */
 export function settingsNavId(section = ''): string {
-  return section === 'accounts' || section === 'add-executor' ? 'executors' : section === 'hosts' || section === 'pairing' ? 'machine' : section === 'assistant' ? 'app' : settingsPageId(section);
+  return section === 'add-executor' ? 'dispatcher' : section === 'hosts' || section === 'pairing' ? 'machine' : section === 'assistant' ? 'app' : settingsPageId(section);
 }
 
 /** App preferences already shows update status, so the floating update notice stays hidden there. */
@@ -49,17 +47,15 @@ export function discoveryNoticeHiddenOn(route: { name: string; section?: string 
 }
 
 export function settingsPageTitle(section = ''): string {
-  if (section === 'accounts') return 'Accounts';
   if (section === 'assistant') return 'Assistant';
   if (section === 'pairing') return 'Pair machines';
-  if (section === 'models') return 'Model matrix';
   const page = SETTINGS_PAGES.find(page => page.id === settingsPageId(section));
   return page?.title ?? page?.label ?? 'Overview';
 }
 
 export interface SettingsAttention { text: string; label: string; tone: 'good' | 'warn' | 'bad' | 'info' | 'neutral' }
 
-/** Real page attention for Overview; the navigation shows only the Agents count from the board. */
+/** Real page attention for Overview; the navigation shows only the Dispatcher (agents) count from the board. */
 export function settingsAttention(snapshot?: ClientSnapshot | null, counts?: Counts | null): Partial<Record<string, SettingsAttention>> {
   const hosts = snapshot?.hosts ? snapshot.hosts.filter(host => host.state === 'needs_setup').length : counts?.hostsWithProblems ?? 0;
   const down = snapshot?.executors?.filter(e => e.state === 'down' || e.state === 'failing').length ?? 0;
@@ -67,7 +63,7 @@ export function settingsAttention(snapshot?: ClientSnapshot | null, counts?: Cou
   const update = desktopUpdateIndicator(snapshot?.desktopUpdates);
   const result: Partial<Record<string, SettingsAttention>> = {};
   const executorWords = [down && `${down} ${down === 1 ? 'needs' : 'need'} attention`, blocked && `${blocked} blocked`].filter(Boolean).join(', ');
-  if (executorWords) result.executors = { text: String(down + blocked), label: executorWords, tone: 'bad' };
+  if (executorWords) result.dispatcher = { text: String(down + blocked), label: executorWords, tone: 'bad' };
   if (hosts) result.machine = { text: `${hosts} ${hosts === 1 ? 'needs' : 'need'} setup`, label: `${hosts} ${hosts === 1 ? 'needs' : 'need'} setup`, tone: 'warn' };
   if (update?.glyph) result.app = { text: update.glyph, label: update.label, tone: (['bad', 'warn', 'info'] as const).find(tone => tone === update.tone) ?? 'neutral' };
   return result;

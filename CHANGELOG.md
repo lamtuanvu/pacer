@@ -4,12 +4,124 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.18.8] - 2026-11-26
+
 ### Changed
 
+- Settings › Dispatcher is now a hub with four tabs, each its own link: Overview (model choice and preview), Agents, Who can run what (guided rules) and Profiles (saved setups). The separate Agents, Accounts and Model matrix pages are gone; their links open Dispatcher › Agents and keep the selected agent.
+- Dispatcher › Agents lists the planner and executors beside one agent's page: usage, account and sign-in, where it runs, its models and its limits. Size each model, pick the default, turn models on or off, and add models from the agent's live listing (with a suggested size) or, for Claude Code, its aliases and pinned versions; any id can still be typed. Refresh re-reads an agent's models and usage. Models and limits save together from one save bar; Takes work and the planner's tier fallback apply at once.
+
+## [0.18.7] - 2026-11-26
+
+### Changed
+
+- **Desktop updates no longer wait for handover-capable work.** Runners that advertise the handover protocol, their executor sessions and session hosts started by this version are marked as survivors. When the installed app and the update both support it (0.18.7 or later), an in-app update installs while they run: the update helper checks each survivor's code signature against the release signer before installing, and the new service asks older runners to hand over once the update commits (never during the rollback window). Other work, such as queue drains, launches, Orca sessions, remote runs and work started on older versions, still makes the update wait. While an update can still roll back, `service.handover` signals nothing and returns `deferred: true` ([ADR 2026-11-25](docs/decisions/2026-11-25-desktop-update-with-running-work.md)).
+
+### Fixed
+
+- `pacer service restart` and `pacer update` now hand running work to the new service instead of warning "running work was not handed over: pacer core is restarting".
+- Settings › Updates no longer keeps showing a failed update after you install that release another way, such as by hand; pacer drops the installed offer and checks again.
+- After you install a newer pacer.app by hand, the app restarts its own older service onto the new version (handing running work over) instead of leaving the old service running with an "Older service" banner. It does this only on macOS, for the service it owns, with no update in progress.
+
+### Fixed
+
+- Live validation: executors, certification probes and orchestrator turns launched by a sandbox keep their own identity when they call the guarded `pacer`, so certification and orchestrator answers work without a wrapper script. Sandboxes also turn the login-shell environment off unless asked, so the login profile no longer reorders an executor's `PATH`; an unseeded sandbox still resolves agent CLIs from the inherited `PATH` behind its own `bin`.
+- Live validation: the guarded `pacer` keeps the caller's directory inside the sandbox home or repository, so relative paths from a task worktree resolve correctly. It ignores `.env` and `bunfig.toml` there, rejects identity paths with `..`, and passes the assistant server only a home inside the sandbox.
+
+### Fixed
+
+- **Workflow step workers can report.** An executor holding an attempt credential can now run `step.result`, `step.artifact` and `question.ask` (`pacer step result`, `pacer step artifact`, `pacer ask --type …`, and MCP tools) for its own step only. The identity comes from the verified credential and `PACER_TASK_ID`, which must agree; a step whose attempt was issued a credential cannot be reported on without it. No HTTP bearer gains an operation, and tasks that are not workflow steps are unchanged.
+- `pacer ask --blocks` without a value means `step`, as the workflow prompts show it.
+
+### Fixed
+
+- **Workflow orchestrator turns run only on the run's planner.** A turn queued for a busy planner is now started when the planner has a free slot instead of waiting out its deadline. When the planner is unavailable the turn stays queued with the reason, and no executor receives it or its run grant. `task.retry` refuses orchestrator tasks.
+
+## [0.18.6] - 2026-11-26
+
+### Fixed
+
+- crates.io: bump protocol crates changed by the assistant.respond removal
+
+## [0.18.5] - 2026-11-25
+
+### Changed
+
+- **Planner models are editable in the Model matrix.** The planner row in Settings › Model matrix accepts model tiers (the planner tier fallback reads them); `runner.models.set` and `set_many` no longer refuse the planner runner. Suggestions still leave the planner alone. Saving the row sets the planner runner's default model, which managed tasks on that runner use; the planner's own session is unaffected.
+
+### Added
+
+- **Planner tier fallback.** When a task is `complex` (or a dispatch brief sets `min_tier`) and no executor other than the planner declares a model at the target tier, Pacer runs it on the planner's own account as a managed task, even when the planner is ahead of pace. A busy planner makes the task wait rather than run below its tier. New setting `pacing.planner_tier_fallback` (`on` by default); `pacer route --difficulty` and `routing.route { difficulty }` (protocol 3 only); `pacer status` shows a `Tier fallback:` line while it applies. The planner runner needs a declared `tier: frontier` model to qualify.
+- **TUI Runs screen.** Tab/`6` opens a Runs list (open person-answerable questions first) and a run view that draws the engine graph as a tree with a details pane; answer, pause/resume, stop, priority, auto and orchestrator message keys use existing ops. `run.get` adds an optional `definition` projection; `run.answer` accepts an optional `note` (same sanitize/trim rules as `question.answer`).
+
+### Changed
+
+- Planner-started workflow runs no longer raise human banners for blocking items unless the caller has been silent for 30 minutes; run snapshots expose `origin`.
+- **The assistant uses only its native agent.** Removed the deprecated plugin method `assistant.respond`, the bundled TypeScript `pacer-assistant` plugin and the host-side model loop. Every `backend: pacer` turn now goes to `assistant-pacer` through `assistant.reply`; with a missing or outdated binary, all pacer-backend rows are unavailable and admission refuses with a plain reason to update or repair pacer. This lands directly after v0.18.4, the first release whose updater installs the binary ([ADR 0028](docs/decisions/0028-assistant-backends.md)).
+
+### Fixed
+
+- The desktop menu-bar indicator no longer shows an update failure when a check was only interrupted or unavailable, keeps an available update visible after a failed re-check, and reads "Not checked yet" like the app.
+- Keep sessions you start through pacer open until you end them: idle checks no longer stop them, an agent's done report no longer closes the terminal, and ending the session keeps the reported outcome for review.
+- Label tasks a person starts in the app or TUI as user-started even when the request names no client, so a Diagnostics "Fix with agent" task no longer shows as started by the planner.
+
+## [0.18.4] - 2026-11-25
+
+### Changed
+
+- Release 0.18.3 (#1286).
+- Assert plugin.disable workflow side effect; link SDK in plugin.list parity test (#1258).
+
+### Fixed
+
+- Name each picker row's real CLI and hide disabled accounts (#1289) (assistant).
+- Read sign-ins and models on OpenCode 2.2; require a provider model when adding an agent (#1287) (opencode).
+- Keep grant workflows in Rust strategy validation and parallelize the host release compile (#1260) (plugins).
+
+## [0.18.3] - 2026-11-25
+
+### Changed
+
+- Release 0.18.2 (#1283).
+
+### Fixed
+
+- Accept the workflow protocol crate in the archive check (#1284) (release).
+
+## [0.18.2] - 2026-11-25
+
+### Changed
+
+- Release 0.18.1 (#1280).
+
+### Fixed
+
+- Publish the workflow protocol crate before the SDK (#1281) (release).
+- Remove Workspace list page; onboarding gates first run only (#1263) (app).
+
+## [0.18.1] - 2026-11-25
+
+### Changed
+
+- Release 0.18.0 (#1262).
+- Allow ten minutes for the host release compile (#1275) (release).
+
+### Fixed
+
+- Bump plugin crates changed since their last publish (#1264) (crates).
+- Settle a pending stop whose attempt is already recorded (#1261) (tasks).
+
+## [0.18.0] - 2026-11-24
+
+### Changed
+
+- **The Workspace list page is gone.** The rail, menu bar and command palette no longer open it; old `#/workspace` and `#/terminal` links open Tasks. The per-task workbench (`#/workspace?task=<id>`) is unchanged, and Tasks stays highlighted while it is open.
 - **`messaging.liveness.nudge_in_modes` defaults to all four modes** (`relaxed`, `normal`, `strict`, `emergency`). Executor nudges (idle, silent prompt, no-progress, cycle, undelivered retry) now run in strict and emergency too; those modes still save the planner's budget. Planner wakes use the new `messaging.liveness.caller_wake_in_modes` (default `relaxed`, `normal`), so planners are still not woken in strict or emergency unless you opt in.
 
 ### Fixed
 
+- **Onboarding no longer reappears after it was completed.** The setup check records a sticky `onboarded` flag (`onboarding/onboarded` under the pacer home) the first time setup completes. After that, no app page (Insights included) redirects to Setup and the TUI no longer swaps work screens for Setup when a required check later fails; regressions show as the Setup rail dot and in Diagnostics. Snapshots and `setup.check` carry the new field.
+- **`pacer retry` of a task that ran with placement `current` no longer fails with `local new placement is not selected`.** The owned local runner now classifies a reused checkout the same way as the legacy direct path: `current` when the path is the brief repo itself, `new` otherwise. This also covers retries of in-place tasks with `auto` placement, which, like the legacy path, are not refused for a dirty checkout (the changes are usually the earlier attempt's own work). When the reused checkout is a separate worktree, the retry's requested placement is recorded as `new`.
 - **Interactive resume turns no longer tell the agent both "do not run pacer report" and "completion requires running pacer report".** Interactive runners get a live turn prompt so the session can finish with `pacer report`.
 - **A delegated interactive session stuck in phase `needs-input` with no open pacer question is detected as a `silent_prompt` stall** after `execution.idle_after_min` and nudged to finish with `pacer report` or ask a question, instead of waiting forever while active time is paused. Human conversation tasks waiting at their prompt stay exempt.
 

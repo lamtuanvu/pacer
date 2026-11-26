@@ -56,7 +56,7 @@ function opencodeModels(ctx: Ctx, account: AccountCfg, deps?: SetupDeps, out: Av
     const provider = account.provider!;
     // An empty listing means sign-in dropped or the provider was renamed: unknown, never "no models".
     if (!ids.length) {
-      out.note = `opencode lists no models for ${provider}; check opencode auth list`;
+      out.note = `opencode lists no models for ${provider}; check opencode auth list --standalone`;
       return out;
     }
     const catalog = deps && deps.catalog !== undefined ? deps.catalog : readCachedCatalog(ctx);

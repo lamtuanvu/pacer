@@ -12,6 +12,7 @@ import {
 const checklist = (over: Partial<SetupChecklist> = {}): SetupChecklist => ({
   checkedAt: 1,
   complete: true,
+  onboarded: true,
   ready: true,
   items: [
     { id: "service", title: "Background service", status: "done", required: true },

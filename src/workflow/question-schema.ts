@@ -55,9 +55,20 @@ export const questionInputSchema = z.strictObject({
 export type QuestionInput = z.infer<typeof questionInputSchema>;
 
 /** Answer payload bounds: answer ≤ 2000 (core task.answer); note ≤ 4000. */
+export const NOTE_MAX = 4000;
+export const NOTE_TOO_LONG = "note must be at most 4000 characters";
+
+/** Strip C0/C1 controls (keep tab/LF/CR) so notes stay text, not terminal noise. */
+export function sanitizeAnswerNote(note: string): string {
+  return note.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g, "");
+}
+
+export const answerNoteSchema = z.string().max(NOTE_MAX, NOTE_TOO_LONG);
+
+/** Answer payload bounds: answer ≤ 2000 (core task.answer); note ≤ 4000. */
 export const questionAnswerInputSchema = z.strictObject({
   answer: z.string().min(1).max(2000),
-  note: z.string().max(4000).optional(),
+  note: answerNoteSchema.optional(),
   expectRev: z.number().int(),
 });
 

@@ -9,7 +9,11 @@ import { callOp } from "../src/api/ops";
 import { runStdio } from "../src/api/stdio";
 import { startServer } from "../src/serve/http";
 import { fakeCtx } from "./helpers";
+import { assistantPacerStubBin } from "./fixtures/assistant-pacer/native-bin";
 import { front, makeHome, type Home, type Reply, serve, stdio, tsOwner } from "./native-plugin-door";
+
+// A `backend: pacer` turn needs the native reply plugin; the legacy TypeScript loop is gone.
+const assistantOwner = { ...tsOwner, env: { PACER_ASSISTANT_PACER_BIN: assistantPacerStubBin } };
 
 // Native `assistant.ask` and `assistant.cancel`: Rust answers the caller policy and the params with
 // TypeScript's bytes, then the sealed `assistant-turn` bridge runs the turn in Core, beside the live-turn
@@ -204,7 +208,7 @@ test.skipIf(!front)("stdio and HTTP answer idle requests like forced forwarding"
 test.skipIf(!front)("over HTTP a native ask streams its answer and a native cancel stops the live turn", async () => {
   const h = makeHome(), chat = endpoint();
   configured(h, chat.server.port!);
-  const door = await serve(h, "", tsOwner);
+  const door = await serve(h, "", assistantOwner);
   try {
     expect((await door.call("assistant.settings.set", { runner: "opencode#ep", account: "ep", expect_rev: 1 })).json.error).toBeUndefined();
     const first = await door.call("assistant.ask", { ...RUNNING, requestId: "http-1" });
@@ -235,7 +239,7 @@ test.skipIf(!front)("over HTTP a native ask streams its answer and a native canc
 test.skipIf(!front)("over stdio a native ask and cancel reach the turn in that connection's Core", async () => {
   const h = makeHome(), chat = endpoint();
   configured(h, chat.server.port!);
-  const door = await stdio(h, "", tsOwner);
+  const door = await stdio(h, "", assistantOwner);
   const call: Call = (op, params) => door.call(op, params);
   try {
     expect((await call("assistant.settings.set", { runner: "opencode#ep", account: "ep", expect_rev: 1 })).json.error).toBeUndefined();

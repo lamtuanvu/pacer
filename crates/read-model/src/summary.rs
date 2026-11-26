@@ -68,6 +68,7 @@ pub fn setup(
         .filter(|i| truth(&i["required"]) && i["status"] != "done")
         .count();
     let complete = open == 0;
+    let onboarded = truth(&checklist["onboarded"]) || complete;
     let ready = complete
         && ["executor", "first"].iter().all(|id| {
             items
@@ -75,7 +76,7 @@ pub fn setup(
                 .any(|i| i["id"] == *id && i["status"] == "done")
         });
     json!({
-    "policy":policy,"complete":complete,"ready":ready,"open":open,"items":items}
+    "policy":policy,"complete":complete,"onboarded":onboarded,"ready":ready,"open":open,"items":items}
     )
 }
 pub fn counts(

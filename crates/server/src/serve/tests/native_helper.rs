@@ -281,7 +281,9 @@ fn failure_diagnostic_is_bounded_whitelisted_and_does_not_use_readiness_or_shutd
         let start = std::time::Instant::now();
         receive_failure_diagnostic(&channel, &diagnostics, Stage::Handoff);
         assert!(start.elapsed() < Duration::from_secs(1));
-        let text = std::fs::read_to_string(home.path().join("logs/native-helper.log")).unwrap();
+        let text =
+            std::fs::read_to_string(home.path().join("logs/native-helper/native-helper.log"))
+                .unwrap();
         let row: serde_json::Value = serde_json::from_str(text.lines().last().unwrap()).unwrap();
         assert_eq!(row["event"], event);
         // The diagnostic parser only observes bytes; it does not close, signal,
@@ -317,7 +319,8 @@ fn failure_diagnostic_closes_all_incoming_rights_without_leaks() {
         receive_failure_diagnostic(&channel, &diagnostics, Stage::Handoff);
         assert_eq!(std::fs::read_dir("/dev/fd").unwrap().count(), before);
     }
-    let text = std::fs::read_to_string(home.path().join("logs/native-helper.log")).unwrap();
+    let text =
+        std::fs::read_to_string(home.path().join("logs/native-helper/native-helper.log")).unwrap();
     assert!(text.lines().all(
         |line| serde_json::from_str::<serde_json::Value>(line).unwrap()["event"]
             == "core-diagnostic-invalid"
@@ -399,4 +402,66 @@ fn adoption_recovery_asset_refuses_ambiguous_prepared_manifests() {
     );
     private_asset_fixture_file(&directory.join("prepared.json"), &bytes);
     assert!(Asset::verify(&request, root.path()).is_err());
+}
+#[tokio::test]
+async fn clean_refusals_leave_the_channel_serving_following_requests() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    async fn refuse(remote: &mut tokio::net::UnixStream, body: &[u8]) -> [u8; 5] {
+        remote
+            .write_all(&(body.len() as u32).to_be_bytes())
+            .await
+            .unwrap();
+        remote.write_all(body).await.unwrap();
+        let mut reply = [0; 5];
+        remote.read_exact(&mut reply).await.unwrap();
+        reply
+    }
+    let (home, request) = command_asset();
+    let slots = Arc::new(Semaphore::new(1));
+    let identity = ProcessIdentity {
+        pid: std::process::id(),
+        boot_id: "test".into(),
+        birth: "test".into(),
+    };
+    let broker = Broker {
+        trust: NativeTrust::from_pins(None, Some(&"A".repeat(40)))
+            .unwrap()
+            .unwrap(),
+        home: home.path().into(),
+        user_home: home.path().into(),
+        port: 12345,
+        root: identity.clone(),
+        front: home.path().join("pacer"),
+        generation: ProcessDetails {
+            process: identity,
+            uid: 501,
+            parent_pid: 1,
+            executable: home.path().join("pacer-core"),
+        },
+        slots: slots.clone(),
+    };
+    let valid = serde_json::to_vec(&serde_json::json!({
+        "schema": 1,
+        "path": request.path,
+        "sha256": request.sha256,
+        "version": request.version,
+        "startedAtMs": request.started_at_ms,
+    }))
+    .unwrap();
+    let (parent, peer) = UnixStream::pair().unwrap();
+    peer.set_nonblocking(true).unwrap();
+    let mut remote = tokio::net::UnixStream::from_std(peer).unwrap();
+    let task = tokio::spawn(broker.run(parent));
+    // Parse refusal.
+    assert_eq!(refuse(&mut remote, b"{}").await, [b'E', 0, 0, 0, 0]);
+    // Capacity refusal on a structurally valid request.
+    let held = slots.clone().acquire_owned().await.unwrap();
+    assert_eq!(refuse(&mut remote, &valid).await, [b'E', 0, 0, 0, 0]);
+    drop(held);
+    // Verify refusal on a structurally valid, asset-matching request. Three
+    // replies prove each refusal was per-request and the channel stayed live.
+    assert_eq!(refuse(&mut remote, &valid).await, [b'E', 0, 0, 0, 0]);
+    // The channel only ends when its peer goes away.
+    drop(remote);
+    task.await.unwrap();
 }

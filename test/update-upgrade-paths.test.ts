@@ -109,3 +109,12 @@ test("delegated tasks cannot update, install, restart or uninstall the service",
   }
   expect((await serviceCli(["status", "--json"], ctx, { platform: "darwin", uid: 501, argv: ["/opt/pacer"], fetch: async () => new Response("", { status: 503 }) })).code).toBe(0);
 });
+
+test("a deferred handover is reported as not handed over yet, not as work kept on the old runner", async () => {
+  const ctx = ctxWith(true), calls: Call[] = [];
+  const deps = { ...stub({ "version.get": { pacer: "0.13.1" }, "service.handover": { pacer: "0.13.1", tasks: 1, sessions: 0, handed_over: 0, kept_on_previous_runner: 0, deferred: true, summary: "A desktop update is still finishing; running work hands over when it commits." } }, calls), expectedPid: 12345 };
+  const r = await restartAroundWork(ctx, async () => true, { expectedVersion: "0.13.1", prefix: v => `Updated to v${v}.`, deps });
+  expect(r.summary).toBe("Updated to v0.13.1. A desktop update is still finishing; running work hands over when it commits.");
+  expect(r.warning).toContain("not handed over yet");
+  expect(r.summary).not.toContain("stayed on the previous runner");
+});

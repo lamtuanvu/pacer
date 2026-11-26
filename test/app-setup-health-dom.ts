@@ -152,9 +152,25 @@ export function createElementNode(tag: string, doc: SelDocument): SelNode {
     getClientRects() { return []; },
     querySelector() { return null; },
     querySelectorAll() { return []; },
-    click(type = "click") { node._listeners[type]?.call(node, makeEvent(type, node)); },
-    submit() { node._listeners["submit"]?.call(node, makeEvent("submit", node)); },
-    dispatchEvent(event: SelEvent) { node._listeners[event.type]?.call(node, event); },
+    click(type = "click") {
+      const ev = makeEvent(type, node);
+      const preact = (node as { l?: Record<string, Listener> }).l;
+      // Prefer Preact's `${type}${capture}` slot; fall back to addEventListener map.
+      const handler = preact?.[`${type}false`] ?? preact?.[`${type}true`] ?? preact?.[type] ?? node._listeners[type];
+      handler?.call(node, ev);
+    },
+    submit() {
+      const ev = makeEvent("submit", node);
+      const preact = (node as { l?: Record<string, Listener> }).l;
+      const handler = preact?.submitfalse ?? preact?.submittrue ?? preact?.submit ?? node._listeners.submit;
+      handler?.call(node, ev);
+    },
+    dispatchEvent(event: SelEvent) {
+      const preact = (node as { l?: Record<string, Listener> }).l;
+      const handler = preact?.[`${event.type}false`] ?? preact?.[`${event.type}true`]
+        ?? preact?.[event.type] ?? node._listeners[event.type];
+      handler?.call(node, event);
+    },
     get firstChild() { return node.childNodes[0] ?? null; },
     get nextSibling() {
       const parent = node.parentNode;

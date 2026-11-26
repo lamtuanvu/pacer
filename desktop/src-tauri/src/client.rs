@@ -733,6 +733,37 @@ async fn perform_consent_takeover(app: &AppHandle, _cli: &Cli, first_run: &mut F
     crate::recovery(app, "starting");
 }
 
+/// Restart an owned older service onto the bundled binary outside any session
+/// `select!`, so the child is not killed mid-restart. Uses the bundled CLI's own
+/// `pacer service restart` with a generous timeout.
+async fn perform_owned_service_restart(app: &AppHandle, cli: &Cli) {
+    let Some(bundled) = bundled_binary() else {
+        desktop_log!("pacer lifecycle: owned service restart failed: bundled pacer CLI is missing");
+        return;
+    };
+    let restart_cli = Cli {
+        binary: bundled,
+        path: cli.path.clone(),
+        pacer_home: cli.pacer_home.clone(),
+    };
+    desktop_log!("pacer lifecycle: restarting older owned service onto app {}", env!("CARGO_PKG_VERSION"));
+    match restart_cli
+        .run_timeout(&["service", "restart"], Duration::from_secs(150))
+        .await
+    {
+        Ok(_) => {
+            desktop_log!("pacer lifecycle: older owned service restart succeeded; reconnecting");
+            crate::recovery(app, "starting");
+        }
+        Err(error) => {
+            desktop_log!(
+                "pacer lifecycle: older owned service restart failed: {error}; showing outdated service page"
+            );
+            crate::recovery(app, "starting");
+        }
+    }
+}
+
 fn missing_link(home: &Path, bundled: Option<&Path>, config: &Path) -> bool {
     let (consented, keep) = consent_choice(config);
     logic::relink_needed(
@@ -751,7 +782,6 @@ fn recreate_link(home: &Path, bundled: &Path, config: &Path) -> Result<(), Strin
 }
 
 // Inspect the loaded job, not a plist that may have changed since launchd loaded it.
-#[cfg(test)]
 fn loaded_job_matches(text: &str, binary: &Path, home: &Path, port: u16, default_home: &Path) -> bool {
     if logic::foreign_owner(
         &logic::launchd_environment(text),
@@ -822,6 +852,50 @@ fn required_home(home: Option<&std::ffi::OsStr>) -> Result<PathBuf, String> {
     home.filter(|home| !home.is_empty())
         .map(PathBuf::from)
         .ok_or_else(|| "HOME is not set".into())
+}
+
+fn remembered_service_version(config_dir: &Path) -> Option<String> {
+    let contents = std::fs::read(config_dir.join("service-version.json")).ok()?;
+    let value: Value = serde_json::from_slice(&contents).ok()?;
+    value.get("version").and_then(Value::as_str).map(str::to_owned)
+}
+
+fn remember_service_version(config_dir: &Path, version: &str) -> Result<(), String> {
+    use std::fs::{DirBuilder, OpenOptions};
+    use std::io::Write;
+    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+    DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(config_dir)
+        .map_err(|error| error.to_string())?;
+    let contents = serde_json::to_vec(&serde_json::json!({"version": version}))
+        .map_err(|error| error.to_string())?;
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let temp = config_dir.join(format!(
+        ".pacer-service-version-{}-{}-{}.tmp",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos(),
+        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&temp)
+        .map_err(|error| error.to_string())?;
+    let result = (|| {
+        file.write_all(&contents)?;
+        file.sync_all()?;
+        std::fs::rename(&temp, config_dir.join("service-version.json"))
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temp);
+    }
+    result.map_err(|error: std::io::Error| error.to_string())
 }
 
 fn editable_rc(home: &Path, shell: &str) -> Option<PathBuf> {
@@ -959,6 +1033,26 @@ impl Cli {
             command.env("PACER_BIN", binary);
         }
         let out = tokio::time::timeout(Duration::from_secs(45), command.output())
+            .await
+            .map_err(|_| "CLI timed out")?
+            .map_err(|_| "Unable to run pacer")?;
+        if !out.status.success() {
+            return Err(format!("pacer {} failed ({})", args.join(" "), out.status));
+        }
+        String::from_utf8(out.stdout).map_err(|_| "Invalid CLI output".into())
+    }
+    pub async fn run_timeout(&self, args: &[&str], timeout: Duration) -> Result<String, String> {
+        let mut command = Command::new(&self.binary);
+        let home = required_home(std::env::var_os("HOME").as_deref())?;
+        command
+            .args(args)
+            .env("PATH", &self.path)
+            .env("PACER_HOME", &self.pacer_home)
+            .kill_on_drop(true);
+        if let Some(binary) = install_binary(&home, bundled_binary().as_deref(), &self.binary) {
+            command.env("PACER_BIN", binary);
+        }
+        let out = tokio::time::timeout(timeout, command.output())
             .await
             .map_err(|_| "CLI timed out")?
             .map_err(|_| "Unable to run pacer")?;
@@ -1223,9 +1317,9 @@ async fn wait_for_snapshot(app: &AppHandle, session: &Session) -> Result<Value, 
     }
 }
 
-fn retry_native_connection<T>(
-    mut connect: impl FnMut() -> Result<T, pacer_desktop::ota::OtaError>,
-) -> Result<T, pacer_desktop::ota::OtaError> {
+fn retry_native_connection<T, E>(
+    mut connect: impl FnMut() -> Result<T, E>,
+) -> Result<T, E> {
     for attempt in 0..3 {
         match connect() {
             Ok(value) => return Ok(value),
@@ -1266,6 +1360,51 @@ impl<T> std::ops::Deref for PendingConnection<T> {
     }
 }
 
+/// One native connection attempt that owns a retained connection under a
+/// close-on-drop guard. The guard is returned (still armed) only when the freshly
+/// verified service is the very one the connection was bound to; the caller then
+/// republishes it. A rejected reuse closes it here, and an inspection that fails
+/// on every attempt leaves it armed until this call — or its detached blocking
+/// task after a cancelled connect — drops it.
+fn connect_native_with_retained<T, O, E>(
+    mut observation: impl FnMut() -> Result<O, E>,
+    reuse_allowed: impl Fn(&T, &O) -> bool,
+    retained: Option<PendingConnection<T>>,
+    mut connect: impl FnMut(&O) -> Result<PendingConnection<T>, E>,
+) -> Result<PendingConnection<T>, E> {
+    let mut retained = retained;
+    retry_native_connection(|| {
+        let observed = observation()?;
+        if let Some(guard) = retained.take() {
+            if reuse_allowed(&*guard, &observed) {
+                return Ok(guard);
+            }
+            // Rejected: the guard drops here and closes the unpublished session.
+        }
+        connect(&observed)
+    })
+}
+
+/// Inputs for the pure `native_reuse_allowed` decision.
+pub(crate) struct NativeReuse<'a> {
+    pub(crate) alive: bool,
+    pub(crate) maintenance: bool,
+    pub(crate) reconnect_plan: bool,
+    pub(crate) service: Option<&'a pacer_desktop::ota::native::ProcessIdentity>,
+    pub(crate) registered: Option<&'a pacer_desktop::ota::native::ProcessIdentity>,
+}
+
+/// A retained native connection may be reused only while it is still live, ordinary,
+/// and bound to the very same verified service process that is registered now. A
+/// restart, reinstall, hand-off or dead connection must establish fresh authority.
+pub(crate) fn native_reuse_allowed(input: NativeReuse<'_>) -> bool {
+    input.alive
+        && !input.maintenance
+        && !input.reconnect_plan
+        && input.service.is_some()
+        && input.service == input.registered
+}
+
 /// One verified native connection attempt (bounded retries), off the async runtime.
 async fn connect_native(
     handle: AppHandle,
@@ -1275,6 +1414,7 @@ async fn connect_native(
     trust: pacer_desktop::ota::trust::ReleaseTrust,
     ticket: Option<pacer_desktop::ota::control::LaunchTicket>,
     adoption: Option<pacer_desktop::ota::control::AdoptionReconnectPlan>,
+    reuse: Option<PendingConnection<std::sync::Arc<pacer_desktop::ota::control::NativeConnection>>>,
 ) -> Result<
     Result<PendingConnection<std::sync::Arc<pacer_desktop::ota::control::NativeConnection>>, pacer_desktop::ota::OtaError>,
     String,
@@ -1299,24 +1439,68 @@ async fn connect_native(
                 handle.exit(0);
             }
         });
-        retry_native_connection(|| {
-            // Each attempt rechecks the registration and signed process;
-            // no failed observation becomes authority for the next one.
-            let registered = pacer_desktop::ota::control::inspect_registered_service(
-                &user_home, &home, port, &trust,
-            )?;
-            pacer_desktop::ota::control::NativeConnection::connect_adoption(
-                &registered.endpoint(),
-                &trust,
-                ticket.as_ref(),
-                adoption.as_ref(),
-                callback.clone(),
-            )
-            .map(|native| PendingConnection::new(native, |native| native.close()))
-        })
+        connect_native_with_retained(
+            // Each attempt rechecks the registration and signed process; no failed
+            // observation becomes authority for the next one.
+            || {
+                pacer_desktop::ota::control::inspect_registered_service(
+                    &user_home, &home, port, &trust,
+                )
+            },
+            // A retained connection is reused only while it still points at the very
+            // same verified service process. A restart, reinstall or hand-off must
+            // establish fresh authority instead of inheriting this control session.
+            |existing: &std::sync::Arc<pacer_desktop::ota::control::NativeConnection>,
+             registered: &pacer_desktop::ota::control::RegisteredService| {
+                native_reuse_allowed(NativeReuse {
+                    alive: existing.alive(),
+                    maintenance: existing.maintenance_active(),
+                    reconnect_plan: existing.reconnect_plan().is_some(),
+                    service: Some(&existing.service),
+                    registered: Some(&registered.process),
+                })
+            },
+            reuse,
+            |registered| {
+                pacer_desktop::ota::control::NativeConnection::connect_adoption(
+                    &registered.endpoint(),
+                    &trust,
+                    ticket.as_ref(),
+                    adoption.as_ref(),
+                    callback.clone(),
+                )
+                .map(|native| PendingConnection::new(native, |native| native.close()))
+            },
+        )
     })
     .await
     .map_err(|_| "Native service verification failed".to_owned())
+}
+
+/// Inputs for the pure `retain_native_on_session_end` decision.
+pub(crate) struct NativeRetention<'a> {
+    pub(crate) end_reason: Option<&'a str>,
+    pub(crate) shell_maintenance: bool,
+    pub(crate) shell_adoption: bool,
+    pub(crate) connection_alive: bool,
+    pub(crate) connection_maintenance: bool,
+    pub(crate) connection_reconnect_plan: bool,
+}
+
+/// A web session can end on a transient event-stream timeout ("stopped") or a slow
+/// heartbeat while the signed-in service is unchanged. The native update connection
+/// owns its own authenticated control session, and the helper is parented by the
+/// service rather than by the web session. Keeping this connection alive across the
+/// reconnect means the service never sees a native session close and never cancels an
+/// in-flight check or download. Maintenance/adoption hand-offs, an expired session,
+/// an explicit service move, or a dead connection still tear it down.
+pub(crate) fn retain_native_on_session_end(input: NativeRetention<'_>) -> bool {
+    input.end_reason == Some("stopped")
+        && input.connection_alive
+        && !input.shell_maintenance
+        && !input.shell_adoption
+        && !input.connection_maintenance
+        && !input.connection_reconnect_plan
 }
 
 /// When should a signed-in ordinary launch try to restore native update authority?
@@ -1356,7 +1540,7 @@ async fn supervise_native(app: &AppHandle, supervision: Option<NativeSupervision
             delay = Duration::from_secs(2);
             continue;
         }
-        match connect_native(app.clone(), user_home.clone(), home.clone(), port, trust.clone(), None, None).await {
+        match connect_native(app.clone(), user_home.clone(), home.clone(), port, trust.clone(), None, None, None).await {
             Ok(Ok(native)) => {
                 // An ordinary launch carries no readiness proof; the signed-in page already
                 // completed its own check, so only acknowledge after startup is ready.
@@ -1377,23 +1561,73 @@ async fn supervise_native(app: &AppHandle, supervision: Option<NativeSupervision
                     delay = Duration::from_secs(2);
                     continue;
                 }
-                *shell.native_update_error.lock().unwrap() = Some(pacer_desktop::ota::OtaError::Unavailable);
+                record_native_update_error(&shell, pacer_desktop::ota::OtaError::Unavailable);
                 // Dropping the unpublished result closes it, including when this
                 // future is cancelled during document_ready above.
             }
             Ok(Err(error)) => {
-                *shell.native_update_error.lock().unwrap() = Some(error);
+                record_native_update_error(&shell, error);
                 if !reported {
                     desktop_log!("pacer lifecycle: native update authority unavailable; retrying: {error}");
                     reported = true;
                 }
             }
             Err(_) => {
-                *shell.native_update_error.lock().unwrap() = Some(pacer_desktop::ota::OtaError::Unavailable);
+                record_native_update_error(&shell, pacer_desktop::ota::OtaError::Unavailable);
             }
         }
         delay = (delay * 2).min(Duration::from_secs(30));
     }
+}
+
+/// Stores the current native update error and logs its kind once per change.
+fn record_native_update_error(shell: &Shell, error: pacer_desktop::ota::OtaError) {
+    let previous = shell.native_update_error.lock().unwrap().replace(error);
+    if previous != Some(error) {
+        desktop_log!(
+            "pacer lifecycle: native update connection error kind: {}",
+            crate::logic::connection_error_kind(error).unwrap_or("other")
+        );
+    }
+}
+
+/// The service job runs this bundle's CLI and no update or maintenance journal is in flight
+/// on disk. macOS only: elsewhere the desktop cannot prove it owns the service unit.
+#[cfg(target_os = "macos")]
+async fn owned_service_restartable(pacer_home: &Path) -> bool {
+    let Some(trust) = pacer_desktop::ota::trust::ReleaseTrust::configured() else {
+        return false;
+    };
+    let Ok(home) = required_home(std::env::var_os("HOME").as_deref()) else {
+        return false;
+    };
+    owned_service_job(pacer_home).await
+        && pacer_desktop::ota::control::owned_service_restart_clear(&home, pacer_home, service_port(), &trust)
+}
+
+#[cfg(not(target_os = "macos"))]
+async fn owned_service_restartable(_pacer_home: &Path) -> bool {
+    false
+}
+
+#[cfg(target_os = "macos")]
+async fn owned_service_job(home: &Path) -> bool {
+    let args = match launchctl_args("print") {
+        Ok(args) => args,
+        Err(_) => return false,
+    };
+    let default_home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".pacer");
+    let Some(output) = manager_output("/bin/launchctl", &args).await.ok() else {
+        return false;
+    };
+    if !output.status.success() {
+        return false;
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let Some(binary) = bundled_binary() else {
+        return false;
+    };
+    loaded_job_matches(&text, &binary, home, service_port(), &default_home)
 }
 
 async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Result<(), String> {
@@ -1402,6 +1636,53 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
     desktop_log!("pacer lifecycle: exchanging local service session");
     let session = Session::connect(cli, &web_auth).await?;
     first_run.signed_in = true;
+    // Manual installs: hand running work to a newer owned service once.
+    let update_transaction = app.state::<Shell>().update_transaction.load(Ordering::SeqCst);
+    let (job_state, _) = job_state(&cli.pacer_home, service_port()).await;
+    let attached = matches!(job_state, logic::JobState::Foreign)
+        || app.state::<Shell>().adoption.lock().unwrap().is_some()
+        || app.state::<Shell>().maintenance.load(Ordering::SeqCst);
+    let config_dir = app.path().app_config_dir().ok();
+    let remembered = config_dir.as_ref().and_then(|dir| remembered_service_version(dir));
+    let decision = logic::handover_decision(
+        remembered.as_deref(),
+        session.service_version().unwrap_or(""),
+        attached,
+        update_transaction,
+    );
+    match decision {
+        logic::HandoverDecision::Call => {
+            let new_version = session.service_version().unwrap_or("").to_owned();
+            let session = session.clone();
+            let config_dir = config_dir.clone();
+            tokio::spawn(async move {
+                match session
+                    .op_timeout("service.handover", &serde_json::json!({"wait_s": 60}), Duration::from_secs(75))
+                    .await
+                {
+                    Ok(summary) => {
+                        desktop_log!("pacer lifecycle: service handover: {}", summary);
+                        // A deferred reply (a desktop update is still finishing) settles
+                        // nothing: keep the old version so the next connect calls again.
+                        if logic::handover_reply_settled(&summary) {
+                            if let Some(config_dir) = config_dir.as_ref() {
+                                let _ = remember_service_version(config_dir, &new_version);
+                            }
+                        }
+                    }
+                    Err(error) => {
+                        desktop_log!("pacer lifecycle: service handover failed: {}", error);
+                    }
+                }
+            });
+        }
+        logic::HandoverDecision::StoreOnly => {
+            if let (Some(config_dir), Some(version)) = (config_dir.as_ref(), session.service_version()) {
+                let _ = remember_service_version(config_dir, version);
+            }
+        }
+        _ => {}
+    }
     if !app.state::<Shell>().maintenance.load(Ordering::SeqCst)
         && app.state::<Shell>().adoption.lock().unwrap().is_none()
         && std::env::var_os("PACER_BIN").is_none()
@@ -1572,6 +1853,42 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
             }
         }
     }
+    // Manual installs: an owned older service is restarted onto the bundled
+    // binary once per (service version, app version) pair per launch, so the
+    // existing step-0 handover/remember logic can run after reconnect.
+    let service_version = session.service_version().unwrap_or("").to_owned();
+    let app_version = env!("CARGO_PKG_VERSION").to_owned();
+    let already_attempted = app
+        .state::<Shell>()
+        .service_restart_attempted_pairs
+        .lock()
+        .unwrap()
+        .contains(&(service_version.clone(), app_version.clone()));
+    let owned_job = owned_service_restartable(&cli.pacer_home).await;
+    let restart_decision = logic::service_restart_decision(logic::ServiceRestartInput {
+        app: env!("CARGO_PKG_VERSION"),
+        live_service: session.service_version.as_deref(),
+        job_state,
+        owned: owned_job,
+        attached,
+        maintenance: app.state::<Shell>().maintenance.load(Ordering::SeqCst),
+        update_transaction,
+        adoption: app.state::<Shell>().adoption.lock().unwrap().is_some(),
+        already_attempted,
+    });
+    if restart_decision == logic::ServiceRestartDecision::Restart {
+        app.state::<Shell>()
+            .service_restart_attempted_pairs
+            .lock()
+            .unwrap()
+            .insert((service_version.clone(), app_version.clone()));
+        desktop_log!(
+            "pacer lifecycle: restarting older owned service {} onto app {}",
+            service_version,
+            app_version
+        );
+        return Err("owned-service-restart-ready".into());
+    }
     let accepted = app.state::<Shell>().old_service_ack.lock().unwrap().clone();
     let gate = logic::service_gate(
         env!("CARGO_PKG_VERSION"),
@@ -1664,10 +1981,24 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
             .cloned();
         let adoption = app.state::<Shell>().adoption.lock().unwrap().clone();
         let maintenance_launch = ticket.is_some() || adoption.is_some();
+        // On an ordinary reconnect, a live native connection kept from the previous
+        // session is preferred: connect_native reuses it only if the same verified
+        // service process is still registered. Take it out of the published shell
+        // state first, so a connection that cannot be reused is never left pointing
+        // at a service that is no longer the registered one.
+        let reuse = if maintenance_launch {
+            None
+        } else {
+            // Guard the taken connection immediately: every exit that does not
+            // reuse and republish it closes the unpublished native session, including
+            // a failed inspection and cancellation while the handshake is awaiting.
+            app.state::<Shell>().native.lock().unwrap().take()
+                .map(|native| PendingConnection::new(native, |native| native.close()))
+        };
         if !maintenance_launch {
             supervision = Some((user_home.clone(), home.clone(), port, trust.clone()));
         }
-        let native = connect_native(
+        let native = match connect_native(
             handle,
             user_home.clone(),
             home.clone(),
@@ -1675,8 +2006,13 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
             trust.clone(),
             ticket,
             adoption,
+            reuse,
         )
-        .await?;
+        .await
+        {
+            Ok(native) => native,
+            Err(error) => return Err(error),
+        };
         match native {
             Ok(native) => {
                 *app.state::<Shell>().native_update_error.lock().unwrap() = None;
@@ -1702,7 +2038,7 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
                 return Err("Native maintenance verification failed".into());
             }
             Err(error) => {
-                *app.state::<Shell>().native_update_error.lock().unwrap() = Some(error);
+                record_native_update_error(&app.state::<Shell>(), error);
                 desktop_log!("pacer lifecycle: native update authority unavailable for this service: {error}");
             }
         }
@@ -1726,11 +2062,31 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
         _ = supervise_native(app, supervision) => Err("stopped".into()),
         _ = shell.expired.notified() => Err(if shell.diagnosis.lock().unwrap().as_ref().is_some_and(|d| d.page == "takeover") { "takeover" } else { "sessionExpired" }.into()),
     };
-    if let Some(native) = shell.native.lock().unwrap().take() {
-        if let Some(plan) = native.reconnect_plan() {
-            *shell.adoption.lock().unwrap() = Some(plan);
+    let native_state = {
+        let guard = shell.native.lock().unwrap();
+        guard.as_ref().map(|native| {
+            (
+                native.alive(),
+                native.maintenance_active(),
+                native.reconnect_plan().is_some(),
+            )
+        })
+    };
+    let retain = retain_native_on_session_end(NativeRetention {
+        end_reason: result.as_ref().err().map(String::as_str),
+        shell_maintenance: shell.maintenance.load(Ordering::SeqCst),
+        shell_adoption: shell.adoption.lock().unwrap().is_some(),
+        connection_alive: native_state.is_some_and(|(alive, _, _)| alive),
+        connection_maintenance: native_state.is_some_and(|(_, maintenance, _)| maintenance),
+        connection_reconnect_plan: native_state.is_some_and(|(_, _, plan)| plan),
+    });
+    if !retain {
+        if let Some(native) = shell.native.lock().unwrap().take() {
+            if let Some(plan) = native.reconnect_plan() {
+                *shell.adoption.lock().unwrap() = Some(plan);
+            }
+            native.close();
         }
-        native.close();
     }
     shell.navigation.lock().unwrap().invalidate();
     result
@@ -2777,6 +3133,8 @@ pub async fn run(app: AppHandle) {
                             );
                             if error == "own-link-repair-ready" {
                                 perform_own_link_repair(&app, &cli).await;
+                            } else if error == "owned-service-restart-ready" {
+                                perform_owned_service_restart(&app, &cli).await;
                             } else {
                                 perform_consent_takeover(&app, &cli, &mut first_run).await;
                             }
@@ -2827,6 +3185,71 @@ pub async fn run(app: AppHandle) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn transient_web_session_end_keeps_the_native_update_connection() {
+        use super::{retain_native_on_session_end, NativeRetention};
+        fn ordinary(reason: Option<&str>) -> NativeRetention<'_> {
+            NativeRetention {
+                end_reason: reason,
+                shell_maintenance: false,
+                shell_adoption: false,
+                connection_alive: true,
+                connection_maintenance: false,
+                connection_reconnect_plan: false,
+            }
+        }
+        // The 15 s event-stream timeout is the observed hiccup; a slow heartbeat
+        // reports the same "stopped" reason.
+        assert!(retain_native_on_session_end(ordinary(Some("stopped"))));
+        // A clean end, an expired sign-in, a service move or a native drop is not
+        // a transient web-session hiccup.
+        for reason in [None, Some("sessionExpired"), Some("takeover"), Some("outdatedService"), Some("consent-takeover-ready"), Some("diagnose")] {
+            assert!(!retain_native_on_session_end(ordinary(reason)), "{reason:?} must tear down the native connection");
+        }
+        let mut input = ordinary(Some("stopped"));
+        input.connection_alive = false;
+        assert!(!retain_native_on_session_end(input));
+        let mut input = ordinary(Some("stopped"));
+        input.shell_maintenance = true;
+        assert!(!retain_native_on_session_end(input));
+        let mut input = ordinary(Some("stopped"));
+        input.shell_adoption = true;
+        assert!(!retain_native_on_session_end(input));
+        let mut input = ordinary(Some("stopped"));
+        input.connection_maintenance = true;
+        assert!(!retain_native_on_session_end(input));
+        let mut input = ordinary(Some("stopped"));
+        input.connection_reconnect_plan = true;
+        assert!(!retain_native_on_session_end(input));
+    }
+
+    #[test]
+    fn a_retained_native_connection_is_only_reused_for_the_registered_process() {
+        use super::{native_reuse_allowed, NativeReuse};
+        use pacer_desktop::ota::native::ProcessIdentity;
+        let registered = ProcessIdentity { pid: 42, boot_id: "boot".into(), birth: "birth".into() };
+        let same = registered.clone();
+        let replaced = ProcessIdentity { pid: 43, ..registered.clone() };
+        fn input<'a>(service: Option<&'a ProcessIdentity>, registered: &'a ProcessIdentity) -> NativeReuse<'a> {
+            NativeReuse { alive: true, maintenance: false, reconnect_plan: false, service, registered: Some(registered) }
+        }
+        // Same verified process: the retained control session may be published again.
+        assert!(native_reuse_allowed(input(Some(&same), &registered)));
+        // A different service incarnation must never inherit native authority, even
+        // when the retained connection is still alive and otherwise healthy.
+        assert!(!native_reuse_allowed(input(Some(&replaced), &registered)));
+        assert!(!native_reuse_allowed(input(None, &registered)));
+        let mut rejected = input(Some(&same), &registered);
+        rejected.alive = false;
+        assert!(!native_reuse_allowed(rejected));
+        let mut rejected = input(Some(&same), &registered);
+        rejected.maintenance = true;
+        assert!(!native_reuse_allowed(rejected));
+        let mut rejected = input(Some(&same), &registered);
+        rejected.reconnect_plan = true;
+        assert!(!native_reuse_allowed(rejected));
+    }
+
     #[tokio::test]
     async fn health_gateway_http_bodies_respect_connection_history() {
         use std::io::{Read, Write};
@@ -2926,6 +3349,70 @@ mod tests {
         });
         let native = pending.publish();
         assert!(!native.load(Ordering::SeqCst));
+    }
+
+    /// A retained connection behaves like the real one: clones share its liveness
+    /// and `close` is the only thing that ends the session (there is no `Drop`).
+    #[derive(Clone)]
+    struct RetainedNative {
+        closed: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    }
+    impl RetainedNative {
+        fn new() -> Self {
+            Self { closed: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)) }
+        }
+        fn close(&self) { self.closed.store(true, Ordering::SeqCst); }
+        fn is_closed(&self) -> bool { self.closed.load(Ordering::SeqCst) }
+    }
+
+    #[test]
+    fn retained_native_connection_closes_when_inspection_fails_every_attempt() {
+        let native = RetainedNative::new();
+        let guard = PendingConnection::new(native.clone(), |connection| connection.close());
+        let fresh = RetainedNative::new();
+        let fresh_clone = fresh.clone();
+        let result: Result<PendingConnection<RetainedNative>, ()> = connect_native_with_retained(
+            || Err(()),
+            |_, _: &()| true,
+            Some(guard),
+            move |_| Ok(PendingConnection::new(fresh_clone.clone(), |connection| connection.close())),
+        );
+        assert!(result.is_err());
+        assert!(native.is_closed(), "a failed inspection must close the taken session");
+    }
+
+    #[test]
+    fn retained_native_connection_is_disarmed_only_when_reused_and_republished() {
+        let native = RetainedNative::new();
+        let reused = connect_native_with_retained(
+            || Ok::<_, ()>(42),
+            |_, observed: &i32| *observed == 42,
+            Some(PendingConnection::new(native.clone(), |connection| connection.close())),
+            |_| Ok(PendingConnection::new(RetainedNative::new(), |connection| connection.close())),
+        )
+        .unwrap();
+        assert!(!native.is_closed());
+        let published = reused.publish();
+        assert!(!native.is_closed());
+        drop(PendingConnection::new(published, |connection| connection.close()));
+        assert!(native.is_closed());
+
+        // A different registered service rejects the retained session and connects
+        // fresh; the old session is closed even though a clone is still alive.
+        let old = RetainedNative::new();
+        let fresh = RetainedNative::new();
+        let fresh_clone = fresh.clone();
+        let connected = connect_native_with_retained(
+            || Ok::<_, ()>(7),
+            |_, observed: &i32| *observed == 42,
+            Some(PendingConnection::new(old.clone(), |connection| connection.close())),
+            move |_| Ok(PendingConnection::new(fresh_clone.clone(), |connection| connection.close())),
+        )
+        .unwrap();
+        assert!(old.is_closed());
+        assert!(!fresh.is_closed());
+        drop(connected);
+        assert!(fresh.is_closed());
     }
 
     #[test]

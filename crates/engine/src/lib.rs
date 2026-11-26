@@ -566,6 +566,110 @@ fn excluded_entry(id: &str, account: Value, reason: Value, eligibility: Value) -
     value
 }
 
+fn tier_rank(tier: &str) -> Option<u8> {
+    match tier {
+        "small" => Some(0),
+        "medium" => Some(1),
+        "frontier" => Some(2),
+        _ => None,
+    }
+}
+/// The runner declares a model with a known tier at or above `target`.
+fn declares_tier(strategy: &Value, id: &str, target: &str) -> bool {
+    let Some(target) = tier_rank(target) else {
+        return false;
+    };
+    array(&strategy["runners"][id]["models"])
+        .iter()
+        .any(|m| tier_rank(string(&m["tier"])).is_some_and(|t| t >= target))
+}
+fn is_planner_runner(strategy: &Value, id: &str) -> bool {
+    let runner = &strategy["runners"][id];
+    !runner.is_null()
+        && runner["host"].is_null()
+        && runner["agent"] == strategy["planner"]["agent"]
+        && runner["account"] == strategy["planner"]["account"]
+}
+/// Planner tier fallback, matching `applyPlannerTierFallback` in `src/engine/rank.ts`:
+/// when no ranked non-planner executor declares a model at the target tier and the
+/// planner's runner does, rank the planner first. Pace verdict and planner reserve do
+/// not apply; hard exclusions do.
+fn apply_planner_tier_fallback(
+    strategy: &Value,
+    statuses: &Value,
+    candidates: &mut Vec<Candidate>,
+    excluded: &mut Vec<Value>,
+    target: Option<&str>,
+) {
+    let Some(target) = target else { return };
+    if string(&strategy["pacing"]["plannerTierFallback"]) == "off" {
+        return;
+    }
+    if candidates
+        .iter()
+        .any(|c| !is_planner_runner(strategy, &c.id) && declares_tier(strategy, &c.id, target))
+    {
+        return;
+    }
+    let Some(planner_id) = strategy["runners"]
+        .as_object()
+        .and_then(|runners| runners.keys().find(|id| is_planner_runner(strategy, id)))
+        .cloned()
+    else {
+        return;
+    };
+    if !declares_tier(strategy, &planner_id, target) {
+        return;
+    }
+    let runner = &strategy["runners"][&planner_id];
+    let status = &statuses[&planner_id];
+    if status.is_null()
+        || runner["enabled"] == false
+        || strategy["accounts"][string(&runner["account"])].is_null()
+        || !status["unavailableReason"].is_null()
+        || !status["blockedReason"].is_null()
+        || !status["brokenReason"].is_null()
+        || !truth(&status["installed"])
+        || !status["signedOutReason"].is_null()
+    {
+        return;
+    }
+    let decision = restriction(field(status, "eligibility"), None);
+    if string(&decision["state"]) == "ineligible" {
+        return;
+    }
+    let why = format!("planner tier fallback: no {target} executor available");
+    let mut entry = match candidates.iter().position(|c| c.id == planner_id) {
+        Some(at) => candidates.remove(at),
+        None => {
+            let unknown = string(&decision["state"]) == "uncertain";
+            // TypeScript key order: id, account, eligibility, fallback, score, verdict, reason.
+            let mut output = json!({"id": planner_id, "account": runner["account"]});
+            output["eligibility"] = decision;
+            if unknown {
+                output["fallback"] = json!("uncertain");
+            }
+            output["score"] = json!(0);
+            output["verdict"] = status["verdict"].clone();
+            output["reason"] = json!(why);
+            Candidate {
+                output,
+                unknown,
+                order: 0,
+                id: planner_id.clone(),
+            }
+        }
+    };
+    excluded.retain(|e| string(&e["id"]) != planner_id);
+    let top = candidates
+        .iter()
+        .map(|c| number(&c.output["score"]))
+        .fold(0.0_f64, f64::max);
+    entry.output["score"] = json!(top + 1.0);
+    entry.output["reason"] = json!(why);
+    entry.output["tierFallback"] = json!({"targetTier": target, "reason": why});
+    candidates.insert(0, entry);
+}
 /// Rank statuses using the current TS routing and account ordering rules.
 pub fn rank_executors(input: &Value) -> Value {
     let strategy = &input["strategy"];
@@ -579,6 +683,7 @@ pub fn rank_executors(input: &Value) -> Value {
     let statuses = &statuses;
     let selection = &input["selection"];
     let include_planner = truth(&input["includePlanner"]);
+    let target_tier = input["targetTier"].as_str().map(str::to_owned);
     let kind = &input["kind"];
     let configured_ids = default_executors(strategy, kind);
     let ids: Vec<String> = if selection.is_null() {
@@ -678,6 +783,13 @@ pub fn rank_executors(input: &Value) -> Value {
     let mut selection_uncertain = Vec::<Value>::new();
     if !selection.is_null() {
         candidates.sort_by_key(|c| (c.unknown, c.order));
+        apply_planner_tier_fallback(
+            strategy,
+            statuses,
+            &mut candidates,
+            &mut excluded,
+            target_tier.as_deref(),
+        );
         selection_uncertain = candidates
             .iter()
             .filter(|c| c.unknown)
@@ -818,6 +930,15 @@ pub fn rank_executors(input: &Value) -> Value {
                 c.output["score"] = json!(len - i);
             }
         }
+    }
+    if selection.is_null() {
+        apply_planner_tier_fallback(
+            strategy,
+            statuses,
+            &mut candidates,
+            &mut excluded,
+            target_tier.as_deref(),
+        );
     }
     let configured = if selection.is_null() {
         configured_ids

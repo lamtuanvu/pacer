@@ -21,9 +21,9 @@ Switch tabs by pointer or use Left/Right and Home/End with a tab focused.
 Long active-panel identities ellipsize within the header; hover the identity or
 metadata for its full text. Status pills remain fully visible in both themes.
 
-Workspace (`#/workspace`) renders task cards from task history and the live
-snapshot. Selecting a task loads its details once; task events refresh those
-details after a short debounce. Open session panels retain their output stream.
+The per-task workbench (`#/workspace?task=<id>`) opens from a task on Dispatch or
+Tasks. It loads that task's details once; task events refresh those details after
+a short debounce. Open session panels retain their output stream.
 The task page (`#/tasks/<id>`) also follows events rather than polling task details.
 Task pages show the complete display title, with a copy-ID button in the breadcrumb.
 Primary task links on Dispatch and Tasks open the selected workspace in every state. The secondary **Task history** link retains the complete task report and diagnostic routes. Queued tasks show the service-recorded waiting reason and next step, then automatically follow the session when it becomes available. No queue position or ETA is inferred. Completed work shows its result and checks; failures offer recovery. Stopped tasks stay labelled stopped. Unknown metrics are unavailable rather than zero.

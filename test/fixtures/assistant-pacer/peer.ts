@@ -17,6 +17,8 @@ const bundled = JSON.parse(
 ) as { id: string; version: string };
 
 const pending = new Map<string | number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
+/** Provider calls in flight, so a host `$/cancel` stops the same turn's fake request. */
+const providerCalls = new Map<string | number, AbortController>();
 let token: string | undefined;
 let nextId = 1;
 
@@ -33,7 +35,7 @@ function toolCall(turnId: string, name: string): Promise<{ name: string; content
 
 const usage = { input: 7, output: 2, coverage: "measured" as const };
 
-async function answer(p: {
+async function answer(id: string | number | undefined, p: {
   turnId: string;
   message: string;
   endpoint?: { api?: string; baseUrl?: string; keyless?: boolean };
@@ -50,6 +52,32 @@ async function answer(p: {
     throw Object.assign(new Error(`provider said key=${["sk", "-reply-test-key"].join("")} is bad`), {
       code: "plugin_unavailable",
     });
+  }
+  // Front-door turns ask this question against a fake OpenAI-compatible endpoint. Call it the
+  // way the real plugin would, so the host sees a live turn a cancel can stop and a later turn
+  // can answer. Other callers of this stub keep the tool-round scenarios below.
+  if (scenario === "What is running?" && p.endpoint?.baseUrl) {
+    const controller = new AbortController();
+    if (id !== undefined) providerCalls.set(id, controller);
+    try {
+      const response = await fetch(`${p.endpoint.baseUrl.replace(/\/+$/, "")}/chat/completions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ model: "m1", messages: [{ role: "user", content: p.message }] }),
+        signal: controller.signal,
+      });
+      if (!response.ok) throw Object.assign(new Error(`fixture endpoint returned ${response.status}`), { code: "plugin_unavailable" });
+      const body = await response.json() as {
+        choices?: { message?: { content?: string } }[];
+        usage?: { prompt_tokens?: number; completion_tokens?: number };
+      };
+      return {
+        message: body.choices?.[0]?.message?.content ?? "",
+        usage: { input: body.usage?.prompt_tokens ?? 0, output: body.usage?.completion_tokens ?? 0, coverage: "measured" },
+      };
+    } finally {
+      if (id !== undefined) providerCalls.delete(id);
+    }
   }
   const out = await toolCall(p.turnId, "snapshot");
   return { message: `via-tool ${out.content}`, usage };
@@ -70,9 +98,14 @@ async function handle(line: string): Promise<void> {
     else waiting.resolve(frame.result);
     return;
   }
-  if (method === "$/cancel") return;
+  if (method === "$/cancel") {
+    const cancelled = (frame.params as { id?: string | number } | undefined)?.id;
+    if (cancelled !== undefined) providerCalls.get(cancelled)?.abort();
+    else for (const controller of providerCalls.values()) controller.abort();
+    return;
+  }
   if (method === "plugin.hello") {
-    write({ id, result: { protocol: "1.11.0", id: bundled.id, version: bundled.version, contributes: ["assistant"] } });
+    write({ id, result: { protocol: "1.12.0", id: bundled.id, version: bundled.version, contributes: ["assistant"] } });
     return;
   }
   if (id === undefined || id === null) return;
@@ -85,7 +118,7 @@ async function handle(line: string): Promise<void> {
   try {
     write({
       id,
-      result: await answer(frame.params as {
+      result: await answer(id, frame.params as {
         turnId: string;
         message: string;
         endpoint?: { api?: string; baseUrl?: string; keyless?: boolean };

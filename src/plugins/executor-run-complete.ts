@@ -1,6 +1,7 @@
 import { lstatSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { CoreError } from "../core/errors";
+import { heldOpenForHuman } from "../messaging/participants";
 import { readRun, stopRun } from "../supervisor/run";
 import { readTask, updateTask, withTaskLock } from "../tasks/store";
 import type { CallAuthority } from "./authority";
@@ -12,9 +13,11 @@ export async function answerExecutorReportedCompletion(authority: CallAuthority,
   params: { taskId: string; attempt: number }): Promise<{
     status: "done" | "failed"; summary: string; at: number; exitCode: number }> {
   const grant = authority.observedRun(params.taskId, params.attempt);
+  let held = false;
   const check = () => withTaskLock(authority.ctx, params.taskId, () => {
     authority.assertActive();
     const task = readTask(authority.ctx, params.taskId), run = task?.run;
+    held = !!task && heldOpenForHuman(authority.ctx, task);
     if (!task || task.state !== "running" || task.stopPending ||
       task.executorProvider !== grant.providerId || task.executor !== grant.executor ||
       task.attempts.length + 1 !== params.attempt || !run || run.host ||
@@ -42,6 +45,13 @@ export async function answerExecutorReportedCompletion(authority: CallAuthority,
   });
   const before = check();
   authority.consumeExecutorComplete(params.taskId, params.attempt);
+  if (held) {
+    // A live interactive root a person started is owned by the user, not the reporting agent. New
+    // held roots never take the owned route (runner and executor-production exclude them); only a
+    // run started on the owned route by an older pacer can reattach here. There is no verified exit
+    // receipt, so refuse rather than return a success the caller would bind as one.
+    throw new CoreError("capability_denied", "interactive report owner is held open by the user");
+  }
   const stable = () => {
     const current = check();
     if (current.status !== before.status || current.summary !== before.summary ||

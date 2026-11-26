@@ -19,7 +19,7 @@ use std::{
 
 use crate::host_read_ops::invalid;
 use crate::repo_registry_ops::params_object;
-use crate::setup_checklist::checklist;
+use crate::setup_checklist::checklist_for_home;
 use crate::setup_gate::{GateInput, aggregate, fingerprint, should_skip_full_window};
 
 const TRIGGERS: [&str; 3] = ["startup", "update", "manual"];
@@ -344,7 +344,7 @@ async fn setup_health(
         .cloned()
         .collect();
     let checked_at = js_number(ctx.now);
-    let list = checklist(&parts["facts"], checked_at.clone());
+    let list = checklist_for_home(&ctx.pacer_home, &parts["facts"], checked_at.clone());
     let mut report = aggregate(GateInput {
         checks: &checks,
         checklist: &list,
@@ -394,7 +394,11 @@ pub async fn run(
     parts: OpFuture<'_>,
 ) -> Result<Value, CoreError> {
     match op {
-        "setup.check" => Ok(checklist(&parts.await?, js_number(ctx.now))),
+        "setup.check" => Ok(checklist_for_home(
+            &ctx.pacer_home,
+            &parts.await?,
+            js_number(ctx.now),
+        )),
         "doctor.run" => store_doctor_report(ctx, &parts.await?["doctor"]),
         "setup.health" => setup_health(ctx, parsed["params"]["trigger"].as_str(), parts).await,
         // Desktop capture and update ops run their real handler in Core (the broker and

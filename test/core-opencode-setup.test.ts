@@ -10,9 +10,10 @@ import {fakeCtx} from "./helpers";
 
 const catalog = {providers: parseCatalog(JSON.parse(readFileSync(join(import.meta.dir, "fixtures", "models-dev-sample.json"), "utf8"))), fetchedAt: 0, stale: false};
 const authJson = (ids: string[]) => JSON.stringify(ids.map(id => ({id, name: id, connections: []})));
-function setup(signed = ["openrouter"]) {
+function setup(signed = ["openrouter"], models: string[] | null = null) {
   const state = {signed};
-  const ctx = fakeCtx({run: async argv => argv.slice(0, 3).join(" ") === "opencode auth list" ? {code: 0, stdout: authJson(state.signed), stderr: ""} : {code: 1, stdout: "", stderr: ""}});
+  const ctx = fakeCtx({run: async argv => argv.slice(0, 3).join(" ") === "opencode auth list" ? {code: 0, stdout: authJson(state.signed), stderr: ""}
+    : argv.slice(0, 2).join(" ") === "opencode models" && models ? {code: 0, stdout: models.join("\n"), stderr: ""} : {code: 1, stdout: "", stderr: ""}});
   mkdirSync(ctx.pacerHome, {recursive: true});
   writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "accounts:\n  personal: {kind: claude}\nplanner: claude-code\nrouting:\n  - default: [claude-code]\n");
   const spawn = async (spec: {cwd: string; argv: string[]}) => { writeFileSync(join(spec.cwd, "hello.txt"), "ok"); return {code: 0, stdout: "", stderr: "", timedOut: false}; };
@@ -34,9 +35,36 @@ test("adds a provider account with no key, a runner and a routing entry, then te
   expect(spawned[0].join(" ")).toContain("openrouter/qwen/qwen3-coder");
 });
 
+test("does not double-prefix an already qualified model id", async () => {
+  const {ctx, spawn} = setup();
+  const result = await addOpencodeAccount(ctx, {provider: "openrouter", model: "openrouter/qwen/qwen3-coder", test: false}, {catalog, spawn: async spec => ({code: 0, stdout: "", stderr: "", timedOut: false})});
+  const s = loadStrategy(ctx);
+  expect(s.runners["opencode#openrouter"].model).toBe("openrouter/qwen/qwen3-coder");
+});
+
+test("keeps a bare model id that starts with the provider name", async () => {
+  const {ctx} = setup(["groq"], ["groq/groq/compound", "groq/llama-3.3-70b"]);
+  await addOpencodeAccount(ctx, {provider: "groq", model: "groq/compound", test: false}, {catalog});
+  expect(loadStrategy(ctx).runners["opencode#groq"].model).toBe("groq/groq/compound");
+});
+
+test("does not double-prefix a qualified id OpenCode lists", async () => {
+  const {ctx} = setup(["groq"], ["groq/groq/compound", "groq/llama-3.3-70b"]);
+  await addOpencodeAccount(ctx, {provider: "groq", model: "groq/llama-3.3-70b", test: false}, {catalog});
+  expect(loadStrategy(ctx).runners["opencode#groq"].model).toBe("groq/llama-3.3-70b");
+});
+
+test("uses the catalog's ids when OpenCode cannot list models", async () => {
+  const {ctx} = setup(["groq"]);
+  const groq = {id: "groq", name: "Groq", env: [], api: null, models: [{id: "groq/compound"}, {id: "llama-3.3-70b"}]};
+  const withGroq = {...catalog, providers: {...catalog.providers, groq}} as unknown as typeof catalog;
+  await addOpencodeAccount(ctx, {provider: "groq", model: "groq/compound", test: false}, {catalog: withGroq});
+  expect(loadStrategy(ctx).runners["opencode#groq"].model).toBe("groq/groq/compound");
+});
+
 test("refuses a provider OpenCode is not signed in to", async () => {
   const {ctx} = setup([]);
-  await expect(addOpencodeAccount(ctx, {provider: "deepseek", model: "deepseek-chat", test: false}, {catalog})).rejects.toThrow("run opencode auth login deepseek");
+  await expect(addOpencodeAccount(ctx, {provider: "deepseek", model: "deepseek-chat", test: false}, {catalog})).rejects.toThrow("run opencode auth login --standalone deepseek");
 });
 
 // The only CoreError with a hint that addOpencodeAccount's callees can produce (applyEdit's
@@ -66,7 +94,7 @@ test("the test reports Key missing once the provider is signed out", async () =>
   const {ctx, state} = setup();
   await addOpencodeAccount(ctx, {provider: "openrouter", model: "z-ai/glm-5.3", test: false}, {catalog});
   state.signed = [];
-  expect(await testEndpoint(ctx, "openrouter")).toEqual({state: "key_missing", detail: "Run opencode auth login openrouter"});
+  expect(await testEndpoint(ctx, "openrouter")).toEqual({state: "key_missing", detail: "Run opencode auth login --standalone openrouter"});
 });
 
 test("setupModels recommends from the catalog", async () => {
@@ -85,7 +113,7 @@ test("setupModels reports a note when OpenCode cannot list models", async () => 
 test("connectProvider reports success only when the provider then appears", async () => {
   const {ctx, state} = setup([]);
   expect(await connectProvider(ctx, "deepseek", {login: async () => 0})).toBe(false);
-  expect(await connectProvider(ctx, "deepseek", {login: async argv => { expect(argv).toEqual(["opencode", "auth", "login", "deepseek"]); state.signed = ["deepseek"]; return 0; }})).toBe(true);
+  expect(await connectProvider(ctx, "deepseek", {login: async argv => { expect(argv).toEqual(["opencode", "auth", "login", "--standalone", "deepseek"]); state.signed = ["deepseek"]; return 0; }})).toBe(true);
 });
 
 test("a dollar cap on a quota or unmetered account is refused instead of being dropped", async () => {
@@ -130,7 +158,7 @@ test("an account with a live executor is still refused", async () => {
 
 test("catalog models OpenCode does not serve are not offered", async () => {
   const listing = "openrouter/qwen/qwen3-coder\n";
-  const ctx = fakeCtx({run: async argv => argv.join(" ") === "opencode models" ? {code: 0, stdout: listing, stderr: ""} : {code: 1, stdout: "", stderr: ""}});
+  const ctx = fakeCtx({run: async argv => argv.join(" ") === "opencode models --standalone" ? {code: 0, stdout: listing, stderr: ""} : {code: 1, stdout: "", stderr: ""}});
   const r = await setupModels(ctx, {provider: "openrouter", group: "signed_in"}, {catalog});
   expect([r.pick, ...r.rest].filter(Boolean).map(m => m!.id)).toEqual(["qwen/qwen3-coder"]);
 });

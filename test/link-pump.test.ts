@@ -249,9 +249,19 @@ test("a failed task publishes attention and counts, then clears attention on ret
 test("pump dispatches attention notifications once to the desktop presenter",async()=>{
  const {capacityFixture}=await import("./read-model-helpers"),{publish}=await import("../src/link/publish"),{register}=await import("../src/clients/registry");
  const {s,st}=capacityFixture(),ctx=fakeCtx();register(ctx,{kind:"desktop",version:"1",notifier:true});
- const record={...task("failed"),createdAt:ctx.now,brief:{goal:"failed goal",repo:ctx.home},attempts:[]};
+ // Human-owned (source ui) so failed attention is notify:important and reaches the desktop presenter.
+ const record={...task("failed"),source:"ui",createdAt:ctx.now,brief:{goal:"failed goal",repo:ctx.home},attempts:[]};
  const deps:PumpDeps={status:async()=>st,tasks:()=>[record],strategy:()=>s,setup:async()=>({checkedAt:ctx.now,complete:true,ready:false,items:[]}),publish:(c,envs)=>publish(c,envs)};
  expect((await pumpOnce(ctx,deps)).filter(e=>e.type==="entity"&&e.data.kind==="notify")).toHaveLength(1);
+ expect((await pumpOnce(ctx,deps)).filter(e=>e.type==="entity"&&e.data.kind==="notify")).toHaveLength(0);
+});
+
+test("pump does not deliver desktop notifications for planner-owned failures",async()=>{
+ const {capacityFixture}=await import("./read-model-helpers"),{publish}=await import("../src/link/publish"),{register}=await import("../src/clients/registry");
+ const {s,st}=capacityFixture(),ctx=fakeCtx();register(ctx,{kind:"desktop",version:"1",notifier:true});
+ // Planner session via CLI still has source cli but origin external:... — not human-owned.
+ const record={...task("failed"),source:"cli",origin:"external:claude-code:sess",createdAt:ctx.now,brief:{goal:"delegated fail",repo:ctx.home},attempts:[]};
+ const deps:PumpDeps={status:async()=>st,tasks:()=>[record],strategy:()=>s,setup:async()=>({checkedAt:ctx.now,complete:true,ready:false,items:[]}),publish:(c,envs)=>publish(c,envs)};
  expect((await pumpOnce(ctx,deps)).filter(e=>e.type==="entity"&&e.data.kind==="notify")).toHaveLength(0);
 });
 

@@ -207,7 +207,7 @@ browserTest("narrow_settings_topbar_touches_the_tab_strip", async () => {
   const built = await frame();
   const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
   try {
-    for (const hash of ["#/settings", "#/settings/app", "#/settings/dispatcher", "#/settings/executors"]) {
+    for (const hash of ["#/settings", "#/settings/app", "#/settings/dispatcher", "#/settings/agents"]) {
       const page = await browser.newPage({ viewport: { width: 375, height: 812 } });
       await open(page, built, hash);
       const geometry = () => page.evaluate(() => ({
@@ -286,8 +286,8 @@ browserTest("dock_focus_moves_in_and_returns", async () => {
     await page.getByRole("button", { name: "Hide panel (Ctrl+`)" }).click();
     await expect(dock.count()).resolves.toBe(0);
     await focused(page, "#main-content");
-    // The terminal route has no dock and no dock control.
-    await page.evaluate(() => { location.hash = "#/workspace"; });
+    // The per-task workbench has no dock and no dock control.
+    await page.evaluate(() => { location.hash = "#/workspace?task=t-0412"; });
     await button.waitFor({ state: "detached" });
     await page.keyboard.press("Control+Backquote");
     await page.waitForTimeout(100);
@@ -436,7 +436,7 @@ browserTest("frame_chrome_measures_to_the_board", async () => {
     await page.getByRole("region", { name: "Terminal panel" }).waitFor();
     await expect(page.getByRole("button", { name: "Toggle terminal panel (Ctrl+`)" }).getAttribute("aria-pressed")).resolves.toBe("true");
     // Workspace owns its two side panels; its terminal dock toggle stays disabled.
-    await page.evaluate(() => { location.hash = "#/workspace"; });
+    await page.evaluate(() => { location.hash = "#/workspace?task=t-0412"; });
     await page.waitForFunction(() => { const buttons = [...document.querySelectorAll<HTMLButtonElement>(".pc-layout-toggles button")]; return buttons.length === 3 && !buttons[0]!.disabled && buttons[1]!.disabled && !buttons[2]!.disabled; });
     // Below 768px panels and the dock are hidden, so their toggles go too, and nothing overflows.
     await page.evaluate(() => { location.hash = "#/settings"; });
@@ -486,12 +486,12 @@ browserTest("count_badge_text_keeps_contrast_in_both_themes", async () => {
   } finally { await browser.close(); }
 }, 30_000);
 
-for (const setupOpen of [0, 1]) {
-  browserTest(`bottom navigation has five nonoverlapping board touch targets with setupOpen=${setupOpen}`, async () => {
+for (const [setupOpen, width] of [[0, 375], [1, 375], [0, 320], [1, 320]] as const) {
+  browserTest(`bottom navigation has six nonoverlapping board touch targets at ${width}px with setupOpen=${setupOpen}`, async () => {
     const built = await frame(setupOpen);
     const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
     try {
-      const page = await browser.newPage({ viewport: { width: 375, height: 812 }, hasTouch: true });
+      const page = await browser.newPage({ viewport: { width, height: 812 }, hasTouch: true });
       await open(page, built, "#/settings");
       const nav = page.locator(".pc-bottom-bar");
       await nav.waitFor();
@@ -499,7 +499,8 @@ for (const setupOpen of [0, 1]) {
         const box = node.getBoundingClientRect();
         return { label: node.getAttribute("aria-label"), left: box.left, right: box.right, width: box.width, height: box.height };
       }));
-      expect(targets).toHaveLength(5);
+      expect(targets).toHaveLength(6);
+      expect(targets.some(t => t.label?.startsWith("Runs"))).toBe(true);
       expect(targets.some(t => t.label === "Dispatch")).toBe(true);
       expect(targets.some(t => t.label === "Insights")).toBe(true);
       expect(targets.some(t => t.label?.startsWith("Setup"))).toBe(false);
@@ -510,7 +511,7 @@ for (const setupOpen of [0, 1]) {
       for (const [i, target] of targets.entries()) {
         expect(target.width).toBeGreaterThanOrEqual(44);
         expect(target.height).toBe(56);
-        expect(target.right).toBeLessThanOrEqual(375);
+        expect(target.right).toBeLessThanOrEqual(width);
         if (i > 0) expect(target.left).toBeGreaterThanOrEqual(targets[i - 1]!.right);
       }
       expect(await noHorizontalOverflow(page)).toBe(true);
@@ -577,7 +578,7 @@ browserTest("rail_tooltips_escape_stacking_context_and_fit_the_viewport", async 
   try {
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
     await open(page, built, "#/settings");
-    const trigger = page.getByRole("link", { name: "Workspace", exact: true });
+    const trigger = page.getByRole("link", { name: "Insights", exact: true });
     const active = page.locator('.pc-rail__item.on').first();
     const activeBackground = await active.evaluate(el => getComputedStyle(el).backgroundColor);
     expect(await active.evaluate(el => getComputedStyle(el, "::before").width)).toBe("3px");
@@ -590,7 +591,7 @@ browserTest("rail_tooltips_escape_stacking_context_and_fit_the_viewport", async 
     const bubble = page.getByRole("tooltip");
     await bubble.waitFor({ state: "visible" });
     expect(await bubble.evaluate(el => el.parentElement === document.body)).toBe(true);
-    expect(await bubble.textContent()).toBe("Workspace");
+    expect(await bubble.textContent()).toBe("Insights");
     const measure = () => bubble.evaluate(el => {
       const rect = el.getBoundingClientRect();
       const style = getComputedStyle(el);
@@ -655,8 +656,8 @@ browserTest("the page head stays fixed above a scrolling main, and is empty and 
     const after = await page.evaluate(() => document.querySelector(".pc-page-head")!.getBoundingClientRect().top);
     expect(after).toBe(before); // The page head does not scroll away with main's content.
     // Workspace owns its own fixed strip and never fills the header slot, so the region collapses.
-    await page.evaluate(() => { location.hash = "#/workspace"; });
-    await page.waitForFunction(() => location.hash.startsWith("#/workspace"));
+    await page.evaluate(() => { location.hash = "#/workspace?task=t-0412"; });
+    await page.waitForFunction(() => location.hash.startsWith("#/workspace?task="));
     await page.waitForFunction(() => getComputedStyle(document.querySelector(".pc-page-head")!).display === "none");
     const empty = await page.evaluate(() => {
       const head = document.querySelector(".pc-page-head")!;
@@ -758,15 +759,14 @@ browserTest("Trace, Setup and Agents fill shell panels through FrameSlot", async
     await setupRail.waitFor();
     await setupRail.getByRole("list", { name: "Setup steps" }).waitFor();
     expect(await page.locator(".pc-setup-layout--framed .pc-setup-rail").count()).toBe(0);
-    await page.evaluate(() => { location.hash = "#/settings/executors"; });
-    await page.getByRole("heading", { level: 1, name: "Agents" }).waitFor();
+    await page.evaluate(() => { location.hash = "#/settings/agents"; });
+    await page.getByRole("heading", { level: 1, name: "Dispatcher" }).waitFor();
     await page.getByRole("complementary", { name: "Settings" }).waitFor();
-    // Inspector stays closed until an executor is selected.
-    expect(await page.getByRole("complementary", { name: "Inspector" }).count()).toBe(0);
-    await page.locator('button[aria-label^="More actions for"]').first().click();
+    // Dispatcher › Agents opens the inspector for its agent list (UI-28); the selected agent fills main.
     const agentsInspector = page.getByRole("complementary", { name: "Inspector" });
     await agentsInspector.waitFor();
-    await agentsInspector.getByRole("heading", { level: 2 }).first().waitFor();
+    await agentsInspector.getByRole("navigation", { name: "Agents" }).waitFor();
+    expect(await page.locator("#main-content .pc-agent-list").count()).toBe(0);
   } finally { await browser.close(); }
 }, 30_000);
 
@@ -790,7 +790,7 @@ const ROUTED_PAGES: [hash: string, title: string][] = [
   ["#/", "Dispatch"], ["#/needs-you", "Needs you"], ["#/insights", "Insights"], ["#/tasks", "Tasks"], ["#/tasks/new", "New task"],
   ["#/tasks/t-0412", "Fix flaky retry test in the payments client"], ["#/setup", "Set up pacer"],
   ["#/settings", "Overview"], ["#/settings/app", "App preferences"], ["#/settings/planner", "Budget & pacing"],
-  ["#/settings/diagnostics", "Diagnostics"], ["#/settings/plugins", "Plugins"], ["#/settings/executors", "Agents"],
+  ["#/settings/diagnostics", "Diagnostics"], ["#/settings/plugins", "Plugins"], ["#/settings/agents", "Dispatcher"],
   ["#/settings/assistant", "Assistant"],
 ];
 browserTest("every routed page's header is non-empty, singular and stays fixed while main scrolls", async () => {

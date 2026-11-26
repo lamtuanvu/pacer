@@ -13,14 +13,15 @@ permissions:
   contents: read
 
 concurrency:
-  # Include commit SHA for PR events to prevent duplicate-run cancellation race.
-  # Each (PR, commit) pair gets its own group.
+  # A pull request has one group, and a newer event cancels the run in progress, so a push to the
+  # branch stops the superseded commit's run instead of letting both use runners. No job uses always(),
+  # so a cancelled run schedules no more work and the newer run reports the required checks.
   # A dispatched run (the release and nightly CI gates) gets its own per-commit group, so a push to main cannot cancel it.
   # Every push to main gets its own per-commit group and is never cancelled: validation runs post-merge
   # (amendment 0.24.0), and Prepare release needs a completed run for the exact commit it pins, which a
   # later merge must not cancel.
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name == 'pull_request' && github.sha || github.event_name == 'workflow_dispatch' && format('dispatch-{0}', github.sha) || github.event_name == 'push' && github.ref == 'refs/heads/main' && format('push-{0}', github.sha) || '' }}
-  cancel-in-progress: ${{ github.event_name == 'push' && github.ref != 'refs/heads/main' }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name == 'workflow_dispatch' && format('dispatch-{0}', github.sha) || github.event_name == 'push' && github.ref == 'refs/heads/main' && format('push-{0}', github.sha) || '' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/main') }}
 
 jobs:
   changes:
@@ -204,11 +205,31 @@ jobs:
         uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
           toolchain: 1.99.0
+      # The compiled-host test lands on exactly one shard. Detect it with the same sharding
+      # script that partitions the suite so only that shard gets the compiled-host cache key.
+      - name: Determine shard Rust cache scope
+        id: rust-cache-scope
+        if: ${{ env.RUN_CHECKS == 'true' && needs.changes.outputs.full == 'true' }}
+        env:
+          SHARD_INDEX: ${{ matrix.shard }}
+          SHARD_COUNT: 8
+          SHARD_EXCLUDE_MACOS: "1"
+        run: |
+          set -euo pipefail
+          files=$(python3 scripts/ci/shard-tests.py)
+          case "$files" in
+            *test/update-release-compiled.test.ts*) echo "musl=true" >> "$GITHUB_OUTPUT" ;;
+            *) echo "musl=false" >> "$GITHUB_OUTPUT" ;;
+          esac
       - name: Cache Rust
         if: ${{ env.RUN_CHECKS == 'true' && needs.changes.outputs.full == 'true' }}
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
+          # The compiled-host shard keeps its own cache so its musl release deps (under
+          # target/, already covered by the default workspace) are not replaced by another
+          # shard's debug-only entry. Other shards share the default key.
+          key: ${{ steps.rust-cache-scope.outputs.musl == 'true' && 'compiled-host' || '' }}
       - name: Install dependencies
         if: ${{ env.RUN_CHECKS == 'true' }}
         run: bun install --frozen-lockfile
@@ -352,7 +373,7 @@ jobs:
       - name: Check spacing and keyboard behavior in Chromium
         run: |
           export PACER_TEST_BROWSER="$(bun -e 'import { chromium } from "playwright-core"; process.stdout.write(chromium.executablePath())')"
-          bun run test test/app-spacing.test.tsx test/app-compact-density.test.tsx test/app-planner-preview-keyboard.test.tsx test/app-setup-health-gate-browser.test.tsx test/app-diagnostics-restart-browser.test.tsx
+          bun run test test/app-spacing.test.tsx test/app-compact-density.test.tsx test/app-planner-preview-keyboard.test.tsx test/app-setup-health-gate-browser.test.tsx test/app-diagnostics-restart-browser.test.tsx test/app-terminal-events.test.ts
       - name: Build CLI
         run: bun run build
       - name: Install, sign in and delegate

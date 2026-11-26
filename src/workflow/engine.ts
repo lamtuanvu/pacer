@@ -28,29 +28,41 @@ import { backEdgeIndexes } from "./validate";
 import { evalCondition, parseCondition } from "./condition";
 import { renderPrompt } from "./template";
 import {
-  attachStepTask, bumpEntryStartAttempts, claimEntryLease, claimStepAnswer, claimStepSettlement,
-  clearEntryLease, clearEntrySeed, ENTRY_START_TRANSIENT_MAX, ENTRY_START_TRANSIENT_MIN_S,
-  entryLeaseSeconds, fireEdge, getDefinition, getRun, insertFanoutBranches, insertJoinStep, insertRun,
-  insertStep, leaseNow, listQuestions, liveRunsNeedingEntry, newEntryOwner, recordDecision,
-  resetEntryStartAttempts, rootRunId, runEntityValue, setGraphStatus, setPublishOptIn, startRunDelayMs,
-  stepByTask, stepsOfRun, taskByRequestId, updateRun, updateStep, withdrawOpenQuestionsForRun,
-  workflowDatabase, type RunPatch, type RunRow, type StepKey, type StepRow,
+  attachStepTask, bumpEntryStartAttempts, claimEntryLease,
+  claimStepAnswer, claimStepSettlement, clearEntryLease,
+  clearEntrySeed, ENTRY_START_TRANSIENT_MAX, ENTRY_START_TRANSIENT_MIN_S,
+  entryLeaseSeconds, fireEdge, getDefinition,
+  getRun, insertFanoutBranches, insertJoinStep,
+  insertRun, insertStep, leaseNow,
+  listQuestions, liveRunsNeedingEntry, newEntryOwner,
+  recordDecision, resetEntryStartAttempts, rootRunId,
+  runEntityValue, setGraphStatus, setPublishOptIn,
+  startRunDelayMs, stepByTask, stepsOfRun,
+  taskByRequestId, updateRun, updateStep,
+  withdrawOpenQuestionsForRun, workflowDatabase, type RunPatch,
+  type RunRow, type StepKey, type StepRow,
+  getDefinitionRow, isDefinitionDisabled, isDefinitionInvalid,
+  resolveWorkflowPrompt, setPluginDefinitionsDisabled,
 } from "./store";
+import { assertPluginAllowsWorkflowStart, parsePluginOrigin } from "./plugin-sync";
 import { isTransientError } from "./transient";
-import { chooseStepChildRunId, completeWakeupRef, enqueueWakeup, stepWakeRef } from "./wakeups";
+import { runPriorityOf, stepDispatchOptions, taskPriorityFor, type RunPriority } from "./priority";
+import { isPersonPaused, isRunStepPaused, readPacingMode, syncRunPacingPause } from "./pacing";
+import { chooseStepChildRunId, completeWakeupRef, enqueueWakeup, liveTurnForTask, stepWakeRef } from "./wakeups";
 import { budgetForDefinition, serializeBudget, serializeSpent } from "./budget";
 import { canAutoApproveGenerate, canAutoDecide } from "./auto";
+import { sanitizeAnswerNote } from "./question-schema";
 import { questionEntityValue, raiseHumanStepQuestion, resolveHumanStepQuestion } from "./questions";
-import { stopLiveTurnsForRun } from "./orchestrator";
+import { settleOrchestratorTaskForEndedRun, settleTurn, stopLiveTurnsForRun } from "./orchestrator";
 import { ensureRootWorkNode, isWorkNodeRun, startStepTask } from "./worknode";
 import { installGeneratedDefinition } from "./generate";
 import { ensureRunBranch, isCodeStep } from "./branch";
 import { branchReportFor, settleRunGitOnTerminal } from "./cleanup";
 import { isPlainObject, type AgentStep, type ChooseWorkflowStep, type FanoutStep, type GenerateStep, type HumanStep, type JsonSchemaLite, type StepResultSchema, type WorkflowDef } from "./schema";
-import { loadStrategy } from "../config/strategy";
-import { runPriorityOf, stepDispatchOptions, taskPriorityFor, type RunPriority } from "./priority";
-import { isPersonPaused, isRunStepPaused, readPacingMode, syncRunPacingPause } from "./pacing";
+import { loadStrategy, StrategyError, workflowRouterId } from "../config/strategy";
 import { missingNeedsPrompt, validateEvidenceResult, type EvidenceNeed } from "./evidence";
+import { liveTurn } from "./wakeups";
+
 /** Wake the root orchestrator for an auto-effective waiting human step. */
 function wakeAutoHumanStep(ctx: Ctx, run: RunRow, stepId: string, attempt: number, stepDef: HumanStep): void {
   if (!canAutoDecide(getRun(ctx, rootRunId(ctx, run.id)) ?? run, stepId, stepDef)) return;
@@ -257,6 +269,8 @@ export async function withEntryLease<T>(
 interface EngineOptions {
   deps: EngineDeps;
   spawn?: SpawnRunner;
+  /** When true, orch→orch re-entry from onTaskSettled may settle this turn's live orch turn. */
+  settleLiveOrchTurn?: boolean;
 }
 
 const withDefaults = (o?: StartOptions): EngineOptions => ({ deps: o?.deps ?? defaultEngineDeps, spawn: o?.spawn });
@@ -330,7 +344,18 @@ async function patchRun(ctx: Ctx, runId: string, patch: RunPatch, o?: EngineOpti
   // Only a root run terminal stops the shared orchestrator turn (round-2 I1).
   // A choose_workflow child ending must leave the root's live turn alone.
   if (patch.status && RUN_TERMINAL.includes(patch.status) && !updated.parentRunId) {
-    stopLiveTurnsForRun(ctx, runId, `run ${patch.status}`);
+    const terminal = patch.status as "done" | "failed" | "stopped";
+    stopLiveTurnsForRun(ctx, runId, `run ${terminal}`, {
+      stopTask: o?.deps?.stopTask,
+    });
+    // Re-entry / choose deferral can leave the orch task queued with no live turn
+    // (stopLiveTurnsForRun finds nothing). Terminalize it so running-work/queue
+    // does not keep counting engine-owned orchestrate work for a stopped run (I4).
+    // When a live turn remains (stopPending / owned attempt still stopping), leave
+    // the orch task to that path — do not force-settle under the turn.
+    if (!liveTurn(ctx, rootRunId(ctx, runId))) {
+      settleOrchestratorTaskForEndedRun(ctx, updated, terminal);
+    }
   }
   if (patch.status && RUN_TERMINAL.includes(patch.status)) {
     for (const q of withdrawn) {
@@ -491,7 +516,10 @@ function ensureOrchestratorTask(ctx: Ctx, run: RunRow): string {
   return task.id;
 }
 
-/** A role:orchestrator step: no new task; links the shared orchestrator task and wakes a turn. */
+/** A role:orchestrator step: no new task; links the shared orchestrator task and wakes a turn.
+ *  A back-edge re-entry must not settle against a prior attempt's done/failed task: clear
+ *  settlement before attaching so tick recovery cannot mark this attempt "no step result"
+ *  before startTurn launches the new turn (P7-W4-revise-brainstorm-reuse). */
 async function startOrchestratorRoleStep(
   ctx: Ctx,
   run: RunRow,
@@ -499,19 +527,47 @@ async function startOrchestratorRoleStep(
   stepId: string,
   stepDef: AgentStep,
   attempt: number,
+  opts?: { settleLiveOrchTurn?: boolean },
 ): Promise<StepRow> {
   const orchTaskId = ensureOrchestratorTask(ctx, getRun(ctx, run.id)!);
   // UNIQUE(task_id): clear any prior attempt's link so this attempt can own it.
   workflowDatabase(ctx).query("UPDATE workflow_steps SET task_id = NULL WHERE task_id = ?").run(orchTaskId);
-  const prompt = renderPrompt(stepDef.prompt, {
+  const prompt = renderPrompt(resolveWorkflowPrompt(ctx, run.workflow, run.version, stepDef.prompt), {
     brief: run.brief,
     steps: stepResults(ctx, run.id),
     run: { id: run.id, stepId },
   });
-  // Stash the rendered prompt for the next turn — do not queue or launch here;
-  // only startTurn may queue the orchestrator task (D2.10).
+  // Stash the rendered prompt for the next turn — do not launch here; only startTurn
+  // may spawn the orchestrator runner (D2.10). Still leave the task non-settled so a
+  // re-entered attempt cannot be failed by recoverLostSettlements against attempt N-1.
+  // When re-entry is reached from onTaskSettled of the same orch task (direct orch→orch
+  // or self-loop), settling flipped T to done then we would requeue it while the prior
+  // turn stayed running — orchestrateRuns only settles when the task is terminal, so the
+  // new wakeup could not claim until the 20-min deadline. Settle that live turn first.
+  // Only on the onTaskSettled path (settleLiveOrchTurn): answerHumanStep / choose mid-turn
+  // must not force-settle a still-driving live turn of the shared orch task.
+  const rootForTurn = rootRunId(ctx, run.id);
+  const priorTurn = liveTurn(ctx, rootForTurn);
+  if (
+    opts?.settleLiveOrchTurn
+    && priorTurn
+    && priorTurn.taskId === orchTaskId
+    && (priorTurn.status === "running" || priorTurn.status === "starting")
+  ) {
+    await settleTurn(ctx, priorTurn.id, { outcome: "done" });
+  }
   updateTask(ctx, orchTaskId, t => {
     t.brief = { goal: prompt, repo: run.repo };
+    t.kind = "orchestrate";
+    if (SETTLE_STATES.includes(t.state)) {
+      t.state = "queued";
+      delete t.result;
+      delete t.settledAt;
+      delete t.queue;
+      delete t.reviewRequest;
+      delete t.progress;
+      delete t.runnerPid;
+    }
   });
   const key: StepKey = { runId: run.id, stepId, attempt };
   const existing = stepsOfRun(ctx, run.id).find(s =>
@@ -589,6 +645,30 @@ async function startGenerateStep(
   return row;
 }
 
+/** Top-level / choose target: refuse disabled or ungranted plugin workflows with the
+ *  same not_allowed text as run.start. Generate/replan children skip this via
+ *  startRun's skipLiveGate (pinned run-tree exemption). */
+function assertDefinitionStartAllowed(ctx: Ctx, workflowRef: string): void {
+  const def = getDefinition(ctx, workflowRef);
+  if (!def) throw new CoreError("not_found", `unknown workflow '${workflowRef}'`);
+  const defRef = `${def.id}@${def.version}`;
+  const defRow = getDefinitionRow(ctx, defRef);
+  // Schema-invalid stored defs stay unstartable across sync/reconcile (distinct from plugin-live disabled).
+  if (isDefinitionInvalid(ctx, defRef)) {
+    throw new CoreError("not_allowed", `workflow '${defRef}' is invalid`);
+  }
+  const pluginOrigin = defRow?.origin ? parsePluginOrigin(defRow.origin) : null;
+  if (pluginOrigin && defRow?.origin) {
+    assertPluginAllowsWorkflowStart(ctx, defRow.origin, def.id);
+    if (isDefinitionDisabled(ctx, defRef)) {
+      try { setPluginDefinitionsDisabled(ctx, pluginOrigin.pluginId, false); }
+      catch { /* best-effort; start is still allowed */ }
+    }
+  } else if (isDefinitionDisabled(ctx, defRef)) {
+    throw new CoreError("not_allowed", `workflow '${defRef}' is disabled`);
+  }
+}
+
 /** Grant op: start a child run for a choose_workflow step. */
 export async function chooseWorkflow(
   ctx: Ctx,
@@ -609,6 +689,9 @@ export async function chooseWorkflow(
   }
   const childDef = getDefinition(ctx, input.workflow);
   if (!childDef) throw new CoreError("not_found", `unknown workflow '${input.workflow}'`);
+  // Choose targets a fresh definition: gate before claiming so a disabled /
+  // ungranted plugin cannot be started as a child of an already-running router.
+  assertDefinitionStartAllowed(ctx, input.workflow);
   // Compare-and-set claim before startRun so two concurrent chooses cannot both
   // create children (A-m1). A prior childRunId or choosing marker refuses.
   const row = workflowDatabase(ctx).transaction(() => {
@@ -688,7 +771,7 @@ async function codeStepBrief(ctx: Ctx, run: RunRow, stepDef: AgentStep, prompt: 
 }
 
 async function delegateAgentRow(ctx: Ctx, run: RunRow, row: StepRow, stepDef: AgentStep, e: EngineOptions): Promise<StepRow> {
-  let prompt = renderPrompt(stepDef.prompt, {
+  let prompt = renderPrompt(resolveWorkflowPrompt(ctx, run.workflow, run.version, stepDef.prompt), {
     brief: run.brief,
     steps: stepResults(ctx, run.id),
     branch: row.branch,
@@ -773,7 +856,7 @@ async function startAgentStep(ctx: Ctx, run: RunRow, def: WorkflowDef, stepId: s
  *  delegateAgentRow for the insert-first-then-delegate rationale). */
 async function delegateFanoutBranch(ctx: Ctx, run: RunRow, row: StepRow, stepDef: FanoutStep, e: EngineOptions): Promise<StepRow> {
   const branch = row.branch!;
-  const prompt = renderPrompt(stepDef.each.prompt, {
+  const prompt = renderPrompt(resolveWorkflowPrompt(ctx, run.workflow, run.version, stepDef.each.prompt), {
     brief: run.brief,
     steps: stepResults(ctx, run.id),
     branch,
@@ -1220,7 +1303,7 @@ export async function startPendingEntries(
 
 export async function startRun(
   ctx: Ctx,
-  input: { workflow: string; repo: string; brief: string; title?: string; priority?: RunPriority; publish?: "draft" },
+  input: { workflow: string; repo: string; brief: string; title?: string; priority?: RunPriority; publish?: "draft"; origin?: string },
   spawn?: SpawnRunner,
   deps: EngineDeps = defaultEngineDeps,
   child?: {
@@ -1231,10 +1314,41 @@ export async function startRun(
     sessionId?: string;
     seedFinished?: SeedFinished;
     priority?: RunPriority;
+    /** Generate/replan children of an already-running tree skip the live gate. */
+    skipLiveGate?: boolean;
   },
 ): Promise<RunRow> {
-  const def = getDefinition(ctx, input.workflow);
-  if (!def) throw new CoreError("not_found", `unknown workflow '${input.workflow}'`);
+  // `auto` is not a definition id: it starts the configured router (workflows.router,
+  // default in strategy) whose choose_workflow step picks an installed workflow.
+  let workflowRef = input.workflow;
+  if (!child && workflowRef === "auto") {
+    try {
+      workflowRef = workflowRouterId(ctx);
+    } catch (err) {
+      // Missing strategy falls back inside workflowRouterId; only a broken file reaches here.
+      if (err instanceof StrategyError) {
+        throw new CoreError(
+          "invalid_input",
+          `run.start auto: cannot load strategy (${err.message})`,
+        );
+      }
+      throw err;
+    }
+    if (!getDefinition(ctx, workflowRef)) {
+      throw new CoreError(
+        "not_found",
+        `workflows.router '${workflowRef}' is not installed (run.start auto)`,
+      );
+    }
+  }
+  const def = getDefinition(ctx, workflowRef);
+  if (!def) throw new CoreError("not_found", `unknown workflow '${workflowRef}'`);
+  // Choose targets are fresh definitions and must pass the gate (chooseWorkflow also
+  // checks before claim). Only generate/replan children set skipLiveGate for the
+  // already-running parent's pinned run tree.
+  if (!child?.skipLiveGate) {
+    assertDefinitionStartAllowed(ctx, workflowRef);
+  }
   if (typeof input.brief !== "string" || !input.brief.trim()) throw new CoreError("invalid_input", "brief is required");
   if (typeof input.repo !== "string" || !input.repo) throw new CoreError("invalid_input", "repo is required");
   if (input.publish !== undefined && input.publish !== "draft") {
@@ -1247,6 +1361,9 @@ export async function startRun(
   const priority = child
     ? (child.priority ?? runPriorityOf(parent))
     : (input.priority ?? "normal");
+  // Child runs inherit the root's notification owner: the parent already carries
+  // the root's origin (children inherit at their own start), so no deeper walk.
+  const origin = child ? parent?.origin : input.origin;
   // Inherit a parent person pause so a child STARTED after the pause is also paused.
   // insertRun also re-checks the parent inside its immediate txn (M3).
   const inheritPersonPause = !!(child && parent && isPersonPaused(parent));
@@ -1263,6 +1380,7 @@ export async function startRun(
     brief: input.brief,
     title: input.title,
     priority,
+    ...(origin ? { origin } : {}),
     entryLeaseUntil: leaseAtInsert + leaseS,
     entryOwner,
     ...(seed ? { entrySeed: seed } : {}),
@@ -1498,6 +1616,39 @@ export async function onTaskSettled(ctx: Ctx, taskId: string, spawn?: SpawnRunne
   // settlement exclusive and the run advanced exactly once (Review Focus 6).
   await Promise.resolve();
   const done = task.state === "done" && step.result !== undefined;
+  // choose_workflow may start a child whose first step is role:orchestrator and attaches
+  // the shared orch task mid-turn. The choosing turn then settles done without a result for
+  // that new step. If an unclaimed orchestrator_step wakeup still exists for it, requeue
+  // instead of "no step result" so a fresh root turn can drive the child step (W4b ask).
+  if (!done && task.state === "done") {
+    const rootId = rootRunId(ctx, run.id);
+    const ref = stepWakeRef(step.runId, step.stepId, step.attempt, step.branch);
+    const pendingOrch = workflowDatabase(ctx).query(
+      "SELECT 1 AS ok FROM workflow_wakeups WHERE run_id = ? AND cause = ? AND ref = ? AND done_at IS NULL AND turn_id IS NULL LIMIT 1",
+    ).get(rootId, "orchestrator_step", ref) as { ok: number } | null;
+    if (pendingOrch) {
+      updateTask(ctx, taskId, t => {
+        if (SETTLE_STATES.includes(t.state)) {
+          t.state = "queued";
+          delete t.result;
+          delete t.settledAt;
+          delete t.queue;
+          delete t.reviewRequest;
+          delete t.progress;
+          delete t.runnerPid;
+        }
+      });
+      // The choosing turn already fulfilled its wake-ups; leave it running and the
+      // unclaimed child wakeup can never claim a new turn (live W4b hang).
+      // Own THIS root's turn for the settled task only: a foreign live turn on the
+      // shared orch task (child run) must not be settled by this path (I3 race).
+      const turn = liveTurnForTask(ctx, taskId, rootId);
+      if (turn && (turn.status === "running" || turn.status === "starting")) {
+        await settleTurn(ctx, turn.id, { outcome: "done" });
+      }
+      return;
+    }
+  }
   const error = done ? undefined : task.state === "done" ? "no step result" : task.state;
   const claimed = claimStepSettlement(ctx, keyOf(step), done ? { status: "done", endedAt: ctx.now } : { status: "failed", error, endedAt: ctx.now });
   if (!claimed) return; // another caller settled this step: the run advances exactly once
@@ -1543,7 +1694,7 @@ export async function onTaskSettled(ctx: Ctx, taskId: string, spawn?: SpawnRunne
     }
     return;
   }
-  await advanceFrom(ctx, run.id, def, row, row.result, { deps, spawn });
+  await advanceFrom(ctx, run.id, def, row, row.result, { deps, spawn, settleLiveOrchTurn: true });
 }
 
 /** Evaluates the join rule across a fan-out attempt's branches; a resolved join is
@@ -1587,10 +1738,34 @@ export async function joinFanout(ctx: Ctx, run: RunRow, def: WorkflowDef, settle
       try { e.deps.stopTask(ctx, b.taskId); } catch { /* the join must not depend on one stop */ }
     }
   }
+  const branches = Object.fromEntries(stepDef.branches.map(b => [b, byBranch.get(b)?.result ?? null]));
+  // Surface a joined verdict for edge conditions (design: result.verdict on fan-out).
+  // Compute over DONE branches only (stopped/failed/missing are ignored for the
+  // token). Any "revise" among those wins even if other done branches lack a
+  // verdict. Mixed pass+ok collapses to "pass". Join any/quorum still uses the
+  // join outcome above; a failed join fails the run regardless of verdicts.
+  const doneVerdicts = done.map(row => {
+    const r = row.result;
+    if (r != null && typeof r === "object" && !Array.isArray(r) && typeof (r as { verdict?: unknown }).verdict === "string") {
+      return (r as { verdict: string }).verdict;
+    }
+    return null;
+  });
+  let verdict: string | undefined;
+  if (doneVerdicts.some(v => v === "revise")) verdict = "revise";
+  else {
+    const tokens = doneVerdicts.filter((v): v is string => v != null);
+    if (tokens.length > 0) {
+      if (tokens.every(v => v === "pass" || v === "ok")) {
+        verdict = tokens.some(v => v === "pass") ? "pass" : "ok";
+      }
+    }
+  }
   const result = {
-    branches: Object.fromEntries(stepDef.branches.map(b => [b, byBranch.get(b)?.result ?? null])),
+    branches,
     done: done.length,
     failed: failed.length,
+    ...(verdict !== undefined ? { verdict } : {}),
   };
   // One yield before the join row: a concurrent join of the same attempt (the
   // change loop racing the tick's recovery, say) computes the same outcome, and the
@@ -1725,7 +1900,9 @@ async function advanceFrom(ctx: Ctx, runId: string, def: WorkflowDef, settled: S
         if (target.type === "fanout") await delegateFanoutBranch(ctx, fresh, row, target, e);
         else if (target.type === "agent" && target.role === "orchestrator") {
           // fireEdge already inserted the running row; finish it as an orchestrator turn.
-          await startOrchestratorRoleStep(ctx, fresh, def, row.stepId, target, row.attempt);
+          await startOrchestratorRoleStep(ctx, fresh, def, row.stepId, target, row.attempt, {
+            settleLiveOrchTurn: e.settleLiveOrchTurn,
+          });
         } else if (target.type === "agent") await delegateAgentRow(ctx, fresh, row, target, e);
         else if (target.type === "choose_workflow") {
           await startChooseWorkflowStep(ctx, fresh, row.stepId, target, row.attempt);
@@ -1894,7 +2071,7 @@ export async function retryFailedStep(
 }
 
 /** Answers a waiting human step: the answer becomes the step's result
- *  (`{ answer }`) and the run advances from it. */
+ *  (`{ answer }` or `{ answer, note }`) and the run advances from it. */
 export async function answerHumanStep(
   ctx: Ctx,
   runId: string,
@@ -1903,6 +2080,7 @@ export async function answerHumanStep(
   expectRev: number,
   deps: EngineDeps = defaultEngineDeps,
   spawn?: SpawnRunner,
+  note?: string,
 ): Promise<RunRow> {
   if (typeof answer !== "string" || answer.length < 1) throw new CoreError("invalid_input", "answer must be a non-empty string");
   const run = getRun(ctx, runId);
@@ -1972,6 +2150,10 @@ export async function answerHumanStep(
       reason: `approves: publish tip=${tip.toLowerCase()}`,
     };
   }
+  const cleanedNote = note !== undefined && note.trim() !== "" ? sanitizeAnswerNote(note) : undefined;
+  const stepResult = cleanedNote !== undefined && cleanedNote.trim() !== ""
+    ? { answer, note: cleanedNote }
+    : { answer };
   // One yield before the claim: a concurrent answer (or a stopping run) can then
   // reach the same row, and it is claimStepAnswer below — not the luck of
   // synchronous execution — that makes the answer exclusive (round 4 review).
@@ -1981,7 +2163,7 @@ export async function answerHumanStep(
   const claimed = claimStepAnswer(
     ctx,
     keyOf(row),
-    { answer },
+    stepResult,
     publishDecision ? { decision: publishDecision } : undefined,
   );
   if (!claimed) throw new CoreError("conflict", `conflict: step ${stepId} of ${runId} is not waiting for an answer`);
@@ -1996,6 +2178,7 @@ export async function answerHumanStep(
       answer,
       ctx.env.PACER_RUN_GRANT ? "orchestrator" : "person",
       row.branch,
+      cleanedNote !== undefined && cleanedNote !== "" ? cleanedNote : undefined,
     );
   } catch (err) {
     if (!(err instanceof CoreError) || err.code !== "conflict") throw err;
@@ -2009,7 +2192,7 @@ export async function answerHumanStep(
   } catch (err) {
     if (!(err instanceof CoreError) || err.code !== "conflict") throw err;
   }
-  await advanceFrom(ctx, runId, def, claimed, { answer }, { deps, spawn });
+  await advanceFrom(ctx, runId, def, claimed, stepResult, { deps, spawn });
   return getRun(ctx, runId)!;
 }
 
@@ -2127,6 +2310,7 @@ export async function startGeneratedChild(
       planner: root.planner,
       orchestratorTaskId: root.orchestratorTaskId,
       sessionId: root.sessionId,
+      skipLiveGate: true,
       ...(seedFinished ? { seedFinished } : {}),
     });
   } catch (err) {
@@ -2240,21 +2424,23 @@ export async function answerGenerateApproval(
     }, spawn, deps);
     return getRun(ctx, input.runId)!;
   }
-  const note = input.note
+  const rawNote = input.note
     ?? (answer.startsWith("revise:") || answer.startsWith("revise ")
       ? answer.replace(/^revise[:\s]+/i, "").trim()
       : "");
+  // Trim before emptiness so whitespace-only notes do not become fenced space blocks.
+  const note = typeof rawNote === "string" && rawNote.trim() !== "" ? rawNote : undefined;
   const reviseCount = (typeof prior.reviseCount === "number" ? prior.reviseCount : 0) + 1;
   const retries = stepDef.retries ?? 2;
   setGraphStatus(ctx, {
     runId: run.id, stepId: input.stepId, attempt: row.attempt, version: prior.graphVersion as number,
-  }, "rejected", note || undefined);
+  }, "rejected", note);
   if (reviseCount > retries) {
     updateStep(ctx, keyOf(row), {
       status: "failed",
       error: `generate revise failed after ${retries} retries`,
       endedAt: ctx.now,
-      result: { ...prior, reviseCount, reviseNote: note || undefined, pendingApproval: undefined },
+      result: { ...prior, reviseCount, reviseNote: note, pendingApproval: undefined },
     });
     enqueueWakeup(ctx, {
       runId: run.id,
@@ -2268,7 +2454,7 @@ export async function answerGenerateApproval(
     result: {
       ...prior,
       reviseCount,
-      reviseNote: note || undefined,
+      reviseNote: note,
       pendingApproval: undefined,
       graphVersion: undefined,
     },
@@ -2334,7 +2520,7 @@ export async function stopRun(ctx: Ctx, runId: string, expectRev: number, deps: 
     }
     try { updateStep(ctx, keyOf(row), { status: "stopped", endedAt: ctx.now }); } catch { /* the row may have settled meanwhile */ }
   }
-  const stopped = await patchRun(ctx, runId, { status: "stopped" });
+  const stopped = await patchRun(ctx, runId, { status: "stopped" }, { deps, spawn: undefined });
   settleRootWorkNode(ctx, stopped, "stopped");
   const report = await branchReportFor(ctx, stopped);
   return report.ahead === undefined ? { ...stopped, ...report } : { ...stopped, ahead: report.ahead };

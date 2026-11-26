@@ -2,6 +2,7 @@ import { CoreError } from "../core/errors";
 import { authorizeWorkGrant, getWork, type WorkNode } from "../dispatch/work";
 import { isExecutorSession, isOrchestratorSession } from "../install/role";
 import { readTask } from "../tasks/store";
+import type { TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
 import type { ParticipantKind, Relation } from "./types";
 import { plannerSessionId, type PlannerKind } from "./identity";
@@ -82,6 +83,16 @@ export function parentOfTask(ctx: Ctx, t: { id: string; origin?: string | null; 
   const work = getWork(ctx, t.id);
   if (work?.parentId) return `task:${work.parentId}`;
   return t.origin ?? (t.source === "ui" ? "human" : t.source === "planner" ? "external:planner" : "human");
+}
+
+/**
+ * A live interactive root a person started and still owns: a chat from `session.create` (no work
+ * registration; `source: "ui"` makes its parent the human) or `pacer delegate --interactive` run by a
+ * person. Its terminal stays open until the user ends it. Agent-delegated tasks (a task or planner
+ * parent, or a work parent) and headless roots keep today's auto-completion.
+ */
+export function heldOpenForHuman(ctx: Ctx, t: TaskRecord, parent = parentOf(ctx, `task:${t.id}`)): boolean {
+  return (t.interactionMode === "conversation" || t.interactive === true) && parent === "human";
 }
 
 function ancestors(ctx: Ctx, p: string): string[] {

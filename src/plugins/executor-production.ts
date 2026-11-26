@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { CoreError } from "../core/errors";
 import { gitInfo, realpathSafe } from "../core/git";
+import { heldOpenForHuman } from "../messaging/participants";
 import { loadStrategy, type ProviderCfg } from "../config/strategy";
 import { parseRunnerId, resolveRunner } from "../config/runner-id";
 import { IDLE_FAIL_S, validateExecution } from "../config/execution";
@@ -107,11 +108,14 @@ async function runOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord,
     current.executorProvider !== providerId || current.executor !== cfg.id ||
     current.attempts.length !== task.attempts.length ||
     current.brief.repo !== task.brief.repo || task.interactionMode === "conversation" ||
+    heldOpenForHuman(ctx, task) ||
     parseRunnerId(cfg.id)?.host ||
     current.worktreeIntent && (placement !== "new" ||
       current.worktreeIntent.providerId !== providerId ||
       current.worktreeIntent.attempt !== current.attempts.length + 1) ||
-    current.worktree && (placement !== "new" || !current.retryOf && current.attempts.length === 0))
+    // A retry may record worktree === brief.repo when reusing an in-place checkout; that is not isolated.
+    current.worktree && realpathSafe(current.worktree) !== realpathSafe(current.brief.repo) &&
+      (placement !== "new" || !current.retryOf && current.attempts.length === 0))
     throw new CoreError("capability_denied", "direct executor route is not an owned local attempt");
   if (!Number.isSafeInteger(task.timeoutS) || task.timeoutS < 1 || task.timeoutS > 14400)
     throw new CoreError("invalid_input", "direct executor timeout must be between 1 and 14400 seconds");
@@ -296,7 +300,8 @@ export async function runOwnedDirectRemote(ctx: Ctx, cfg: ProviderCfg, task: Tas
     throw new CoreError("invalid_input", "Remote runners require explicitly configured headless execution");
   if (!current || !runner || !alias || !host || host.paused ||
     current.state !== "running" || current.stopPending || current.executorProvider !== providerId ||
-    current.executor !== cfg.id || task.interactionMode === "conversation" || cfg.session === "interactive" ||
+    current.executor !== cfg.id || task.interactionMode === "conversation" ||
+    heldOpenForHuman(ctx, task) || cfg.session === "interactive" ||
     host.session === "full" || validateExecution(strategy.execution).session === "pty" ||
     current.attempts.length !== task.attempts.length ||
     !Number.isSafeInteger(task.timeoutS) || task.timeoutS < 1 || task.timeoutS > 14400)

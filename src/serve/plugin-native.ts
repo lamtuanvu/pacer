@@ -58,6 +58,14 @@ const callResources = z.object({
   }).strict().optional(),
 }).passthrough();
 
+/**
+ * Extension-point calls the host itself originates, addressed to one plugin. The
+ * shared interface for B4/B6/B12: consumers register the `method` names they
+ * call here (G2). A method outside the table is refused as an unknown private
+ * request; none are registered in this slice.
+ */
+const EXTENSION_CALLS: Record<string, (ctx: Ctx, id: string, params: unknown) => Promise<unknown>> = {};
+
 const request = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("prepare"), op: operation, params: z.unknown() }).strict(),
   z.object({ kind: z.literal("call"), id: z.string(), method: pluginMethod, params: z.unknown() }).strict(),
@@ -110,6 +118,13 @@ const request = z.discriminatedUnion("kind", [
     pluginId: z.string().min(1),
     method: z.string().min(1),
     params: z.record(z.string(), z.unknown()).default({}),
+  }).strict(),
+  z.object({ kind: z.literal("snapshot") }).strict(),
+  z.object({
+    kind: z.literal("extension"),
+    id: z.string().min(1),
+    method: z.string().min(1),
+    params: z.unknown(),
   }).strict(),
 ]);
 
@@ -174,8 +189,36 @@ export async function pluginNativeRequest(ctx: Ctx, raw: unknown, o: { stdio?: b
         await reg.nativeStop(ctx, p.id);
         break;
       case "changed":
-        if (p.reset) reg.nativeReset(ctx, p.id);
+        // Parity with TypeScript registry.enable / disable / remove: native mutations
+        // edit config then notify Core via changed. Enable always sets reset; sync
+        // plugin-contributed workflows. When the plugin no longer authorizes
+        // workflows (disable/remove/refusal/grant gap), disable its origin
+        // definitions. A crash only refuses starts; it keeps definitions listed.
+        if (p.reset) {
+          reg.nativeReset(ctx, p.id);
+          const manifest = reg.manifestOf(ctx, p.id);
+          if (manifest && Object.hasOwn(manifest.contributes, "workflow")) {
+            const { syncPluginWorkflows } = await import("../workflow/plugin-sync");
+            void syncPluginWorkflows(ctx, p.id).catch(error => {
+              appendPluginLog(ctx, p.id, "workflow", error instanceof Error ? error.message : String(error));
+            });
+          }
+        }
         if (p.invalidate) reg.invalidatePlugin(ctx, p.id);
+        if (!p.reset) {
+          const info = reg.list(ctx).find(entry => entry.id === p.id);
+          const { disablePluginWorkflows, pluginWorkflowsShouldBeDisabled } = await import("../workflow/plugin-sync");
+          if (pluginWorkflowsShouldBeDisabled(info, reg.manifestOf(ctx, p.id))) {
+            try {
+              disablePluginWorkflows(ctx, p.id);
+            } catch (error) {
+              // The config change already landed: a failed flag write must not
+              // fail the op that triggered it. Log it like the sync path does.
+              const message = error instanceof Error ? error.message : String(error);
+              appendPluginLog(ctx, p.id, "workflow", `workflow disable failed: ${message}`);
+            }
+          }
+        }
         break;
       case "publish":
         if (["plugin.enable", "plugin.disable", "plugin.remove", "plugin.ui.visibility", "plugin.settings.set"].includes(p.op)) await publishConfigChange(ctx, "plugins");
@@ -205,6 +248,17 @@ export async function pluginNativeRequest(ctx: Ctx, raw: unknown, o: { stdio?: b
       case "orca_bridge":
         value = await reg.nativeAnswerOrcaBridge(p.token, p.pluginId, p.method, p.params);
         break;
+      case "snapshot":
+        // The registry snapshot, with no value: `null` as the plan seals.
+        break;
+      case "extension": {
+        // Host-originated extension-point call. No methods are registered yet,
+        // so any method is refused until a consumer adds it (G2).
+        const call = EXTENSION_CALLS[p.method];
+        if (!call) throw new CoreError("invalid_input", "invalid private plugin request");
+        value = await call(ctx, p.id, p.params);
+        break;
+      }
     }
     return { value, entries: reg.nativeSnapshot(ctx) };
   } catch (error) {

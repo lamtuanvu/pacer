@@ -521,3 +521,122 @@ test("settings show config.set warnings in warn tone", async () => {
   expect((t.dash as any).message).toMatchObject({text: warning, tone: "warn"});
   expect(t.last()).not.toContain("Saved. Undo:");
 });
+
+test("Runs ops fail closed before hello; N keypresses share one run.list per snapshot seq", async () => {
+  const calls: Call[] = [];
+  const s = structuredClone(fixture) as unknown as ClientSnapshot;
+  s.seq = 1;
+  const client: ApiClient = {
+    kind: "http",
+    hello: async () => ({ protocol: "3.0.0", pacer: "0", ops: ["run.list", "run.get", "question.list", "task.list"], events: [] }),
+    snapshot: async () => ({ protocol: "3.0.0", seq: s.seq, snapshot: structuredClone(s) }),
+    call: async <T,>(op: string, params?: unknown) => {
+      calls.push({ op, params });
+      if (op === "run.list") return [] as T;
+      if (op === "run.get") return { run: { id: "r-aaaaaaaaaa", workflow: "f", version: 1, title: "T", status: "running", rev: 1, createdAt: s.at, updatedAt: s.at }, steps: [], graphs: [] } as T;
+      if (op === "question.list") return [] as T;
+      return {} as T;
+    },
+    subscribe: () => () => {},
+    close: () => {},
+  };
+  const dash = new Dashboard({
+    client, theme: PLAIN_THEME, version: "0.0.0-test", cwd: "/tmp", timeZone: "UTC",
+    now: () => s.at, size: () => ({ width: 120, height: 40 }), write: () => {},
+  });
+  // Before hello (ops undefined): supports fail-closed for run.list — no early fetch.
+  dash.state = { ...dash.state, screen: "runs" };
+  dash.loadNeeds();
+  expect(calls.filter(c => c.op === "run.list")).toHaveLength(0);
+
+  await dash.refresh();
+  await dash.settle();
+  const afterRefresh = calls.filter(c => c.op === "run.list").length;
+  expect(afterRefresh).toBe(1);
+
+  for (let i = 0; i < 8; i++) {
+    await dash.key("j");
+    await dash.settle();
+  }
+  expect(calls.filter(c => c.op === "run.list").length).toBe(afterRefresh);
+
+  // Errored stamp must not refetch on every key (no per-key storm).
+  const beforeError = calls.filter(c => c.op === "run.list").length;
+  dash.data.runs = { value: [], error: { message: "boom" }, stamp: String(dash.snapshot.seq) };
+  (dash as unknown as { runsRetry: { stamp: string; count: number; nextAt: number } }).runsRetry = {
+    stamp: String(dash.snapshot.seq), count: 1, nextAt: s.at + 100,
+  };
+  for (let i = 0; i < 5; i++) {
+    await dash.key("k");
+    await dash.settle();
+  }
+  expect(calls.filter(c => c.op === "run.list").length).toBe(beforeError);
+
+  // Transient failure recovers on the refresh tick without R and without seq change.
+  let now = s.at;
+  const timed = new Dashboard({
+    client, theme: PLAIN_THEME, version: "0.0.0-test", cwd: "/tmp", timeZone: "UTC",
+    now: () => now, size: () => ({ width: 120, height: 40 }), write: () => {},
+  });
+  timed.ops = ["run.list", "run.get", "question.list", "task.list"];
+  timed.snapshot = structuredClone(s);
+  timed.state = { ...timed.state, screen: "runs" };
+  (timed as unknown as { lastRunsScreen: boolean }).lastRunsScreen = true;
+  timed.data.runs = { value: [], error: { message: "boom" }, stamp: String(s.seq) };
+  (timed as unknown as { runsRetry: { stamp: string; count: number; nextAt: number } }).runsRetry = {
+    stamp: String(s.seq), count: 1, nextAt: now,
+  };
+  const beforeRetry = calls.filter(c => c.op === "run.list").length;
+  timed.loadNeeds();
+  await timed.settle();
+  expect(calls.filter(c => c.op === "run.list").length).toBe(beforeRetry + 1);
+  expect(timed.data.runs?.error).toBeUndefined();
+  expect(timed.data.runs?.value).toEqual([]);
+
+  s.seq = 2;
+  await dash.refresh();
+  await dash.settle();
+  expect(calls.filter(c => c.op === "run.list").length).toBeGreaterThan(beforeError);
+});
+
+test("run.answer conflict reloads with the changed-question copy", async () => {
+  const t = setup({
+    ops: ["run.list", "run.get", "run.answer", "question.list"],
+    respond: op => {
+      if (op === "run.answer") return new ApiError("conflict", "stale");
+      if (op === "run.list") return [];
+      if (op === "run.get") {
+        return {
+          run: { id: "r-aaaaaaaaaa", workflow: "f", version: 1, title: "T", status: "waiting", rev: 1, createdAt: 1, updatedAt: 1 },
+          steps: [], graphs: [],
+        };
+      }
+      if (op === "question.list") return [];
+      return undefined;
+    },
+  });
+  await t.dash.refresh();
+  t.dash.state = { ...t.dash.state, screen: "runs", runView: "r-aaaaaaaaaa" };
+  await t.dash.run({
+    type: "action",
+    action: { label: "Answer", op: "run.answer", params: { id: "r-aaaaaaaaaa", step: "ask", answer: "yes", expect_rev: 1 } },
+  });
+  expect(t.last()).toContain("This question changed; review it again.");
+});
+
+test("run vanishing mid-view shows unavailable detail", async () => {
+  const t = setup({
+    ops: ["run.list", "run.get", "question.list"],
+    respond: op => {
+      if (op === "run.list") return [];
+      if (op === "run.get") return new ApiError("not_found", "unknown run");
+      return undefined;
+    },
+  });
+  await t.dash.refresh();
+  t.dash.state = { ...t.dash.state, screen: "runs", runView: "r-aaaaaaaaaa" };
+  t.dash.loadNeeds();
+  await t.dash.settle();
+  t.dash.draw();
+  expect(t.last()).toMatch(/unknown run|unavailable|not_found/i);
+});

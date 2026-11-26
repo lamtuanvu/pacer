@@ -28,14 +28,15 @@ export function taskMessageEvents(ctx: Ctx, taskId: string): OutboxEvent[] {
   const retry = record.retriedBy ? readTask(ctx, record.retriedBy) : null;
   const rows = apiTasks(ctx, [record, ...(retry ? [retry] : [])] as TaskRecord[]).map(t => ({ ...t, title: t.fullTitle ?? t.title }));
   const id = `message:${taskId}`;
-  // Read only: the pump owns the attention store and drops entries this one task does not raise.
+  // Read only: the pump owns the attention store. Derive only this task's item and scope
+  // pruning to that task, so other tasks' entries are never touched by this partial read.
   // Shared asker filter (I-1) so ordinary question items stay suppressed on this path too.
   const raised = suppressOrdinaryQuestionItems(
     deriveTaskItems({ now: ctx.now, tasks: rows, executors: [], accounts: [], planner: null,
       setup: { complete: true, open: 0, items: [] }, update: null, retryTarget: () => null }),
     openBlockingPersonQuestionAskerIds(ctx),
   );
-  const item = applyStore({ ...ctx, readOnly: true }, raised.filter(i => i.id === id))[0];
+  const item = applyStore({ ...ctx, readOnly: true }, raised.filter(i => i.id === id), new Set([taskId]))[0];
   return [task, { type: "entity", data: item ? { kind: "attention", id, value: item } : { kind: "attention", id, removed: true } }];
 }
 

@@ -40896,6 +40896,1759 @@
         ],
         "uncertain": []
       }
+    },
+    {
+      "name": "tier-fallback",
+      "input": {
+        "kind": null,
+        "strategy": {
+          "planner": {
+            "agent": "claude-code",
+            "account": "planner"
+          },
+          "accounts": {
+            "planner": {
+              "kind": "subscription"
+            },
+            "quota": {
+              "kind": "subscription"
+            },
+            "other": {
+              "kind": "subscription"
+            },
+            "endpoint": {
+              "kind": "endpoint"
+            }
+          },
+          "runners": {
+            "alpha": {
+              "id": "alpha",
+              "account": "quota",
+              "agent": "codex",
+              "enabled": true,
+              "host": null,
+              "models": [
+                {
+                  "id": "a-small",
+                  "tier": "small",
+                  "strengths": []
+                }
+              ]
+            },
+            "beta": {
+              "id": "beta",
+              "account": "other",
+              "agent": "codex",
+              "enabled": true,
+              "host": null,
+              "models": [
+                {
+                  "id": "b-medium",
+                  "tier": "medium",
+                  "strengths": []
+                }
+              ]
+            },
+            "gamma": {
+              "id": "gamma",
+              "account": "endpoint",
+              "agent": "opencode",
+              "enabled": true
+            },
+            "disabled": {
+              "id": "disabled",
+              "account": "quota",
+              "agent": "codex",
+              "enabled": false
+            },
+            "planner": {
+              "id": "planner",
+              "account": "planner",
+              "agent": "claude-code",
+              "enabled": true,
+              "host": null,
+              "models": [
+                {
+                  "id": "opus",
+                  "tier": "frontier",
+                  "strengths": []
+                }
+              ]
+            }
+          },
+          "runnerAliases": {},
+          "routing": [
+            {
+              "kinds": [
+                "review"
+              ],
+              "executors": [
+                "beta"
+              ]
+            },
+            {
+              "kinds": null,
+              "executors": [
+                "alpha",
+                "beta",
+                "gamma",
+                "disabled"
+              ]
+            }
+          ],
+          "pacing": {
+            "policy": "even",
+            "order": [
+              "beta",
+              "alpha",
+              "gamma"
+            ],
+            "accounts": "spread",
+            "fillThreshold": 90,
+            "balance": "off"
+          }
+        },
+        "statuses": {
+          "alpha": {
+            "id": "alpha",
+            "usage": "quota",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": 40,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "BEHIND",
+              "delta": -10,
+              "pace": 50,
+              "activeHoursLeft": 5
+            },
+            "verdict": "BEHIND",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            }
+          },
+          "beta": {
+            "id": "beta",
+            "usage": "quota",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": null,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "UNKNOWN"
+            },
+            "verdict": "UNKNOWN",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            }
+          },
+          "planner": {
+            "id": "planner",
+            "usage": "quota",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": 94,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "AHEAD",
+              "delta": 44,
+              "pace": 50,
+              "activeHoursLeft": 5
+            },
+            "verdict": "AHEAD",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            }
+          }
+        },
+        "targetTier": "frontier"
+      },
+      "output": {
+        "ranked": [
+          {
+            "id": "planner",
+            "account": "planner",
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            },
+            "score": 11,
+            "verdict": "AHEAD",
+            "reason": "planner tier fallback: no frontier executor available",
+            "tierFallback": {
+              "targetTier": "frontier",
+              "reason": "planner tier fallback: no frontier executor available"
+            }
+          },
+          {
+            "id": "alpha",
+            "account": "quota",
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            },
+            "score": 10,
+            "verdict": "BEHIND",
+            "reason": "behind, used 40% / pace 50%"
+          },
+          {
+            "id": "beta",
+            "account": "other",
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            },
+            "score": 0,
+            "verdict": "UNKNOWN",
+            "reason": "unknown"
+          }
+        ],
+        "excluded": [
+          {
+            "id": "gamma",
+            "account": "endpoint",
+            "reason": "not configured",
+            "eligibility": {
+              "state": "ineligible",
+              "reasons": [
+                {
+                  "code": "evidence_missing",
+                  "evidenceIds": []
+                },
+                {
+                  "code": "unavailable",
+                  "evidenceIds": []
+                }
+              ],
+              "evaluatedAt": 0,
+              "validUntil": null,
+              "evidenceAgeS": null,
+              "availability": "unknown",
+              "budget": "unknown",
+              "spendingRisk": "unknown"
+            }
+          },
+          {
+            "id": "disabled",
+            "account": "quota",
+            "reason": "disabled",
+            "eligibility": {
+              "state": "ineligible",
+              "reasons": [
+                {
+                  "code": "evidence_missing",
+                  "evidenceIds": []
+                },
+                {
+                  "code": "unavailable",
+                  "evidenceIds": []
+                }
+              ],
+              "evaluatedAt": 0,
+              "validUntil": null,
+              "evidenceAgeS": null,
+              "availability": "unknown",
+              "budget": "unknown",
+              "spendingRisk": "unknown"
+            }
+          }
+        ],
+        "uncertain": []
+      }
+    },
+    {
+      "name": "tier-fallback-project",
+      "input": {
+        "kind": null,
+        "strategy": {
+          "planner": {
+            "agent": "claude-code",
+            "account": "planner"
+          },
+          "accounts": {
+            "planner": {
+              "kind": "subscription"
+            },
+            "quota": {
+              "kind": "subscription"
+            },
+            "other": {
+              "kind": "subscription"
+            },
+            "endpoint": {
+              "kind": "endpoint"
+            }
+          },
+          "runners": {
+            "alpha": {
+              "id": "alpha",
+              "account": "quota",
+              "agent": "codex",
+              "enabled": true,
+              "host": null,
+              "models": [
+                {
+                  "id": "a-small",
+                  "tier": "small",
+                  "strengths": []
+                }
+              ]
+            },
+            "beta": {
+              "id": "beta",
+              "account": "other",
+              "agent": "codex",
+              "enabled": true,
+              "host": null,
+              "models": [
+                {
+                  "id": "b-medium",
+                  "tier": "medium",
+                  "strengths": []
+                }
+              ]
+            },
+            "gamma": {
+              "id": "gamma",
+              "account": "endpoint",
+              "agent": "opencode",
+              "enabled": true
+            },
+            "disabled": {
+              "id": "disabled",
+              "account": "quota",
+              "agent": "codex",
+              "enabled": false
+            },
+            "planner": {
+              "id": "planner",
+              "account": "planner",
+              "agent": "claude-code",
+              "enabled": true,
+              "host": null,
+              "models": [
+                {
+                  "id": "opus",
+                  "tier": "frontier",
+                  "strengths": []
+                }
+              ]
+            }
+          },
+          "runnerAliases": {},
+          "routing": [
+            {
+              "kinds": [
+                "review"
+              ],
+              "executors": [
+                "beta"
+              ]
+            },
+            {
+              "kinds": null,
+              "executors": [
+                "alpha",
+                "beta",
+                "gamma",
+                "disabled"
+              ]
+            }
+          ],
+          "pacing": {
+            "policy": "even",
+            "order": [
+              "beta",
+              "alpha",
+              "gamma"
+            ],
+            "accounts": "spread",
+            "fillThreshold": 90,
+            "balance": "off"
+          }
+        },
+        "statuses": {
+          "alpha": {
+            "id": "alpha",
+            "usage": "quota",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": 40,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "BEHIND",
+              "delta": -10,
+              "pace": 50,
+              "activeHoursLeft": 5
+            },
+            "verdict": "BEHIND",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            }
+          },
+          "beta": {
+            "id": "beta",
+            "usage": "quota",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": null,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "UNKNOWN"
+            },
+            "verdict": "UNKNOWN",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            }
+          },
+          "planner": {
+            "id": "planner",
+            "usage": "quota",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": 94,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "AHEAD",
+              "delta": 44,
+              "pace": 50,
+              "activeHoursLeft": 5
+            },
+            "verdict": "AHEAD",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            }
+          }
+        },
+        "selection": {
+          "executors": [
+            "alpha",
+            "beta"
+          ],
+          "order": "configured"
+        },
+        "targetTier": "frontier"
+      },
+      "output": {
+        "ranked": [
+          {
+            "id": "planner",
+            "account": "planner",
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            },
+            "score": 3,
+            "verdict": "AHEAD",
+            "reason": "planner tier fallback: no frontier executor available",
+            "tierFallback": {
+              "targetTier": "frontier",
+              "reason": "planner tier fallback: no frontier executor available"
+            }
+          },
+          {
+            "id": "alpha",
+            "account": "quota",
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            },
+            "score": 2,
+            "verdict": "BEHIND",
+            "reason": "behind, used 40% / pace 50%"
+          },
+          {
+            "id": "beta",
+            "account": "other",
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            },
+            "score": 1,
+            "verdict": "UNKNOWN",
+            "reason": "unknown"
+          }
+        ],
+        "uncertain": [],
+        "excluded": []
+      }
+    },
+    {
+      "name": "tier-fallback-met",
+      "input": {
+        "kind": null,
+        "strategy": {
+          "planner": {
+            "agent": "claude-code",
+            "account": "planner"
+          },
+          "accounts": {
+            "planner": {
+              "kind": "subscription"
+            },
+            "quota": {
+              "kind": "subscription"
+            },
+            "other": {
+              "kind": "subscription"
+            },
+            "endpoint": {
+              "kind": "endpoint"
+            }
+          },
+          "runners": {
+            "alpha": {
+              "id": "alpha",
+              "account": "quota",
+              "agent": "codex",
+              "enabled": true,
+              "host": null,
+              "models": [
+                {
+                  "id": "a-small",
+                  "tier": "small",
+                  "strengths": []
+                }
+              ]
+            },
+            "beta": {
+              "id": "beta",
+              "account": "other",
+              "agent": "codex",
+              "enabled": true,
+              "host": null,
+              "models": [
+                {
+                  "id": "b-medium",
+                  "tier": "medium",
+                  "strengths": []
+                }
+              ]
+            },
+            "gamma": {
+              "id": "gamma",
+              "account": "endpoint",
+              "agent": "opencode",
+              "enabled": true
+            },
+            "disabled": {
+              "id": "disabled",
+              "account": "quota",
+              "agent": "codex",
+              "enabled": false
+            },
+            "planner": {
+              "id": "planner",
+              "account": "planner",
+              "agent": "claude-code",
+              "enabled": true,
+              "host": null,
+              "models": [
+                {
+                  "id": "opus",
+                  "tier": "frontier",
+                  "strengths": []
+                }
+              ]
+            }
+          },
+          "runnerAliases": {},
+          "routing": [
+            {
+              "kinds": [
+                "review"
+              ],
+              "executors": [
+                "beta"
+              ]
+            },
+            {
+              "kinds": null,
+              "executors": [
+                "alpha",
+                "beta",
+                "gamma",
+                "disabled"
+              ]
+            }
+          ],
+          "pacing": {
+            "policy": "even",
+            "order": [
+              "beta",
+              "alpha",
+              "gamma"
+            ],
+            "accounts": "spread",
+            "fillThreshold": 90,
+            "balance": "off"
+          }
+        },
+        "statuses": {
+          "alpha": {
+            "id": "alpha",
+            "usage": "quota",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": 40,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "BEHIND",
+              "delta": -10,
+              "pace": 50,
+              "activeHoursLeft": 5
+            },
+            "verdict": "BEHIND",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            }
+          },
+          "beta": {
+            "id": "beta",
+            "usage": "quota",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": null,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "UNKNOWN"
+            },
+            "verdict": "UNKNOWN",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            }
+          },
+          "planner": {
+            "id": "planner",
+            "usage": "quota",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": 94,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "AHEAD",
+              "delta": 44,
+              "pace": 50,
+              "activeHoursLeft": 5
+            },
+            "verdict": "AHEAD",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            }
+          }
+        },
+        "targetTier": "medium"
+      },
+      "output": {
+        "ranked": [
+          {
+            "id": "alpha",
+            "account": "quota",
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            },
+            "score": 10,
+            "verdict": "BEHIND",
+            "reason": "behind, used 40% / pace 50%"
+          },
+          {
+            "id": "beta",
+            "account": "other",
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            },
+            "score": 0,
+            "verdict": "UNKNOWN",
+            "reason": "unknown"
+          }
+        ],
+        "excluded": [
+          {
+            "id": "gamma",
+            "account": "endpoint",
+            "reason": "not configured",
+            "eligibility": {
+              "state": "ineligible",
+              "reasons": [
+                {
+                  "code": "evidence_missing",
+                  "evidenceIds": []
+                },
+                {
+                  "code": "unavailable",
+                  "evidenceIds": []
+                }
+              ],
+              "evaluatedAt": 0,
+              "validUntil": null,
+              "evidenceAgeS": null,
+              "availability": "unknown",
+              "budget": "unknown",
+              "spendingRisk": "unknown"
+            }
+          },
+          {
+            "id": "disabled",
+            "account": "quota",
+            "reason": "disabled",
+            "eligibility": {
+              "state": "ineligible",
+              "reasons": [
+                {
+                  "code": "evidence_missing",
+                  "evidenceIds": []
+                },
+                {
+                  "code": "unavailable",
+                  "evidenceIds": []
+                }
+              ],
+              "evaluatedAt": 0,
+              "validUntil": null,
+              "evidenceAgeS": null,
+              "availability": "unknown",
+              "budget": "unknown",
+              "spendingRisk": "unknown"
+            }
+          }
+        ],
+        "uncertain": []
+      }
+    },
+    {
+      "name": "tier-fallback-off",
+      "input": {
+        "kind": null,
+        "strategy": {
+          "planner": {
+            "agent": "claude-code",
+            "account": "planner"
+          },
+          "accounts": {
+            "planner": {
+              "kind": "subscription"
+            },
+            "quota": {
+              "kind": "subscription"
+            },
+            "other": {
+              "kind": "subscription"
+            },
+            "endpoint": {
+              "kind": "endpoint"
+            }
+          },
+          "runners": {
+            "alpha": {
+              "id": "alpha",
+              "account": "quota",
+              "agent": "codex",
+              "enabled": true,
+              "host": null,
+              "models": [
+                {
+                  "id": "a-small",
+                  "tier": "small",
+                  "strengths": []
+                }
+              ]
+            },
+            "beta": {
+              "id": "beta",
+              "account": "other",
+              "agent": "codex",
+              "enabled": true,
+              "host": null,
+              "models": [
+                {
+                  "id": "b-medium",
+                  "tier": "medium",
+                  "strengths": []
+                }
+              ]
+            },
+            "gamma": {
+              "id": "gamma",
+              "account": "endpoint",
+              "agent": "opencode",
+              "enabled": true
+            },
+            "disabled": {
+              "id": "disabled",
+              "account": "quota",
+              "agent": "codex",
+              "enabled": false
+            },
+            "planner": {
+              "id": "planner",
+              "account": "planner",
+              "agent": "claude-code",
+              "enabled": true,
+              "host": null,
+              "models": [
+                {
+                  "id": "opus",
+                  "tier": "frontier",
+                  "strengths": []
+                }
+              ]
+            }
+          },
+          "runnerAliases": {},
+          "routing": [
+            {
+              "kinds": [
+                "review"
+              ],
+              "executors": [
+                "beta"
+              ]
+            },
+            {
+              "kinds": null,
+              "executors": [
+                "alpha",
+                "beta",
+                "gamma",
+                "disabled"
+              ]
+            }
+          ],
+          "pacing": {
+            "policy": "even",
+            "order": [
+              "beta",
+              "alpha",
+              "gamma"
+            ],
+            "accounts": "spread",
+            "fillThreshold": 90,
+            "balance": "off",
+            "plannerTierFallback": "off"
+          }
+        },
+        "statuses": {
+          "alpha": {
+            "id": "alpha",
+            "usage": "quota",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": 40,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "BEHIND",
+              "delta": -10,
+              "pace": 50,
+              "activeHoursLeft": 5
+            },
+            "verdict": "BEHIND",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            }
+          },
+          "beta": {
+            "id": "beta",
+            "usage": "quota",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": null,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "UNKNOWN"
+            },
+            "verdict": "UNKNOWN",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            }
+          },
+          "planner": {
+            "id": "planner",
+            "usage": "quota",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": 94,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "AHEAD",
+              "delta": 44,
+              "pace": 50,
+              "activeHoursLeft": 5
+            },
+            "verdict": "AHEAD",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            }
+          }
+        },
+        "targetTier": "frontier"
+      },
+      "output": {
+        "ranked": [
+          {
+            "id": "alpha",
+            "account": "quota",
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            },
+            "score": 10,
+            "verdict": "BEHIND",
+            "reason": "behind, used 40% / pace 50%"
+          },
+          {
+            "id": "beta",
+            "account": "other",
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            },
+            "score": 0,
+            "verdict": "UNKNOWN",
+            "reason": "unknown"
+          }
+        ],
+        "excluded": [
+          {
+            "id": "gamma",
+            "account": "endpoint",
+            "reason": "not configured",
+            "eligibility": {
+              "state": "ineligible",
+              "reasons": [
+                {
+                  "code": "evidence_missing",
+                  "evidenceIds": []
+                },
+                {
+                  "code": "unavailable",
+                  "evidenceIds": []
+                }
+              ],
+              "evaluatedAt": 0,
+              "validUntil": null,
+              "evidenceAgeS": null,
+              "availability": "unknown",
+              "budget": "unknown",
+              "spendingRisk": "unknown"
+            }
+          },
+          {
+            "id": "disabled",
+            "account": "quota",
+            "reason": "disabled",
+            "eligibility": {
+              "state": "ineligible",
+              "reasons": [
+                {
+                  "code": "evidence_missing",
+                  "evidenceIds": []
+                },
+                {
+                  "code": "unavailable",
+                  "evidenceIds": []
+                }
+              ],
+              "evaluatedAt": 0,
+              "validUntil": null,
+              "evidenceAgeS": null,
+              "availability": "unknown",
+              "budget": "unknown",
+              "spendingRisk": "unknown"
+            }
+          }
+        ],
+        "uncertain": []
+      }
+    },
+    {
+      "name": "tier-fallback-exhausted",
+      "input": {
+        "kind": null,
+        "strategy": {
+          "planner": {
+            "agent": "claude-code",
+            "account": "planner"
+          },
+          "accounts": {
+            "planner": {
+              "kind": "subscription"
+            },
+            "quota": {
+              "kind": "subscription"
+            },
+            "other": {
+              "kind": "subscription"
+            },
+            "endpoint": {
+              "kind": "endpoint"
+            }
+          },
+          "runners": {
+            "alpha": {
+              "id": "alpha",
+              "account": "quota",
+              "agent": "codex",
+              "enabled": true,
+              "host": null,
+              "models": [
+                {
+                  "id": "a-small",
+                  "tier": "small",
+                  "strengths": []
+                }
+              ]
+            },
+            "beta": {
+              "id": "beta",
+              "account": "other",
+              "agent": "codex",
+              "enabled": true,
+              "host": null,
+              "models": [
+                {
+                  "id": "b-medium",
+                  "tier": "medium",
+                  "strengths": []
+                }
+              ]
+            },
+            "gamma": {
+              "id": "gamma",
+              "account": "endpoint",
+              "agent": "opencode",
+              "enabled": true
+            },
+            "disabled": {
+              "id": "disabled",
+              "account": "quota",
+              "agent": "codex",
+              "enabled": false
+            },
+            "planner": {
+              "id": "planner",
+              "account": "planner",
+              "agent": "claude-code",
+              "enabled": true,
+              "host": null,
+              "models": [
+                {
+                  "id": "opus",
+                  "tier": "frontier",
+                  "strengths": []
+                }
+              ]
+            }
+          },
+          "runnerAliases": {},
+          "routing": [
+            {
+              "kinds": [
+                "review"
+              ],
+              "executors": [
+                "beta"
+              ]
+            },
+            {
+              "kinds": null,
+              "executors": [
+                "alpha",
+                "beta",
+                "gamma",
+                "disabled"
+              ]
+            }
+          ],
+          "pacing": {
+            "policy": "even",
+            "order": [
+              "beta",
+              "alpha",
+              "gamma"
+            ],
+            "accounts": "spread",
+            "fillThreshold": 90,
+            "balance": "off"
+          }
+        },
+        "statuses": {
+          "alpha": {
+            "id": "alpha",
+            "usage": "quota",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": 40,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "BEHIND",
+              "delta": -10,
+              "pace": 50,
+              "activeHoursLeft": 5
+            },
+            "verdict": "BEHIND",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            }
+          },
+          "beta": {
+            "id": "beta",
+            "usage": "quota",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": null,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "UNKNOWN"
+            },
+            "verdict": "UNKNOWN",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            }
+          },
+          "planner": {
+            "id": "planner",
+            "usage": "quota",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": 94,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "AHEAD",
+              "delta": 44,
+              "pace": 50,
+              "activeHoursLeft": 5
+            },
+            "verdict": "AHEAD",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "ineligible",
+              "reasons": [
+                {
+                  "code": "budget_exhausted",
+                  "evidenceIds": [
+                    "budget-98"
+                  ]
+                }
+              ],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "exhausted",
+              "spendingRisk": "unknown"
+            }
+          }
+        },
+        "targetTier": "frontier"
+      },
+      "output": {
+        "ranked": [
+          {
+            "id": "alpha",
+            "account": "quota",
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            },
+            "score": 10,
+            "verdict": "BEHIND",
+            "reason": "behind, used 40% / pace 50%"
+          },
+          {
+            "id": "beta",
+            "account": "other",
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            },
+            "score": 0,
+            "verdict": "UNKNOWN",
+            "reason": "unknown"
+          }
+        ],
+        "excluded": [
+          {
+            "id": "gamma",
+            "account": "endpoint",
+            "reason": "not configured",
+            "eligibility": {
+              "state": "ineligible",
+              "reasons": [
+                {
+                  "code": "evidence_missing",
+                  "evidenceIds": []
+                },
+                {
+                  "code": "unavailable",
+                  "evidenceIds": []
+                }
+              ],
+              "evaluatedAt": 0,
+              "validUntil": null,
+              "evidenceAgeS": null,
+              "availability": "unknown",
+              "budget": "unknown",
+              "spendingRisk": "unknown"
+            }
+          },
+          {
+            "id": "disabled",
+            "account": "quota",
+            "reason": "disabled",
+            "eligibility": {
+              "state": "ineligible",
+              "reasons": [
+                {
+                  "code": "evidence_missing",
+                  "evidenceIds": []
+                },
+                {
+                  "code": "unavailable",
+                  "evidenceIds": []
+                }
+              ],
+              "evaluatedAt": 0,
+              "validUntil": null,
+              "evidenceAgeS": null,
+              "availability": "unknown",
+              "budget": "unknown",
+              "spendingRisk": "unknown"
+            }
+          }
+        ],
+        "uncertain": []
+      }
+    },
+    {
+      "name": "tier-fallback-planner-untiered",
+      "input": {
+        "kind": null,
+        "strategy": {
+          "planner": {
+            "agent": "claude-code",
+            "account": "planner"
+          },
+          "accounts": {
+            "planner": {
+              "kind": "subscription"
+            },
+            "quota": {
+              "kind": "subscription"
+            },
+            "other": {
+              "kind": "subscription"
+            },
+            "endpoint": {
+              "kind": "endpoint"
+            }
+          },
+          "runners": {
+            "alpha": {
+              "id": "alpha",
+              "account": "quota",
+              "agent": "codex",
+              "enabled": true,
+              "host": null,
+              "models": [
+                {
+                  "id": "a-small",
+                  "tier": "small",
+                  "strengths": []
+                }
+              ]
+            },
+            "beta": {
+              "id": "beta",
+              "account": "other",
+              "agent": "codex",
+              "enabled": true,
+              "host": null,
+              "models": [
+                {
+                  "id": "b-medium",
+                  "tier": "medium",
+                  "strengths": []
+                }
+              ]
+            },
+            "gamma": {
+              "id": "gamma",
+              "account": "endpoint",
+              "agent": "opencode",
+              "enabled": true
+            },
+            "disabled": {
+              "id": "disabled",
+              "account": "quota",
+              "agent": "codex",
+              "enabled": false
+            },
+            "planner": {
+              "id": "planner",
+              "account": "planner",
+              "agent": "claude-code",
+              "enabled": true,
+              "host": null
+            }
+          },
+          "runnerAliases": {},
+          "routing": [
+            {
+              "kinds": [
+                "review"
+              ],
+              "executors": [
+                "beta"
+              ]
+            },
+            {
+              "kinds": null,
+              "executors": [
+                "alpha",
+                "beta",
+                "gamma",
+                "disabled"
+              ]
+            }
+          ],
+          "pacing": {
+            "policy": "even",
+            "order": [
+              "beta",
+              "alpha",
+              "gamma"
+            ],
+            "accounts": "spread",
+            "fillThreshold": 90,
+            "balance": "off"
+          }
+        },
+        "statuses": {
+          "alpha": {
+            "id": "alpha",
+            "usage": "quota",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": 40,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "BEHIND",
+              "delta": -10,
+              "pace": 50,
+              "activeHoursLeft": 5
+            },
+            "verdict": "BEHIND",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            }
+          },
+          "beta": {
+            "id": "beta",
+            "usage": "quota",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": null,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "UNKNOWN"
+            },
+            "verdict": "UNKNOWN",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            }
+          },
+          "planner": {
+            "id": "planner",
+            "usage": "quota",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": 94,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "AHEAD",
+              "delta": 44,
+              "pace": 50,
+              "activeHoursLeft": 5
+            },
+            "verdict": "AHEAD",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            }
+          }
+        },
+        "targetTier": "frontier"
+      },
+      "output": {
+        "ranked": [
+          {
+            "id": "alpha",
+            "account": "quota",
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            },
+            "score": 10,
+            "verdict": "BEHIND",
+            "reason": "behind, used 40% / pace 50%"
+          },
+          {
+            "id": "beta",
+            "account": "other",
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            },
+            "score": 0,
+            "verdict": "UNKNOWN",
+            "reason": "unknown"
+          }
+        ],
+        "excluded": [
+          {
+            "id": "gamma",
+            "account": "endpoint",
+            "reason": "not configured",
+            "eligibility": {
+              "state": "ineligible",
+              "reasons": [
+                {
+                  "code": "evidence_missing",
+                  "evidenceIds": []
+                },
+                {
+                  "code": "unavailable",
+                  "evidenceIds": []
+                }
+              ],
+              "evaluatedAt": 0,
+              "validUntil": null,
+              "evidenceAgeS": null,
+              "availability": "unknown",
+              "budget": "unknown",
+              "spendingRisk": "unknown"
+            }
+          },
+          {
+            "id": "disabled",
+            "account": "quota",
+            "reason": "disabled",
+            "eligibility": {
+              "state": "ineligible",
+              "reasons": [
+                {
+                  "code": "evidence_missing",
+                  "evidenceIds": []
+                },
+                {
+                  "code": "unavailable",
+                  "evidenceIds": []
+                }
+              ],
+              "evaluatedAt": 0,
+              "validUntil": null,
+              "evidenceAgeS": null,
+              "availability": "unknown",
+              "budget": "unknown",
+              "spendingRisk": "unknown"
+            }
+          }
+        ],
+        "uncertain": []
+      }
     }
   ],
   "conversation": [

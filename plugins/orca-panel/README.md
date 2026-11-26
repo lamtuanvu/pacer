@@ -1,9 +1,10 @@
 # Pacer
 
 A right-sidebar `"ui":"html"` panel (`src/panel.html` + `src/panel.ts`) and the plugin's own
-worker (`src/worker.ts`). The frame shows planner pace, needs-you attention (answer, accept /
-reject review), delegate from the focused worktree, running tasks (stop / watch / open worktree),
-who runs next, and done today. A status bar item shows pace and the needs-you count. The frame
+worker (`src/worker.ts`). The frame shows the focused Orca worktree's delegated tasks only: needs-you items (review and
+messages for the person), tasks with their status, and done (last 24h). The header shows the
+planner's pace in one line; an "All worktrees" box at the bottom and the status bar give
+pacer-wide counts and executor state. The frame
 calls `orca.plugin.request` / `orca.plugin.on`; the worker answers with `orca.panels.handle`,
 keeps the last-seen event seq in `orca.storage`, and tells every open panel with
 `orca.panels.post`. `src/protocol.ts` types both sides. Orca transpiles every file when it loads,
@@ -19,9 +20,9 @@ Node, not Bun). Opening an Orca worktree uses host `workspace.open` and needs th
 
 ## Limitations
 
-- **Accept/Reject `expect_rev`:** when the reviewed task is no longer in `running` or `doneToday`
-  (for example finished before `today.since`), Accept/Reject omit `expect_rev`. The service treats
-  it as optional; a conflict surfaces as "Already handled elsewhere".
+- **Accept/Reject `expect_rev`:** Accept/Reject omit `expect_rev` when the service no longer
+  tracks the reviewed task. The service treats it as optional; a conflict surfaces as "Already
+  handled elsewhere".
 - **`tab:"answer"` deep links:** query forms (`needs-you?answer=<id>`) are rejected on
   `pacer://` (early `?` guard in `logic.rs`). Answer intents map to
   `pacer://sessions/<id>/answer`, which the desktop deep-link handler accepts.

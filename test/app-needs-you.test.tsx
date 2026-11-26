@@ -21,7 +21,8 @@ for (const state of ["blocked", "failing", "exhausted", "down", "disabled"] as c
     const html = renderRows([{ state, reason: "Needs a fix" }]);
     expect(html).toContain("1 agent can't take work");
     expect(html).toContain('pc-card pc-card--warn');
-    expect(html).toContain('href="#/settings/executors"');
+    // The fix opens the affected agent.
+    expect(html).toMatch(/href="#\/settings\/agents\?agent=[^"]+"/);
     expect(html).toContain("Needs a fix");
   });
 }

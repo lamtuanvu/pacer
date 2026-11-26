@@ -12,6 +12,10 @@ export type { AgentIdentityInput, AgentIdentityPlan, AttachmentMetadata, Attachm
 export type {HostRunnerScript,HostRunnerSession,HostRunnerRequest,HostRunnerRunInput,HostRunnerRunResult,HostRunnerFetchResult} from "./host-runner";
 export { executorAvailableHandler } from "./executor";
 export type { ExecutorAvailableInput, ExecutorAvailableResult, ExecutorAvailableHandler, ExecutorOrcaRunInput, ExecutorOrcaDisposition } from "./executor";
+export { workflowDefinitions } from "./workflow";
+export type {
+  WorkflowDefinitionsParams, WorkflowDefinitionEntry, WorkflowDefinitionsResult, WorkflowDefinitionsHandler,
+} from "./workflow";
 
 export interface PluginManifest {
   id: string; version: string; publisher: string; host: string;
@@ -74,7 +78,7 @@ export class PluginError extends Error {
   }
 }
 
-export const PROTOCOL = "1.11.0";
+export const PROTOCOL = "1.12.0";
 const HELLO = "plugin.hello", CANCEL = "$/cancel";
 type Json = Record<string, unknown>;
 

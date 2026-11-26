@@ -1,0 +1,11 @@
+id: pacer-dev/router
+version: 1
+title: Router
+inputs: { brief: string }
+steps:
+  choose:
+    type: choose_workflow
+  done:
+    type: end
+edges:
+  - [choose, done]

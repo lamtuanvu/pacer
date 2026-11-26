@@ -4,6 +4,7 @@ import { dispatchConfigSchema, previewInputSchema, type DispatchPreview, type Ob
 import { collectObservations, statusObservationAdapter, type ObservationAdapter } from "../dispatch/observations";
 import { buildModelInventory } from "../dispatch/inventory";
 import { buildCandidates } from "../dispatch/candidates";
+import { fallbackTier } from "../dispatch/tier-fallback";
 import { decisionHash, ladderEngine, runDecision, type DecisionEngine } from "../dispatch/engines";
 import { computeStatus, type Status } from "../engine/status";
 import { rankExecutors } from "../engine/rank";
@@ -56,7 +57,7 @@ export async function previewDispatch(ctx: Ctx, input: unknown, deps: DispatchDe
   const repo = await (deps.readOnly ? resolvePolicyRepoInputReadOnly(ctx, brief.repo) : resolvePolicyRepoInput(ctx, brief.repo));
   const selection = projectSnapshot(ctx, strategy, repo.key).selection;
   const status = await (deps.status ?? ((c, s) => computeStatus({ ...c, readOnly: true }, s, {cacheOnly: true})))(ctx, strategy);
-  const existing = rankExecutors(brief.kind ?? null, strategy, Object.fromEntries(status.providers.map(p => [p.id, p])), selection && {executors: selection.executors, order: "configured"}, {includePlanner:deps.includePlanner});
+  const existing = rankExecutors(brief.kind ?? null, strategy, Object.fromEntries(status.providers.map(p => [p.id, p])), selection && {executors: selection.executors, order: "configured"}, {includePlanner:deps.includePlanner, targetTier: fallbackTier(deps.difficulty, config.tierTargets, brief.requirements?.minTier)});
   const ro = deps.readOnly;
   if (ro) { ro.status = status; ro.strategy = strategy; ro.repoPath = repo.path; }
   const excluded: DispatchPreview["excluded"] = existing.excluded.map(e => ({id: e.id, reason: e.reason}));

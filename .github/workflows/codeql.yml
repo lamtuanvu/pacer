@@ -13,6 +13,11 @@ permissions:
   contents: read
   actions: read
 
+# A newer run for the same pull request or branch supersedes the analysis in progress.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   changes:
     name: Select affected checks
@@ -35,7 +40,7 @@ jobs:
     needs: changes
     name: Analyze JavaScript and TypeScript
     # Code scanning and Scorecard need a public repo on a free account.
-    if: ${{ always() && !github.event.repository.private && (needs.changes.result != 'success' || needs.changes.outputs.codeql == 'true') }}
+    if: ${{ !cancelled() && !github.event.repository.private && (needs.changes.result != 'success' || needs.changes.outputs.codeql == 'true') }}
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository

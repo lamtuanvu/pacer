@@ -110,7 +110,7 @@ pub fn executor_setup_connect(ctx: &Ctx, params: Value) -> OpFuture<'_> {
         finish(issues)?;
         Ok(json!({
             "connected": false,
-            "command": format!("opencode auth login {}", provider.unwrap_or_default()),
+            "command": format!("opencode auth login --standalone {}", provider.unwrap_or_default()),
         }))
     })
 }

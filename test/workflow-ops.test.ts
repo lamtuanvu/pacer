@@ -6,8 +6,8 @@ import { createTask, readTask, updateTask } from "../src/tasks/store";
 import type { TaskRecord } from "../src/tasks/types";
 import { CoreError } from "../src/core/errors";
 import { callOp, type OpDeps } from "../src/api/ops";
-import { addDefinition, getRun, stepsOfRun, type RunRow } from "../src/workflow/store";
-import { onTaskSettled } from "../src/workflow/engine";
+import { addDefinition, getRun, stepsOfRun, workflowDatabase, type RunRow } from "../src/workflow/store";
+import { defaultEngineDeps, onTaskSettled, startRun } from "../src/workflow/engine";
 import type { WorkflowError } from "../src/workflow/schema";
 
 /** The same delegation stub the engine tests use: createTask with the input's
@@ -84,11 +84,27 @@ test("workflow.add installs a version once and conflicts on a different source",
   expect((invalid?.data as { errors: WorkflowError[] }).errors.length).toBeGreaterThan(0);
 });
 
+test("workflow.add refuses an unknown task kind at definition time", async () => {
+  const ctx = fakeCtx();
+  const unknownKind = `id: t/bad-kind
+version: 1
+steps:
+  a: { type: agent, kind: review, prompt: "x" }
+  done: { type: end }
+edges: [[a, done]]
+`;
+  const refused = await fail(callOp(ctx, "workflow.add", { source: unknownKind }));
+  expect(refused?.code).toBe("invalid_input");
+  expect(String(refused?.message ?? "")).toMatch(/unknown kind 'review'/);
+});
+
 test("workflow.list returns installed definitions", async () => {
   const ctx = fakeCtx();
   expect(await callOp(ctx, "workflow.list", {})).toEqual([]);
   await callOp(ctx, "workflow.add", { source: GOOD });
-  expect(await callOp(ctx, "workflow.list", {})).toEqual([{ id: "t/demo", version: 1, title: "Demo", addedAt: ctx.now }]);
+  expect(await callOp(ctx, "workflow.list", {})).toEqual([{
+    id: "t/demo", version: 1, title: "Demo", addedAt: ctx.now, origin: "manual", disabled: false, invalid: false,
+  }]);
 });
 
 test("run.start delegates the entry step, run.get and run.list read it back", async () => {
@@ -105,6 +121,108 @@ test("run.start delegates the entry step, run.get and run.list read it back", as
   expect(await callOp(ctx, "run.list", {})).toEqual([run]);
   expect(await callOp(ctx, "run.list", { status: "running" })).toEqual([run]);
   expect(await callOp(ctx, "run.list", { status: "waiting" })).toEqual([]);
+});
+
+test("run.get returns definition with entry, edges and fanout branches; omits when exact version missing", async () => {
+  const ctx = fakeCtx();
+  const FANOUT = `
+id: t/fan
+version: 1
+title: Fan
+steps:
+  split:
+    type: fanout
+    branches: [alpha, beta]
+    each: { type: agent, kind: research, prompt: "Branch {{branch}}" }
+    join: all
+  done: { type: end }
+edges:
+  - [split, done, "result.ok == true", { max_loops: 2 }]
+`;
+  await callOp(ctx, "workflow.add", { source: FANOUT });
+  const run = await callOp(ctx, "run.start", { workflow: "t/fan", repo: tmpDir(), brief: "Fan out" }, stubDeps()) as RunRow;
+  const got = await callOp(ctx, "run.get", { id: run.id }) as {
+    run: RunRow;
+    definition?: {
+      entry: string;
+      edges: { from: string; to: string; when?: string; maxLoops?: number }[];
+      steps: Record<string, { type: string; branches?: string[] }>;
+    };
+  };
+  expect(got.definition).toBeDefined();
+  expect(got.definition!.entry).toBe("split");
+  expect(got.definition!.edges).toEqual([
+    expect.objectContaining({ from: "split", to: "done", when: "result.ok == true", maxLoops: 2 }),
+  ]);
+  expect(got.definition!.steps.split).toEqual({ type: "fanout", branches: ["alpha", "beta"] });
+  expect(got.definition!.steps.done).toEqual({ type: "end" });
+
+  // Remove the exact stored version so run.get must omit definition (no other-version fallback).
+  workflowDatabase(ctx).query("DELETE FROM workflow_defs WHERE id = ? AND version = ?").run("t/fan", 1);
+  const missing = await callOp(ctx, "run.get", { id: run.id }) as { definition?: unknown };
+  expect(missing.definition).toBeUndefined();
+});
+
+test("run.start records the caller origin and ignores request fields", async () => {
+  const ctx = fakeCtx();
+  await callOp(ctx, "workflow.add", { source: GOOD });
+  const human = await callOp(ctx, "run.start", { workflow: "t/demo", repo: tmpDir(), brief: "Human" }, {
+    ...stubDeps(), appAuthenticated: true,
+  }) as RunRow;
+  expect(human.origin).toBe("human");
+  const planner = await callOp(ctx, "run.start", { workflow: "t/demo", repo: tmpDir(), brief: "Planner" }, {
+    ...stubDeps(), participant: "external:codex:sess",
+  }) as RunRow;
+  expect(planner.origin).toBe("external:codex:sess");
+  // A request field cannot claim human ownership for an external caller.
+  const spoof = await callOp(ctx, "run.start", {
+    workflow: "t/demo", repo: tmpDir(), brief: "Spoof", origin: "human",
+  }, { ...stubDeps(), participant: "external:codex:sess" }) as RunRow;
+  expect(spoof.origin).toBe("external:codex:sess");
+  // A caller id that is neither the human nor an external participant gets an
+  // explicit non-human origin, so a new run never leaves origin NULL.
+  const other = await callOp(ctx, "run.start", { workflow: "t/demo", repo: tmpDir(), brief: "Other" }, {
+    ...stubDeps(), participant: "orchestrator",
+  }) as RunRow;
+  expect(other.origin).toBe("unknown:orchestrator");
+  // An unidentified local caller is the non-privileged external:local, never human.
+  // localHuman() reads process.stdin.isTTY, so pin it for a TTY-independent assertion.
+  const wasTTY = process.stdin.isTTY;
+  try {
+    (process.stdin as { isTTY?: boolean }).isTTY = false;
+    const unknown = await callOp(ctx, "run.start", { workflow: "t/demo", repo: tmpDir(), brief: "Unknown" }, stubDeps()) as RunRow;
+    expect(unknown.origin).toBe("external:local");
+  } finally {
+    (process.stdin as { isTTY?: boolean }).isTTY = wasTTY;
+  }
+});
+
+test("startRun children inherit the root origin through the production path", async () => {
+  const ctx = fakeCtx();
+  await callOp(ctx, "workflow.add", { source: GOOD });
+  const deps = { ...defaultEngineDeps, delegate: stubDeps().delegate ?? defaultEngineDeps.delegate };
+  const root = await startRun(ctx, {
+    workflow: "t/demo", repo: tmpDir(), brief: "root", origin: "human",
+  }, undefined, deps);
+  expect(root.origin).toBe("human");
+  const child = await startRun(ctx, {
+    workflow: "t/demo", repo: tmpDir(), brief: "child",
+  }, undefined, deps, { parentRunId: root.id, parentStep: "draft" });
+  expect(child.parentRunId).toBe(root.id);
+  expect(child.origin).toBe("human");
+  // Grandchildren inherit transitively because each child already carries the root origin.
+  const grandchild = await startRun(ctx, {
+    workflow: "t/demo", repo: tmpDir(), brief: "grandchild",
+  }, undefined, deps, { parentRunId: child.id, parentStep: "draft" });
+  expect(grandchild.origin).toBe("human");
+
+  const external = await startRun(ctx, {
+    workflow: "t/demo", repo: tmpDir(), brief: "external", origin: "external:codex:sess",
+  }, undefined, deps);
+  const externalChild = await startRun(ctx, {
+    workflow: "t/demo", repo: tmpDir(), brief: "external child",
+  }, undefined, deps, { parentRunId: external.id, parentStep: "draft" });
+  expect(externalChild.origin).toBe("external:codex:sess");
 });
 
 test("run.start with an unknown workflow is not_found", async () => {

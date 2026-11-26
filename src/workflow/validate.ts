@@ -2,8 +2,22 @@
 // point at existing steps, `when` clauses must parse, an `end` must be reachable from
 // the entry, and every back edge must declare `maxLoops`. All errors are reported at
 // once; nothing is stored when any of them fires (spec, Review Focus 2).
+import { KINDS } from "../config/strategy";
 import { parseCondition } from "./condition";
 import { checkWorkflowShape, isPlainObject, type EdgeDef, type WorkflowDef, type WorkflowError } from "./schema";
+
+const KNOWN_KINDS = new Set<string>(KINDS);
+
+/** Reject task kinds the dispatcher does not know, at definition time (not at run start). */
+function checkTaskKind(path: string, kind: unknown, errors: WorkflowError[]): void {
+  if (kind === undefined || kind === null) return;
+  if (typeof kind !== "string" || !KNOWN_KINDS.has(kind)) {
+    errors.push({
+      path,
+      message: `unknown kind '${String(kind)}' (allowed: ${KINDS.join(", ")})`,
+    });
+  }
+}
 
 function hasOwn(obj: Record<string, unknown>, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(obj, key);
@@ -186,6 +200,15 @@ export function validateWorkflow(def: WorkflowDef): WorkflowError[] {
       if (outgoing !== 1) {
         errors.push({ path: `steps.${id}`, message: `choose_workflow step ${id} must have exactly one outgoing edge` });
       }
+    }
+    if (value.type === "agent") {
+      checkTaskKind(`steps.${id}.kind`, value.kind, errors);
+    }
+    if (value.type === "fanout" && isPlainObject(value.each)) {
+      checkTaskKind(`steps.${id}.each.kind`, value.each.kind, errors);
+    }
+    if (value.type === "generate" && isPlainObject(value.limits) && Array.isArray(value.limits.kinds)) {
+      value.limits.kinds.forEach((k, i) => checkTaskKind(`steps.${id}.limits.kinds[${i}]`, k, errors));
     }
     // Publishing approval is person-only: approves: publish requires decision: must (D5)
     // and a yes_no / approve_revise question so answers are exactly approve/yes (R2-F6).

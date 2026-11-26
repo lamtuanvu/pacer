@@ -25,6 +25,7 @@ import { closeCreatedTerminal, discardCreatedWorktree, lookupWorker, type OwnedW
 import { ensureCoordinator, gitInfo, realpathSafe } from "../exec/orca/setup";
 import { updateOrcaState, withLock } from "../exec/orca/state";
 import { type WaitResult, waitForWorker } from "../exec/orca/wait";
+import { heldOpenForHuman } from "../messaging/participants";
 import { CoreError } from "../core/errors";
 import { checkedWorktree, findLiveAnswerWorker, liveAgentProblem, liveLaneWorktree, mapFailedStart, type Mapped, mapWait, prepareOrca,
   type Ready, releaseLive, releaseStoppedLane, settleWorker, waitLine, workerSpec } from "./orca-host";
@@ -546,6 +547,7 @@ export class OrcaAttemptSession {
     const run = this.mode === "fresh" ? this.p!.run : (await this.coordinator()).run;
     const waited = await waitForWorker(ctx, c, {
       taskId: task.id, providerId: cfg.id, prompt: this.prompt, coordinator, run, dispatchId, terminal: this.terminal,
+      heldOpenForHuman: heldOpenForHuman(ctx, task),
       deadlineMs: deps.now() + task.timeoutS * 1000,
       isStopped: () => signal.aborted || readTask(ctx, task.id)?.state === "stopped",
       sliceMs: deps.sliceMs, now: deps.now, sleep: deps.sleep, log: this.log,

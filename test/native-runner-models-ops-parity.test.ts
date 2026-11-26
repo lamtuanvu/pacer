@@ -127,9 +127,10 @@ const strategyFile = (home: string) => {
   const name = existsSync(active) ? readFileSync(active, "utf8").trim() : "";
   return name ? join(home, ".pacer", "strategies", `${name}.yaml`) : join(home, ".pacer", "strategy.yaml");
 };
-/** What a step changes on disk: the strategy, its migration backup and OpenCode calls. */
+/** What a step changes on disk: the strategy, its migration backup, the endpoint test states and OpenCode calls. */
 const disk = (home: string) => ({
   strategy: fileBytes(home, ".pacer", "strategy.yaml"),
+  endpoints: fileBytes(home, ".pacer", "endpoints", "state.json"),
   backup: fileBytes(home, ".pacer", "strategy.yaml.pre-accounts.bak"),
   opencode: fileBytes(home, "opencode-calls.log"),
   // A named active strategy, and the file Rust's `Path::join` would pick for an absolute name.
@@ -316,6 +317,7 @@ const refusals: Step[] = [
   ["dispatch.tierTargets.get", { ignored: true }],
   ["dispatch.tierTargets.get", "x"],
   ["runner.models.set", set("codex", "gpt-6", [], "stale")],
+  // The planner runner's models are editable (planner tier fallback): this step now saves on both front doors.
   ["runner.models.set", set("claude-code", "x")],
   ["runner.models.set", set("zzz", "x")],
   ["runner.models.set", set("opencode#acme", "pacer-acme/nope")],
@@ -388,7 +390,7 @@ const writeNamed = (home: string, name: string) => {
   writeFileSync(strategyFile(home), NODE_JOINED);
 };
 
-const NOTES = { fail: "opencode could not list models for acme", empty: "opencode lists no models for acme; check opencode auth list" };
+const NOTES = { fail: "opencode could not list models for acme", empty: "opencode lists no models for acme; check opencode auth list --standalone" };
 const cases: Case[] = [
   { name: "reads and refusals", steps: refusals, native: true },
   { name: "saves", steps: saves, native: true },

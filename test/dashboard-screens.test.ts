@@ -302,7 +302,7 @@ describe("help overlay fits the terminal", () => {
   });
   test("help names the keys the TUI handles", () => {
     const text = frame("home", 120, 40, { state: { overlay: { kind: "help" } } });
-    for (const key of ["1-4 / Tab Shift-Tab", "R / Ctrl-R", "PgUp PgDn"]) expect(text).toContain(key);
+    for (const key of ["1-6 / Tab Shift-Tab", "R / Ctrl-R", "PgUp PgDn"]) expect(text).toContain(key);
     expect(text).not.toContain("1-5");
   });
 });

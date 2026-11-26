@@ -1,7 +1,8 @@
 import { CONDITIONAL_OPS, refusedOp } from "./proxy";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { pacerArgv, sandboxEnv, type Session } from "./core";
+import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { isolatedArgv, pacerArgv, SANDBOX_MARK, sandboxEnv, type Session } from "./core";
 import { runSessionStreamFaultProxy } from "./session-stream-fault";
 
 /**
@@ -101,13 +102,86 @@ function delegates(args: string[]): string | undefined {
   return undefined;
 }
 /**
- * Executor sessions must not delegate onward, even inside a sandbox. The sandbox does not inherit the outer
- * PACER_ROLE or PACER_TASK_ID (sandboxEnv drops them), so the guard checks the outer environment itself.
+ * Executor sessions must not delegate onward, even inside a sandbox. sandboxEnv drops the inherited
+ * PACER_ROLE and PACER_TASK_ID, so the guard checks the environment it was called with. `sandboxLaunched`
+ * says that environment belongs to a process of this sandbox, whose orchestrator may answer its run's questions.
  */
-export function executorRefusal(args: string[], outer: NodeJS.ProcessEnv): string | undefined {
+export function executorRefusal(args: string[], outer: NodeJS.ProcessEnv, sandboxLaunched = false): string | undefined {
   if (outer.PACER_ROLE !== "executor" && !outer.PACER_TASK_ID) return undefined;
+  // The CLI takes the first positional as the target, so a `q_` id right after `answer` is never a task.
+  if (sandboxLaunched && outer.PACER_ROLE === "orchestrator" && args[0] === "answer" && args[1]?.startsWith("q_")) return undefined;
   const what = delegates(args);
   return what ? `executor sessions cannot delegate onward (${what}); run real delegation from a planner session` : undefined;
+}
+
+/** What pacer sets on the executors, canaries, orchestrator turns and planner resumes it launches. */
+const IDENTITY_KEYS = [
+  "PACER_ROLE", "PACER_TASK_ID", "PACER_WORK_GRANT", "PACER_RUN_GRANT", "PACER_RUN_ID", "PACER_TURN_ID",
+  "PACER_ENFORCEMENT_MODE", "PACER_ENFORCEMENT_TOKEN", "PACER_REPORT_TOKEN", "PACER_PLANNER_SESSION", "PACER_CALLER_RESUME",
+] as const;
+/** Identity values pacer writes to or derives a home from; each must stay inside the sandbox home. */
+const HOME_PATH_KEYS = ["PACER_RUN_DIR", "PACER_TRANSCRIPT_REPORT", "PACER_GUARD_FAILURE_MARKER"] as const;
+
+/**
+ * The real path of `path`, resolving its existing part; undefined for relative paths, dangling links and `..`,
+ * which resolves lexically here but after a symlink in the kernel.
+ */
+function realTarget(path: string): string | undefined {
+  if (!isAbsolute(path) || path.split(sep).includes("..")) return undefined;
+  const missing: string[] = [];
+  for (let at = resolve(path); ; at = dirname(at)) {
+    try { lstatSync(at); } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT" || dirname(at) === at) return undefined;
+      missing.unshift(basename(at));
+      continue;
+    }
+    try { return join(realpathSync(at), ...missing); } catch { return undefined; }
+  }
+}
+function within(path: string, directory: string): boolean {
+  const target = realTarget(path), root = realTarget(directory);
+  if (!target || !root) return false;
+  const rest = relative(root, target);
+  return rest !== "" && rest !== ".." && !rest.startsWith(`..${sep}`);
+}
+function sandboxHomeOrWithin(session: Session, path: string): boolean {
+  const home = join(session.root, "home");
+  return within(path, home) || realTarget(path) === realTarget(home);
+}
+
+/** True only for the environment of a process this sandbox launched: its launch mark and its own home. */
+export function sandboxLaunched(session: Session, inherited: NodeJS.ProcessEnv): boolean {
+  if (inherited[SANDBOX_MARK] !== session.root || !inherited.PACER_HOME) return false;
+  const home = realTarget(inherited.PACER_HOME);
+  return home !== undefined && home === realTarget(join(session.root, "home"));
+}
+
+/** The identity a sandbox-launched caller keeps. Anything else, and every outer identity, is dropped. */
+function sandboxIdentity(session: Session, inherited: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  if (!sandboxLaunched(session, inherited)) return {};
+  const home = join(session.root, "home"), kept: NodeJS.ProcessEnv = {};
+  for (const key of IDENTITY_KEYS) if (inherited[key] !== undefined) kept[key] = inherited[key];
+  for (const key of HOME_PATH_KEYS) {
+    const path = inherited[key];
+    if (path && within(path, home)) kept[key] = path;
+  }
+  // The certification canary's marker lives in the probe's own temporary directory, not in the home.
+  const marker = inherited.PACER_CANARY_MARKER;
+  if (marker && within(marker, session.tmp ?? tmpdir()) && basename(dirname(marker)).startsWith("pacer-control-canary-") && basename(marker).startsWith("denied-")) {
+    kept.PACER_CANARY_MARKER = marker;
+  }
+  return kept;
+}
+
+/**
+ * The guarded child's directory: the caller's when its real path is in the sandbox home (task worktrees live
+ * there) or repo, so its relative paths mean what it wrote; the sandbox repo for any other caller.
+ */
+export function guardedChildCwd(session: Session, cwd: string): string {
+  const repo = join(session.root, "repo");
+  const real = realTarget(cwd);
+  if (!real || !existsSync(real)) return repo;
+  return [join(session.root, "home"), repo].some(root => real === realTarget(root) || within(real, root)) ? real : repo;
 }
 
 /**
@@ -120,12 +194,17 @@ export function guardedChildEnv(
   args: string[],
   inherited: NodeJS.ProcessEnv = process.env,
 ): NodeJS.ProcessEnv {
-  const env = sandboxEnv(session);
+  const env: NodeJS.ProcessEnv = { ...sandboxEnv(session), ...sandboxIdentity(session, inherited) };
+  // The sandbox sits inside the checkout, so git must not search above it from a folder with no repository.
+  env.GIT_CEILING_DIRECTORIES = [session.root, env.GIT_CEILING_DIRECTORIES].filter(Boolean).join(delimiter);
+  if (env.PACER_CORE_ARGV) env.PACER_CORE_ARGV = JSON.stringify(isolatedArgv(JSON.parse(env.PACER_CORE_ARGV) as string[]));
   if (args[0] !== "mcp" || args[1] !== "--assistant") return env;
   const pass = ["PACER_ASSISTANT_GRANT", "PACER_ASSISTANT_URL", "PACER_ASSISTANT_TURN", "PACER_HOME", "PACER_ASSISTANT_HOME"] as const;
   for (const key of pass) {
     const value = inherited[key];
-    if (typeof value === "string" && value.length > 0) env[key] = value;
+    // A turn's home is a folder of the sandbox home; an outside one would point the server at another install.
+    if (typeof value !== "string" || value.length === 0 || (key.endsWith("_HOME") && !sandboxHomeOrWithin(session, value))) continue;
+    env[key] = value;
   }
   return env;
 }
@@ -133,17 +212,20 @@ export function guardedChildEnv(
 if (import.meta.main) {
   try {
     const [sessionFile, ...args] = process.argv.slice(2);
-    const reason = refusal(args) ?? executorRefusal(args, process.env);
+    let session: Session | undefined, unreadable: unknown;
+    try { session = JSON.parse(readFileSync(sessionFile, "utf8")) as Session; } catch (error) { unreadable = error; }
+    // Refusals come first: without a readable session the caller counts as an outer one.
+    const reason = refusal(args) ?? executorRefusal(args, process.env, !!session && sandboxLaunched(session, process.env));
     if (reason) {
       console.error(`Live validation guard refused: ${reason}`);
       process.exit(3);
     }
-    const session = JSON.parse(readFileSync(sessionFile, "utf8")) as Session;
+    if (!session) throw unreadable;
     if (args.length === 3 && args[0] === "plugin" && args[1] === "run" && args[2] === "pacer-ssh") {
       process.exit(await runSessionStreamFaultProxy(session, args));
     }
-    const child = Bun.spawn([...pacerArgv(session), ...args], {
-      cwd: join(session.root, "repo"), env: guardedChildEnv(session, args), stdin: "inherit", stdout: "inherit", stderr: "inherit",
+    const child = Bun.spawn([...isolatedArgv(pacerArgv(session)), ...args], {
+      cwd: guardedChildCwd(session, process.cwd()), env: guardedChildEnv(session, args), stdin: "inherit", stdout: "inherit", stderr: "inherit",
     });
     // Forward shutdown to the guarded process, including nested task runners.
     for (const signal of ["SIGTERM", "SIGINT"] as const) process.on(signal, () => child.kill(signal));

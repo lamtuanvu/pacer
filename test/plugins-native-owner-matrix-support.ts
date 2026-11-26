@@ -390,6 +390,9 @@ export async function connectClaude(door: Door) {
   return await door.call("agent.connect", { agent: "claude-code", consent: true, preview_revision: preview.json.result?.revision });
 }
 
+/** The assistant needs the native reply binary; the front-door job passes its path through. */
+export const assistantBin = process.env.PACER_ASSISTANT_PACER_BIN;
+
 export const assistant: Scenario = async (door, h, observe) => {
   observe("assistant.settings.set", replyText(h, await door.call("assistant.settings.set", { runner: "opencode#ep", account: "ep", expect_rev: 1 })));
   observe("assistant.status", replyText(h, await door.call("assistant.status", {})));

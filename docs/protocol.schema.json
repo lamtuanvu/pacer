@@ -1486,6 +1486,7 @@
             "pacing.accounts",
             "pacing.fill_threshold",
             "pacing.balance",
+            "pacing.planner_tier_fallback",
             "update_check",
             "update_channel",
             "terminal.app",
@@ -4861,6 +4862,14 @@
         "repo": {
           "type": "string",
           "minLength": 1
+        },
+        "difficulty": {
+          "type": "string",
+          "enum": [
+            "simple",
+            "standard",
+            "complex"
+          ]
         }
       },
       "additionalProperties": false
@@ -4920,6 +4929,10 @@
         "answer": {
           "type": "string",
           "minLength": 1,
+          "maxLength": 4000
+        },
+        "note": {
+          "type": "string",
           "maxLength": 4000
         },
         "expect_rev": {

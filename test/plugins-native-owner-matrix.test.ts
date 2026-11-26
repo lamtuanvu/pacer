@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { front } from "./native-plugin-door";
-import { useMatrixRoot, FLAG_ON_DOCTOR_ADDITIONS, KNOWN_REFUSED, PLANNER_STORES, type Run, USAGE_STORES, assistant, doctorSetup, endpoints, expectHostSocketReported, expectIdentical, httpForward, httpOff, httpOn, planners, refusal, runModes, usage } from "./plugins-native-owner-matrix-support";
+import { useMatrixRoot, FLAG_ON_DOCTOR_ADDITIONS, KNOWN_REFUSED, PLANNER_STORES, type Run, USAGE_STORES, assistant, assistantBin, doctorSetup, endpoints, expectHostSocketReported, expectIdentical, httpForward, httpOff, httpOn, planners, refusal, runModes, usage } from "./plugins-native-owner-matrix-support";
 
 // HTTP consumer rows of the flag-on matrix; the scenarios and modes live in plugins-native-owner-matrix-support.ts.
 useMatrixRoot();
@@ -23,10 +23,10 @@ test.skipIf(!front)("doctor and setup consumers: doctor.run, setup.check and set
 }, 240000);
 
 let assistantMemo: Promise<Run[]> | undefined;
-const assistantRuns = () => assistantMemo ??= runModes("assistant", [httpOff, httpOn, httpForward], assistant);
+const assistantRuns = () => assistantMemo ??= runModes("assistant", [httpOff, httpOn, httpForward], assistant, [], assistantBin ? { PACER_ASSISTANT_PACER_BIN: assistantBin } : {});
 
-/** pacer-assistant resolves its endpoint key with capability.secrets.resolve, which Core answers for the owner call. */
-test.skipIf(!front)("assistant: flag-off, flag-on and forwarded turns answer from the fixture endpoint", async () => {
+/** The native reply plugin resolves its endpoint key with capability.secrets.resolve, which Core answers for the owner call. */
+test.skipIf(!front || !assistantBin)("assistant: flag-off, flag-on and forwarded turns answer from the fixture endpoint", async () => {
   const runs = await assistantRuns();
   for (const run of runs) expect(run.observed["assistant.turn"], run.mode.label).toContain("Fixture answer.");
   console.log(expectIdentical(runs).join("\n"));

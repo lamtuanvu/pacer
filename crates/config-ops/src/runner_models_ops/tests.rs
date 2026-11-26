@@ -85,7 +85,7 @@ async fn set_writes_default_and_tiered_models_then_clears_them() {
 }
 
 #[tokio::test]
-async fn set_refuses_stale_planner_unknown_and_unoffered_models() {
+async fn set_refuses_stale_unknown_and_unoffered_models() {
     let (dir, c) = seeded(STRATEGY);
     let rev = revision(STRATEGY);
     let set = |id: &str, expected: &str, default: &str| {
@@ -102,11 +102,6 @@ async fn set_refuses_stale_planner_unknown_and_unoffered_models() {
             "Executor settings changed elsewhere.",
             Some("Reload saved settings, then reapply your changes.")
         )
-    );
-    let planner = set("claude-code", &rev, "x").await.unwrap_err();
-    assert_eq!(
-        (planner.code, planner.message.as_str()),
-        (Code::NotAllowed, "cannot edit the planner runner")
     );
     let unknown = set("zzz", &rev, "x").await.unwrap_err();
     assert_eq!(unknown.message, "unknown runner zzz");
@@ -293,4 +288,62 @@ async fn get_refuses_a_strategy_that_changes_between_its_reads() {
         }
     }
     assert_eq!(conflicts, 1);
+}
+
+#[tokio::test]
+async fn a_new_endpoint_default_resets_its_test_state_natively() {
+    let (dir, c) = seeded(STRATEGY);
+    let states = dir.path().join("endpoints/state.json");
+    fs::create_dir_all(states.parent().unwrap()).unwrap();
+    let stale = "{\n  \"ep\": {\n    \"state\": \"not_working\",\n    \"detail\": \"old\"\n  },\n  \"oc\": {\n    \"state\": \"ready\"\n  }\n}\n";
+    fs::write(&states, stale).unwrap();
+    let set = |default: &str| json!({"id": "opencode#ep", "expectedRevision": revision(&text(&dir)), "default": default, "models": []});
+    assert!(!runner_models_stays_forwarded(
+        &c,
+        "runner.models.set",
+        &set("pacer-ep/m2")
+    ));
+    // The same default keeps the saved result.
+    runner_models_set(&c, set("pacer-ep/m1")).await.unwrap();
+    assert_eq!(fs::read_to_string(&states).unwrap(), stale);
+    runner_models_set(&c, set("pacer-ep/m2")).await.unwrap();
+    assert_eq!(
+        fs::read_to_string(&states).unwrap(),
+        "{\n  \"ep\": {\n    \"state\": \"not_tested\"\n  },\n  \"oc\": {\n    \"state\": \"ready\"\n  }\n}\n"
+    );
+    // A document Rust cannot rewrite as TypeScript would forwards the save.
+    fs::write(&states, "{\"1\": {\"state\": \"ready\"}}").unwrap();
+    assert!(runner_models_stays_forwarded(
+        &c,
+        "runner.models.set",
+        &set("pacer-ep/m1")
+    ));
+}
+
+#[tokio::test]
+async fn set_saves_the_planner_runner_models_for_the_tier_fallback() {
+    let (dir, c) = seeded(STRATEGY);
+    let rev = revision(STRATEGY);
+    runner_models_set(
+        &c,
+        json!({"id": "claude-code", "expectedRevision": rev, "default": "opus", "models": [{"id": "opus", "tier": "frontier"}]}),
+    )
+    .await
+    .unwrap();
+    let text = std::fs::read_to_string(dir.path().join("strategy.yaml")).unwrap();
+    assert!(text.contains("tier: frontier"), "{text}");
+}
+
+#[tokio::test]
+async fn set_many_saves_the_planner_runner_with_the_others() {
+    let (dir, c) = seeded(STRATEGY);
+    let rev = revision(STRATEGY);
+    runner_models_set_many(
+        &c,
+        json!({"expectedRevision": rev, "runners": [{"id": "codex", "default": "gpt-6", "models": []}, {"id": "claude-code", "default": "opus", "models": [{"id": "opus", "tier": "frontier"}]}]}),
+    )
+    .await
+    .unwrap();
+    let after = text(&dir);
+    assert!(after.contains("tier: frontier"), "{after}");
 }

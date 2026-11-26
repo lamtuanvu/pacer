@@ -33,7 +33,7 @@ Use **Settings → Executors → Models** to change the default, or
 and `--remove <model>` to edit the allowed list. See [CLI commands](cli.md#executor-models).
 
 `executor.models.available {runner, refresh?}` reports the available IDs, source,
-fetch time and known model facts. OpenCode accounts use `opencode models` filtered
+fetch time and known model facts. OpenCode accounts use `opencode models --standalone` filtered
 to their provider. Catalog facts enrich those IDs; catalog-only IDs are not offered.
 Successful OpenCode listings are cached for ten minutes; refresh bypasses the cache.
 Managed endpoint accounts read `connection.models` fresh. Agents without a listing
@@ -66,7 +66,7 @@ providers:
 
 These model IDs are examples; configure a model available in your OpenCode setup. Ollama models likewise use `ollama/<model>`. `pacer init` can discover local models with `ollama list` and `lms ls --json` when those CLIs and OpenCode are installed. A metered provider reads seven-day spend through OpenCode; `budget.weekly_tokens` and the newer `budget.weekly_usd` cap are both optional.
 
-The easiest way to add one is `pacer account add` → **Model endpoint (OpenCode)**, or Settings › Add executor → **Model endpoint (OpenCode)** in the app. Both list providers already signed in to OpenCode, local model servers and catalog providers, recommend a model and offer a weekly dollar cap; see [Endpoint accounts](accounts.md#endpoint-accounts-opencode). In the app, a catalog provider shows the `opencode auth login <provider>` command to run in a terminal, then Refresh; the browser never takes a key. A provider signed out of OpenCode reads **Key missing** with that command, and a reached weekly cap counts as a full window, so routing uses other executors until the week turns over.
+The easiest way to add one is `pacer account add` → **Model endpoint (OpenCode)**, or Settings › Add executor → **Model endpoint (OpenCode)** in the app. Both list providers already signed in to OpenCode, local model servers and catalog providers, recommend a model and offer a weekly dollar cap; see [Endpoint accounts](accounts.md#endpoint-accounts-opencode). In the app, a catalog provider shows the `opencode auth login --standalone <provider>` command to run in a terminal, then Refresh; the browser never takes a key. A provider signed out of OpenCode reads **Key missing** with that command, and a reached weekly cap counts as a full window, so routing uses other executors until the week turns over.
 
 While the Pacer service runs, it checks provider-supported usage every 15 minutes, including accounts whose executors are idle. `pacer limits refresh [account]` or **Refresh usage** in the app requests an immediate check. Codex uses a read-only app-server rate-limit query; ArkCLI and OpenCode use their existing usage commands. Claude reads its local status-line cache, which changes only when Claude supplies new data. Reactive and unmetered accounts have no quota query. A failed check keeps the last reading marked historical; it does not create fresh quota evidence or run an executor turn.
 

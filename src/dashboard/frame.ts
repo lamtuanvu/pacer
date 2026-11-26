@@ -6,8 +6,17 @@ export interface Span { text: string; style?: Style }
 export type Line = Span[];
 export interface PaintRow { line: Line; selected?: boolean }
 
-/** Untrusted text (titles, reasons, prompts) never carries control sequences into the frame. */
-export const safeText = (text: string) => text.replace(/[\x00-\x1f\x7f-\x9f]/g, "");
+/** Untrusted text (titles, reasons, prompts) never carries control sequences into the frame.
+ *  Strips bidi OVERRIDE/EMBEDDING/ISOLATE controls (U+202A–202E, U+2066–2069), ZWSP (U+200B),
+ *  word joiner / invisible math ops (U+2060–2064), BOM, ALM (U+061C), U+2028/9 and tag chars.
+ *  Keeps U+200C (ZWNJ), U+200D (ZWJ), U+200E (LRM) and U+200F (RLM) so Persian/Indic/mixed-direction
+ *  and emoji ZWJ sequences stay intact; those marks are not spoofing controls. */
+export const safeText = (text: string) => text
+  .replace(/[\x00-\x1f\x7f-\x9f]/g, "")
+  .replace(/[\u200B\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/g, "")
+  .replace(/\u061C/g, "")
+  .replace(/[\u2028\u2029]/g, "")
+  .replace(/[\u{E0000}-\u{E007F}]/gu, "");
 
 function charWidth(char: string): number {
   const cp = char.codePointAt(0)!;
@@ -16,7 +25,12 @@ function charWidth(char: string): number {
     || cp >= 0xf900 && cp <= 0xfaff || cp >= 0xfe10 && cp <= 0xfe6f || cp >= 0xff01 && cp <= 0xff60 || cp >= 0x1f300);
   return wide ? 2 : 1;
 }
-/** Width in terminal cells, rather than UTF-16 code units. */
+/**
+ * Width in terminal cells, rather than UTF-16 code units.
+ * ZWJ emoji sequences (family, profession glyphs) are counted per code point here;
+ * true terminal cell width for those sequences is verified only under tmux capture
+ * (see live UI evidence), not asserted in unit tests.
+ */
 export function cellWidth(text: string): number {
   let width = 0;
   for (const char of safeText(text)) width += charWidth(char);
@@ -37,6 +51,23 @@ export function clip(text: string, width: number, ellipsis = "…"): string {
     cells += size;
   }
   return result.trimEnd() + ellipsis;
+}
+/** Clip keeping the cursor/tail side (for live input fields). */
+export function clipEnd(text: string, width: number, ellipsis = "…"): string {
+  text = safeText(text);
+  width = Math.max(0, Math.floor(width));
+  if (cellWidth(text) <= width) return text;
+  const room = width - cellWidth(ellipsis);
+  if (room < 0) return width > 0 ? ".".repeat(width) : "";
+  const chars = [...text];
+  let result = "", cells = 0;
+  for (let i = chars.length - 1; i >= 0; i--) {
+    const size = charWidth(chars[i]!);
+    if (cells + size > room) break;
+    result = chars[i]! + result;
+    cells += size;
+  }
+  return ellipsis + result.trimStart();
 }
 
 export const span = (text: string, style?: Style): Span => ({ text: safeText(text), ...(style ? { style } : {}) });

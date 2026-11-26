@@ -1,0 +1,117 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`Runs screen list render snapshot at 120x40 1`] = `
+" ▬┃ pacer   Home  Needs you 1  Tasks 2  [ Runs ]  Settings                            All repos · Normal · ● live 08:00
+ Claude Code planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
+ ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ › A    Approve the plan?                                                                                     Needs you
+   
+        Run                                                Workflow      Status      Waits on      Priority         Age
+   A    Ship the frame · also listed above                 feature       ▶ Running   You           Normal        2m ago
+   B    Background tidy                                    chore         Ⅱ Paused    —             Background    1h ago
+     strict pacing
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ 
+ ⏎ Open run  a answer  . actions (2)  ? help                                         policy: unknown · pacer 0.0.0-test"
+`;
+
+exports[`Runs screen list render snapshot at 80x24 1`] = `
+" ▬┃ pacer   Home  Needs you 1  Tasks 2  [ Runs ]  Settings         ● live 08:00
+ Claude Code  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h ·…
+ ──────────────────────────────────────────────────────────────────────────────
+ › A    Approve the plan?                                             Needs you
+   
+   A    Ship the frame · also listed above                           ▶ Running 
+     feature · You · Normal · 2m ago
+   B    Background tidy                                              Ⅱ Paused  
+     chore · — · Background · 1h ago · strict pacing
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ ──────────────────────────────────────────────────────────────────────────────
+ 
+ ⏎ Open run  a answer  . actions (2)  ? help  policy:unknown · pacer 0.0.0-test"
+`;
+
+exports[`Runs screen list render snapshot at 60x20 1`] = `
+" ▬┃ pacer   Home  Needs 1  Tsk  [ Runs ]  Set  ● live 08:00
+ Claude Code  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind…
+ ──────────────────────────────────────────────────────────
+ › A    Approve the plan?                         Needs you
+   
+   A    Ship the frame · also listed above       ▶ Running 
+     feature · You · Normal · 2m ago
+   B    Background tidy                          Ⅱ Paused  
+     chore · — · Background · 1h ago · strict pacing
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ ──────────────────────────────────────────────────────────
+ 
+ ⏎ Open run  a answer  ? help               policy: unknown"
+`;
+
+exports[`Runs screen list tab bar at 60 columns keeps the active tab fully named (unicode and plain) 1`] = `
+" =| pacer   H  Needs (4)  Tsk  [ Runs ]  Set   * live 08:00
+ Claude Code  [######-|--]  63% used - pace 77%  Behind...
+ ----------------------------------------------------------
+ > A    Ship the frame                           Running   
+     feature - - - Normal - 2m ago                         
+   B    Background tidy                          Paused    
+     chore - - - Background - 1h ago - strict pacing
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ ----------------------------------------------------------
+ 
+ Enter Open  ? help      policy: unknown - pacer 0.0.0-test"
+`;

@@ -50,7 +50,7 @@ test("case B: search, OpenCode stores the key, then the flow continues", async (
   const {deps} = script(["3", "1", "volc", "1", "", "", "n"], {login: async (argv: string[]) => { logins.push(argv); state.signed = ["volcengine-coding-plan"]; return 0; }} as never);
   const r = await accountCmd(["add"], ctx, deps);
   expect(r.code).toBe(0);
-  expect(logins).toEqual([["opencode", "auth", "login", "volcengine-coding-plan"]]);
+  expect(logins).toEqual([["opencode", "auth", "login", "--standalone", "volcengine-coding-plan"]]);
   expect(loadStrategy(ctx).accounts["volcengine-coding-plan"]).toMatchObject({usage: "quota", quotaSource: "arkcli"});
 });
 

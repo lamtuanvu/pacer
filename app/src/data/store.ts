@@ -7,30 +7,33 @@ import { ENTITY_EVENT_TYPES, type ActivityEntry, type AttentionItem, type Job } 
 import type { ClientSnapshot as SnapshotV2 } from "../../../src/view-model/snapshot";
 /** The service's entity events plus pause, which a later service may send as an event. */
 const READ_MODEL_EVENTS: readonly string[] = [...ENTITY_EVENT_TYPES, "pause"];
-type EntityEventType = (typeof ENTITY_EVENT_TYPES)[number] | "pause";
+/** Workflow entity kinds unwrapped from SSE `entity` envelopes (run/step/decision/question). */
+const WORKFLOW_ENTITY_EVENTS = ["run", "step", "decision", "question"] as const;
+type EntityEventType = (typeof ENTITY_EVENT_TYPES)[number] | "pause" | (typeof WORKFLOW_ENTITY_EVENTS)[number];
 import { attentionOrder } from "../../../src/view-model/selectors";
 import { ApiError, createApi, type BrowserApi } from "./api";
 import { invalidateQueryCache } from "./query";
 import { createServiceNotifier, type ServiceNotifier } from "./service-notifier";
 
-export interface Features { readModel: boolean; ops: ReadonlySet<string> }
+export interface Features { readModel: boolean; /** Absent on older services that never announced the event. */ terminalEvents?: boolean; ops: ReadonlySet<string> }
 export interface StoreState {
   snapshot: SnapshotV2 | null; connectionRevision: number; connected: boolean; sessionEnded: boolean; needsSnapshot: boolean;
   invalidations: Record<string, number>; version: string | null;
   desktopBuildDiagnostic: 'unverified' | 'mismatch' | 'legacy' | 'unknown';
   features: Features; jobs: Record<string, Job>; activity: ActivityEntry[];
+  pluginStates: Record<string, { state: string; error: string | null }>;
 }
 type EventType = ApiEvent["type"] | EntityEventType;
 export type StoreAction = { type: "waiting"; waiting: NonNullable<SnapshotV2["service"]>["waiting"] } | { type: "snapshot"; snapshot: LinkSnapshot | SnapshotV2 } | { type: "event"; event: Omit<ApiEvent, "type"> & { type: EventType } } | { type: "disconnected" | "connected" | "reconnected" | "session-ended" } | { type: "hello"; hello: Hello };
 const V1_EVENTS = ["budget", "task", "mode", "alert", "config", "reset"] as const;
 const TASK_CAP = 200, ACTIVITY_CAP = 200;
 export function initialState(): StoreState {
-  return { snapshot: null, connectionRevision: 0, connected: false, sessionEnded: false, needsSnapshot: true, invalidations: {}, version: null, desktopBuildDiagnostic: 'unknown', features: { readModel: false, ops: new Set() }, jobs: {}, activity: [] };
+  return { snapshot: null, connectionRevision: 0, connected: false, sessionEnded: false, needsSnapshot: true, invalidations: {}, version: null, desktopBuildDiagnostic: 'unknown', features: { readModel: false, terminalEvents: false, ops: new Set() }, jobs: {}, activity: [], pluginStates: {} };
 }
 /** The 2.1 read model is on when the service says protocol >= 2.1 and announces attention events. */
 export function featuresOf(hello: Hello): Features {
   const [major = 0, minor = 0] = hello.protocol.split(".").map(Number);
-  return { readModel: (major > 2 || (major === 2 && minor >= 1)) && hello.events.includes("attention"), ops: new Set(hello.ops) };
+  return { readModel: (major > 2 || (major === 2 && minor >= 1)) && hello.events.includes("attention"), terminalEvents: hello.events.includes("terminal"), ops: new Set(hello.ops) };
 }
 
 type Keyed = Record<string, unknown>;
@@ -106,7 +109,7 @@ export function withoutRestartedUpdates(jobs: Record<string, Job>): Record<strin
 export function reduceStore(state: StoreState, action: StoreAction): StoreState {
   switch (action.type) {
     case "waiting": return state.snapshot?.service ? { ...state, snapshot: { ...state.snapshot, service: { ...state.snapshot.service, waiting: action.waiting } } } : state;
-    case "snapshot": return { ...state, snapshot: action.snapshot as SnapshotV2, needsSnapshot: false };
+    case "snapshot": return { ...state, snapshot: action.snapshot as SnapshotV2, needsSnapshot: false, pluginStates: {} };
     case "disconnected": return { ...state, connected: false };
     case "connected": return { ...state, connected: true, jobs: withoutRestartedUpdates(state.jobs) };
     case "reconnected": return { ...state, connected: true, connectionRevision: state.connectionRevision + 1, jobs: withoutRestartedUpdates(state.jobs) };
@@ -118,16 +121,42 @@ export function reduceStore(state: StoreState, action: StoreAction): StoreState 
     }
     case "event": {
       const event = action.event;
-      if (event.type === "reset") return { ...state, needsSnapshot: true };
+      if (event.type === "reset") return { ...state, needsSnapshot: true, pluginStates: {} };
       if (!state.snapshot || state.needsSnapshot || event.seq <= state.snapshot.seq) return state;
       // A notice does not change the snapshot body. Advance the cursor so a reconnect does not replay it.
       if (event.type === "notify") return { ...state, snapshot: { ...state.snapshot, seq: event.seq, at: event.at } };
-      // Plugin surfaces re-render on any plugin event; the catalog follows this counter.
-      if (event.type === "plugin") return { ...state, snapshot: { ...state.snapshot, seq: event.seq, at: event.at }, invalidations: { ...state.invalidations, plugin: (state.invalidations.plugin ?? 0) + 1 } };
+      // Plugin catalog rows change only on state/error changes; ui invalidations get a
+      // separate counter so surfaces re-render without refetching plugin.list.
+      if (event.type === "plugin") {
+        const data = isObj(event.data) ? event.data : {};
+        const id = typeof data.id === "string" ? data.id : null;
+        const nextState = typeof data.state === "string" ? data.state : String(data.state ?? "");
+        const nextError = data.error == null ? null : String(data.error);
+        const hasUi = Object.prototype.hasOwnProperty.call(data, "ui");
+        const pluginStates = state.pluginStates ?? {};
+        const previous = id ? pluginStates[id] : undefined;
+        const stateChanged = !previous || previous.state !== nextState || previous.error !== nextError;
+        const nextPluginStates = id ? { ...pluginStates, [id]: { state: nextState, error: nextError } } : pluginStates;
+        const nextInvalidations = { ...state.invalidations };
+        if (stateChanged) nextInvalidations.plugin = (nextInvalidations.plugin ?? 0) + 1;
+        if (hasUi) nextInvalidations["plugin-ui"] = (nextInvalidations["plugin-ui"] ?? 0) + 1;
+        return { ...state, pluginStates: nextPluginStates, snapshot: { ...state.snapshot, seq: event.seq, at: event.at }, invalidations: nextInvalidations };
+      }
       // A machine seen on the network changes discovery.list without a config change.
       if (event.type === "discovery.found") return { ...state, snapshot: { ...state.snapshot, seq: event.seq, at: event.at }, invalidations: { ...state.invalidations, discovery: (state.invalidations.discovery ?? 0) + 1 } };
+      // A terminal tab changed (create, rename, close or shell exit); the Terminal screen
+      // refetches terminal.list on this counter instead of polling.
+      if (event.type === "terminal") return { ...state, snapshot: { ...state.snapshot, seq: event.seq, at: event.at }, invalidations: { ...state.invalidations, terminal: (state.invalidations.terminal ?? 0) + 1 } };
       // 2.1 entities carry fields the v1 envelope parser would strip, so they skip it.
       if (state.features.readModel && (event.type === "task" || READ_MODEL_EVENTS.includes(event.type))) return reduceReadModel(state, state.snapshot, event.type, event.data, event.seq, event.at);
+      // Workflow entities: bump runs invalidation so the Runs store refetches; keep seq fresh.
+      if ((WORKFLOW_ENTITY_EVENTS as readonly string[]).includes(event.type)) {
+        return {
+          ...state,
+          snapshot: { ...state.snapshot, seq: event.seq, at: event.at },
+          invalidations: { ...state.invalidations, runs: (state.invalidations.runs ?? 0) + 1 },
+        };
+      }
       // Without the read model, an attention or counts event means the snapshot is out of date.
       if (event.type === "attention" || event.type === "counts") return { ...state, needsSnapshot: true };
       const envelope = parseEnvelope({ v: 1, type: event.type, data: event.data });

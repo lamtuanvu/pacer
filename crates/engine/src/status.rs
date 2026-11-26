@@ -238,6 +238,27 @@ pub fn compose_status(input: &Value) -> Value {
     if let Some(reason) = ranking.get("reason") {
         status["executors"]["reason"] = reason.clone();
     }
+    // `withTierFallback` in `src/engine/status.ts`: present only while the planner is the
+    // sole executor at the complex-task tier.
+    let complex = strategy["dispatch"]["tierTargets"]["complex"]
+        .as_str()
+        .unwrap_or("frontier");
+    let lead = rank_executors(&json!({
+        "strategy": strategy,
+        "statuses": Value::Object(by_id.clone()),
+        "selection": Value::Null,
+        "kind": Value::Null,
+        "includePlanner": false,
+        "targetTier": complex,
+    }))["ranked"][0]
+        .clone();
+    if let Some(fallback) = lead.get("tierFallback").and_then(Value::as_object) {
+        let mut marker = json!({"runner": lead["id"]});
+        for (key, value) in fallback {
+            marker[key] = value.clone();
+        }
+        status["executors"]["tierFallback"] = marker;
+    }
     status
 }
 

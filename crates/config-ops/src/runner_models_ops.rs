@@ -5,7 +5,7 @@
 //! configuration and publishes the `runners` area after a save.
 #![allow(clippy::result_large_err)]
 use pacer_config::{
-    config_writes::{edit, ensure_migrated, planner, resolve},
+    config_writes::{edit, ensure_migrated, resolve},
     executor_settings::revision,
     strategy::{StrategyError, load_strategy, strategy_path},
 };
@@ -186,16 +186,11 @@ fn snapshot(ctx: &Ctx) -> Result<(PathBuf, String, Value), CoreError> {
     Ok((path, text, strategy))
 }
 
-/// The resolved, editable runner id, refusing unknown ids and the planner.
+/// The resolved, editable runner id, refusing unknown ids. The planner's models are
+/// editable: the planner tier fallback reads their declared tiers.
 fn editable(strategy: &Value, reference: &str) -> Result<String, CoreError> {
     let runner = resolve(strategy, reference)
         .ok_or_else(|| invalid(format!("unknown runner {reference}")))?;
-    if planner(strategy, runner) {
-        return Err(CoreError::new(
-            Code::NotAllowed,
-            "cannot edit the planner runner",
-        ));
-    }
     Ok(runner["id"].as_str().unwrap_or(reference).to_owned())
 }
 
@@ -362,6 +357,7 @@ async fn save_models(ctx: &Ctx, p: Params) -> Result<Value, CoreError> {
             models,
         }];
         write(ctx, &source, &planned)?;
+        reset_endpoint_states(ctx, &s, &planned);
         let (_, runners) = saved(ctx, &path, &planned, &mut warnings)?;
         let mut reply = runners.into_iter().next().unwrap_or(Value::Null);
         reply["warnings"] = json!(warnings);
@@ -404,6 +400,7 @@ async fn save_many(ctx: &Ctx, p: Params) -> Result<Value, CoreError> {
         }
         let source = prepare(ctx, &path, &text, s["legacy"] == true)?;
         write(ctx, &source, &planned)?;
+        reset_endpoint_states(ctx, &s, &planned);
         let (revision, runners) = saved(ctx, &path, &planned, &mut warnings)?;
         Ok(json!({"revision": revision, "runners": runners, "warnings": warnings}))
     })
@@ -448,8 +445,33 @@ pub fn runner_models_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> boo
         resolve(&strategy, &entry.id).is_some_and(|runner| {
             let id = runner["id"].as_str().unwrap_or(&entry.id);
             listing_needs_core(&ctx.pacer_home, ctx.now, &strategy, id)
+                || resets_endpoint_state(&strategy, runner, &entry.default)
+                    && !pacer_account_ops::endpoint_states_writable(ctx)
         })
     })
+}
+
+/// A new default for an OpenCode or connection account's runner makes its saved
+/// endpoint test result stale, so the save resets it to `not_tested` as
+/// TypeScript's `saveRunnerModels` does. A state document Rust cannot rewrite
+/// exactly forwards the save instead.
+fn resets_endpoint_state(strategy: &Value, runner: &Value, default: &str) -> bool {
+    let account = &strategy["accounts"][runner["account"].as_str().unwrap_or_default()];
+    let endpoint =
+        account["source"] == "opencode" || account.get("connection").is_some_and(|c| !c.is_null());
+    endpoint && runner["model"].as_str() != Some(default)
+}
+
+/// Best effort, as in TypeScript: the strategy is already saved.
+fn reset_endpoint_states(ctx: &Ctx, strategy: &Value, planned: &[Entry]) {
+    for entry in planned {
+        let runner = &strategy["runners"][&entry.id];
+        if resets_endpoint_state(strategy, runner, &entry.default)
+            && let Some(account) = runner["account"].as_str()
+        {
+            let _ = pacer_account_ops::reset_endpoint_state(ctx, account);
+        }
+    }
 }
 
 #[cfg(test)]

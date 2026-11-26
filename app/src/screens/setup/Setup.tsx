@@ -36,14 +36,16 @@ function Command({ command }: { command: string }) {
   }}>{copied ? 'Copied' : 'Copy command'}</Button><SetupError error={error} /></div></Disclosure>;
 }
 
-function FirstRun({ id, run }: { id: string; run: (work: () => Promise<unknown>, advance?: boolean) => Promise<void> }) {
+export function FirstRun({ id, run }: { id: string; run: (work: () => Promise<unknown>, advance?: boolean) => Promise<void> }) {
   const { api } = useTaskContext();
   const task = useQuery<TaskDetail>('task.get', { id });
   const diff = useQuery<{ diff: string; truncated?: boolean }>('task.diff', { id });
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     if (task.data && !['running', 'queued'].includes(task.data.state)) return;
-    const timer = setInterval(task.reload, 1500);
+    // Task state changes arrive through task events; keep no short poll.
+    // A slow safety reload only while the document is visible.
+    const timer = setInterval(() => { if (typeof document !== "undefined" && document.visibilityState !== "visible") return; task.reload(); }, 30000);
     return () => clearInterval(timer);
   }, [id, task.data?.state]);
   useEffect(() => { if (task.data && needsReview(task.data)) diff.reload(); }, [task.data?.rev]);

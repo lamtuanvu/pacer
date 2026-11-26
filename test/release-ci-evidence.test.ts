@@ -147,7 +147,7 @@ test("CI_NO_DISPATCH=1 turns dispatch off and makes CI_REF optional", () => {
   expect(result.stderr.toString()).toContain("GITHUB_REPOSITORY and CI_SHA are required");
 });
 
-test("dispatched runs and pushes to main have their own concurrency groups and are never cancelled", () => {
+test("dispatched runs and pushes to main have their own concurrency groups and are never cancelled; pull requests cancel superseded runs", () => {
   const { concurrency } = Bun.YAML.parse(readFileSync(".github/workflows/ci.yml", "utf8")) as any;
   // Evaluates the group and cancel expressions; GitHub's null-safe property access, `==`, `&&`, `||` and format() behave like these JS equivalents here.
   const evaluate = (template: string, github: Record<string, any>) => String(template).replace(/\$\{\{(.*?)\}\}/g, (_, expression: string) => {
@@ -169,7 +169,10 @@ test("dispatched runs and pushes to main have their own concurrency groups and a
   const branch = context("push", "4".repeat(40), { ref: "refs/heads/topic" });
   expect(group(branch)).toBe("CI-refs/heads/topic-");
   expect(evaluate(concurrency["cancel-in-progress"], branch)).toBe("true");
-  expect(group(pr)).toBe(`CI-7-${"2".repeat(40)}`);
+  // A pull request has one group per PR, so a newer commit or event cancels the superseded run.
+  expect(group(pr)).toBe("CI-7-");
+  expect(group({ ...pr, sha: "5".repeat(40) })).toBe(group(pr));
+  expect(evaluate(concurrency["cancel-in-progress"], pr)).toBe("true");
   expect(group(context("schedule", "1".repeat(40)))).toBe("CI-refs/heads/main-");
   expect(group(dispatch)).toBe(`CI-refs/heads/main-dispatch-${"1".repeat(40)}`);
   expect(group(dispatch)).not.toBe(group(push));

@@ -121,6 +121,19 @@ test("local interactive owner preserves the session files and fails a wrapper ex
   } finally { cleanup(); }
 });
 
+test("a human-held interactive root is refused by the owned direct route", async () => {
+  const { ctx, task, cfg, cleanup } = fixture();
+  try {
+    updateTask(ctx, task.id, current => {
+      current.origin = "human"; current.source = "ui";
+      current.interactive = true; current.interactionMode = "delegated";
+    });
+    await expect(runOwnedDirectCurrent(ctx, cfg, readTask(ctx, task.id)!)).rejects
+      .toMatchObject({ code: "capability_denied" });
+    expect(readTask(ctx, task.id)?.run).toBeUndefined();
+  } finally { cleanup(); }
+});
+
 test("task runner routes an admitted current attempt through the bundled provider", async () => {
   const { ctx, task, cleanup } = fixture();
   try {
@@ -610,6 +623,9 @@ test("an interactive deadline whose wrapper died without an exit record settles 
       current.state = "queued";
       current.timeoutS = 1;
       current.interactive = true;
+      // An agent-delegated interactive lane is not held open by a person: it still takes the
+      // owned route whose deadline this test exercises.
+      current.origin = "task:t-parent";
       delete current.executor;
       delete current.executorProvider;
     });
@@ -1125,6 +1141,36 @@ test("a settled in-place attempt can claim a second provider run", async () => {
     expect(readTask(ctx, task.id)?.run?.attempt).toBe(2);
     expect(readTask(ctx, task.id)?.startIntent?.attempt).toBe(2);
     expect(readTask(ctx, task.id)?.executorExitReceipt?.attempt).toBe(2);
+  } finally { cleanup(); }
+});
+
+test("retry of a settled current-placement task reuses the brief repo through owned current", async () => {
+  const { ctx, task, cfg, cleanup } = fixture();
+  try {
+    const first = await runOwnedDirectCurrent({ ...ctx, run: realRun }, cfg, task);
+    updateTask(ctx, task.id, current => {
+      current.state = "failed";
+      current.attempts.push(first.attempt);
+      current.result = { status: "failed", executor: "codex", model: null, files: "",
+        report: "fixture", backend: "direct" };
+      delete current.run;
+    });
+    const retried = createTask(ctx, { brief: { goal: "retry in place", repo: task.brief.repo }, kind: null,
+      requestedExecutor: "codex", timeoutS: 30, placement: { requested: "current" } });
+    // Retry admission records run.workdir (the brief repo) as worktree when reusing in-place.
+    const selected = updateTask(ctx, retried.id, current => {
+      current.state = "running";
+      current.executor = "codex";
+      current.executorProvider = "pacer-exec-direct";
+      current.retryOf = task.id;
+      current.worktree = task.brief.repo;
+      current.placement = { requested: "current", mode: "current", why: "reuse task worktree" };
+    });
+    const outcome = await runOwnedDirectCurrent({ ...ctx, run: realRun }, cfg, selected);
+    expect(outcome.exec.code).toBe(0);
+    expect(readTask(ctx, retried.id)?.run?.mode).toBe("current");
+    const { realpathSafe } = await import("../src/core/git");
+    expect(realpathSafe(readTask(ctx, retried.id)?.run?.workdir ?? "")).toBe(realpathSafe(task.brief.repo));
   } finally { cleanup(); }
 });
 

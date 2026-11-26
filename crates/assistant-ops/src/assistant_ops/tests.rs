@@ -126,7 +126,7 @@ fn strategy_endpoints_and_candidates_follow_endpoint_for() {
     assert!(!endpoint_ok(&strategy, "missing", None, true));
     assert_eq!(
         Value::Array(candidates(&strategy)).to_string(),
-        r#"[{"account":"ep","backend":"pacer","available":true,"liveTools":true,"models":[{"id":"m1","name":"Model One"},{"id":"m2","name":"m2"}],"runners":[{"id":"opencode#ep","model":"pacer-ep/m2"}],"isPlanner":false}]"#
+        r#"[{"account":"ep","backend":"pacer","available":false,"liveTools":false,"reason":"Pacer's assistant needs an update or repair: its native binary is missing or outdated.","models":[{"id":"m1","name":"Model One"},{"id":"m2","name":"m2"}],"runners":[{"id":"opencode#ep","model":"pacer-ep/m2"}],"isPlanner":false}]"#
     );
     assert!(
         array_index("0") && array_index("42") && !array_index("01") && !array_index("4294967295")

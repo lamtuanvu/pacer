@@ -99,7 +99,8 @@
         "behindThreshold": -10,
         "accounts": "spread",
         "balance": "off",
-        "fillThreshold": 90
+        "fillThreshold": 90,
+        "plannerTierFallback": "on"
       },
       "routing": [
         {
@@ -272,7 +273,8 @@
         "behindThreshold": -10,
         "accounts": "spread",
         "balance": "off",
-        "fillThreshold": 90
+        "fillThreshold": 90,
+        "plannerTierFallback": "on"
       },
       "routing": [
         {

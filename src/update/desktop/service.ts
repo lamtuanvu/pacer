@@ -10,8 +10,8 @@ import { compareVersions } from "../version";
 import { updateChannel } from "../channel";
 import * as admission from "./admission";
 import { ownProcessIdentity, sameProcess, type ProcessIdentity } from "./process-identity";
-import { AdapterError, runAdapterCommand, type AdapterRequest, type PreparedFrame, type VerifiedPipeFactory } from "./adapter";
-import { cancelRestart, checkDue, checksEnabled, rememberRequest, replayRequest, requestRestart, updateStatus } from "./policy";
+import { AdapterError, runAdapterCommand, type AdapterFailure, type AdapterRequest, type PreparedFrame, type VerifiedPipeFactory } from "./adapter";
+import { cancelRestart, checkDue, checksEnabled, reconcileStaleCandidate, rememberRequest, replayRequest, requestRestart, updateStatus } from "./policy";
 import { readUpdate, writeUpdate } from "./store";
 import { assertIdentifier, type Installation, type UpdateRecord, type UpdateRequest, type RestartRequest, type UpdateStatus, type UpdateAction } from "./types";
 
@@ -46,6 +46,8 @@ export interface DesktopUpdateDeps {
   schedule?: (callback: () => void, delayMs: number) => () => void;
   admission?: Pick<typeof admission, "reserveIdle" | "releaseReservation" | "reconcileAdmission">;
   publish?: (status: UpdateStatus) => Promise<void>;
+  /** The native commit signal: ask older runners to hand over once (ADR 2026-11-25 point 4). */
+  handover?: (ctx: Ctx) => Promise<{ summary: string }>;
 }
 export interface DesktopUpdateRuntime {
   status(installationId: string): UpdateStatus;
@@ -66,6 +68,28 @@ export interface DesktopUpdateRuntime {
 }
 /** Shown when a nightly check reaches a desktop helper that predates update channels. */
 export const NIGHTLY_HELPER_TOO_OLD = "This desktop app is too old for the nightly channel. Update the app or switch to Stable.";
+/** Persisted codes for a check that could not complete. They are diagnostics, never user-facing copy. */
+export const CHECK_UNAVAILABLE = "check_unavailable";
+export const CHECK_INTERRUPTED = "check_interrupted";
+/** A failed download is a real failure, never an interrupted check. The copy is user-facing plain text. */
+export const DOWNLOAD_FAILED = "download_failed";
+/** A helper that fails local verification is a real failure with an actionable, plain-language remedy. */
+export const HELPER_INTEGRITY_DETAIL = "pacer couldn't verify its update helper. Reinstall pacer from the website, then check again.";
+/** A staging refusal caused by the pacer data folder itself, not by the signed app: reinstalling cannot fix it. */
+export const HELPER_DATA_FOLDER_DETAIL = "pacer's data folder has unexpected permissions. Check its owner and permissions, then check again.";
+/** A local storage failure while preparing the helper: plain, red copy, never a neutral check. */
+export const STORAGE_FAILURE_DETAIL = "pacer couldn't prepare the update because there isn't enough free disk space or its data folder isn't writable. Free some space, then check again.";
+const TRANSIENT_CHECK_DETAIL = "Couldn't check for updates. Check your connection, then try again.";
+const DOWNLOAD_FAILED_DETAIL = "The update couldn't be downloaded. Check your connection, then choose Download update to try again.";
+const DOWNLOAD_INTERRUPTED_DETAIL = "The download was interrupted. Choose Download update to try again.";
+const GENERIC_DOWNLOAD_DETAIL = "The update couldn't be downloaded. Try again later.";
+/** Mirrors the view model's retired-channel step: retrying a check can never recover a retired channel. */
+const RETIRED_CHANNEL_DETAIL = "Updates stopped working until pacer's service restarts. Restart pacer, then check again.";
+const CHECK_RETRY_DELAYS = [60_000, 300_000, 900_000] as const;
+const TRANSIENT_CHECK_REASONS: ReadonlySet<AdapterFailure> = new Set(["unavailable", "closed", "cancelled", "timeout"]);
+const NON_TRANSIENT_DOWNLOAD_REASONS: ReadonlySet<AdapterFailure> = new Set(["protocol", "remote", "helper-denied"]);
+const transientCheckFailure = (command: string, error: unknown) =>
+  command === "check" && error instanceof AdapterError && TRANSIENT_CHECK_REASONS.has(error.reason);
 const unavailable = () => new CoreError("not_allowed", "Verified desktop update connection is unavailable", "Open a supported desktop connected to this service. Native update registration is required.");
 const conflict = () => new CoreError("conflict", "Desktop update state changed", "Read the current status and retry with a new request ID.");
 const superseded = (error: unknown) => error instanceof CoreError && (error.code === "conflict" || error.code === "not_allowed");
@@ -99,6 +123,25 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
   const coordinationErrors = new Set<string>(), deliveryErrors = new Set<string>();
   const pendingPublications = new Map<string, UpdateStatus>();
   const recoveryAttempts = new Map<string, { transactionId: string; count: number; retryAt: number | null }>();
+  /** Bounded automatic retries of interrupted/transient CHECKs, with up to an hour of jitter. Installs keep their own recovery loop. */
+  const checkRetries = new Map<string, { count: number; retryAt: number }>();
+  /** Transactions whose commit already asked older runners to hand over in this service. */
+  const handedOver = new Set<string>();
+  const handover = deps.handover ?? (async (c: Ctx) => {
+    const { sharedHandover, triggerHandover } = await import("../../tasks/handover-service");
+    return sharedHandover(() => triggerHandover(c), "commit");
+  });
+  /**
+   * Native commit signal (ADR 2026-11-25 point 4): the committed outcome is recorded by the new
+   * service after the helper's rollback window, so survivors are never signalled before it. Plain
+   * start-up and a restored update signal nothing. Fire-and-forget; the report goes to the log.
+   */
+  const signalCommitted = (transactionId: string) => {
+    if (handedOver.has(transactionId)) return;
+    handedOver.add(transactionId);
+    // The run logs its own line ("pacer: handover (commit): …"); only an unexpected rejection is noted here.
+    void handover(ctx()).catch(() => {});
+  };
   let publications = Promise.resolve(), started = false, stopped = false, ticking = false;
   let unsubscribe: (() => void) | undefined, cancelTimer: (() => void) | undefined;
   let runtimeError = false;
@@ -128,6 +171,60 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
     }).catch(() => { deliveryErrors.add(id); });
   };
   const persist = (next: UpdateRecord) => { const saved = writeUpdate(ctx(), next, next.revision); emit(saved.installationId); return saved; };
+  /** A hand-installed release can move the registered installation up to the
+   * stored candidate's version. Clear the now-stale candidate/error, persist it
+   * with a revision bump and arm a fresh check so Settings stops reporting a
+   * failure that was already installed by another path. Settlement phases keep
+   * their candidate until their own durable work finishes. */
+  const refreshStaleCandidate = (id: string): UpdateRecord => {
+    const session = liveSession(id);
+    const installed = session?.installation ?? installation(id);
+    const value = record(id);
+    const reconciled = reconcileStaleCandidate(installed, value);
+    if (reconciled === value) return value;
+    // Arm the fresh check before writing: even a failed write must not leave a
+    // hand-installed target waiting for the normal daily check cadence.
+    nextCheck.set(id, clock.monotonicMs());
+    try {
+      return persist(reconciled);
+    } catch (error) {
+      let fallback = reconciled;
+      if (error instanceof CoreError && error.code === "conflict") {
+        // Another writer advanced the record. Retry once against its revision so
+        // a concurrent action cannot resurrect the stale candidate.
+        try {
+          const fresh = record(id);
+          const again = reconcileStaleCandidate(installed, fresh);
+          fallback = again;
+          return again === fresh ? fresh : persist(again);
+        } catch { /* Fall back to the masked view below. */ }
+      }
+      // Status stays readable even when a best-effort reconciliation cannot be
+      // persisted; updateStatus masks the stale candidate in the meantime.
+      return fallback;
+    }
+  };
+  /** Back off after a failed/interrupted check, with a hard attempt budget. Never arms installs. */
+  const armCheckRetry = (id: string, immediate = false) => {
+    const prior = checkRetries.get(id);
+    // Each base delay (1, 5 and 15 minutes) carries up to 60 minutes of jitter, so
+    // the real waits are 1–61, 5–65 and 15–75 minutes. All three are reachable;
+    // only the next failure spends the budget and falls back to the daily cadence,
+    // which has no jitter.
+    const count = Math.min((prior?.count ?? 0) + 1, CHECK_RETRY_DELAYS.length + 1);
+    const daily = count > CHECK_RETRY_DELAYS.length;
+    const retryAt = clock.monotonicMs() + (daily ? 86_400_000 : immediate ? 0 : CHECK_RETRY_DELAYS[count - 1]! + jitter());
+    checkRetries.set(id, { count, retryAt });
+    nextCheck.set(id, retryAt);
+  };
+  const clearCheckRetry = (id: string) => { checkRetries.delete(id); };
+  /** A newly connected desktop is a fresh chance to finish a check that was interrupted by closure. */
+  const retryCheckOnReconnect = (id: string) => {
+    const prior = checkRetries.get(id);
+    if (!prior || prior.count >= CHECK_RETRY_DELAYS.length) return;
+    checkRetries.set(id, { count: prior.count + 1, retryAt: clock.monotonicMs() });
+    nextCheck.set(id, clock.monotonicMs());
+  };
   const failed = (id: string) => {
     coordinationErrors.add(id);
     initialized.delete(id);
@@ -155,13 +252,20 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
   };
   const pendingPhase = (value: UpdateRecord) => ["waiting", "reserved", "installing", "verifying", "rolling-back", "recovery-failed"].includes(value.phase);
   const release = async (id: string, tx: string | null) => { if (tx && installation(id).ownership === "managed") await gate.releaseReservation(ctx(), tx); };
-  const revokeWaiting = (id: string) => {
+  /** Revoke a desktop restart and any operation that still needs the desktop session.
+   *  A check/download helper is copied, spawned and parented by the service when its
+   *  pipe opens (see createNativePipeFactory); after that its pipe and result do not
+   *  depend on the desktop session. Closing the desktop must not cancel that work.
+   *  Reserved installs and waiting restarts still need the desktop and stay revocable. */
+  const revokeWaiting = (id: string, shutdown = false) => {
     const value = record(id);
     if (value.phase === "waiting") { persist(cancelRestart(value)); if (value.transactionId) waitingSessions.delete(value.transactionId); }
     // Once native authorization is durable, the helper owns shutdown/recovery.
     // Its planned desktop exit must not cancel that transaction's observation.
     const operation = active.get(id);
-    if (operation?.phase !== "recovering" && ["checking", "downloading", "reserved"].includes(value.phase)) operation?.controller.abort();
+    const needsDesktop = value.phase === "reserved";
+    const closingService = shutdown && (value.phase === "checking" || value.phase === "downloading");
+    if (operation?.phase !== "recovering" && (needsDesktop || closingService)) operation?.controller.abort();
   };
   const observe = () => {
     for (const session of native.sessions()) {
@@ -169,7 +273,15 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
       if (resolve(session.installation.pacerHome) !== resolve(ctx().pacerHome)) throw unavailable();
       if (!known.has(session.installation.id)) known.set(session.installation.id, structuredClone(session.installation));
       if (watched.get(session.installation.id) !== session.sessionId) {
+        // A re-registered desktop can report a different installed version when
+        // a release was installed by hand. Refresh before reconciling the record.
+        known.set(session.installation.id, structuredClone(session.installation));
         watched.set(session.installation.id, session.sessionId);
+        // A corrupt or inaccessible record must poison only this installation,
+        // not abort the whole observation pass and pause every other desktop.
+        try { refreshStaleCandidate(session.installation.id); }
+        catch { failed(session.installation.id); }
+        retryCheckOnReconnect(session.installation.id);
         void session.closed.then(() => {
           if (!stopped && watched.get(session.installation.id) === session.sessionId) {
             try { revokeWaiting(session.installation.id); } catch { failed(session.installation.id); }
@@ -200,7 +312,7 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
         const previousReady = operation.previous.phase === "ready" && JSON.stringify(operation.previous.candidate) === JSON.stringify(candidate);
         persist({ ...value, candidate, phase: previousReady ? "ready" : "idle", checkedAt: clock.nowS(), error: null,
           downloadedBytes: previousReady ? operation.previous.downloadedBytes : 0, totalBytes: previousReady ? operation.previous.totalBytes : null });
-        failures.delete(id); nextCheck.set(id, clock.monotonicMs() + 86_400_000 + jitter());
+        failures.delete(id); clearCheckRetry(id); nextCheck.set(id, clock.monotonicMs() + 86_400_000 + jitter());
       } else if (result.kind === "downloaded") persist({ ...value, phase: "ready", candidate: result.candidate, downloadedBytes: result.downloadedBytes, totalBytes: result.totalBytes, error: null });
       else throw conflict();
     } catch (error) {
@@ -208,12 +320,39 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
         const value = record(id);
         if (value.phase === operation.phase) {
           const restored = resetAfterNetwork(value, operation.previous);
+          const adapterError = error instanceof AdapterError ? error : undefined;
+          const reason = adapterError?.reason;
+          const integrity = reason === "integrity";
+          const storage = reason === "storage";
+          const dataFolder = integrity && adapterError?.integrityDetail === "data-folder";
+          const retired = reason === "channel-retired";
           // A helper that predates channels closes on the nightly `channel` key without sending a frame.
-          const tooOld = request.command === "check" && request.channel === "nightly" && error instanceof AdapterError && error.reason === "closed" && error.beforeFrames;
-          const message = tooOld ? NIGHTLY_HELPER_TOO_OLD : error instanceof AdapterError ? error.message : "Desktop update could not be verified";
-          persist({ ...restored, phase: restored.phase === "ready" ? "ready" : "error", error: { code: "update_failed", message } });
-          const count = (failures.get(id) ?? 0) + 1; failures.set(id, count);
-          nextCheck.set(id, clock.monotonicMs() + [60_000, 300_000, 900_000, 3_600_000, 21_600_000][Math.min(count - 1, 4)]! + jitter());
+          const tooOld = request.command === "check" && request.channel === "nightly" && reason === "closed" && !!adapterError?.beforeFrames;
+          const transient = !tooOld && !integrity && !storage && !retired && transientCheckFailure(request.command, error);
+          const download = request.command === "download";
+          const diagnostic = tooOld ? NIGHTLY_HELPER_TOO_OLD : adapterError?.message ?? "Desktop update could not be verified";
+          // Adapter wording is a diagnostic, never user-facing copy. Integrity, a data
+          // folder refusal, storage exhaustion and a retired channel each keep their
+          // one working recovery step.
+          const detail = storage ? STORAGE_FAILURE_DETAIL
+            : dataFolder ? HELPER_DATA_FOLDER_DETAIL
+            : integrity ? HELPER_INTEGRITY_DETAIL
+            : retired ? RETIRED_CHANNEL_DETAIL
+            : transient ? TRANSIENT_CHECK_DETAIL
+            : download ? (reason && NON_TRANSIENT_DOWNLOAD_REASONS.has(reason) ? GENERIC_DOWNLOAD_DETAIL : DOWNLOAD_FAILED_DETAIL)
+            : diagnostic;
+          persist({ ...restored, phase: restored.phase === "ready" ? "ready" : "error", error: {
+            // A failed download keeps its own code so it stays a ranked, red failure.
+            // An adapter close/timeout is only a transient CHECK; an integrity or
+            // storage refusal is a real update_failed and must stay red and ranked.
+            code: transient ? CHECK_UNAVAILABLE : download ? DOWNLOAD_FAILED : "update_failed",
+            message: detail,
+          } });
+          if (request.command === "check") armCheckRetry(id);
+          else {
+            const count = (failures.get(id) ?? 0) + 1; failures.set(id, count);
+            nextCheck.set(id, clock.monotonicMs() + [60_000, 300_000, 900_000, 3_600_000, 21_600_000][Math.min(count - 1, 4)]! + jitter());
+          }
         }
       }
     } finally { if (active.get(id) === operation) active.delete(id); }
@@ -297,7 +436,12 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
           markSetupHealthRequired(ctx());
         } catch { /* Health stamp is best-effort after a committed desktop update. */ }
       }
+      // Hand over only after the reservation is released, so replacement runners can start. If the
+      // release fails, nothing is signalled: runners keep running on old code (fail-safe), and
+      // `service.handover` keeps answering deferred while the reservation is held; the desktop calls
+      // again on its next connect, after reconciliation releases it.
       await release(id, transactionId);
+      if (completed) signalCommitted(transactionId);
       recoveryAttempts.delete(id);
     } catch (error) {
       const value = record(id);
@@ -308,8 +452,14 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
       // Only a fresh install can prove no authorization was sent. A failed
       // recovery connection says nothing about the original durable handoff.
       if (!recovery && error instanceof AdapterError && error.handoff === "none") {
+        // Keep the same plain, actionable copy on install as on check. The raw
+        // adapter message is internal and would render as generic "couldn't finish".
+        const detail = error.reason === "storage" ? STORAGE_FAILURE_DETAIL
+          : error.reason === "integrity"
+          ? error.integrityDetail === "data-folder" ? HELPER_DATA_FOLDER_DETAIL : HELPER_INTEGRITY_DETAIL
+          : error.message;
         persist({ ...value, phase: "error", requestId: null, requestedBy: null, requesterBootId: null,
-          error: { code: "pre_handoff", message: error.message } });
+          error: { code: "pre_handoff", message: detail } });
         await release(id, transactionId);
       } else {
         persist({ ...value, phase: "recovery-failed", error: { code: "handoff_uncertain", message: "Desktop update requires transaction recovery" } });
@@ -329,7 +479,8 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
     if (!session || value.requesterBootId !== clock.bootId() || value.requestedBy !== session.desktopClientId || waitingSessions.get(tx) !== session.sessionId) { revokeWaiting(id); return; }
     await native.reverify(session);
     if (!isCurrent(session) || stopped) { revokeWaiting(id); return; }
-    const reservation = installation(id).ownership === "attached" ? { reserved: true, blockers: [] } : await gate.reserveIdle(ctx(), tx);
+    const survivors = admission.survivorSupport(installation(id).version, value.candidate?.version);
+    const reservation = installation(id).ownership === "attached" ? { reserved: true, blockers: [] } : await gate.reserveIdle(ctx(), tx, { survivors, target: value.candidate?.version });
     value = record(id);
     if (value.phase !== "waiting" || value.transactionId !== tx || !isCurrent(session) || stopped) {
       if (reservation.reserved) await release(id, tx);
@@ -359,8 +510,17 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
     if (value.phase === "waiting") {
       persist(cancelRestart(value));
       await release(id, value.transactionId);
-    } else if (["checking", "downloading"].includes(value.phase)) {
-      persist({ ...value, phase: "error", error: { code: "interrupted", message: "Desktop update network operation was interrupted" } });
+    } else if (["checking", "downloading"].includes(value.phase) && !active.has(id)) {
+      // An active helper is service-parented and keeps running across a desktop
+      // close/reconnect; treating it as stale here would discard a finished result.
+      const interruptedCheck = value.phase === "checking";
+      persist({ ...value, phase: "error", error: {
+        code: interruptedCheck ? CHECK_INTERRUPTED : "interrupted",
+        message: interruptedCheck ? TRANSIENT_CHECK_DETAIL : DOWNLOAD_INTERRUPTED_DETAIL,
+      } });
+      // A check interrupted by service/desktop reconciliation gets a bounded automatic retry;
+      // an interrupted download/install never does (its durable transaction stays with recovery).
+      if (interruptedCheck) armCheckRetry(id, true);
     } else if (["reserved", "installing", "verifying", "rolling-back", "recovery-failed"].includes(value.phase)) {
       if (!deps.adapter?.capabilities.has("recover") || !native.verifyOutcome) throw unavailable();
       track(id, install(id, session, true));
@@ -375,7 +535,7 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
   const adoption=createAdoptionRuntime(ctx,{native,adapter:deps.adapter,admission:gate,bootId:clock.bootId,changed:value=>{if(known.has(value.installationId))emit(value.installationId);},completed:(_oldId,value)=>{known.set(value.id,structuredClone(value));}});
   const runtime: DesktopUpdateRuntime = {
     status(id) {
-      const value = record(id), status = updateStatus(installation(id), value);
+      const value = refreshStaleCandidate(id), status = updateStatus(installation(id), value);
       const adopted=readAdoption(ctx(),id),session=liveSession(id);
       let currentAdoption: ReturnType<NonNullable<AdoptionNative["inspectAdoption"]>> | undefined;
       if ((!adopted || !adoptionPending(adopted)) && session && adoption.capable() && session.installation.ownership === "attached") {
@@ -451,7 +611,7 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
     },
     stop() {
       if (stopped) return;
-      for (const id of known.keys()) { try { revokeWaiting(id); } catch { runtimeError = true; } }
+      for (const id of known.keys()) { try { revokeWaiting(id, true); } catch { runtimeError = true; } }
       stopped = true; adoption.stop(); cancelTimer?.(); unsubscribe?.();
     },
     async tick() {

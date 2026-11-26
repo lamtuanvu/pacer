@@ -242,6 +242,7 @@ pub fn op_schemas(input: &Value) -> Value {
         ("task.delegate", "model"),
         ("task.delegate", "dispatch"),
         ("task.list", "q"),
+        ("routing.route", "difficulty"),
         ("client.register", "capture"),
         ("client.register", "notification_permission"),
         ("client.register", "notification_alerts"),
@@ -258,7 +259,7 @@ pub fn op_schemas(input: &Value) -> Value {
         .pointer_mut("/config.set/params/properties/key/enum")
         .and_then(Value::as_array_mut)
     {
-        keys.retain(|key| key != "update_channel");
+        keys.retain(|key| key != "update_channel" && key != "pacing.planner_tier_fallback");
     }
     out["task.list"]["description"] = json!(
         "Recent tasks, newest first. Cursor/filter params return a page; limit alone keeps the legacy array until 3.0."

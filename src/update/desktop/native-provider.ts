@@ -18,6 +18,7 @@ import {
 /** Private service composition. Public client registration cannot reach this channel. */
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import type { ParentHelperSpawner } from "./native-parent-helper";
+import { helperRefused, NativeHelperDataFolderError, NativeHelperIntegrityError, NativeHelperStorageError } from "./native-helper-errors";
 import {
   closeSync,
   chmodSync,
@@ -32,6 +33,7 @@ import {
   openSync,
   readFileSync,
   realpathSync,
+  rmSync,
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { z } from "zod";
@@ -83,6 +85,7 @@ import {
 import {
   parseAdapterCommand,
   type PreparedFrame,
+  type VerifiedPipe,
   type VerifiedPipeFactory,
   encodeFrame,
 } from "./adapter";
@@ -109,6 +112,19 @@ const denied = () =>
     "Authenticated native control is unavailable",
     "Use the supported signed desktop and service baseline.",
   );
+/** Fail closed, but classify local signature/hash/process refusals separately from a
+ *  missing session: a damaged or tampered helper is a real failure, not a network check. */
+const helperIntegrityCheck = <T>(check: () => T): T => {
+  try {
+    return check();
+  } catch (error) {
+    if (error instanceof NativeHelperIntegrityError) throw error;
+    throw new NativeHelperIntegrityError("Desktop update helper failed integrity verification", error);
+  }
+};
+/** Keep an integrity refusal from being rewritten as a generic "unavailable" by cleanup catches. */
+const denyUnlessIntegrity = (error: unknown) =>
+  error instanceof NativeHelperIntegrityError ? error : denied();
 /** Named hello failure; never includes nonces, tokens or challenge material. */
 class HelloRejection extends Error {
   constructor(
@@ -1819,9 +1835,11 @@ export function configuredNativeBridge(
     }
     const fixture = compiledNativeFixture();
     if (fixture) verifyNativeFixture(fixture);
-    const processes = enumerateNativeProcesses().filter(
-      (process) => !fixture || fixtureProcessInScope(fixture, process.executable),
-    );
+    const inScope = (process: NativeProcess) => !fixture || fixtureProcessInScope(fixture, process.executable);
+    // Trees need every process (a survivor's agent and shell live outside the fixture sandbox);
+    // only signed-peer verification and judgements outside the trees are scoped to the fixture.
+    const all = enumerateNativeProcesses();
+    const processes = all.filter(inScope);
     for (const process of processes) {
       const role = process.executable?.endsWith(".app/Contents/MacOS/pacer")
         ? "desktop"
@@ -1832,7 +1850,7 @@ export function configuredNativeBridge(
       }
     }
     if (options?.coverage) {
-      assertNativeProcessCoverage(processes, service, enrolledWorkProcesses(ctx), executable, allowed);
+      assertNativeProcessCoverage(all, service, enrolledWorkProcesses(ctx), executable, allowed, inScope);
     }
     const status = await ctx.run(
       ["/bin/launchctl", "print", `gui/${process.getuid!()}/${registration.label}`], 5000,
@@ -1853,6 +1871,12 @@ export type NativeCoverageRole = "service" | "lease" | "verified" | "cli" | "for
 
 const PACER_NAME = /(^|[-_.])pacer($|[-_.])/;
 let lastCoverageLogAt = 0;
+
+function registeredCliPair(process: NativeProcess, registeredExecutable: string): boolean {
+  return process.executable !== null && (
+    process.executable === registeredExecutable ||
+    dirname(process.executable) === dirname(registeredExecutable));
+}
 
 function looksLikePacerProcess(process: NativeProcess, registeredExecutable: string): boolean {
   const name = process.executable ? basename(process.executable) : process.name;
@@ -1906,23 +1930,34 @@ export function classifyNativeProcessCoverage(
   enrolled: readonly ProcessIdentity[],
   registeredExecutable: string,
   verifiedNative: readonly ProcessIdentity[] = [],
-): { process: NativeProcess; role: NativeCoverageRole }[] {
+  /** Fixture builds judge only their own sandbox outside the trees; trees use every process. */
+  inScope: (process: NativeProcess) => boolean = () => true,
+): { process: NativeProcess; role: NativeCoverageRole; tree?: "lease" }[] {
   const serviceTree = nativeProcessTreePids([service], processes);
   const leaseTree = nativeProcessTreePids(enrolled, processes);
-  const decisions: { process: NativeProcess; role: NativeCoverageRole }[] = [];
+  const decisions: { process: NativeProcess; role: NativeCoverageRole; tree?: "lease" }[] = [];
   for (const process of processes) {
     if (!looksLikePacerProcess(process, registeredExecutable)) continue;
-    if (sameProcess(process.process, service) || serviceTree.has(process.process.pid)) {
+    if (sameProcess(process.process, service)) {
       decisions.push({ process, role: "service" });
       continue;
     }
+    // Enrolled work and its descendants are covered, but a pacer binary inside that tree
+    // must be the registered CLI pair. Survivor leases run through the swap, so a foreign
+    // or dev pacer under an agent must still block (ADR 2026-11-25). The service spawns
+    // runners and session hosts, so lease trees sit inside the service tree: check them first.
     if (
       enrolled.some((identity) => sameProcess(identity, process.process)) ||
       leaseTree.has(process.process.pid)
     ) {
-      decisions.push({ process, role: "lease" });
+      decisions.push({ process, role: registeredCliPair(process, registeredExecutable) ? "lease" : "foreign", tree: "lease" });
       continue;
     }
+    if (serviceTree.has(process.process.pid)) {
+      decisions.push({ process, role: "service" });
+      continue;
+    }
+    if (!inScope(process)) continue;
     if (verifiedNative.some((identity) => sameProcess(identity, process.process))) {
       decisions.push({ process, role: "verified" });
       continue;
@@ -1974,6 +2009,7 @@ export function assertNativeProcessCoverage(
   enrolled: readonly ProcessIdentity[],
   registeredExecutable: string,
   verifiedNative: readonly ProcessIdentity[] = [],
+  inScope: (process: NativeProcess) => boolean = () => true,
 ): void {
   const decisions = classifyNativeProcessCoverage(
     processes,
@@ -1981,9 +2017,14 @@ export function assertNativeProcessCoverage(
     enrolled,
     registeredExecutable,
     verifiedNative,
+    inScope,
   );
   logCoverageDecision(decisions);
-  if (decisions.some((decision) => decision.role === "foreign")) {
+  const foreign = decisions.filter((decision) => decision.role === "foreign");
+  if (foreign.length) {
+    // Unthrottled: names the layer and rule that refused, never paths.
+    const inLease = foreign.filter((decision) => decision.tree === "lease").length;
+    console.info(`pacer: desktop update coverage refused: foreign=${foreign.length} lease-tree=${inLease}`);
     throw new CoreError(
       "not_allowed",
       "Another pacer CLI process prevents desktop update",
@@ -2068,6 +2109,13 @@ export function nativeRecoveryHelper(
   };
 }
 
+/** The node:fs operations used while staging a helper under PACER_HOME. Production
+ *  uses the real module; tests override one operation to simulate a deterministic
+ *  disk/permission failure (Linux CI runs as root, so chmod-based fixtures are unreliable). */
+export type NativeStageFs = Pick<typeof import("node:fs"),
+  "realpathSync" | "mkdirSync" | "lstatSync" | "copyFileSync" | "chmodSync" |
+  "openSync" | "fsyncSync" | "closeSync" | "fstatSync" | "readSync" | "rmSync">;
+
 /** Acquire only a copied, independently verified helper from a live native bundle. */
 export function createNativePipeFactory(
   getCtx: () => Ctx,
@@ -2075,7 +2123,21 @@ export function createNativePipeFactory(
   authority: DarwinAuthority,
   owner?: NativeServiceOwner,
   parentHelpers?: Pick<ParentHelperSpawner, "spawn">,
+  stageFs?: Partial<NativeStageFs>,
 ): VerifiedPipeFactory {
+  const fsOps: NativeStageFs = {
+    realpathSync: stageFs?.realpathSync ?? realpathSync,
+    mkdirSync: stageFs?.mkdirSync ?? mkdirSync,
+    lstatSync: stageFs?.lstatSync ?? lstatSync,
+    copyFileSync: stageFs?.copyFileSync ?? copyFileSync,
+    chmodSync: stageFs?.chmodSync ?? chmodSync,
+    openSync: stageFs?.openSync ?? openSync,
+    fsyncSync: stageFs?.fsyncSync ?? fsyncSync,
+    closeSync: stageFs?.closeSync ?? closeSync,
+    fstatSync: stageFs?.fstatSync ?? fstatSync,
+    readSync: stageFs?.readSync ?? readSync,
+    rmSync: stageFs?.rmSync ?? rmSync,
+  };
   return {
     capabilities: new Set(["check", "download", "install", "recover", "adopt", "recover-adoption"]),
     async open(installationId, signal) {
@@ -2132,80 +2194,126 @@ export function createNativePipeFactory(
                 (preparation && existsSync(preparation)))
             ? nativeRecoveryHelper(ctx, installationId, record.transactionId)
             : null;
-      let directory = realpathSync(ctx.pacerHome);
-      for (const part of recovery
+      // Check launch capability before staging anything: no command directory
+      // or helper copy is created when Root cannot hand off a helper.
+      if (owner && (!parentHelpers || signal.aborted)) throw helperRefused();
+      // Environmental errno from staging under PACER_HOME is a storage failure,
+      // never a damaged helper or a transient check. Keep the fail-closed behaviour:
+      // every path below throws before a helper is spawned or a frame is written.
+      const storageErrnos = new Set(["ENOSPC", "EDQUOT", "EROFS", "EACCES", "EPERM", "EIO"]);
+      const storageFailure = (error: unknown, message: string) => {
+        const code = (error as NodeJS.ErrnoException | undefined)?.code;
+        return code && storageErrnos.has(code) ? new NativeHelperStorageError(message, error) : undefined;
+      };
+      const stageWrite = <T>(operation: () => T, message: string): T => {
+        try { return operation(); }
+        catch (error) { throw storageFailure(error, message) ?? error; }
+      };
+      let directory = fsOps.realpathSync(ctx.pacerHome);
+      const parts = recovery
         ? []
-        : [
-            "desktop-updates",
-            "native",
-            installationId,
-            "commands",
-            randomUUID(),
-          ]) {
-        directory = join(directory, part);
-        try {
-          mkdirSync(directory, { mode: 0o700 });
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== "EEXIST")
-            throw denied();
-        }
-        const stat = lstatSync(directory);
-        if (
-          !stat.isDirectory() ||
-          stat.isSymbolicLink() ||
-          stat.uid !== process.getuid?.() ||
-          stat.mode & 0o077 ||
-          realpathSync(directory) !== directory
-        )
-          throw denied();
-      }
-      const helperIdentity =
-        recovery?.identity ??
-        (await nativeHelperIdentity(ctx, session.installation));
-      const source =
-          recovery?.source ??
-          join(session.installation.appPath, BUNDLED_HELPER_PATH),
-        helper = recovery?.source ?? join(directory, "pacer-update-helper");
-      authority.verifyStatic(source, "helper");
-      if (!recovery) {
-        copyFileSync(source, helper, constants.COPYFILE_EXCL);
-        chmodSync(helper, 0o700);
-      }
-      authority.verifyStatic(helper, "helper");
-      const fd = openSync(helper, constants.O_RDONLY | constants.O_NOFOLLOW);
+        : ["desktop-updates", "native", installationId, "commands", randomUUID()];
+      // Set the command path before any mkdir: a failure partway through staging
+      // (including an lstat refusal) can then clear its own directory best effort.
+      let staged: string | undefined = recovery
+        ? undefined
+        : parts.reduce((path, part) => join(path, part), directory);
+      let helperIdentity!: VerifiedPipe["identity"];
+      let source!: string;
+      let helper!: string;
+      const cleanupStaged = () => {
+        if (!staged) return;
+        try { fsOps.rmSync(staged, { recursive: true, force: true }); } catch { /* best effort */ }
+      };
       try {
-        fsyncSync(fd);
-      } finally {
-        closeSync(fd);
+        for (const part of parts) {
+          directory = join(directory, part);
+          try {
+            fsOps.mkdirSync(directory, { mode: 0o700 });
+          } catch (error) {
+            const storage = storageFailure(error, "Desktop update helper staging directory could not be created");
+            if (storage) throw storage;
+            if ((error as NodeJS.ErrnoException).code !== "EEXIST")
+              throw new NativeHelperIntegrityError("Desktop update helper staging directory could not be created", error);
+          }
+          const stat = fsOps.lstatSync(directory);
+          if (
+            !stat.isDirectory() ||
+            stat.isSymbolicLink() ||
+            stat.uid !== process.getuid?.() ||
+            stat.mode & 0o077 ||
+            fsOps.realpathSync(directory) !== directory
+          )
+            throw new NativeHelperDataFolderError();
+        }
+        helperIdentity = recovery?.identity ?? (await nativeHelperIdentity(ctx, session.installation));
+        source = recovery?.source ?? join(session.installation.appPath, BUNDLED_HELPER_PATH);
+        helper = recovery?.source ?? join(directory, "pacer-update-helper");
+        helperIntegrityCheck(() => authority.verifyStatic(source, "helper"));
+        if (!recovery) {
+          stageWrite(() => fsOps.copyFileSync(source, helper, constants.COPYFILE_EXCL), "Desktop update helper could not be copied into pacer's data folder");
+          stageWrite(() => fsOps.chmodSync(helper, 0o700), "Desktop update helper permissions could not be set");
+        }
+        helperIntegrityCheck(() => authority.verifyStatic(helper, "helper"));
+        const fd = stageWrite(() => fsOps.openSync(helper, constants.O_RDONLY | constants.O_NOFOLLOW), "Desktop update helper could not be opened");
+        try {
+          stageWrite(() => fsOps.fsyncSync(fd), "Desktop update helper could not be written to disk");
+        } finally {
+          fsOps.closeSync(fd);
+        }
+      } catch (error) {
+        // A failed staging attempt must not leave a commands/<uuid> directory behind,
+        // especially when the disk is full and retries would accumulate one per attempt.
+        cleanupStaged();
+        throw error;
       }
       if (owner) {
         // Immutable bridge helpers require the logical service to be their real
         // kernel parent. The authenticated Root supplies the fixed bootstrap.
-        if (!parentHelpers || signal.aborted) throw denied();
+        if (signal.aborted) {
+          if (staged) fsOps.rmSync(staged, { recursive: true, force: true });
+          throw helperRefused();
+        }
         const hashFd = openSync(helper, constants.O_RDONLY | constants.O_NOFOLLOW);
         let sha256: string;
         try {
           const stat = fstatSync(hashFd);
-          if (!stat.isFile() || stat.nlink !== 1 || stat.uid !== process.getuid?.() || stat.mode & 0o077 || stat.size > 128 * 1024 * 1024) throw denied();
+          if (!stat.isFile() || stat.nlink !== 1 || stat.uid !== process.getuid?.() || stat.mode & 0o077 || stat.size > 128 * 1024 * 1024) throw new NativeHelperIntegrityError("Desktop update helper file failed integrity verification");
           const hash = createHash("sha256"), buffer = Buffer.alloc(65536);
           let bytes = 0;
           for (;;) {
             const count = readSync(hashFd, buffer, 0, buffer.length, null);
             if (!count) break;
             bytes += count;
-            if (bytes > 128 * 1024 * 1024) throw denied();
+            if (bytes > 128 * 1024 * 1024) throw new NativeHelperIntegrityError("Desktop update helper file failed integrity verification");
             hash.update(buffer.subarray(0, count));
           }
           sha256 = hash.digest("hex");
         } finally { closeSync(hashFd); }
-        const child = parentHelpers.spawn({ schema: 1, path: helper, sha256, version: helperIdentity.version });
+        // Defence in depth for the narrowing above: the early capability check
+        // already refuses, but never spawn without a channel even if it changes.
+        if (!parentHelpers) {
+          if (staged) fsOps.rmSync(staged, { recursive: true, force: true });
+          throw helperRefused();
+        }
+        let child: ReturnType<ParentHelperSpawner["spawn"]>;
+        try {
+          child = parentHelpers.spawn({ schema: 1, path: helper, sha256, version: helperIdentity.version });
+        } catch (error) {
+          // No helper was accepted: clear the staged image on any spawn error,
+          // including a retired channel after rights were handed over. Its pipes
+          // are closed and recovery helpers are never staged, so no live helper
+          // needs this copy and a later check cannot trip over the directory.
+          if (staged) fsOps.rmSync(staged, { recursive: true, force: true });
+          throw error;
+        }
         let accepted = false;
         const abort = () => { if (!accepted) child.abort(); };
         signal.addEventListener("abort", abort, { once: true });
         try {
           const identity = processIdentity(child.pid);
           if (!identity) throw denied();
-          const verified = authority.verifyProcess(identity, "helper");
+          const verified = helperIntegrityCheck(() => authority.verifyProcess(identity, "helper"));
           if (!sameProcess(verified.process, identity) || verified.executable !== helper || verified.parentPid !== owner.process.pid || signal.aborted) throw denied();
           if (!recovery) {
             const cleanup = freshHelperCleanup(helper, identity);
@@ -2213,9 +2321,9 @@ export function createNativePipeFactory(
           }
           accepted = true;
           return { identity: helperIdentity, stdin: child.stdin, stdout: child.stdout, exited: child.exited, abort: () => child.abort() };
-        } catch {
+        } catch (error) {
           abort();
-          throw denied();
+          throw denyUnlessIntegrity(error);
         } finally { signal.removeEventListener("abort", abort); }
       }
       const child = Bun.spawn([helper, "--ota-pipe"], {
@@ -2241,7 +2349,7 @@ export function createNativePipeFactory(
       signal.addEventListener("abort", abort, { once: true });
       try {
         if (!identity) throw denied();
-        const verified = authority.verifyProcess(identity, "helper");
+        const verified = helperIntegrityCheck(() => authority.verifyProcess(identity, "helper"));
         if (
           verified.executable !== helper ||
           verified.parentPid !== process.pid ||
@@ -2286,9 +2394,9 @@ export function createNativePipeFactory(
               child.kill("SIGTERM");
           },
         };
-      } catch {
+      } catch (error) {
         abort();
-        throw denied();
+        throw denyUnlessIntegrity(error);
       } finally {
         signal.removeEventListener("abort", abort);
       }

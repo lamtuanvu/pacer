@@ -168,7 +168,7 @@ Accounting is otherwise unchanged: usage is recorded as assistant usage, and exe
 1. **Interface:** `assistant.reply`, `assistant.delta` and its dispatch, `capability.assistant.tool`, the `assistant.tool` op with the assistant grant, `pacer mcp --assistant`, and `backend` and `available` in settings and candidates. Routing rule: the host calls `assistant.reply` on the plugin that serves the chosen backend and provides it, and otherwise `assistant.respond`. The existing `plugins/assistant` keeps serving `assistant.respond` for `backend: pacer`. No `backend: executor` row is offered until phase 2, and a stored `executor` setting without a serving plugin is reported as unavailable through admission, as a missing account is today.
 2. **`assistant-executor` with opencode:** ask mode, the warm server, the self-test, sessions and the Settings rows. Opencode accounts can then answer.
 3. **`assistant-pacer` on Rig:** the Rust plugin, streaming, and the added `connection.api` values. The host sends `backend: pacer` turns to it. `plugins/assistant` stays installed but unused.
-4. **Retire** `assistant.respond`, `plugins/assistant` and the host-side model loop, under the plugin protocol's compatibility rule. Done in two steps (like the `/v2` API removal), because the CLI updater that installs `pacer-assistant-pacer` ([PR #1179](https://github.com/lamtuanvu/pacer/pull/1179), [ADR 0031](../decisions/0031-native-plugin-release-manifest.md)) is merged but not yet released; until a release ships it, the legacy path keeps openai-compatible accounts working.
+4. **Retire** `assistant.respond`, `plugins/assistant` and the host-side model loop, under the plugin protocol's compatibility rule. Done in two steps (like the `/v2` API removal), because the CLI updater that installs `pacer-assistant-pacer` ([PR #1179](https://github.com/lamtuanvu/pacer/pull/1179), [ADR 0031](../decisions/0031-native-plugin-release-manifest.md)) was merged but not yet released; until a release shipped it, the legacy path kept openai-compatible accounts working. Step 2 now lands with v0.18.4 (decision below).
 
 ### Phase 4 step 1 — deprecation (this change)
 
@@ -178,7 +178,7 @@ Accounting is otherwise unchanged: usage is recorded as assistant usage, and exe
 
 ### Phase 4 step 2 — removal (follow-up)
 
-**Release condition:** ship only after a pacer release that installs `pacer-assistant-pacer` via the updater has been out for one full pacer minor release (plugin protocol compatibility window, P14), so installs have had a chance to pick up the binary.
+**Release condition (decided 2026-11-25):** remove the legacy path now, directly after v0.18.4. That release is the first to ship `pacer-assistant-pacer` with the optional per-asset `nativePlugins` manifest field: new updaters install the binary, and self-repair installs it on the first start of the new version even for users whose update ran through an older updater that ignored the field. The plugin protocol compatibility window (P14) has therefore been satisfied for the installs that matter; keeping the fallback would only hide a missing or stale binary instead of reporting it.
 
 **Delete:**
 
@@ -194,7 +194,7 @@ Accounting is otherwise unchanged: usage is recorded as assistant usage, and exe
 - Any registry or native-owner tests that call `assistant.respond` on `pacer-assistant`.
 - Regenerate plugin protocol docs/crates (`bun run plugin:protocol`, `cargo xtask gen`) and drop stale freshness expectations.
 
-**Keep:** `assistant.reply`, `assistant-pacer`, `assistant-executor`, the host tool capability, and the fallback notice until the removal PR deletes it with the loop.
+**Keep:** `assistant.reply`, `assistant-pacer`, `assistant-executor` and the host tool capability. The one-time fallback notice is deleted with the loop; a missing or outdated binary instead makes every `backend: pacer` row unavailable in candidates and status, and admission refuses with the same plain reason.
 
 Phases 2 and 3 are independent once phase 1 lands.
 

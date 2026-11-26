@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import fixture from './fixtures/ui/snapshot.json';
 import { initialState, reduceStore } from '../app/src/data/store';
 import { queryRevision } from '../app/src/screens/task-shared';
+import { resourceRevision } from '../app/src/screens/settings/shared';
 import { createActionRunner } from '../app/src/data/actions';
 const ready = () => reduceStore(initialState(), {type:'snapshot',snapshot:fixture as never});
 test('config events invalidate their area without requesting a snapshot', () => {
@@ -158,6 +159,25 @@ test('shared API actions stay online before open and during grace, then refuse a
   } finally { stop(); globalThis.fetch = original; }
 });
 
+test('a repeated identical plugin event does not refetch plugin.list', () => {
+  const state = ready();
+  const first = reduceStore(state, { type: 'event', event: { type: 'plugin', seq: state.snapshot!.seq + 1, at: 1, data: { id: 'checklist', state: 'ready', error: null } } });
+  const before = queryRevision(first, 'plugin.list', {});
+  const second = reduceStore(first, { type: 'event', event: { type: 'plugin', seq: first.snapshot!.seq + 1, at: 2, data: { id: 'checklist', state: 'ready', error: null } } });
+  expect(queryRevision(second, 'plugin.list', {})).toBe(before);
+});
+test('a plugin state change refetches plugin.list', () => {
+  const state = ready();
+  const first = reduceStore(state, { type: 'event', event: { type: 'plugin', seq: state.snapshot!.seq + 1, at: 1, data: { id: 'checklist', state: 'ready', error: null } } });
+  const changed = reduceStore(first, { type: 'event', event: { type: 'plugin', seq: first.snapshot!.seq + 1, at: 2, data: { id: 'checklist', state: 'failing', error: 'boom' } } });
+  expect(queryRevision(changed, 'plugin.list', {})).not.toBe(queryRevision(first, 'plugin.list', {}));
+});
+test('an account list revision ignores capturedAt-only changes', () => {
+  const state = ready();
+  const withCaptured = { ...state, snapshot: { ...state.snapshot!, accounts: (state.snapshot!.accounts ?? []).map((account: any) => ({ ...account, capturedAt: 1 })) } };
+  const changed = { ...withCaptured, snapshot: { ...withCaptured.snapshot!, accounts: (withCaptured.snapshot!.accounts ?? []).map((account: any) => ({ ...account, capturedAt: 2 })) } };
+  expect(queryRevision(withCaptured as any, 'account.list', {})).toBe(queryRevision(changed as any, 'account.list', {}));
+});
 test('connected store refreshes folder wait status without replacing streamed state', async () => {
   const { createStore } = await import('../app/src/data/store');
   const original = globalThis.setInterval;
@@ -175,4 +195,35 @@ test('connected store refreshes folder wait status without replacing streamed st
     waiting = undefined; tick!(); await flush();
     expect(store.getState().snapshot?.service?.waiting).toBeUndefined();
   } finally { stop(); globalThis.setInterval = original; }
+});
+
+const pluginUiBump = () => {
+  const state = ready();
+  const established = reduceStore(state, { type: 'event', event: { type: 'plugin', seq: state.snapshot!.seq + 1, at: 1, data: { id: 'checklist', state: 'ready', error: null } } });
+  const ui = reduceStore(established, { type: 'event', event: { type: 'plugin', seq: established.snapshot!.seq + 1, at: 2, data: { id: 'checklist', state: 'ready', error: null, ui: {} } } });
+  return { established, ui };
+};
+
+test('a plugin ui invalidation leaves non-plugin resource revisions unchanged', () => {
+  const { established, ui } = pluginUiBump();
+  expect(ui.invalidations['plugin-ui']).toBe(1);
+  expect(ui.invalidations.plugin).toBe(established.invalidations.plugin);
+  for (const op of ['config.get', 'account.list', 'job.list', 'plugin.list']) {
+    expect(resourceRevision(op, ui.invalidations)).toBe(resourceRevision(op, established.invalidations));
+    expect(queryRevision(ui, op, {})).toBe(queryRevision(established, op, {}));
+  }
+});
+
+test('a plugin ui invalidation changes only plugin.ui revisions', () => {
+  const { established, ui } = pluginUiBump();
+  expect(resourceRevision('plugin.ui.render', ui.invalidations)).not.toBe(resourceRevision('plugin.ui.render', established.invalidations));
+  expect(queryRevision(ui, 'plugin.ui.render', {})).not.toBe(queryRevision(established, 'plugin.ui.render', {}));
+});
+
+test('a fresh snapshot or a reset forgets remembered plugin state', () => {
+  const state = ready();
+  const withPlugin = reduceStore(state, { type: 'event', event: { type: 'plugin', seq: state.snapshot!.seq + 1, at: 1, data: { id: 'checklist', state: 'ready', error: null } } });
+  expect(withPlugin.pluginStates?.checklist).toEqual({ state: 'ready', error: null });
+  expect(reduceStore(withPlugin, { type: 'snapshot', snapshot: fixture as never }).pluginStates).toEqual({});
+  expect(reduceStore(withPlugin, { type: 'event', event: { type: 'reset', seq: 0, at: 1, data: {} } }).pluginStates).toEqual({});
 });

@@ -429,7 +429,7 @@ pub fn service_move_ready_code(decision: ServiceMoveDecision) -> Option<&'static
 
 /// Whether a lifecycle connection error means a deferred service move should run next.
 pub fn is_service_move_ready(error: &str) -> bool {
-    matches!(error, "own-link-repair-ready" | "consent-takeover-ready")
+    matches!(error, "own-link-repair-ready" | "consent-takeover-ready" | "owned-service-restart-ready")
 }
 
 pub fn dismiss_relink(url: &Url, current: Option<&Url>) -> bool {
@@ -483,6 +483,258 @@ pub fn service_gate(app: &str, live_service: Option<&str>, accepted: Option<&str
             ServiceGate::ExplainUnknown
         }
         _ => ServiceGate::Open,
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HandoverDecision {
+    /// Call `service.handover` for the newer connected service.
+    Call,
+    /// No call; persist the connected service version (first run or downgrade).
+    StoreOnly,
+    /// Do nothing.
+    None,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ServiceRestartDecision {
+    Restart,
+    NoRestart,
+}
+
+/// Inputs for [`service_restart_decision`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceRestartInput<'a> {
+    pub app: &'a str,
+    pub live_service: Option<&'a str>,
+    pub job_state: JobState,
+    pub owned: bool,
+    pub attached: bool,
+    pub maintenance: bool,
+    pub update_transaction: bool,
+    pub adoption: bool,
+    pub already_attempted: bool,
+}
+
+/// Whether an older service owned by this desktop may be restarted onto the
+/// bundled binary. Pure decision used by `connected()` and the outdated-service
+/// page's **Update service** action.
+pub fn service_restart_decision(input: ServiceRestartInput<'_>) -> ServiceRestartDecision {
+    if input.already_attempted
+        || input.attached
+        || input.maintenance
+        || input.update_transaction
+        || input.adoption
+        || !input.owned
+        || input.job_state != JobState::Running
+        || service_release(input.app, input.live_service) != ServiceRelease::Older
+    {
+        return ServiceRestartDecision::NoRestart;
+    }
+    ServiceRestartDecision::Restart
+}
+
+pub fn handover_decision(
+    remembered: Option<&str>,
+    connected: &str,
+    attached: bool,
+    update_transaction: bool,
+) -> HandoverDecision {
+    if attached || update_transaction {
+        return HandoverDecision::None;
+    }
+    let remembered = match remembered {
+        Some(value) => value,
+        None => return HandoverDecision::StoreOnly,
+    };
+    let parse = |value: &str| semver::Version::parse(value).ok().filter(|v| v.pre.is_empty() && v.build.is_empty());
+    match (parse(connected), parse(remembered)) {
+        (Some(connected), Some(remembered)) if connected > remembered => HandoverDecision::Call,
+        // Downgrade (or older installed app): store the connected version so the
+        // next upgrade compares against it.
+        (Some(connected), Some(remembered)) if connected < remembered => HandoverDecision::StoreOnly,
+        _ => HandoverDecision::None,
+    }
+}
+
+/// `service.handover` settled the upgrade unless it answered `deferred: true`.
+pub fn handover_reply_settled(reply: &serde_json::Value) -> bool {
+    reply.get("deferred") != Some(&serde_json::Value::Bool(true))
+}
+
+#[cfg(test)]
+mod handover_tests {
+    use super::*;
+
+    #[test]
+    fn deferred_handover_reply_is_not_settled() {
+        assert!(handover_reply_settled(&serde_json::json!({"summary": "ok"})));
+        assert!(handover_reply_settled(&serde_json::json!({"deferred": false})));
+        assert!(!handover_reply_settled(&serde_json::json!({"deferred": true})));
+    }
+    #[test]
+    fn handover_calls_when_service_is_newer() {
+        assert_eq!(
+            handover_decision(Some("0.1.0"), "0.2.0", false, false),
+            HandoverDecision::Call
+        );
+    }
+
+    #[test]
+    fn handover_does_not_call_when_same() {
+        assert_eq!(
+            handover_decision(Some("0.1.0"), "0.1.0", false, false),
+            HandoverDecision::None
+        );
+    }
+
+    #[test]
+    fn handover_does_not_call_when_older() {
+        // Downgrade: store the connected (older) version instead of calling.
+        assert_eq!(
+            handover_decision(Some("0.2.0"), "0.1.0", false, false),
+            HandoverDecision::StoreOnly
+        );
+    }
+
+    #[test]
+    fn handover_does_not_call_when_attached() {
+        assert_eq!(
+            handover_decision(Some("0.1.0"), "0.2.0", true, false),
+            HandoverDecision::None
+        );
+    }
+
+    #[test]
+    fn handover_does_not_call_during_update_transaction() {
+        assert_eq!(
+            handover_decision(Some("0.1.0"), "0.2.0", false, true),
+            HandoverDecision::None
+        );
+    }
+
+    #[test]
+    fn handover_first_run_stores_only() {
+        assert_eq!(
+            handover_decision(None, "0.2.0", false, false),
+            HandoverDecision::StoreOnly
+        );
+    }
+
+    #[test]
+    fn handover_first_run_none_remembered() {
+        assert_eq!(
+            handover_decision(None, "1.0.0", false, false),
+            HandoverDecision::StoreOnly
+        );
+    }
+
+    #[test]
+    fn handover_no_call_unparsable_or_prerelease() {
+        // Unparsable connected version.
+        assert_eq!(
+            handover_decision(Some("0.1.0"), "not-a-version", false, false),
+            HandoverDecision::None
+        );
+        // Prerelease connected version.
+        assert_eq!(
+            handover_decision(Some("0.1.0"), "0.2.0-rc.1", false, false),
+            HandoverDecision::None
+        );
+        // Prerelease remembered version.
+        assert_eq!(
+            handover_decision(Some("0.2.0-rc.1"), "0.3.0", false, false),
+            HandoverDecision::None
+        );
+    }
+
+    #[test]
+    fn handover_no_call_update_transaction_in_progress() {
+        assert_eq!(
+            handover_decision(Some("0.1.0"), "0.2.0", false, true),
+            HandoverDecision::None
+        );
+    }
+
+    #[test]
+    fn handover_downgrade_stores_connected() {
+        assert_eq!(
+            handover_decision(Some("1.2.0"), "1.1.0", false, false),
+            HandoverDecision::StoreOnly
+        );
+    }
+}
+
+#[cfg(test)]
+mod service_restart_tests {
+    use super::*;
+
+    #[test]
+    fn owned_older_restarts() {
+        assert_eq!(
+            service_restart_decision(ServiceRestartInput { app: "0.18.5", live_service: Some("0.18.4"), job_state: JobState::Running, owned: true, attached: false, maintenance: false, update_transaction: false, adoption: false, already_attempted: false }),
+            ServiceRestartDecision::Restart
+        );
+    }
+
+    #[test]
+    fn foreign_does_not_restart() {
+        assert_eq!(
+            service_restart_decision(ServiceRestartInput { app: "0.18.5", live_service: Some("0.18.4"), job_state: JobState::Running, owned: false, attached: false, maintenance: false, update_transaction: false, adoption: false, already_attempted: false }),
+            ServiceRestartDecision::NoRestart
+        );
+    }
+
+    #[test]
+    fn attached_does_not_restart() {
+        assert_eq!(
+            service_restart_decision(ServiceRestartInput { app: "0.18.5", live_service: Some("0.18.4"), job_state: JobState::Running, owned: true, attached: true, maintenance: false, update_transaction: false, adoption: false, already_attempted: false }),
+            ServiceRestartDecision::NoRestart
+        );
+    }
+
+    #[test]
+    fn in_flight_does_not_restart() {
+        assert_eq!(
+            service_restart_decision(ServiceRestartInput { app: "0.18.5", live_service: Some("0.18.4"), job_state: JobState::Running, owned: true, attached: false, maintenance: true, update_transaction: false, adoption: false, already_attempted: false }),
+            ServiceRestartDecision::NoRestart
+        );
+        assert_eq!(
+            service_restart_decision(ServiceRestartInput { app: "0.18.5", live_service: Some("0.18.4"), job_state: JobState::Running, owned: true, attached: false, maintenance: false, update_transaction: true, adoption: false, already_attempted: false }),
+            ServiceRestartDecision::NoRestart
+        );
+        assert_eq!(
+            service_restart_decision(ServiceRestartInput { app: "0.18.5", live_service: Some("0.18.4"), job_state: JobState::Running, owned: true, attached: false, maintenance: false, update_transaction: false, adoption: true, already_attempted: false }),
+            ServiceRestartDecision::NoRestart
+        );
+    }
+
+    #[test]
+    fn already_attempted_does_not_restart() {
+        assert_eq!(
+            service_restart_decision(ServiceRestartInput { app: "0.18.5", live_service: Some("0.18.4"), job_state: JobState::Running, owned: true, attached: false, maintenance: false, update_transaction: false, adoption: false, already_attempted: true }),
+            ServiceRestartDecision::NoRestart
+        );
+    }
+
+    #[test]
+    fn same_or_newer_does_not_restart() {
+        assert_eq!(
+            service_restart_decision(ServiceRestartInput { app: "0.18.5", live_service: Some("0.18.5"), job_state: JobState::Running, owned: true, attached: false, maintenance: false, update_transaction: false, adoption: false, already_attempted: false }),
+            ServiceRestartDecision::NoRestart
+        );
+        assert_eq!(
+            service_restart_decision(ServiceRestartInput { app: "0.18.5", live_service: Some("0.18.6"), job_state: JobState::Running, owned: true, attached: false, maintenance: false, update_transaction: false, adoption: false, already_attempted: false }),
+            ServiceRestartDecision::NoRestart
+        );
+    }
+
+    #[test]
+    fn stopped_does_not_restart() {
+        assert_eq!(
+            service_restart_decision(ServiceRestartInput { app: "0.18.5", live_service: Some("0.18.4"), job_state: JobState::Stopped, owned: true, attached: false, maintenance: false, update_transaction: false, adoption: false, already_attempted: false }),
+            ServiceRestartDecision::NoRestart
+        );
     }
 }
 
@@ -861,7 +1113,7 @@ impl SessionOpStrikes {
         }
     }
 }
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum JobState {
     NotLoaded,
     Stopped,
@@ -1940,6 +2192,7 @@ mod tests {
     fn service_move_ready_codes_are_recognized() {
         assert!(is_service_move_ready("own-link-repair-ready"));
         assert!(is_service_move_ready("consent-takeover-ready"));
+        assert!(is_service_move_ready("owned-service-restart-ready"));
         assert!(!is_service_move_ready("takeover"));
         assert!(!is_service_move_ready("diagnose"));
     }
@@ -3332,7 +3585,28 @@ pub fn desktop_update_connection(
     } else {
         ("connecting", None)
     };
-    serde_json::json!({ "state": state, "reason": reason })
+    let mut result = serde_json::json!({ "state": state, "reason": reason });
+    if reason == Some("connection") {
+        if let Some(kind) = error.and_then(connection_error_kind) {
+            result["error"] = serde_json::json!(kind);
+        }
+    }
+    result
+}
+
+/// Stable kebab-case kind for the generic "connection" reason; never carries paths or messages.
+pub fn connection_error_kind(error: pacer_desktop::ota::OtaError) -> Option<&'static str> {
+    use pacer_desktop::ota::OtaError;
+    match error {
+        OtaError::Unavailable => Some("unavailable"),
+        OtaError::Invalid => Some("invalid"),
+        OtaError::Io => Some("io"),
+        OtaError::Busy => Some("busy"),
+        OtaError::Timeout => Some("timeout"),
+        OtaError::Interrupted => Some("interrupted"),
+        OtaError::RecoveryFailed => Some("recovery-failed"),
+        OtaError::Identity | OtaError::HandshakeClosed => None,
+    }
 }
 
 #[cfg(test)]
@@ -3356,10 +3630,33 @@ mod desktop_connection_tests {
     #[test]
     fn connection_failure_is_not_an_up_to_date_or_manual_only_state() {
         assert_eq!(desktop_update_connection(true, false, Some(OtaError::Identity), false, true), serde_json::json!({"state":"unavailable","reason":"service-identity"}));
-        assert_eq!(desktop_update_connection(true, false, Some(OtaError::Io), true, true), serde_json::json!({"state":"unavailable","reason":"connection"}));
+        assert_eq!(desktop_update_connection(true, false, Some(OtaError::Io), true, true), serde_json::json!({"state":"unavailable","reason":"connection","error":"io"}));
         assert_eq!(desktop_update_connection(true, false, Some(OtaError::HandshakeClosed), false, true), serde_json::json!({"state":"unavailable","reason":"handshake"}));
         assert_eq!(desktop_update_connection(true, false, Some(OtaError::Identity), true, true)["reason"], "service-takeover");
         assert_eq!(desktop_update_connection(true, false, Some(OtaError::Identity), true, false)["reason"], "service-identity");
+    }
+    #[test]
+    fn connection_reason_names_every_error_kind_and_only_then() {
+        for (error, kind) in [
+            (OtaError::Unavailable, "unavailable"),
+            (OtaError::Invalid, "invalid"),
+            (OtaError::Io, "io"),
+            (OtaError::Busy, "busy"),
+            (OtaError::Timeout, "timeout"),
+            (OtaError::Interrupted, "interrupted"),
+            (OtaError::RecoveryFailed, "recovery-failed"),
+        ] {
+            assert_eq!(
+                desktop_update_connection(true, false, Some(error), false, true),
+                serde_json::json!({"state":"unavailable","reason":"connection","error":kind})
+            );
+        }
+        for (error, takeover) in [(OtaError::Identity, true), (OtaError::Identity, false), (OtaError::HandshakeClosed, false)] {
+            assert!(desktop_update_connection(true, false, Some(error), takeover, true).get("error").is_none());
+        }
+        assert!(desktop_update_connection(true, true, Some(OtaError::Io), false, true).get("error").is_none());
+        assert!(desktop_update_connection(true, false, None, false, true).get("error").is_none());
+        assert!(desktop_update_connection(false, false, Some(OtaError::Io), false, true).get("error").is_none());
     }
     #[test]
     fn live_authority_and_build_support_are_distinct_from_pending_connection() {
@@ -3576,4 +3873,5 @@ mod bundled_navigation_tests {
             page.shell_state(state);assert!(page.allows_shell_action(action));
         }
     }
+
 }

@@ -845,12 +845,33 @@ fn plugins(raw: Option<&Value>, problems: &mut Vec<String>) -> Value {
                     ));
                     continue;
                 }
+                if let Some(workflows) = g.get("workflows")
+                    && workflows
+                        .as_array()
+                        .is_none_or(|v| v.iter().any(|x| !x.is_string()))
+                {
+                    problems.push(format!(
+                        "plugins.installed.{id}.workflows must be a list of names"
+                    ));
+                    continue;
+                }
                 let mut out = json!({"version":version,"capabilities":capabilities});
-                if let Some(v) = g.get("surfaces") {
+                // Omit empty surfaces (parity with TypeScript setPluginGrant / strategy parse).
+                if let Some(v) = g
+                    .get("surfaces")
+                    .filter(|v| v.as_array().is_some_and(|a| !a.is_empty()))
+                {
                     out["surfaces"] = v.clone();
                 }
                 if let Some(v) = g.get("policy").filter(|v| v.is_boolean()) {
                     out["policy"] = v.clone();
+                }
+                // Protocol 1.12.0: consent covers contributed workflow names.
+                if let Some(v) = g
+                    .get("workflows")
+                    .filter(|v| v.as_array().is_some_and(|a| !a.is_empty()))
+                {
+                    out["workflows"] = v.clone();
                 }
                 installed.insert(id.clone(), out);
             }
@@ -1342,6 +1363,13 @@ pub(crate) fn validate_strategy(
     if !["off", "least-loaded"].contains(&balance_mode.as_str()) {
         p.push("pacing.balance must be off or least-loaded".into());
     }
+    let tier_fallback = pc
+        .get("planner_tier_fallback")
+        .map(string)
+        .unwrap_or_else(|| "on".into());
+    if !["on", "off"].contains(&tier_fallback.as_str()) {
+        p.push("pacing.planner_tier_fallback must be on or off".into());
+    }
     if js_semantics::number(&fill).is_some_and(|n| !n.is_finite() || n < 50. || n > 100.) {
         p.push("pacing.fill_threshold must be between 50 and 100".into());
     }
@@ -1356,7 +1384,7 @@ pub(crate) fn validate_strategy(
     }
     let pacing = json!({"policy":policy,"order":order,"plannerReserve":reserve,"plannerReserveHeadroom":headroom,"plannerProbe":probe,
         "aheadThreshold":number(field(pc,"ahead_threshold"),10.,"ahead_threshold",&mut p),
-        "behindThreshold":number(field(pc,"behind_threshold"),-10.,"behind_threshold",&mut p),"accounts":accounts_mode,"balance":balance_mode,"fillThreshold":fill});
+        "behindThreshold":number(field(pc,"behind_threshold"),-10.,"behind_threshold",&mut p),"accounts":accounts_mode,"balance":balance_mode,"fillThreshold":fill,"plannerTierFallback":tier_fallback});
     let mut routing = Vec::new();
     let default_routing = json!([{"default":providers.keys().collect::<Vec<_>>()}]);
     let raw_routing = root.get("routing").unwrap_or(&default_routing);

@@ -2,7 +2,7 @@ import type { PluginInfo, SurfaceInfo } from "../../../../src/plugins/registry";
 import { PLUGIN_ICONS } from "../../plugins/icons";
 export function pluginIcon(plugin: string, surfaces: SurfaceInfo[]) {
   if (plugin === "pacer-agent-session") return "plugin-terminal";
-  if (plugin === "pacer-assistant" || plugin === "assistant-pacer") return "spark";
+  if (plugin === "assistant-pacer") return "spark";
   const icon = surfaces.find(s => s.plugin === plugin && (s.surface === "activity" || s.surface === "panelTabs"))?.icon;
   return PLUGIN_ICONS[icon as keyof typeof PLUGIN_ICONS] ?? "plugin";
 }
@@ -13,7 +13,7 @@ export function pluginAdditions(plugin: PluginInfo) {
   const points: Record<string,string> = {diagnostic:"Diagnostic checks",agentSession:"Terminal sessions",observation:"Usage reader",decision:"Routing engine"};
   return [...Object.entries(names).flatMap(([kind,label]) => { const count = plugin.ui[kind as keyof typeof names]; return count ? [count > 1 ? `${label} · ${count}` : label] : []; }), ...plugin.contributes.flatMap(point => points[point] ? [points[point]!] : [])];
 }
-/** Optional native sibling of pacer-core is absent or stale (ADR 0028/0031). Turns fall back; not attention. */
+/** Optional native sibling of pacer-core is absent or stale (ADR 0028/0031). The backend is unavailable; not attention. */
 export function isNativeSiblingMissing(plugin: PluginInfo): boolean {
   return plugin.bundled
     && plugin.state === "refused"
@@ -45,7 +45,6 @@ export function pluginCardTone(plugin: PluginInfo): "bad" | "attention" | null {
 
 const bundledPresentation: Record<string, { name: string; description: string }> = {
   "pacer-agent-session": { name: "Agent sessions", description: "Live terminal sessions for delegated tasks" },
-  "pacer-assistant": { name: "Assistant", description: "The always-on assistant behind ⌘J" },
   "assistant-pacer": { name: "Pacer assistant", description: "Pacer's own agent (native reply backend)" },
 };
 export function pluginPresentation(plugin: PluginInfo) {

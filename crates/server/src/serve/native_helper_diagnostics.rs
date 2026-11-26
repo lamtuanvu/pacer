@@ -67,6 +67,15 @@ fn denied() -> io::Error {
 fn identity(m: &Metadata) -> (u64, u64) {
     (m.dev(), m.ino())
 }
+/// The shared `$PACER_HOME/logs` container is not owned by diagnostics: normal
+/// installs keep it at 0755 for launchd's `serve.log`. It must still be ours,
+/// a real directory and not writable by group/other before we nest inside it.
+fn shared_logs_directory(m: &Metadata) -> bool {
+    m.is_dir()
+        && !m.file_type().is_symlink()
+        && m.uid() == nix::unistd::getuid().as_raw()
+        && m.mode() & 0o022 == 0
+}
 fn private_directory(m: &Metadata) -> bool {
     m.is_dir()
         && !m.file_type().is_symlink()
@@ -79,13 +88,18 @@ fn private_file(m: &Metadata) -> bool {
         && m.nlink() == 1
         && m.mode() & 0o7777 == 0o600
 }
+const LOGS: &str = "logs";
+const PRIVATE: &str = "native-helper";
+const LOG_FILE: &str = "native-helper.log";
 struct Log {
     append_lock: Mutex<()>,
     home: PathBuf,
     home_file: File,
+    logs: File,
     directory: File,
     file: File,
     home_identity: (u64, u64),
+    logs_identity: (u64, u64),
     directory_identity: (u64, u64),
     file_identity: (u64, u64),
 }
@@ -104,14 +118,33 @@ impl Log {
         {
             return Err(denied());
         }
-        match mkdirat(&home_file, "logs", Mode::S_IRWXU) {
+        match mkdirat(&home_file, LOGS, Mode::S_IRWXU) {
+            Ok(()) => {}
+            Err(nix::errno::Errno::EEXIST) => {}
+            Err(e) => return Err(e.into()),
+        }
+        let logs = File::from(openat(
+            &home_file,
+            LOGS,
+            OFlag::O_RDONLY | OFlag::O_DIRECTORY | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC,
+            Mode::empty(),
+        )?);
+        let logs_metadata = logs.metadata()?;
+        if !shared_logs_directory(&logs_metadata)
+            || identity(&home.join(LOGS).symlink_metadata()?) != identity(&logs_metadata)
+        {
+            return Err(denied());
+        }
+        // SEC-7: the log itself lives in a dedicated 0700 directory so a 0755
+        // logs container cannot expose private broker stage evidence.
+        match mkdirat(&logs, PRIVATE, Mode::S_IRWXU) {
             Ok(()) => {}
             Err(nix::errno::Errno::EEXIST) => {}
             Err(e) => return Err(e.into()),
         }
         let directory = File::from(openat(
-            &home_file,
-            "logs",
+            &logs,
+            PRIVATE,
             OFlag::O_RDONLY | OFlag::O_DIRECTORY | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC,
             Mode::empty(),
         )?);
@@ -121,7 +154,7 @@ impl Log {
         }
         let file = File::from(openat(
             &directory,
-            "native-helper.log",
+            LOG_FILE,
             OFlag::O_WRONLY
                 | OFlag::O_APPEND
                 | OFlag::O_CREAT
@@ -138,9 +171,11 @@ impl Log {
             append_lock: Mutex::new(()),
             home: home.into(),
             home_file,
+            logs,
             directory,
             file,
             home_identity: identity(&home_metadata),
+            logs_identity: identity(&logs_metadata),
             directory_identity: identity(&directory_metadata),
             file_identity: identity(&metadata),
         };
@@ -150,22 +185,26 @@ impl Log {
     fn check(&self) -> io::Result<()> {
         let home = self.home.symlink_metadata()?;
         let held_home = self.home_file.metadata()?;
+        let logs = self.logs.metadata()?;
+        let linked_logs = self.home.join(LOGS).symlink_metadata()?;
         let directory = self.directory.metadata()?;
-        let linked_directory = self.home.join("logs").symlink_metadata()?;
+        let linked_directory = fstatat(&self.logs, PRIVATE, AtFlags::AT_SYMLINK_NOFOLLOW)?;
         let file = self.file.metadata()?;
-        let linked = fstatat(
-            &self.directory,
-            "native-helper.log",
-            AtFlags::AT_SYMLINK_NOFOLLOW,
-        )?;
+        let linked = fstatat(&self.directory, LOG_FILE, AtFlags::AT_SYMLINK_NOFOLLOW)?;
         if !private_directory(&home)
             || !private_directory(&held_home)
             || identity(&home) != self.home_identity
             || identity(&held_home) != self.home_identity
+            || !shared_logs_directory(&logs)
+            || !shared_logs_directory(&linked_logs)
+            || identity(&logs) != self.logs_identity
+            || identity(&linked_logs) != self.logs_identity
             || !private_directory(&directory)
-            || !private_directory(&linked_directory)
+            || linked_directory.st_dev as u64 != directory.dev()
+            || linked_directory.st_ino != directory.ino()
+            || linked_directory.st_mode & nix::libc::S_IFMT != nix::libc::S_IFDIR
+            || linked_directory.st_mode & 0o7777 != 0o700
             || identity(&directory) != self.directory_identity
-            || identity(&linked_directory) != self.directory_identity
             || !private_file(&file)
             || identity(&file) != self.file_identity
             || linked.st_dev as u64 != file.dev()

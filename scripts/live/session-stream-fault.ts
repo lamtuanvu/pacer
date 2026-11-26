@@ -5,7 +5,7 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import type { Writable, Readable } from "node:stream";
 import { MAX_LINE_BYTES } from "../../src/plugins/lines";
-import { atomicWrite, pacerArgv, sandboxEnv, type Session } from "./core";
+import { atomicWrite, isolatedArgv, pacerArgv, sandboxEnv, type Session } from "./core";
 
 export type StreamFaultMode = "lost-input-ack" | "read-response-timeout";
 interface Instruction { id: string; mode: StreamFaultMode }
@@ -162,7 +162,8 @@ export async function* boundedPluginLines(input: Readable): AsyncGenerator<strin
 
 /** Live-only pass-through for the exact pacer-ssh plugin child. */
 export async function runSessionStreamFaultProxy(session: Session, args: string[]): Promise<number> {
-  const child = spawn(pacerArgv(session)[0]!, [...pacerArgv(session).slice(1), ...args], {
+  const [command, ...prefix] = isolatedArgv(pacerArgv(session));
+  const child = spawn(command!, [...prefix, ...args], {
     cwd: join(session.root, "repo"), env: sandboxEnv(session),
     stdio: ["pipe", "pipe", "inherit"],
   });

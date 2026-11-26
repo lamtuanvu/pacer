@@ -1,4 +1,5 @@
 import { expect, mock, test } from "bun:test";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { validateStrategy, type ProviderCfg } from "../src/config/strategy";
 import type { AttemptOutcome } from "../src/exec/direct";
@@ -8,29 +9,34 @@ import { createTask, readTask, updateTask } from "../src/tasks/store";
 import type { TaskRecord } from "../src/tasks/types";
 import type { Ctx } from "../src/types";
 import { eligibility } from "./fixtures/eligibility";
-import { fakeCtx, tmpDir } from "./helpers";
+import { fakeCtx, gitRepo, realRun, tmpDir } from "./helpers";
 
 // The owned local route has no runner injection point, so its provider entry is stubbed. Unplanned calls (and other
 // test files sharing this process) reach the real implementation.
 const real = { ...await import("../src/plugins/executor-production") };
 let plan: Record<string, (attempt: number, ctx: Ctx, taskId: string) => AttemptOutcome> | undefined;
 const calls: string[] = [];
-const owned = (fallback: typeof real.runOwnedDirectCurrent) => async (ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, ...rest: unknown[]) => {
-  const next = plan?.[cfg.id];
-  if (!next) return (fallback as (...a: unknown[]) => Promise<AttemptOutcome>)(ctx, cfg, task, ...rest);
-  calls.push(cfg.id);
-  const attempt = task.attempts.length + 1, dir = join(ctx.pacerHome, "runs", task.id, String(attempt)), startedAt = 1000 + attempt;
-  const out = next(attempt, ctx, task.id);
-  // What the bundled provider leaves on the task: the claimed run and its exit receipt.
-  updateTask(ctx, task.id, t => {
-    t.run = {dir, attempt, executor: cfg.id, startedAt, mode: "current", workdir: task.brief.repo, logFile: out.attempt.log, session: "interactive"};
-    t.startIntent = {attempt, providerId: "pacer-exec-direct", dir};
-    t.executorExitReceipt = {attempt, providerId: "pacer-exec-direct", dir, startedAt, exitCode: out.exec.code};
-  });
-  return {...out, attempt: {...out.attempt, startedAt}};
-};
+const routes: ("current" | "new")[] = [];
+const owned = (route: "current" | "new", fallback: typeof real.runOwnedDirectCurrent) =>
+  async (ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, ...rest: unknown[]) => {
+    const next = plan?.[cfg.id];
+    if (!next) return (fallback as (...a: unknown[]) => Promise<AttemptOutcome>)(ctx, cfg, task, ...rest);
+    calls.push(cfg.id);
+    routes.push(route);
+    const attempt = task.attempts.length + 1, dir = join(ctx.pacerHome, "runs", task.id, String(attempt)), startedAt = 1000 + attempt;
+    const out = next(attempt, ctx, task.id);
+    // What the bundled provider leaves on the task: the claimed run and its exit receipt.
+    updateTask(ctx, task.id, t => {
+      t.run = {dir, attempt, executor: cfg.id, startedAt, mode: route, workdir: task.worktree ?? task.brief.repo, logFile: out.attempt.log, session: "interactive"};
+      t.startIntent = {attempt, providerId: "pacer-exec-direct", dir};
+      t.executorExitReceipt = {attempt, providerId: "pacer-exec-direct", dir, startedAt, exitCode: out.exec.code};
+    });
+    return {...out, attempt: {...out.attempt, startedAt}, ...(route === "new" && task.worktree ? { worktree: task.worktree } : {})};
+  };
 mock.module("../src/plugins/executor-production", () => ({
-  ...real, runOwnedDirectCurrent: owned(real.runOwnedDirectCurrent), runOwnedDirectNew: owned(real.runOwnedDirectNew),
+  ...real,
+  runOwnedDirectCurrent: owned("current", real.runOwnedDirectCurrent),
+  runOwnedDirectNew: owned("new", real.runOwnedDirectNew),
 }));
 const { runTask } = await import("../src/tasks/runner");
 
@@ -46,7 +52,7 @@ const outcome = (executor: string, code: number, brokenReason?: string): Attempt
 });
 
 async function run(p: NonNullable<typeof plan>, st = strategy) {
-  plan = p; calls.length = 0;
+  plan = p; calls.length = 0; routes.length = 0;
   const ctx = fakeCtx({run: async () => ({code: 0, stdout: "", stderr: ""})});
   const task = createTask(ctx, {brief: {goal: "g", repo: tmpDir()}, kind: null, requestedExecutor: null, timeoutS: 60});
   try {
@@ -115,4 +121,123 @@ test("an unresponsive attempt with no other executor left fails as unresponsive,
   expect(calls).toEqual(["codex"]);
   expect(result.state).toBe("failed");
   expect(result.result?.report).toEndWith("executor unresponsive: no progress after 3 pings");
+});
+
+test("retry of a settled current-placement task takes the owned current route", async () => {
+  plan = { codex: () => outcome("codex", 0) };
+  calls.length = 0; routes.length = 0;
+  const repo = tmpDir();
+  const ctx = fakeCtx({ run: async () => ({ code: 0, stdout: "", stderr: "" }) });
+  try {
+    const original = createTask(ctx, {
+      brief: { goal: "original", repo }, kind: null, requestedExecutor: "codex", timeoutS: 60,
+      placement: { requested: "current" },
+    });
+    updateTask(ctx, original.id, t => {
+      t.state = "failed";
+      t.placement = { requested: "current", mode: "current", why: "agent: in place" };
+      t.run = { dir: join(ctx.pacerHome, "runs", original.id, "1"), attempt: 1, executor: "codex",
+        startedAt: 1, mode: "current", workdir: repo, logFile: "" };
+      t.result = { status: "failed", executor: "codex", model: null, files: "", report: "boom",
+        backend: "direct" };
+    });
+    const retry = createTask(ctx, {
+      brief: { goal: "retry", repo }, kind: null, requestedExecutor: "codex", timeoutS: 60,
+      placement: { requested: "current" },
+    });
+    updateTask(ctx, retry.id, t => {
+      t.retryOf = original.id;
+      t.worktree = repo;
+      t.placement = { requested: "current" };
+    });
+    const result = await runTask(ctx, retry.id, {
+      loadStrategy: () => strategy,
+      computeStatus: async () => status(),
+      verifyRepo: async () => ({ files: "" }),
+    });
+    expect(result.state).toBe("done");
+    expect(result.result?.report).not.toContain("capability_denied");
+    expect(result.result?.report).not.toContain("local new placement is not selected");
+    expect(calls).toEqual(["codex"]);
+    expect(routes).toEqual(["current"]);
+    expect(readTask(ctx, retry.id)?.placement).toMatchObject({
+      requested: "current", mode: "current", why: "reuse task worktree",
+    });
+  } finally { plan = undefined; }
+});
+
+test("retry reusing a distinct worktree still takes the owned new route", async () => {
+  plan = { codex: () => outcome("codex", 0) };
+  calls.length = 0; routes.length = 0;
+  const repo = gitRepo();
+  const worktree = join(tmpDir(), "isolated");
+  mkdirSync(worktree, { recursive: true });
+  writeFileSync(join(worktree, ".git"), `gitdir: ${join(repo, ".git")}\n`);
+  const ctx = fakeCtx({ run: realRun });
+  try {
+    const original = createTask(ctx, {
+      brief: { goal: "original", repo }, kind: null, requestedExecutor: "codex", timeoutS: 60,
+      placement: { requested: "new" },
+    });
+    updateTask(ctx, original.id, t => {
+      t.state = "done";
+      t.worktree = worktree;
+      t.placement = { requested: "new", mode: "new", why: "agent: isolated" };
+      t.result = { status: "done", executor: "codex", model: null, files: "", report: "ok",
+        backend: "direct", worktree };
+    });
+    const retry = createTask(ctx, {
+      brief: { goal: "retry", repo }, kind: null, requestedExecutor: "codex", timeoutS: 60,
+      placement: { requested: "new" },
+    });
+    updateTask(ctx, retry.id, t => {
+      t.retryOf = original.id;
+      t.worktree = worktree;
+      t.placement = { requested: "new" };
+    });
+    const result = await runTask(ctx, retry.id, {
+      loadStrategy: () => strategy,
+      computeStatus: async () => status(),
+      verifyRepo: async () => ({ files: "" }),
+    });
+    expect(result.state).toBe("done");
+    expect(calls).toEqual(["codex"]);
+    expect(routes).toEqual(["new"]);
+    expect(readTask(ctx, retry.id)?.placement).toMatchObject({
+      requested: "new", mode: "new", why: "reuse task worktree",
+    });
+  } finally { plan = undefined; }
+});
+
+test("distinct reused worktree with leftover requested current aligns to owned new", async () => {
+  plan = { codex: () => outcome("codex", 0) };
+  calls.length = 0; routes.length = 0;
+  const repo = gitRepo();
+  const worktree = join(tmpDir(), "sibling-retained");
+  mkdirSync(worktree, { recursive: true });
+  writeFileSync(join(worktree, ".git"), `gitdir: ${join(repo, ".git")}\n`);
+  const ctx = fakeCtx({ run: realRun });
+  try {
+    const retry = createTask(ctx, {
+      brief: { goal: "retry", repo }, kind: null, requestedExecutor: "codex", timeoutS: 60,
+      placement: { requested: "current" },
+    });
+    updateTask(ctx, retry.id, t => {
+      t.retryOf = "prior-current";
+      t.worktree = worktree;
+      t.placement = { requested: "current" };
+    });
+    const result = await runTask(ctx, retry.id, {
+      loadStrategy: () => strategy,
+      computeStatus: async () => status(),
+      verifyRepo: async () => ({ files: "" }),
+    });
+    expect(result.state).toBe("done");
+    expect(result.result?.report).not.toContain("local new placement is not selected");
+    expect(calls).toEqual(["codex"]);
+    expect(routes).toEqual(["new"]);
+    expect(readTask(ctx, retry.id)?.placement).toMatchObject({
+      requested: "new", mode: "new", why: "reuse task worktree",
+    });
+  } finally { plan = undefined; }
 });

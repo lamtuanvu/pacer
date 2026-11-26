@@ -17,14 +17,14 @@ w.candidates = {
   accounts: [
     { account: "localmodel", backend: "pacer", available: true, liveTools: true, models: [{ id: "qwen", name: "Qwen" }], runners: [{ id: "opencode#localmodel", model: "qwen" }], isPlanner: false },
     {
-      account: "oc", backend: "executor",
+      account: "oc", backend: "executor", cli: "opencode",
       available: alreadyExecutor,
       liveTools: alreadyExecutor,
       ...(alreadyExecutor ? {} : { reason: "oc has not passed the ask-mode check yet." }),
       models: [{ id: "glm", name: "GLM" }], runners: [{ id: "opencode#oc", model: "glm" }], isPlanner: false,
     },
     {
-      account: "claude-digest", backend: "executor",
+      account: "claude-digest", backend: "executor", cli: "claude-code",
       available: true, liveTools: false,
       models: [{ id: "sonnet", name: "Sonnet" }], runners: [{ id: "claude#claude-digest", model: "sonnet" }], isPlanner: false,
     },

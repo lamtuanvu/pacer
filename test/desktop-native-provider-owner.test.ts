@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, realpathSync, writeFileSync, symlinkSync, unlinkSync } from "node:fs";
+import { existsSync, lstatSync as realLstatSync, mkdirSync, readdirSync, realpathSync, writeFileSync, symlinkSync, unlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fakeCtx, tmpDir } from "./helpers";
 import { NativeControlBridge, verifyPairedNativeServiceOwner, assertNativeServiceLaunch, assertNativeProcessCoverage, assertLegacyNativeServiceLayout } from "../src/update/desktop/native-provider";
@@ -225,6 +225,44 @@ writeSync(1, header); writeSync(1, body);
   await expect(factory.open(installation.id, new AbortController().signal)).rejects.toThrow();
 });
 
+test("a missing paired launch capability stages no command directory and reports a refusal", async () => {
+  const f = fixture();
+  const { createNativePipeFactory } = await import("../src/update/desktop/native-provider");
+  const { inspectInstallation } = await import("../src/update/desktop/identity");
+  const installation = await inspectInstallation(f.ctx, f.app);
+  const session = { installation, service: f.root, alive: () => true };
+  const factory = createNativePipeFactory(
+    () => f.ctx,
+    { sessions: () => [session], reverify: async () => {} } as never,
+    { verifyStatic() {} } as never,
+    f.owner,
+  );
+  const commands = join(f.ctx.pacerHome, "desktop-updates/native", installation.id, "commands");
+  expect(existsSync(commands)).toBe(false);
+  await expect(factory.open(installation.id, new AbortController().signal)).rejects.toThrow(/refused/);
+  expect(existsSync(commands)).toBe(false);
+});
+
+test("a refused Root spawn removes the staged command directory", async () => {
+  const f = fixture();
+  const { createNativePipeFactory } = await import("../src/update/desktop/native-provider");
+  const { inspectInstallation } = await import("../src/update/desktop/identity");
+  const { helperRefused } = await import("../src/update/desktop/native-helper-errors");
+  const installation = await inspectInstallation(f.ctx, f.app);
+  const session = { installation, service: f.root, alive: () => true };
+  const factory = createNativePipeFactory(
+    () => f.ctx,
+    { sessions: () => [session], reverify: async () => {} } as never,
+    f.authority as never,
+    f.owner,
+    { spawn() { throw helperRefused(); } },
+  );
+  const commands = join(f.ctx.pacerHome, "desktop-updates/native", installation.id, "commands");
+  await expect(factory.open(installation.id, new AbortController().signal)).rejects.toThrow(/refused/);
+  expect(existsSync(commands)).toBe(true);
+  expect(readdirSync(commands)).toHaveLength(0);
+});
+
 test("authenticated shutdown targets Root and invokes the paired control callback after ack", async () => {
   const f = fixture();
   const { createHash } = await import("node:crypto");
@@ -308,4 +346,104 @@ test("paired revalidation retains ephemeral launch intent but requires an actual
   }
   f.owner.argv[3] = "0";
   expect(() => verifyPairedNativeServiceOwner(f.authority, f.owner, 0, f.metadata)).toThrow();
+});
+
+const errno = (code: string, message: string) => Object.assign(Error(message), { code });
+
+test("a full-disk staging copy is a storage failure, not integrity, and clears the staged directory", async () => {
+  const f = fixture();
+  const { createNativePipeFactory } = await import("../src/update/desktop/native-provider");
+  const { inspectInstallation } = await import("../src/update/desktop/identity");
+  const { NativeHelperStorageError, NativeHelperIntegrityError } = await import("../src/update/desktop/native-helper-errors");
+  const installation = await inspectInstallation(f.ctx, f.app);
+  const session = { installation, service: f.root, alive: () => true };
+  let launches = 0;
+  const factory = createNativePipeFactory(
+    () => f.ctx,
+    { sessions: () => [session], reverify: async () => {} } as never,
+    f.authority as never,
+    f.owner,
+    { spawn() { launches++; throw Error("must not spawn"); } },
+    { copyFileSync() { throw errno("ENOSPC", "no space left on device"); } },
+  );
+  const commands = join(f.ctx.pacerHome, "desktop-updates/native", installation.id, "commands");
+  const error = await factory.open(installation.id, new AbortController().signal).catch(caught => caught);
+  expect(error).toBeInstanceOf(NativeHelperStorageError);
+  expect(error).not.toBeInstanceOf(NativeHelperIntegrityError);
+  expect(launches).toBe(0);
+  expect(existsSync(commands)).toBe(true);
+  expect(readdirSync(commands)).toHaveLength(0);
+});
+
+test("a read-only data folder makes staging mkdir a storage failure under every errno", async () => {
+  const f = fixture();
+  const { createNativePipeFactory } = await import("../src/update/desktop/native-provider");
+  const { inspectInstallation } = await import("../src/update/desktop/identity");
+  const { NativeHelperStorageError } = await import("../src/update/desktop/native-helper-errors");
+  const installation = await inspectInstallation(f.ctx, f.app);
+  const session = { installation, service: f.root, alive: () => true };
+  for (const code of ["ENOSPC", "EDQUOT", "EROFS", "EACCES", "EPERM", "EIO"]) {
+    const factory = createNativePipeFactory(
+      () => f.ctx,
+      { sessions: () => [session], reverify: async () => {} } as never,
+      f.authority as never,
+      f.owner,
+      { spawn() { throw Error("must not spawn"); } },
+      { mkdirSync() { throw errno(code, "staging refused"); } },
+    );
+    await expect(factory.open(installation.id, new AbortController().signal)).rejects.toBeInstanceOf(NativeHelperStorageError);
+  }
+  expect(existsSync(join(f.ctx.pacerHome, "desktop-updates"))).toBe(false);
+});
+
+test("a staging lstat refusal stays a data-folder integrity failure and clears staging", async () => {
+  const f = fixture();
+  const { createNativePipeFactory } = await import("../src/update/desktop/native-provider");
+  const { inspectInstallation } = await import("../src/update/desktop/identity");
+  const { NativeHelperDataFolderError, NativeHelperIntegrityError, NativeHelperStorageError } = await import("../src/update/desktop/native-helper-errors");
+  const installation = await inspectInstallation(f.ctx, f.app);
+  const session = { installation, service: f.root, alive: () => true };
+  let launches = 0;
+  const factory = createNativePipeFactory(
+    () => f.ctx,
+    { sessions: () => [session], reverify: async () => {} } as never,
+    f.authority as never,
+    f.owner,
+    { spawn() { launches++; throw Error("must not spawn"); } },
+    { lstatSync: ((path: Parameters<typeof realLstatSync>[0]) => String(path).includes("/commands/")
+        ? { isDirectory: () => true, isSymbolicLink: () => false, uid: process.getuid!(), mode: 0o777 }
+        : realLstatSync(path)) as never },
+  );
+  const commands = join(f.ctx.pacerHome, "desktop-updates/native", installation.id, "commands");
+  const error = await factory.open(installation.id, new AbortController().signal).catch(caught => caught);
+  expect(error).toBeInstanceOf(NativeHelperDataFolderError);
+  expect(error).toBeInstanceOf(NativeHelperIntegrityError);
+  expect(error).not.toBeInstanceOf(NativeHelperStorageError);
+  expect(launches).toBe(0);
+  expect(existsSync(commands)).toBe(true);
+  expect(readdirSync(commands)).toHaveLength(0);
+});
+
+test("a real verifyStatic refusal classifies as integrity and clears its staged helper", async () => {
+  const f = fixture();
+  const { createNativePipeFactory } = await import("../src/update/desktop/native-provider");
+  const { inspectInstallation } = await import("../src/update/desktop/identity");
+  const { NativeHelperIntegrityError, NativeHelperStorageError } = await import("../src/update/desktop/native-helper-errors");
+  const installation = await inspectInstallation(f.ctx, f.app);
+  const session = { installation, service: f.root, alive: () => true };
+  let launches = 0;
+  const factory = createNativePipeFactory(
+    () => f.ctx,
+    { sessions: () => [session], reverify: async () => {} } as never,
+    { verifyStatic() { throw Error("bad signature"); }, verifyProcess: f.authority.verifyProcess } as never,
+    f.owner,
+    { spawn() { launches++; throw Error("must not spawn"); } },
+  );
+  const commands = join(f.ctx.pacerHome, "desktop-updates/native", installation.id, "commands");
+  const error = await factory.open(installation.id, new AbortController().signal).catch(caught => caught);
+  expect(error).toBeInstanceOf(NativeHelperIntegrityError);
+  expect(error).not.toBeInstanceOf(NativeHelperStorageError);
+  expect(launches).toBe(0);
+  expect(existsSync(commands)).toBe(true);
+  expect(readdirSync(commands)).toHaveLength(0);
 });

@@ -31,7 +31,7 @@ pub fn view(u: &V) -> UpdateView {
                 )
             } else if u["checkedAt"].is_null() {
                 (
-                    "Not checked",
+                    "Not checked yet",
                     "neutral",
                     "…",
                     "Check for a newer version of pacer.",

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { box, cellWidth, clip, cols, glyph, lineText, lineWidth, meter, paint, rule, span, statusSpans } from "../src/dashboard/frame";
+import { box, cellWidth, clip, cols, glyph, lineText, lineWidth, meter, paint, rule, safeText, span, statusSpans } from "../src/dashboard/frame";
 import { detectTheme, PLAIN_THEME, type TerminalTheme } from "../src/dashboard/theme";
 
 const ascii: TerminalTheme = { ...PLAIN_THEME, unicode: false };
@@ -12,6 +12,16 @@ test("cells count wide characters twice and strip control sequences", () => {
   expect(cellWidth("é")).toBe(1);
   expect(cellWidth("a\x1b[7mb")).toBe(5);
   expect(span("bad\x1b[2Jtext").text).toBe("bad[2Jtext");
+});
+
+test("safeText keeps ZWJ/ZWNJ/LRM/RLM and strips bidi overrides", () => {
+  const zwj = "\u{1F468}\u200D\u{1F469}\u200D\u{1F467}";
+  expect(safeText(zwj)).toBe(zwj);
+  // ZWNJ, LRM, RLM stay (Persian/Indic/mixed-direction); ZWSP and U+202E go.
+  expect(safeText("a\u200Cb\u200Ec\u200Fd")).toBe("a\u200Cb\u200Ec\u200Fd");
+  expect(safeText("a\u200Bb\u202Ec")).toBe("abc");
+  expect(safeText("a\u061Cb\u2028c\u2029d\u{E0041}e")).toBe("abcde");
+  expect(safeText("x\u202Ay\u2066z\u2069")).toBe("xyz");
 });
 
 test("clip ends with an ellipsis, respects wide characters and falls back to ASCII", () => {

@@ -9,6 +9,7 @@
     "/tasks/task-1",
     "/review/task-1",
     "/settings",
+    "/settings/agents",
     "/settings/executors",
     "/settings/accounts",
     "/settings/hosts",

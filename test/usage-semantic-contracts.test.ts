@@ -77,7 +77,7 @@ test("metered disk cache survives restart without renewing failed-refresh observ
   const path = join(ctx.pacerHome, "cache", "opencode-stats-7d-cost.json");
   const persisted = await readFile(path, "utf8");
   expect(await restartedMetered(ctx, at + 299, false)).toEqual({ reading: metered(), calls: [] });
-  const command = ["opencode", "stats", "--models", "--cost", "--json", "--days", "7"];
+  const command = ["opencode", "stats", "--standalone", "--models", "--cost", "--json", "--days", "7"];
   const error = "opencode stats exited 1: synthetic offline";
   // Refresh bypasses a fresh hit; failed refresh preserves the old observation.
   expect(await restartedMetered(ctx, at + 1, true)).toEqual({ reading: metered(true, error), calls: [command] });

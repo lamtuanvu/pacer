@@ -294,3 +294,13 @@ test("a failed recheck says so, and rejecting or ordinary tasks never recheck", 
   expect(pending).toHaveLength(1);
   expect(readTask(ctx, second.task.task_id)!.diagnosticRecheck).toBeUndefined();
 });
+
+test("a fix a person starts in the app is labelled ui even without a client header", async () => {
+  const ctx = await fixture();
+  const stub = doctorStub(ctx, () => [failing(ctx)]);
+  const human = await callOp(ctx, "doctor.fix.delegate", { check: "CLI codex", scope: "fix" },
+    { ...deps(stub.doctor), appAuthenticated: true }) as { task: { task_id: string } };
+  expect(readTask(ctx, human.task.task_id)).toMatchObject({ source: "ui", origin: "human" });
+  const agent = await callOp(ctx, "doctor.fix.delegate", { check: "CLI codex", scope: "fix" }, deps(stub.doctor)) as { task: { task_id: string } };
+  expect(readTask(ctx, agent.task.task_id)?.source).toBe("planner");
+});

@@ -61,11 +61,13 @@ function candidateFromItem(item: AttentionItem): NotifyCandidate {
   return { key, data: { key, title: item.title, body: item.detail, actions: item.actions.slice(0, 2), url: `/app/#/${notificationView(item)}` } };
 }
 
-/** Group important stalled items by waitingOn into one banner per caller. */
+/** Group important items waiting on an external caller into one banner per caller.
+ *  Includes stalled tasks and planner-owned run blocking items (both carry
+ *  `waitingOn`), so a silent caller cannot strand either with many banners. */
 function callerGoneCandidates(items: AttentionItem[], ledger: DeliveryLedger, now: number): NotifyCandidate[] {
   const byCaller = new Map<string, AttentionItem[]>();
   for (const item of items) {
-    if (item.kind !== "stalled" || item.notify !== "important" || !item.waitingOn) continue;
+    if (item.notify !== "important" || !item.waitingOn) continue;
     const list = byCaller.get(item.waitingOn) ?? [];
     list.push(item);
     byCaller.set(item.waitingOn, list);
@@ -137,7 +139,7 @@ export function toNotify(items: AttentionItem[], level: NotificationLevel, ledge
   const grouped = callerGoneCandidates(eligible, ledger, now);
   // Caller-gone members stay out of per-task even when the group itself was skipped (ledger/cooldown).
   const callerGoneIds = new Set(
-    eligible.filter(i => i.kind === "stalled" && i.notify === "important" && i.waitingOn).map(i => i.id),
+    eligible.filter(i => i.notify === "important" && i.waitingOn).map(i => i.id),
   );
   return [...grouped, ...onePerTask(eligible.filter(i => !callerGoneIds.has(i.id)))];
 }

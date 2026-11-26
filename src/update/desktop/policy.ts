@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { CoreError } from "../../core/errors";
 import { updateChecksEnabled, UPDATE_CACHE_S } from "../check";
+import { compareVersions } from "../version";
 import {
   assertIdentifier, requestFingerprint, type Installation, type RequestReceipt, type RestartRequest,
-  type UpdateAction, type UpdateRecord, type UpdateRequest, type UpdateStatus,
+  type UpdateAction, type UpdatePhase, type UpdateRecord, type UpdateRequest, type UpdateStatus,
 } from "./types";
 
 /** Reuse both environment and active-strategy opt-outs, including explicit checks. */
@@ -81,17 +82,51 @@ export function cancelRestart(record: UpdateRecord): UpdateRecord {
   return { ...record, phase: "ready", requestId: null, requestedBy: null, requesterBootId: null, blockers: [] };
 }
 
+/** Phases that still own restart authority, an active network operation or
+ * durable recovery work. Their candidate must survive even if the registered
+ * installation has already moved to its version; only their own work settles it. */
+const CANDIDATE_IN_USE: ReadonlySet<UpdatePhase> = new Set([
+  "checking", "downloading", "waiting", "reserved", "installing", "verifying",
+  "rolling-back", "recovery-failed", "complete",
+]);
+
+/**
+ * A candidate that is no newer than the registered installation is not an update
+ * any more: the target was installed by another path (for example by hand). Its
+ * target and any error attached to it are stale and must not surface in status.
+ * Returns the same object when nothing needs to change, so callers can persist
+ * only a real reconciliation (with its revision bump).
+ */
+export function reconcileStaleCandidate(installation: Installation, record: UpdateRecord): UpdateRecord {
+  const candidate = record.candidate;
+  if (!candidate || compareVersions(candidate.version, installation.version) > 0) return record;
+  if (CANDIDATE_IN_USE.has(record.phase)) return record;
+  // A transaction id still names a reservation that reconcile must release first; clearing the
+  // record now would hide it from that release branch and leave new work blocked.
+  if (record.transactionId !== null) return record;
+  return {
+    ...record,
+    phase: "idle",
+    candidate: null,
+    error: null,
+    checkedAt: null,
+    downloadedBytes: 0,
+    totalBytes: null,
+  };
+}
+
 export function updateStatus(installation: Installation, record: UpdateRecord): UpdateStatus {
   if (installation.id !== record.installationId) throw new CoreError("conflict", "Desktop update conflict: installation changed");
+  const value = reconcileStaleCandidate(installation, record);
   const actions: UpdateStatus["actions"] = [];
-  switch (record.phase) {
+  switch (value.phase) {
     case "idle": case "complete":
       actions.push("check");
-      if (record.candidate && record.candidate.version !== installation.version) actions.push("download");
+      if (value.candidate && value.candidate.version !== installation.version) actions.push("download");
       break;
     case "ready":
       actions.push("check");
-      if (record.candidate && record.totalBytes !== null && record.totalBytes > 0 && record.downloadedBytes === record.totalBytes) {
+      if (value.candidate && value.totalBytes !== null && value.totalBytes > 0 && value.downloadedBytes === value.totalBytes) {
         actions.push("restart");
       }
       break;
@@ -100,21 +135,21 @@ export function updateStatus(installation: Installation, record: UpdateRecord): 
       break;
     case "error": case "restored":
       actions.push("check", "retry");
-      if (record.candidate) actions.push("download");
+      if (value.candidate) actions.push("download");
       break;
   }
-  if (!["reserved", "installing", "verifying", "rolling-back", "recovery-failed"].includes(record.phase)) actions.push("configure");
-  if (installation.ownership === "attached" && ["idle", "ready", "complete", "error", "restored"].includes(record.phase)) {
+  if (!["reserved", "installing", "verifying", "rolling-back", "recovery-failed"].includes(value.phase)) actions.push("configure");
+  if (installation.ownership === "attached" && ["idle", "ready", "complete", "error", "restored"].includes(value.phase)) {
     actions.push("adopt");
   }
   return {
-    installationId: record.installationId, revision: record.revision, phase: record.phase,
-    transactionId: record.transactionId, autoDownload: record.autoDownload,
-    checkedAt: record.checkedAt, blockers: record.blockers.map(({ kind, id, label }) => ({ kind, id, label })),
-    downloadedBytes: record.downloadedBytes, totalBytes: record.totalBytes,
-    error: record.error ? { code: record.error.code, message: record.error.message,
-      ...(record.error.hint === undefined ? {} : { hint: record.error.hint }) } : null,
-    current: installation.version, target: record.candidate?.version ?? null,
-    releaseNotes: record.candidate?.notes ?? null, ownership: installation.ownership, actions,
+    installationId: value.installationId, revision: value.revision, phase: value.phase,
+    transactionId: value.transactionId, autoDownload: value.autoDownload,
+    checkedAt: value.checkedAt, blockers: value.blockers.map(({ kind, id, label }) => ({ kind, id, label })),
+    downloadedBytes: value.downloadedBytes, totalBytes: value.totalBytes,
+    error: value.error ? { code: value.error.code, message: value.error.message,
+      ...(value.error.hint === undefined ? {} : { hint: value.error.hint }) } : null,
+    current: installation.version, target: value.candidate?.version ?? null,
+    releaseNotes: value.candidate?.notes ?? null, ownership: installation.ownership, actions,
   };
 }

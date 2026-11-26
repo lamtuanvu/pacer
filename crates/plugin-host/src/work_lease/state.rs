@@ -74,6 +74,8 @@ pub(super) struct Lease {
     pub remote: Option<Remote>,
     pub launched: Option<bool>,
     pub orca: Option<Orca>,
+    /// `class: "survivor"` (`class.optional()`, shape-last), set only by TypeScript.
+    pub survivor: bool,
     /// Optional fields first assigned by this action, in assignment order.
     pub appended: Vec<Late>,
 }
@@ -106,6 +108,8 @@ impl Lease {
 pub(super) struct AdmissionState {
     pub reservation: Option<Units>,
     pub leases: Vec<Lease>,
+    /// `survivors: true` (`literal(true).optional()`): the reservation admitted survivor leases.
+    pub survivors: bool,
 }
 
 impl AdmissionState {
@@ -114,6 +118,7 @@ impl AdmissionState {
         Self {
             reservation: None,
             leases: Vec::new(),
+            survivors: false,
         }
     }
 
@@ -133,6 +138,11 @@ impl AdmissionState {
         if !matches!(doc.preview().pointer("/leases"), Some(Value::Array(_))) {
             return None;
         }
+        let survivors = match doc.preview().pointer("/survivors") {
+            None => false,
+            Some(Value::Bool(true)) => true,
+            Some(_) => return None,
+        };
         let leases_snap = doc.subtree("/leases").ok()?;
         drop(doc);
         let n = match leases_snap.preview() {
@@ -149,6 +159,7 @@ impl AdmissionState {
         Some(Self {
             reservation,
             leases,
+            survivors,
         })
     }
 
@@ -164,7 +175,11 @@ impl AdmissionState {
             }
             render_lease(&mut out, lease)?;
         }
-        out.push_str("]}");
+        out.push(']');
+        if self.survivors {
+            out.push_str(",\"survivors\":true");
+        }
+        out.push('}');
         Ok(out)
     }
 }
@@ -202,6 +217,16 @@ fn project_lease(snap: &WireReply) -> Option<Lease> {
         Some(Some(v)) => Some(v),
         None => return None,
     };
+    let survivor = match snap.preview().pointer("/class") {
+        None => false,
+        Some(_) => {
+            let units = str_at(snap, "/class")?;
+            if !same(&units, "survivor") {
+                return None;
+            }
+            true
+        }
+    };
     Some(Lease {
         id,
         blocker,
@@ -212,6 +237,7 @@ fn project_lease(snap: &WireReply) -> Option<Lease> {
         remote,
         launched,
         orca,
+        survivor,
         appended: Vec::new(),
     })
 }
@@ -425,6 +451,9 @@ fn render_lease(out: &mut String, lease: &Lease) -> Result<(), serde_json::Error
         && !lease.appended.contains(&Late::Orca)
     {
         render_orca(out, orca)?;
+    }
+    if lease.survivor {
+        out.push_str(",\"class\":\"survivor\"");
     }
     for late in &lease.appended {
         match late {

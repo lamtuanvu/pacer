@@ -52,10 +52,10 @@ test("account.add rejects a negative cap and keeps plain endpoints working", asy
 test("executor.setup.connect never runs anything with the key and returns the CLI command", async () => {
   const ctx = setup([]);
   const out = await callOp(ctx, "executor.setup.connect", {provider: "deepseek", key: "sk-test-secret"}, noNetwork);
-  expect(out).toEqual({connected: false, command: "opencode auth login deepseek"});
+  expect(out).toEqual({connected: false, command: "opencode auth login --standalone deepseek"});
   expect(argvs.flat().join(" ")).not.toContain("sk-test-secret");
   expect(JSON.stringify(out)).not.toContain("sk-test-secret");
-  expect(await callOp(ctx, "executor.setup.connect", {provider: "deepseek"}, noNetwork)).toEqual({connected: false, command: "opencode auth login deepseek"});
+  expect(await callOp(ctx, "executor.setup.connect", {provider: "deepseek"}, noNetwork)).toEqual({connected: false, command: "opencode auth login --standalone deepseek"});
 });
 
 test("the setup ops are registered", () => {

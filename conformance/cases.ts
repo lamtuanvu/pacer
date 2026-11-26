@@ -24,7 +24,7 @@ function machineVerifies(machineId: string, message: Buffer, signature: Buffer):
 }
 export function assert(cond: unknown, message: string): asserts cond { if (!cond) throw new Error(`conformance: ${message}`); }
 const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
-type Info = { id: string; state: string; pid: number | null; error: string | null; version: string };
+type Info = { id: string; state: string; pid: number | null; error: string | null; version: string; contributes?: string[] };
 type Report = { id: string; ok: boolean; state: string; served: string[]; pid: number | null; restarts: number; error: string | null; needs: string | null };
 const listed = async (h: HostClient) => Object.fromEntries(((await h.call<{ plugins: Info[] }>("plugin.list")).plugins).map(p => [p.id, p]));
 const doctor = async (h: HostClient, id: string) => (await h.call<{ reports: Report[] }>("plugin.doctor", { id })).reports[0]!;
@@ -115,7 +115,41 @@ function lifecycleCases(rust: boolean): ConformanceCase[] {
   return cases.map(c => ({ ...c, name: c.name + (rust ? " (rust)" : "") }));
 }
 
+function workflowCases(rust: boolean): ConformanceCase[] {
+  const name = rust ? "rust-workflow" : "workflow";
+  const id = `fx-${name}`;
+  return [{
+    name: "workflow definitions page through one workflow" + (rust ? " (rust)" : ""),
+    async run(t) {
+      t.install(name);
+      const h = await t.host();
+      const first = await h.call<{ id: string; state: string; workflows?: string[] }>("plugin.enable", { id });
+      assert(first.state === "needs_grant" && first.workflows?.join() === "demo", "consent lists the contributed workflow");
+      await h.call("plugin.enable", { id, grant: true });
+      const entry = (await listed(h))[id];
+      assert(entry !== undefined && (entry.contributes ?? []).includes("workflow"), "plugin.list shows the workflow contribution");
+      const report = await doctor(h, id);
+      assert(report.ok && report.served.includes("workflow"), `doctor serves workflow (got ${report.served.join()})`);
+      // Enable kicks off async sync; wait until the definition is listed.
+      const end = Date.now() + 10000;
+      let found = false;
+      while (Date.now() < end) {
+        const listedWf = await h.call<{ id: string; version: number; origin: string }[]>("workflow.list", {});
+        found = Array.isArray(listedWf) && listedWf.some(w => w.id === `${id}/demo` && w.version === 1 && w.origin === `plugin:${id}@1.0.0`);
+        if (found) break;
+        await t.sleep(50);
+      }
+      assert(found, "host sync stores the single workflow after paging both replies");
+      await h.call("plugin.disable", { id });
+      const afterDisable = await h.call<{ id: string; disabled?: boolean }[]>("workflow.list", {});
+      assert(afterDisable.some(w => w.id === `${id}/demo` && w.disabled === true), "plugin.disable marks the contributed workflow disabled");
+    },
+  }];
+}
+
 export const CASES: ConformanceCase[] = [
+  ...workflowCases(false),
+  ...workflowCases(true),
   { name: "executor availability fake stays lazy and serves only the staged direct point", async run(t) {
     t.install("executor");
     const h=await t.host();

@@ -5,7 +5,7 @@
 // Phase 4 also raises /v3-only items for open person-answerer structured questions (D10).
 import type { Ctx } from "../types";
 import type { Action, AttentionItem, AttentionUnblocks } from "../attention/types";
-import { sortItems } from "../attention/rules";
+import { notifyLevelForRun, runExternalCaller, sortItems } from "../attention/rules";
 import { PLANNERS } from "../config/strategy";
 import { agentInfo } from "../view-model/agents";
 import {
@@ -310,6 +310,7 @@ function runQuestionItem(ctx: Ctx, q: QuestionRow, run: RunRow, letters?: Map<st
   const unblocks = unblocksFor(q.blocks);
   const at = q.createdAt || ctx.now;
   const actions = runQuestionActions(q);
+  const waitingOn = runExternalCaller(run);
   return {
     id: `question:${q.id}`,
     kind: "question",
@@ -319,7 +320,8 @@ function runQuestionItem(ctx: Ctx, q: QuestionRow, run: RunRow, letters?: Map<st
     detail: runQuestionDetail(q, actions, run),
     raisedAt: at,
     since: at,
-    notify: unblocks === "nothing" ? "all" : "important",
+    notify: notifyLevelForRun("question", run, ctx.now, { since: at, unblocks }),
+    ...(waitingOn ? { waitingOn } : {}),
     actions,
     unblocks,
     run: attentionRunRef(run, letters),
@@ -444,6 +446,7 @@ export function deriveWorkflowAttention(ctx: Ctx): AttentionItem[] {
     const budget = parseBudget(run.budget);
     const spent = parseSpent(run.spent);
     const subject = workflowSubject(run);
+    const waitingOn = runExternalCaller(run);
     if (run.orchestratorState === "blocked") {
       const budgetSpent = isBudgetBlocked(run);
       const unresolved = parseSpent(run.spent).blockedBy === "unresolved"
@@ -467,7 +470,8 @@ export function deriveWorkflowAttention(ctx: Ctx): AttentionItem[] {
           : "The planner failed several times in a row. Retry now.",
         raisedAt: at,
         since: at,
-        notify: "important",
+        notify: notifyLevelForRun(kindKey, run, ctx.now, { since: at }),
+        ...(waitingOn ? { waitingOn } : {}),
         actions: budgetSpent
           ? [raisePlanningAction(run), stopRunAction(run)]
           : blockedFailureActions(run),
@@ -486,7 +490,8 @@ export function deriveWorkflowAttention(ctx: Ctx): AttentionItem[] {
         detail: "Add 20 planning steps.",
         raisedAt: at,
         since: at,
-        notify: "important",
+        notify: notifyLevelForRun("budget_spent", run, ctx.now, { since: at }),
+        ...(waitingOn ? { waitingOn } : {}),
         actions: [raisePlanningAction(run), stopRunAction(run)],
         run: attentionRunRef(run, letters),
       });
@@ -502,7 +507,7 @@ export function deriveWorkflowAttention(ctx: Ctx): AttentionItem[] {
         detail: `Used ${spent.orchestratorTurns} of ${budget.orchestratorTurns} planning steps.`,
         raisedAt: at,
         since: at,
-        notify: "all",
+        notify: notifyLevelForRun("budget_warn", run, ctx.now, { since: at }),
         actions: [raisePlanningAction(run)],
         run: attentionRunRef(run, letters),
       });
@@ -518,7 +523,8 @@ export function deriveWorkflowAttention(ctx: Ctx): AttentionItem[] {
         detail: "Add 20 messages.",
         raisedAt: at,
         since: at,
-        notify: "important",
+        notify: notifyLevelForRun("budget_msg_spent", run, ctx.now, { since: at }),
+        ...(waitingOn ? { waitingOn } : {}),
         actions: [raiseMessageAction(run), stopRunAction(run)],
         run: attentionRunRef(run, letters),
       });
@@ -533,7 +539,7 @@ export function deriveWorkflowAttention(ctx: Ctx): AttentionItem[] {
         detail: `Used ${spent.messageTurns} of ${budget.messageTurns} messages.`,
         raisedAt: at,
         since: at,
-        notify: "all",
+        notify: notifyLevelForRun("budget_msg_warn", run, ctx.now, { since: at }),
         actions: [raiseMessageAction(run)],
         run: attentionRunRef(run, letters),
       });

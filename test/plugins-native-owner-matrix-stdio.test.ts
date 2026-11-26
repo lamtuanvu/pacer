@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { assistantPacerStubBin } from "./fixtures/assistant-pacer/native-bin";
 import { front, stdio } from "./native-plugin-door";
 import { useMatrixRoot, FLAG_ON_DOCTOR_ADDITIONS, KNOWN_REFUSED, PLANNER_STORES, type Run, type Scenario, USAGE_STORES, assistant, connectClaude, doctorSetup, endpoints, expectIdentical, planners, refusal, replyText, runModes, stdioAttached, stdioOff, stdioOffServed, stdioOwn, storeBytes, usage } from "./plugins-native-owner-matrix-support";
 
@@ -35,8 +36,11 @@ test.skipIf(!front)("stdio rows: PR 4 endpoint shapes self-owned and attached", 
 }, 300000);
 
 test.skipIf(!front)("stdio rows: assistant turns answer self-owned and attached", async () => {
-  const owned = await runModes("stdio-assistant-owned", [stdioOff, stdioOwn], assistant);
-  const attached = await runModes("stdio-assistant-attached", [stdioOffServed, stdioAttached], assistant);
+  // The native reply plugin reaches the doors through the environment passthrough; every
+  // mode in this row (including the attached serve) must start with the same stub binary.
+  const replyEnv = { PACER_ASSISTANT_PACER_BIN: assistantPacerStubBin };
+  const owned = await runModes("stdio-assistant-owned", [stdioOff, stdioOwn], assistant, [], replyEnv);
+  const attached = await runModes("stdio-assistant-attached", [stdioOffServed, stdioAttached], assistant, [], replyEnv);
   for (const run of [...owned, ...attached]) expect(run.observed["assistant.turn"], run.mode.label).toContain('"answer":"Fixture answer."');
   console.log([...expectIdentical(owned), ...expectIdentical(attached)].join("\n"));
 }, 300000);

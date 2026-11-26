@@ -22,7 +22,11 @@ export function semantics() {
     strings: [1e21, 1e20, 1e-7, 1e-6, -0, 2.675, true, [1, null, "x"], {}].map(input => ({ input, output: String(input) })),
     times: [-0.1, 0, 59.9, 60, 3599.9, 3600, 86400, 1e23].map(input => ({ input, ago: ago(0, input), elapsed: elapsed(input) })),
     clocks: [-0.1, 0, 86399.99, 86400, 86400 * 3, 86400 * 8, 86400 * 370].map(at => ({ at, now: 86400, output: clock(at, 86400, "UTC") })),
-    text: ["a\x1bb\u0085c", "界e\u0301😀", "a\ufeffbc", "a\u0085bc", "\u0301start", "😀\u0301 text", "one\u00a0two\ufeffthree", "a\u2028b\n\r\nc"].flatMap(input => [0, 1, 3, 8].map(width => ({ input, width, safe: safeText(input), cells: cellWidth(input), clipped: clip(input, width), wrapped: wrap(input, width, 3) }))),
+    text: [
+      "a\x1bb\u0085c", "界e\u0301😀", "a\ufeffbc", "a\u0085bc", "\u0301start", "😀\u0301 text", "one\u00a0two\ufeffthree", "a\u2028b\n\r\nc",
+      // Keep ZWNJ/LRM/RLM; strip ZWSP + bidi overrides/isolates.
+      "fa\u200Csi", "a\u200Eb\u200Fc", "x\u200By\u202Ez", "p\u202Aq\u2066r\u2069",
+    ].flatMap(input => [0, 1, 3, 8].map(width => ({ input, width, safe: safeText(input), cells: cellWidth(input), clipped: clip(input, width), wrapped: wrap(input, width, 3) }))),
     paths: ["/tmp/fixture/😀/界界界界界/file", "/usr/local/bin/pacer", "/" + "a".repeat(30), "/1234567😀/tail", "/😀".repeat(12), ""].flatMap(input => [8, 12, 20].map(width => ({
       input, width,
       // Preserve JS slice boundaries, including isolated surrogates, for Rust.

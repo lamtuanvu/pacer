@@ -8,6 +8,7 @@ import { manifest as sshManifest } from "./pacer-ssh/manifest";
 import { manifest as remoteCallerManifest } from "./pacer-remote-caller/index";
 import { manifest as directExecutorManifest } from "./pacer-exec-direct/manifest";
 import { manifest as orcaExecutorManifest } from "./pacer-exec-orca/manifest";
+import { manifest as pacerDevManifest } from "./pacer-dev/manifest";
 
 /** Single source of truth with the native crate. Imported (not read from disk) so the compiled
  * binary embeds it; a runtime read finds no `crates/` inside the bundle and every compiled pacer exits. */
@@ -23,9 +24,6 @@ export const BUNDLED: BundledPlugin[] = [{manifest:manifestSchema.parse(plannerM
   manifest: {id: "pacer-agent-session", version: "1.0.0", publisher: "pacer", host: "^1", contributes: {agentSession: {}}, capabilities: [], reentrant: true, tier: "free"},
   main: () => import("./agent-session/index"),
 }, {
-  manifest: {id: "pacer-assistant", version: "1.0.0", publisher: "pacer", host: "^1.3", contributes: {assistant: {}}, capabilities: [{name: "secrets.resolve", scopes: ["endpoint"]}, {name: "net.http"}], reentrant: true, tier: "free"},
-  main: () => import("./assistant/index"),
-}, {
   // Pacer's own agent (ADR 0028): native sibling of pacer-core. Absent binary ⇒ refused / unavailable.
   manifest: manifestSchema.parse(assistantPacerManifest),
   executable: "pacer-assistant-pacer",
@@ -36,4 +34,14 @@ export const BUNDLED: BundledPlugin[] = [{manifest:manifestSchema.parse(plannerM
 }, { manifest: manifestSchema.parse(sshManifest), main: () => import("./pacer-ssh/index") },
   { manifest: manifestSchema.parse(remoteCallerManifest), main: () => import("./pacer-remote-caller/index") },
   { manifest: manifestSchema.parse(directExecutorManifest), main: () => import("./pacer-exec-direct/index") },
-  { manifest: manifestSchema.parse(orcaExecutorManifest), main: () => import("./pacer-exec-orca/index") }];
+  { manifest: manifestSchema.parse(orcaExecutorManifest), main: () => import("./pacer-exec-orca/index") },
+  { manifest: manifestSchema.parse(pacerDevManifest), main: () => import("./pacer-dev/index") }];
+
+/** Deep-freeze manifests so bun:test `toMatchObject` / asymmetric matchers cannot
+ * mutate the shared copies (that left non-cloneable shells and broke plugin start). */
+function freezeManifest(value: unknown): void {
+  if (!value || typeof value !== "object" || Object.isFrozen(value)) return;
+  Object.freeze(value);
+  for (const child of Object.values(value as Record<string, unknown>)) freezeManifest(child);
+}
+for (const plugin of BUNDLED) freezeManifest(plugin.manifest);

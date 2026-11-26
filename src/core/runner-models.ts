@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 import { isNode } from "yaml";
 import { loadStrategy, strategyPath } from "../config/strategy";
-import { isPlannerRunner, resolveRunner } from "../config/runner-id";
+import { writeEndpointState } from "../endpoints/state";
+import { resolveRunner } from "../config/runner-id";
 import { modelDeclarationSchema } from "../dispatch/types";
 import { availableModels, closestModels, isOffered, type AvailableModels } from "../models/available";
 import { ensureAccounts } from "./accounts";
@@ -73,7 +74,6 @@ export async function saveRunnerModels(ctx: Ctx, input: { id: string; expectedRe
     const id = resolveRunner(s, input.id)?.id;
     const r = id ? s.runners[id] : undefined;
     if (!r) throw new CoreError("invalid_input", `unknown runner ${input.id}`);
-    if (isPlannerRunner(s, r)) throw new CoreError("not_allowed", "cannot edit the planner runner");
     const warnings: string[] = [];
     const account = s.accounts[r.account];
     const models = validateRunnerModels(account?.provider ?? r.account, list, input, warnings);
@@ -96,6 +96,10 @@ export async function saveRunnerModels(ctx: Ctx, input: { id: string; expectedRe
     });
     const updated = loadStrategy(ctx), updater = updated.runners[r.id];
     if (updater) warnings.push(...modelDeclarationWarnings(updater));
+    const acct = s.accounts[r.account];
+    if (r.model !== input.default && (acct?.source === "opencode" || acct?.connection)) {
+      try { writeEndpointState(ctx, r.account, { state: "not_tested" }); } catch { /* best effort */ }
+    }
     return { revision: strategyRevision(readFileSync(path, "utf8")), runner: r.id, default: updater?.model ?? null, models: updater?.models ?? [], warnings };
   });
 }
@@ -117,7 +121,6 @@ export async function saveRunnerModelsMany(ctx: Ctx, input: { expectedRevision: 
   for (const entry of input.runners) {
     const resolved = resolveRunner(before, entry.id);
     if (!resolved) throw new CoreError("invalid_input", `unknown runner ${entry.id}`);
-    if (isPlannerRunner(before, resolved)) throw new CoreError("not_allowed", "cannot edit the planner runner");
     const list = await availableModels(ctx, resolved.id);
     const account = before.accounts[resolved.account];
     const models = validateRunnerModels(account?.provider ?? resolved.account, list, entry, warnings);
@@ -131,7 +134,6 @@ export async function saveRunnerModelsMany(ctx: Ctx, input: { expectedRevision: 
       const id = resolveRunner(s, v.id)?.id;
       const r = id ? s.runners[id] : undefined;
       if (!r) throw new CoreError("invalid_input", `unknown runner ${v.id}`);
-      if (isPlannerRunner(s, r)) throw new CoreError("not_allowed", "cannot edit the planner runner");
       planned.push({id: r.id, default: v.default, models: v.models});
     }
     // Migration preserves old values and creates its established backup. Draft
@@ -158,6 +160,12 @@ export async function saveRunnerModelsMany(ctx: Ctx, input: { expectedRevision: 
     for (const v of planned) {
       const updater = updated.runners[v.id];
       if (updater) warnings.push(...modelDeclarationWarnings(updater));
+      // Read inside the lock: `s` is the strategy the revision check accepted.
+      const prior = s.runners[v.id];
+      const priorAccount = s.accounts[prior?.account ?? ""];
+      if (prior?.model !== v.default && (priorAccount?.source === "opencode" || priorAccount?.connection)) {
+        try { writeEndpointState(ctx, prior.account, { state: "not_tested" }); } catch { /* best effort */ }
+      }
       runners.push({revision, runner: v.id, default: updater?.model ?? null, models: updater?.models ?? []});
     }
     return {revision, runners, warnings};

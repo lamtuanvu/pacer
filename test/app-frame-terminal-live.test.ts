@@ -28,7 +28,7 @@ browserTest("all routed page frames and the resizable terminal match the boards"
       await page.setViewportSize({ width, height: width === 1440 ? 900 : 1080 });
       await page.emulateMedia({ colorScheme: theme });
       await page.evaluate(() => { localStorage.removeItem("pacer.panel.terminal"); localStorage.removeItem("pacer.terminal.height"); });
-      for (const route of ["dispatch", "insights", "tasks", "tasks/new", "needs-you", "terminal", "settings", "settings/executors", "settings/accounts", "settings/dispatcher", "settings/planner", "settings/machine", "settings/plugins", "settings/app", "settings/diagnostics", "settings/add-executor"]) {
+      for (const route of ["dispatch", "insights", "tasks", "tasks/new", "needs-you", "terminal", "settings", "settings/agents", "settings/rules", "settings/profiles", "settings/dispatcher", "settings/planner", "settings/machine", "settings/plugins", "settings/app", "settings/diagnostics", "settings/add-executor"]) {
         await page.goto(`${base}#/${route}`);
         await page.locator("#main-content h1").first().waitFor();
         expect(await page.locator("h1").count(), route).toBe(1);

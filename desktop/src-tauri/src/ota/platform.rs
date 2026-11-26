@@ -1076,12 +1076,18 @@ impl OwnedJob {
             {
                 // Adoption replaces the service registration in place. Only a
                 // stopped job whose recorded incarnations all exited may switch.
-                fixture_retire_step!(
-                    next == "retired",
-                    self.role,
-                    ManagerAbsent,
-                    copy_user_job(&self.definition.label).and_then(|job| ensure(job.is_none()))
-                )?;
+                // Replace-gone (and own-link after rewrite) stages the bundled CLI
+                // while a KeepAlive listing may still be present; unload follows the
+                // rewrite (see bootout_rewritten_listed_job).
+                let bundled = policy.current_app.join("Contents/Resources/pacer");
+                if program != bundled.as_path() {
+                    fixture_retire_step!(
+                        next == "retired",
+                        self.role,
+                        ManagerAbsent,
+                        copy_user_job(&self.definition.label).and_then(|job| ensure(job.is_none()))
+                    )?;
+                }
                 let prior: Vec<ProcessIdentity> = serde_json::from_value(row["processes"].clone())
                     .map_err(|_| OtaError::Invalid)?;
                 let mut gone = Vec::new();

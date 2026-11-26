@@ -9,7 +9,8 @@ import { jobKindCopy } from "../view-model/copy";
 import type { StatusTone } from "../view-model/words";
 import { renderFrame, screenView, tabs, type FrameInput } from "./screens/shell";
 import { KINDS, scopedReviewQueue } from "./screens/review";
-import type { DashData, Resource, SettingsData, TaskDetail, UpdateInfo } from "./screens/types";
+import type { DashData, Resource, RunDetail, RunSummary, SettingsData, TaskDetail, UpdateInfo } from "./screens/types";
+import { CONFLICT_QUESTION } from "./screens/question-form";
 import { initialState, reduceKey, type Act, type Effect, type ScreenId, type UiState } from "./state";
 import type { TerminalTheme } from "./theme";
 import { updateState, type UpdateState } from "./screens/common";
@@ -54,7 +55,13 @@ export class Dashboard {
   /** When the last successful snapshot read finished. */
   private readAt: number | undefined;
   theme: TerminalTheme;
-  data: { history?: DashData["history"]; details: Map<string, Resource<ThreadDetail> & { stamp?: string; threadStamp?: string }>; settings: SettingsData } = { details: new Map(), settings: {} };
+  data: {
+    history?: DashData["history"];
+    details: Map<string, Resource<ThreadDetail> & { stamp?: string; threadStamp?: string }>;
+    settings: SettingsData;
+    runs?: Resource<RunSummary[]> & { stamp?: string };
+    runDetails: Map<string, Resource<RunDetail> & { stamp?: string }>;
+  } = { details: new Map(), settings: {}, runDetails: new Map() };
   /** `untilRead` keeps the message until the next successful read, then for the usual 5 s. */
   private message?: { text: string; tone: StatusTone; until: number; untilRead?: boolean };
   private frame = 0;
@@ -63,6 +70,12 @@ export class Dashboard {
   private settingsLoaded = new Set<keyof SettingsData>();
 
   private pending = new Set<Promise<unknown>>();
+  /** Bounded retries for errored run.list / run.get while snapshot.seq is unchanged. */
+  private static readonly RESOURCE_RETRY_MAX = 3;
+  private runsRetry = { stamp: "", count: 0, nextAt: 0 };
+  private runDetailRetries = new Map<string, { stamp: string; count: number; nextAt: number }>();
+  private lastRunsScreen = false;
+  private lastRunView: string | null = null;
 
   constructor(public deps: ControllerDeps) { this.theme = deps.theme; }
 
@@ -72,7 +85,14 @@ export class Dashboard {
   }
 
   get busyLoading() { return this.loading > 0; }
-  supports = (op: string) => this.ops === undefined || this.ops.includes(op);
+  /** Existing screens stay fail-open before hello; Runs/question ops fail closed (no early run.list). */
+  supports = (op: string) => {
+    if (this.ops === undefined) {
+      if (op.startsWith("run.") || op.startsWith("question.")) return false;
+      return true;
+    }
+    return this.ops.includes(op);
+  };
 
   report(text: string, tone: StatusTone = "info") {
     const line = text.split(/\r?\n/).filter(Boolean).join(" · ");
@@ -135,7 +155,16 @@ export class Dashboard {
   /** Fetch task detail and settings resources the visible view shows. */
   loadNeeds() {
     const { view, screen } = screenView(this.input());
+    const onRuns = screen === "runs";
+    const enteredRuns = onRuns && !this.lastRunsScreen;
+    const openedRunView = onRuns && !!this.state.runView && this.state.runView !== this.lastRunView;
+    this.lastRunsScreen = onRuns;
+    this.lastRunView = onRuns ? this.state.runView : null;
     if (screen === "sessions" && !this.data.history && this.supports("task.list")) this.loadHistory();
+    if (onRuns && this.supports("run.list")) this.loadRuns({ force: enteredRuns });
+    if (onRuns && this.state.runView && this.supports("run.get")) {
+      this.loadRunDetail(this.state.runView, { force: openedRunView });
+    }
     if (this.supports("task.get")) for (const id of view.needs ?? []) {
       const task = this.snapshot.tasks.find(t => t.id === id), stamp = `${task?.rev ?? ""}:${task?.updatedAt ?? ""}:${task?.state ?? ""}`;
       const current = this.data.details.get(id);
@@ -182,6 +211,94 @@ export class Dashboard {
       .then(value=>{this.data.history={value:{...value,tasks:[...new Map([...(before?previous?.tasks??[]:[]),...value.tasks].map(t=>[t.id,t])).values()]}};this.loadNeeds();})
       .catch(error=>{this.data.history={value:previous,error:errorOf(error)};}));
   }
+  private shouldRetryResource(
+    slot: { stamp: string; count: number; nextAt: number },
+    stamp: string,
+    force: boolean,
+  ): { ok: boolean; slot: { stamp: string; count: number; nextAt: number } } {
+    if (force || slot.stamp !== stamp) {
+      return { ok: true, slot: { stamp, count: 0, nextAt: 0 } };
+    }
+    if (slot.count >= Dashboard.RESOURCE_RETRY_MAX) return { ok: false, slot };
+    if (this.deps.now() < slot.nextAt) return { ok: false, slot };
+    return { ok: true, slot };
+  }
+  private markResourceRetry(stamp: string, prev: { stamp: string; count: number; nextAt: number }) {
+    const count = prev.stamp === stamp ? prev.count + 1 : 1;
+    // Backoff in seconds (deps.now is unix seconds): 0, 2, 4 …
+    const nextAt = this.deps.now() + Math.max(0, (count - 1) * 2);
+    return { stamp, count, nextAt };
+  }
+  private loadRuns(opts: { force?: boolean } = {}) {
+    if (!this.supports("run.list")) return;
+    const stamp = String(this.snapshot.seq);
+    const current = this.data.runs;
+    if (current?.loading) return;
+    // Same snapshot seq with a successful reading: skip (no keypress storm).
+    if (current?.stamp === stamp && current.value !== undefined && !current.error) return;
+    if (current?.stamp === stamp && current.error !== undefined) {
+      const decision = this.shouldRetryResource(this.runsRetry, stamp, !!opts.force);
+      this.runsRetry = decision.slot;
+      if (!decision.ok) return;
+      // Screen entry / run-view open drops the errored entry so the UI retries cleanly.
+      if (opts.force) this.data.runs = { value: current.value, stamp };
+    }
+    const previous = this.data.runs?.value ?? current?.value;
+    this.data.runs = { value: previous, loading: true, stamp };
+    this.runsRetry = this.markResourceRetry(stamp, this.runsRetry);
+    this.track(this.deps.client.call<RunSummary[]>("run.list", {})
+      .then(value => {
+        this.runsRetry = { stamp, count: 0, nextAt: 0 };
+        this.data.runs = { value, stamp };
+      })
+      .catch(error => { this.data.runs = { value: previous, error: errorOf(error), stamp }; }));
+  }
+  private loadRunDetail(id: string, opts: { force?: boolean } = {}) {
+    if (!this.supports("run.get")) return;
+    const current = this.data.runDetails.get(id);
+    if (current?.loading) return;
+    const stamp = `${this.snapshot.seq}:${id}`;
+    if (current?.stamp === stamp && current.value && !current.error) return;
+    if (current?.stamp === stamp && current.error !== undefined) {
+      const prev = this.runDetailRetries.get(id) ?? { stamp: "", count: 0, nextAt: 0 };
+      const decision = this.shouldRetryResource(prev, stamp, !!opts.force);
+      this.runDetailRetries.set(id, decision.slot);
+      if (!decision.ok) return;
+      if (opts.force) this.data.runDetails.set(id, { value: current.value, stamp });
+    }
+    this.data.runDetails.set(id, { ...this.data.runDetails.get(id), loading: true, stamp, error: undefined });
+    const retrySlot = this.runDetailRetries.get(id) ?? { stamp: "", count: 0, nextAt: 0 };
+    this.runDetailRetries.set(id, this.markResourceRetry(stamp, retrySlot));
+    this.track((async () => {
+      const got = await this.deps.client.call<{
+        run: RunSummary;
+        steps: RunDetail["steps"];
+        graphs?: RunDetail["graphs"];
+        definition?: RunDetail["definition"];
+        pendingApproval?: RunDetail["pendingApproval"];
+      }>("run.get", { id });
+      let questions: RunDetail["questions"];
+      if (this.supports("question.list")) {
+        try {
+          const listed = await this.deps.client.call<unknown>("question.list", { run: id });
+          if (Array.isArray(listed)) questions = listed as NonNullable<RunDetail["questions"]>;
+        } catch { /* older services */ }
+      }
+      const value: RunDetail = {
+        run: got.run,
+        steps: got.steps,
+        graphs: got.graphs ?? [],
+        ...(got.definition ? { definition: got.definition } : {}),
+        ...(got.pendingApproval ? { pendingApproval: got.pendingApproval } : {}),
+        ...(questions ? { questions } : {}),
+        ...(current?.value?.decisions ? { decisions: current.value.decisions } : {}),
+      };
+      this.runDetailRetries.set(id, { stamp, count: 0, nextAt: 0 });
+      this.data.runDetails.set(id, { value, stamp, loading: false });
+    })().catch(error => {
+      this.data.runDetails.set(id, { ...this.data.runDetails.get(id), loading: false, stamp, error: errorOf(error) });
+    }));
+  }
   private track(work: Promise<unknown>) {
     this.loading++;
     const done = work.finally(() => { this.loading--; this.pending.delete(done); this.draw(); });
@@ -215,7 +332,16 @@ export class Dashboard {
     });
     this.state = result.state.screen === screen && screen !== this.state.screen ? { ...result.state, screen: this.state.screen } : result.state;
     if (result.quit) return "quit";
-    if (result.refresh) { this.invalidateSettings(); this.data.details.clear(); this.data.history=undefined; await this.refresh(); this.report("Refreshed", "good"); return; }
+    if (result.refresh) {
+      this.invalidateSettings();
+      this.data.details.clear();
+      this.data.history = undefined;
+      this.data.runs = undefined;
+      this.data.runDetails.clear();
+      await this.refresh();
+      this.report("Refreshed", "good");
+      return;
+    }
     this.loadNeeds();
     this.draw();
     if (result.effect) await this.run(result.effect);
@@ -235,9 +361,16 @@ export class Dashboard {
     switch (effect.type) {
       case "history-more": this.loadHistory(this.data.history?.value?.next??undefined); return;
       case "navigate": this.navigate(effect.screen, effect.id, effect.section); return;
+      case "run-view":
+        this.state = { ...this.state, runView: effect.id, focus: "list", scroll: 0, overlay: null, selected: { ...this.state.selected, runs: effect.id ? undefined : this.state.selected.runs } };
+        if (effect.id) this.loadRunDetail(effect.id);
+        this.loadNeeds();
+        this.draw();
+        return;
       case "local": this.report(effect.label); await effect.run(); return;
       case "action": await this.call(effect.action, effect.fallback); return;
       case "attach": await this.attach(effect.id, effect.target); return;
+      case "answer-form": return; // reducer opens the answer overlay
       case "handoff": {
         if (!this.deps.handoff) { this.report(`Run: pacer ${effect.argv.join(" ")}`); return; }
         try {
@@ -264,14 +397,57 @@ export class Dashboard {
       }
       const call = (op: string, p: Record<string, unknown>) => this.deps.client.call<Record<string, unknown> | null>(op, p);
       const result = (fallback ? await withManagedFallback(call, { op: action.op, params }, fallback) : await call(action.op, params)) as Record<string, unknown> | null;
+      // Answer overlays stay open until success so invalid_input can keep typed text.
+      if ((action.op === "question.answer" || action.op === "run.answer") && this.state.overlay) {
+        this.state = { ...this.state, overlay: null };
+      }
       this.report(action.op === "config.set" && typeof result?.warning === "string" ? result.warning : successCopy(action, result), action.op === "config.set" && typeof result?.warning === "string" ? "warn" : "good");
       if (action.op === "task.review") this.afterReview(String(action.params.id));
     } catch (error) {
       if (error instanceof ApiError && error.code === "conflict" && action.op === "task.review") this.report("Another client already reviewed this task.", "warn");
-      else this.reportError(error);
+      else if (error instanceof ApiError && error.code === "conflict" && (action.op === "question.answer" || action.op === "run.answer")) {
+        this.state = { ...this.state, overlay: null };
+        if (this.state.runView) this.data.runDetails.delete(this.state.runView);
+        this.data.runs = undefined;
+        await this.refresh();
+        this.report(CONFLICT_QUESTION, "warn");
+        return;
+      } else if ((action.op === "question.answer" || action.op === "run.answer") && (this.state.overlay?.kind === "answer" || this.state.overlay?.kind === "prompt")) {
+        // Keep the overlay open on any non-conflict failure so the person can retry (B2).
+        // Ambiguous failures (timeout / network) re-read the question first: if the write
+        // already landed, treat it as the stale-question conflict instead of double-submitting.
+        if (isAmbiguousAnswerFailure(error) && action.op === "question.answer" && typeof action.params.id === "string") {
+          try {
+            const q = await this.deps.client.call<{ status?: string }>("question.get", { id: action.params.id });
+            if (q && typeof q === "object" && q.status && q.status !== "open") {
+              this.state = { ...this.state, overlay: null };
+              if (this.state.runView) this.data.runDetails.delete(this.state.runView);
+              this.data.runs = undefined;
+              await this.refresh();
+              this.report(CONFLICT_QUESTION, "warn");
+              return;
+            }
+          } catch { /* still open or unreachable — fall through to overlay error */ }
+        }
+        const message = error instanceof ApiError
+          ? `${error.message}${error.hint ? ` (${error.hint})` : ""}`
+          : error instanceof Error ? error.message : String(error);
+        const overlay = this.state.overlay;
+        if (overlay?.kind === "answer") {
+          this.state = { ...this.state, overlay: { ...overlay, error: message, submitting: false } };
+        } else if (overlay?.kind === "prompt") {
+          this.state = { ...this.state, overlay: { ...overlay, error: message, submitting: false } };
+        }
+        this.draw();
+        return;
+      } else this.reportError(error);
     }
     if (SETTINGS_MUTATIONS.test(action.op)) this.invalidateSettings();
     if (typeof action.params.id === "string") this.data.details.delete(action.params.id);
+    if (action.op.startsWith("run.") || action.op.startsWith("question.")) {
+      this.data.runs = undefined;
+      if (this.state.runView) this.data.runDetails.delete(this.state.runView);
+    }
     await this.refresh();
   }
   private afterReview(id: string) {
@@ -383,6 +559,17 @@ export class Dashboard {
 function errorOf(error: unknown): NonNullable<Resource<unknown>["error"]> {
   if (error instanceof ApiError) return { message: error.message, ...(error.hint ? { hint: error.hint } : {}), code: error.code };
   return { message: error instanceof Error ? error.message : String(error) };
+}
+
+/** Timeout / transport failures where the write may or may not have landed. */
+function isAmbiguousAnswerFailure(error: unknown): boolean {
+  if (error instanceof ApiError) {
+    return error.code === "unavailable" || error.code === "internal" || error.code === "rate_limited";
+  }
+  if (!(error instanceof Error)) return true;
+  const name = error.name;
+  if (name === "TimeoutError" || name === "AbortError") return true;
+  return /timeout|network|fetch|aborted|ECONNRESET|ECONNREFUSED/i.test(error.message);
 }
 
 /** Plain result copy for each op; unknown ops report their label. */

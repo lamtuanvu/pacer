@@ -113,7 +113,6 @@ test("native assistant settings, history and cards match TypeScript results, err
     ["assistant.status", {}],
     ["assistant.status", {}, all(settings(null), history)],
     ["assistant.status", {}, all(settings("gone"), strategy, history)],
-    ["assistant.status", {}, all(settings("ep"), strategy, history)],
     ["assistant.status", {x: 1}],
     ["assistant.conversations", {}, history],
     ["assistant.conversations", {before: 1699999000.5, limit: 1}, history],
@@ -152,6 +151,8 @@ test("native assistant settings, history and cards match TypeScript results, err
 test("native assistant leaves cached-status admission and TypeScript-only inputs to the core", async () => {
   const unusable = settings("ep", '{"turnsPerDay":0}');
   const cases: Case[] = [
+    // A pacer-backend status depends on the core's plugin registry (native binary present or not).
+    ["assistant.status", {}, all(settings("ep"), strategy, history)],
     ["assistant.status", {}, all(settings("ep", "{}"), strategy, history)],
     ["assistant.status", {}, settings("ep")],
     // Candidates and an executor backend's admission need the core's plugins and ask-mode check.

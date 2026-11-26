@@ -278,6 +278,161 @@ test("fanout all joins when every branch is done", async () => {
   expect(join.result).toEqual({ branches: { a: { v: "va" }, b: { v: "vb" }, c: { v: "vc" } }, done: 3, failed: 0 });
 });
 
+test("fanout join surfaces aggregated verdict for edge conditions", async () => {
+  const ctx = fakeCtx();
+  const def: WorkflowDef = {
+    id: "t/fanout-verdict",
+    version: 1,
+    steps: {
+      check: {
+        type: "fanout",
+        branches: ["a", "b"],
+        each: { type: "agent", kind: "research", prompt: "Check {{branch}}" },
+        join: "all",
+      },
+      next: { type: "agent", kind: "feature", prompt: "Next" },
+      redo: { type: "agent", kind: "research", prompt: "Redo" },
+      done: { type: "end" },
+    },
+    edges: [
+      { from: "check", to: "next", when: "result.verdict == 'pass'" },
+      { from: "check", to: "redo", when: "result.verdict == 'revise'" },
+      { from: "next", to: "done" },
+      { from: "redo", to: "done" },
+    ],
+    entry: "check",
+  };
+  addDefinition(ctx, def, "source");
+  const { deps } = fakeDeps();
+  const r = await start(ctx, "t/fanout-verdict", deps);
+  await driveBranch(ctx, r.id, "a", deps, "done", { verdict: "pass", summary: "a" });
+  await driveBranch(ctx, r.id, "b", deps, "done", { verdict: "pass", summary: "b" });
+  const join = stepsOfRun(ctx, r.id).find(s => s.stepId === "check" && s.branch === undefined)!;
+  expect(join.result).toMatchObject({ verdict: "pass", done: 2, failed: 0 });
+  expect(stepsOfRun(ctx, r.id).some(s => s.stepId === "next" && s.status === "running")).toBe(true);
+});
+
+test("fanout verdict: revise wins among done branches even when others lack a verdict", async () => {
+  const ctx = fakeCtx();
+  const def: WorkflowDef = {
+    id: "t/fanout-revise-partial",
+    version: 1,
+    steps: {
+      check: {
+        type: "fanout",
+        branches: ["a", "b"],
+        each: { type: "agent", kind: "research", prompt: "Check {{branch}}" },
+        join: "all",
+      },
+      redo: { type: "agent", kind: "research", prompt: "Redo" },
+      done: { type: "end" },
+    },
+    edges: [
+      { from: "check", to: "redo", when: "result.verdict == 'revise'" },
+      { from: "check", to: "done" },
+      { from: "redo", to: "done" },
+    ],
+    entry: "check",
+  };
+  addDefinition(ctx, def, "source");
+  const { deps } = fakeDeps();
+  const r = await start(ctx, "t/fanout-revise-partial", deps);
+  await driveBranch(ctx, r.id, "a", deps, "done", { verdict: "revise" });
+  await driveBranch(ctx, r.id, "b", deps, "done", { summary: "no verdict" });
+  const join = stepsOfRun(ctx, r.id).find(s => s.stepId === "check" && s.branch === undefined)!;
+  expect(join.result).toMatchObject({ verdict: "revise", done: 2 });
+  expect(stepsOfRun(ctx, r.id).some(s => s.stepId === "redo")).toBe(true);
+});
+
+test("fanout verdict: mixed pass+ok among done branches collapses to pass", async () => {
+  const ctx = fakeCtx();
+  const def: WorkflowDef = {
+    id: "t/fanout-mixed",
+    version: 1,
+    steps: {
+      check: {
+        type: "fanout",
+        branches: ["a", "b"],
+        each: { type: "agent", kind: "research", prompt: "Check {{branch}}" },
+        join: "all",
+      },
+      next: { type: "agent", kind: "feature", prompt: "Next" },
+      done: { type: "end" },
+    },
+    edges: [
+      { from: "check", to: "next", when: "result.verdict == 'pass'" },
+      { from: "check", to: "done" },
+      { from: "next", to: "done" },
+    ],
+    entry: "check",
+  };
+  addDefinition(ctx, def, "source");
+  const { deps } = fakeDeps();
+  const r = await start(ctx, "t/fanout-mixed", deps);
+  await driveBranch(ctx, r.id, "a", deps, "done", { verdict: "pass" });
+  await driveBranch(ctx, r.id, "b", deps, "done", { verdict: "ok" });
+  const join = stepsOfRun(ctx, r.id).find(s => s.stepId === "check" && s.branch === undefined)!;
+  expect(join.result).toMatchObject({ verdict: "pass", done: 2 });
+});
+
+test("fanout any join: verdict over done branches only; stopped siblings ignored", async () => {
+  const ctx = fakeCtx();
+  const def: WorkflowDef = {
+    id: "t/fanout-any-verdict",
+    version: 1,
+    steps: {
+      check: {
+        type: "fanout",
+        branches: ["a", "b", "c"],
+        each: { type: "agent", kind: "research", prompt: "Check {{branch}}" },
+        join: "any",
+      },
+      next: { type: "agent", kind: "feature", prompt: "Next" },
+      done: { type: "end" },
+    },
+    edges: [
+      { from: "check", to: "next", when: "result.verdict == 'ok'" },
+      { from: "check", to: "done" },
+      { from: "next", to: "done" },
+    ],
+    entry: "check",
+  };
+  addDefinition(ctx, def, "source");
+  const { deps, stopped } = fakeDeps();
+  const r = await start(ctx, "t/fanout-any-verdict", deps);
+  await driveBranch(ctx, r.id, "b", deps, "done", { verdict: "ok" });
+  const join = stepsOfRun(ctx, r.id).find(s => s.stepId === "check" && s.branch === undefined)!;
+  expect(join.result).toMatchObject({ verdict: "ok", done: 1 });
+  // Remaining branch tasks are stopped; their null results do not dilute the verdict.
+  expect(stopped.length).toBe(2);
+  expect(join.result).toMatchObject({ branches: { a: null, b: { verdict: "ok" }, c: null } });
+});
+
+test("fanout failed branch still fails the run even when others have pass verdicts", async () => {
+  const ctx = fakeCtx();
+  const def: WorkflowDef = {
+    id: "t/fanout-fail-verdict",
+    version: 1,
+    steps: {
+      check: {
+        type: "fanout",
+        branches: ["a", "b"],
+        each: { type: "agent", kind: "research", prompt: "Check {{branch}}" },
+        join: "all",
+      },
+      done: { type: "end" },
+    },
+    edges: [{ from: "check", to: "done" }],
+    entry: "check",
+  };
+  addDefinition(ctx, def, "source");
+  const { deps } = fakeDeps();
+  const r = await start(ctx, "t/fanout-fail-verdict", deps);
+  await driveBranch(ctx, r.id, "a", deps, "done", { verdict: "pass" });
+  await driveBranch(ctx, r.id, "b", deps, "failed");
+  expect(getRun(ctx, r.id)!.status).toBe("failed");
+});
+
 test("fanout all fails as soon as one branch fails", async () => {
   const ctx = fakeCtx();
   addDefinition(ctx, fanoutDef("all"), "source");

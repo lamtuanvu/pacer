@@ -1,12 +1,19 @@
 import { z } from "zod";
 
 export const fixtureProcessSchema = z.object({ pid: z.number().int().positive(), bootId: z.string().min(1).max(128), birth: z.string().min(1).max(128) }).strict();
-export const MANAGED_SCENARIOS = ["upgrade", "startup-failure", "helper-crash", "interrupted-install", "restore-failure"] as const;
+export const MANAGED_SCENARIOS = ["upgrade", "startup-failure", "helper-crash", "interrupted-install", "restore-failure", "active-work", "active-work-rollback", "active-work-foreign"] as const;
+/** Managed scenarios that update while running work survives (ADR 2026-11-25). */
+export const ACTIVE_WORK_SCENARIOS = ["active-work", "active-work-rollback", "active-work-foreign"] as const;
+/** The public terminal phase a managed scenario must reach; `null` means no install may start. */
+export function managedExpectedPhase(scenario: string): "complete" | "restored" | "recovery-failed" | null {
+  if (scenario === "active-work-foreign") return null;
+  return scenario === "upgrade" || scenario === "active-work" ? "complete" : scenario === "restore-failure" ? "recovery-failed" : "restored";
+}
 /** Scenarios that start Desktop attached to the lease's one external service. */
 export const ATTACHED_SCENARIOS = ["adopt", "adopt-failure", "attached"] as const;
 export const TAKEOVER_SCENARIOS = ["takeover", "takeover-relink", "takeover-dismiss", "takeover-failure", "takeover-crash"] as const;
 /** First-run Existing/UseApp paths that move a CLI service through ADR 0011. */
-export const CONSENT_SCENARIOS = ["consent-use-app", "consent-plain-existing", "consent-use-app-busy", "consent-use-app-dismiss", "consent-use-app-restart"] as const;
+export const CONSENT_SCENARIOS = ["consent-use-app", "consent-plain-existing", "consent-use-app-busy", "consent-use-app-dismiss", "consent-use-app-restart", "consent-gone-formula"] as const;
 /** Desktop-owned registration that still names the app's own terminal link. */
 export const OWN_LINK_SCENARIOS = ["own-link-repair", "own-link-repair-failure"] as const;
 /** Paired-layout scenarios that attach an external CLI and exercise desktop service moves. */
@@ -15,9 +22,11 @@ export const NATIVE_SCENARIOS = [...MANAGED_SCENARIOS, ...ATTACHED_SCENARIOS, ..
 const points = {
   upgrade: [], "startup-failure": ["candidate-startup"], "helper-crash": ["authorized"],
   "interrupted-install": ["installed"], "restore-failure": ["candidate-startup", "restore"],
+  "active-work": [], "active-work-rollback": ["candidate-startup"], "active-work-foreign": [],
   adopt: [], "adopt-failure": ["adoption-startup"], attached: [],
   takeover: [], "takeover-relink": [], "takeover-dismiss": [], "takeover-failure": ["takeover-startup"], "takeover-crash": ["takeover-switch"],
   "consent-use-app": [], "consent-plain-existing": [], "consent-use-app-busy": [], "consent-use-app-dismiss": [], "consent-use-app-restart": [],
+  "consent-gone-formula": [],
   "own-link-repair": [], "own-link-repair-failure": ["own-link-bootstrap"],
 } as const;
 const transaction = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);

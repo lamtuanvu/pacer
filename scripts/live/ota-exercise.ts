@@ -11,7 +11,8 @@ import { ownProcessIdentity, processIdentity, sameProcess, type ProcessIdentity 
 import { healthy, loadSession, record, sourceServiceMatchesExecutable } from "./core";
 import { recordOtaEvent } from "./ota-evidence";
 import { assertFixtureLayoutScenario, readOtaRecord, resumeOtaStartup, updateOtaDriverRecord, type OtaOptions } from "./ota";
-import { MANAGED_SCENARIOS, newExercise, resumableStartup } from "./ota-exercise-record";
+import { ACTIVE_WORK_SCENARIOS, MANAGED_SCENARIOS, managedExpectedPhase, newExercise, resumableStartup } from "./ota-exercise-record";
+import { assertOneHandover, assertSurvivorReservation, assertSurvivorsAlive, closeSurvivorWork, leaseTreeRefusalLogged, sampleAdmission, serviceHandoverRuns, startForeignPacerInTerminal, startSurvivorWork, type AdmissionSample, type SurvivorWork } from "./ota-active-work";
 import { verifyExerciseOutcome, verifyExerciseSurvivors } from "./ota-outcome";
 import { fixtureRequest, retryFixtureRevision } from "./ota-request";
 import { fixtureEnvironment, fixtureInstallation, inspectFixtureJobs, seedFixtureConsent, verifyFixtureBundle } from "./ota-native";
@@ -86,6 +87,10 @@ export async function runManagedExercise(id: string, scenario: string, options: 
   const token = privateFixtureBytes(join(state.pacerHome, "token"), 4096).toString("utf8").trim();
   const client = new HttpClient(`http://127.0.0.1:${session.port}`, token, { protocol: 3, timeoutMs: 30000 });
   let unsubscribe = () => {};
+  const activeWork = (ACTIVE_WORK_SCENARIOS as readonly string[]).includes(scenario);
+  let work: SurvivorWork | null = null, foreign: Awaited<ReturnType<typeof startForeignPacerInTerminal>> | null = null;
+  const admissionSamples: AdmissionSample[] = [];
+  let admissionTrace: ReturnType<typeof setInterval> | undefined;
   let journalTrace: ReturnType<typeof setInterval> | undefined;
   let journalTraceFd: number | undefined;
   try {
@@ -168,8 +173,48 @@ export async function runManagedExercise(id: string, scenario: string, options: 
         writeSync(journalTraceFd, line); traceBytes += Buffer.byteLength(line); lastJournalRevision = value.revision;
       } catch { /* Observation never authorizes a native effect or changes its result. */ }
     }, 100);
+    if (activeWork) {
+      // Running work the update must keep: terminal session hosts mark their own leases survivors.
+      work = await startSurvivorWork(client, state.pacerHome);
+      if (scenario === "active-work-foreign") foreign = await startForeignPacerInTerminal(join(session.root, "evidence"), `http://127.0.0.1:${session.port}`, token, work);
+      admissionTrace = setInterval(() => {
+        try { const sample = sampleAdmission(state.pacerHome); if (sample && admissionSamples.length < 20000) admissionSamples.push(sample); }
+        catch { /* Observation only. */ }
+      }, 100);
+    }
     await mutate("restart", { version: "0.2.4" });
-    const expected = scenario === "upgrade" ? "complete" : scenario === "restore-failure" ? "recovery-failed" : "restored";
+    const expectedPhase = managedExpectedPhase(scenario);
+    if (expectedPhase === null) {
+      // A foreign pacer under a survivor terminal must stop the install after survivors were
+      // admitted: the reservation held only survivors, the service's coverage refused the foreign
+      // process before any authorization, and nothing was swapped or rolled back.
+      const refused = await waitStatus(value => value.phase === "error" || ["installing", "verifying", "complete", "restored", "rolling-back", "recovery-failed"].includes(value.phase), 180000).catch(() => undefined);
+      const latest = refused ?? await status();
+      if (latest.phase !== "error" || latest.error?.code !== "pre_handoff") throw Error(`Expected a pre-handoff refusal, observed ${latest.phase}${latest.error ? ` (${latest.error.code})` : ""}`);
+      // The fixture binds the exercise transaction only at authorization, which must not happen here;
+      // the refused update keeps its transaction ID in the public status.
+      const tx = latest.transactionId;
+      if (!tx) throw Error("No transaction was prepared, so survivors were never admitted");
+      assertSurvivorReservation(admissionSamples, tx);
+      // The refusing layer must be the service's coverage, for a pacer inside a survivor's lease tree
+      // (not the older out-of-tree foreign-path rule, and not a later helper refusal).
+      const refusal = leaseTreeRefusalLogged(state.pacerHome, work!.logOffset);
+      if (!refusal) throw Error("The service did not refuse a foreign pacer inside a survivor's lease tree");
+      const ctx = makeCtx({ home: state.pacerHome, pacerHome: state.pacerHome, env: fixtureEnvironment(state) });
+      const native = (() => { try { return readNativeTransaction(ctx, installationId!, tx); } catch { return null; } })();
+      if (native?.authorization) throw Error("An install was authorized despite the foreign pacer process");
+      await verifyFixtureBundle(readOtaRecord(id, options), "0.2.3");
+      assertSurvivorsAlive(state.pacerHome, work!);
+      if (serviceHandoverRuns(state.pacerHome, work!.logOffset).runs.length) throw Error("A refused update handed over running work");
+      foreign?.stop(); foreign = null;
+      clearInterval(admissionTrace); admissionTrace = undefined;
+      writeFileSync(join(session.root, "evidence/active-work-admission.json"), JSON.stringify(admissionSamples.slice(-2000), null, 2) + "\n", { flag: "wx", mode: 0o600 });
+      record(session, { kind: "note", behavior: `OTA ${scenario}`, surface: "desktop / public API / native coverage", verdict: "PASS", text: `Survivors were admitted (reservation ${tx} with survivors: true), then a foreign pacer started inside a survivor terminal was refused by the service coverage layer (lease-tree rule: foreign=${refusal.foreign}, lease-tree=${refusal.leaseTree}) before authorization (${latest.error?.message ?? "pre_handoff"}). No native authorization, the fixture stayed on 0.2.3, ${work!.terminals.length} terminal hosts kept running and nothing was handed over.` });
+      state = readOtaRecord(id, options);
+      updateOtaDriverRecord(id, state, { runtime: { ...state.runtime!, request: null }, exercise: { ...state.exercise!, state: "complete" } }, options);
+      return;
+    }
+    const expected = expectedPhase;
     let outcome: UpdateStatus | undefined;
     if (scenario === "restore-failure") {
       // This fault deliberately prevents the service from being relaunched.
@@ -224,6 +269,21 @@ export async function runManagedExercise(id: string, scenario: string, options: 
       }
       if (!survived) throw Error("Final desktop/service survival after native retirement was not established");
     }
+    if (activeWork && work) {
+      clearInterval(admissionTrace); admissionTrace = undefined;
+      writeFileSync(join(session.root, "evidence/active-work-admission.json"), JSON.stringify(admissionSamples.slice(-2000), null, 2) + "\n", { flag: "wx", mode: 0o600 });
+      assertSurvivorReservation(admissionSamples, tx);
+      assertSurvivorsAlive(state.pacerHome, work);
+      // Exactly one handover on commit; none when the update rolled back.
+      // The commit signal and the desktop's step-0 call together make one handover; a rollback makes none.
+      // The new desktop may call step 0 a little after the commit; give it time to land.
+      await Bun.sleep(expected === "complete" ? 15000 : 5000);
+      const runs = serviceHandoverRuns(state.pacerHome, work.logOffset);
+      const commit = assertOneHandover(runs, expected === "complete", work.terminals.length);
+      const lines = commit ? [`commit run: signalled=${commit.signalled}; ${commit.summary}`, ...runs.runs.filter(run => run.origin === "request").map(run => `step-0 request run: signalled=${run.signalled}`)] : [];
+      const wanted = commit ? 1 : 0;
+      record(session, { kind: "note", behavior: `OTA ${scenario} running work`, surface: "native admission / service log", verdict: "PASS", text: `${work.terminals.length} terminal hosts survived as the same incarnations; the reservation admitted survivor leases; ${wanted ? `one handover in total: ${lines.join(" | ").slice(0, 600)}` : "no handover run after rollback"}. Headless runner and executor-session survivors are not exercised by this driver.` });
+    }
     const realAppAfter = snapshotRealApp(enumerateNativeProcesses());
     writeFileSync(realAppEvidence.after, JSON.stringify(realAppAfter, null, 2) + "\n", { flag: "wx", mode: 0o600 });
     assertRealAppUnchanged(realApp, realAppAfter);
@@ -236,6 +296,9 @@ export async function runManagedExercise(id: string, scenario: string, options: 
     throw error;
   } finally {
     clearInterval(journalTrace);
+    clearInterval(admissionTrace);
+    try { foreign?.stop(); } catch { /* The foreign process is ours; a failed stop is reported by the next run. */ }
+    if (activeWork) await closeSurvivorWork(client, work).catch(() => {});
     try { if (journalTraceFd !== undefined) closeSync(journalTraceFd); }
     finally { try { unsubscribe(); } finally { client.close(); } }
     if (!existsSync(realAppEvidence.after)) try {

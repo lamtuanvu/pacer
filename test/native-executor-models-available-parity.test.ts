@@ -184,7 +184,7 @@ const STEPS: Step[] = [
   // A listing that fails or is empty saves the model with a "could not be checked" warning.
   ["runner.set", { id: "opencode#oc-fail", model: "acme/zz" }, true, undefined, "acme/zz could not be checked: opencode could not list models for acme"],
   ["executor.models.available", available("opencode#oc-empty"), true, { mode: "empty" }],
-  ["runner.set", { id: "opencode#oc-empty", model: "acme/zz" }, true, undefined, "acme/zz could not be checked: opencode lists no models for acme; check opencode auth list"],
+  ["runner.set", { id: "opencode#oc-empty", model: "acme/zz" }, true, undefined, "acme/zz could not be checked: opencode lists no models for acme; check opencode auth list --standalone"],
   ["executor.models.available", available("opencode#oc-empty"), true, { mode: "list", models: "other/x\n" }],
   ["executor.models.available", available("opencode#oc-empty", { refresh: false }), true, { mode: "list", models: "\ufeffacme/x \r\nacme/a\n" }],
   ["executor.models.available", available("missing"), true],
@@ -219,7 +219,7 @@ for (const transport of ["stdio", "http"] as const) {
       const state = disk(homes[0]);
       // stale, refresh, fail and runner.set, empty and runner.set, two acme listings, nullcat
       // (TypeScript), runner.set's discovery once cached.
-      expect(state.opencode.split("\n").filter(Boolean)).toEqual(Array(10).fill("args=models pwd=$HOME/work cwd=$HOME/work probe=door-env"));
+      expect(state.opencode.split("\n").filter(Boolean)).toEqual(Array(10).fill("args=models --standalone pwd=$HOME/work cwd=$HOME/work probe=door-env"));
       expect(state.dirMode).toBe("700");
       expect(state.caches.every(line => / 600 /.test(line))).toBe(true);
       expect(readFileSync(cachePath(homes[0], "opencode#oc-stale"), "utf8")).toMatch(

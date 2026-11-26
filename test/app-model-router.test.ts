@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { hrefFor, parentFor, primaryFor, resolveRoute, routes, titleFor, withQuery, type Route } from "../app/src/router";
+import { hrefFor, parentFor, primaryFor, resolveRoute, routes, settingsPath, titleFor, withQuery, type Route } from "../app/src/router";
 
 const q = { repo: null, scope: null };
 const route = (hash: string, setup: boolean | null = true) => resolveRoute(hash, setup) as Route;
@@ -12,7 +12,9 @@ test("new routes resolve with their ids and sections", () => {
   expect(route("#/tasks")).toEqual({ name: "sessions", query: q });
   expect(route("#/tasks/a%20b")).toEqual({ name: "sessions", id: "a b", query: q });
   expect(route("#/settings")).toEqual({ name: "settings", query: q });
-  expect(route("#/settings/executors")).toEqual({ name: "settings", section: "executors", query: q });
+  expect(route("#/settings/agents")).toEqual({ name: "settings", section: "agents", query: q });
+  expect(route("#/settings/agents?agent=codex%23team")).toEqual({ name: "settings", section: "agents", agent: "codex#team", query: q });
+  for (const section of ["rules", "profiles"]) expect(route(`#/settings/${section}`)).toEqual({ name: "settings", section, query: q });
   expect(route("#/settings/hosts")).toEqual({ name: "hosts", query: q });
   expect(route("#/settings/hosts/devbox")).toEqual({ name: "hosts", alias: "devbox", query: q });
   expect(route("#/settings/add-executor")).toEqual({ name: "add-executor", query: q });
@@ -46,7 +48,7 @@ test("former routing and strategies settings links lead to Dispatcher with work 
 });
 
 test("incomplete setup redirects to Setup except within settings", () => {
-  for (const hash of ["#/", "#/review/one", "#/sessions", "#/missing", "#/tasks/t1"]) expect(resolveRoute(hash, false)).toEqual({ redirect: "#/setup" });
+  for (const hash of ["#/", "#/review/one", "#/sessions", "#/missing", "#/tasks/t1", "#/insights"]) expect(resolveRoute(hash, false)).toEqual({ redirect: "#/setup" });
   expect(resolveRoute("#/review/one?repo=k&scope=all", false)).toEqual({ redirect: "#/setup?repo=k&scope=all" });
   expect(route("#/settings", false).name).toBe("settings");
   expect(route("#/settings/hosts", false).name).toBe("hosts");
@@ -57,7 +59,26 @@ test("interactive entry and its sessions do not require planner integration setu
   expect(resolveRoute("#/", false, true)).toEqual({name:"dispatch",query:q});
   expect(resolveRoute("#/tasks/one", false, true)).toEqual({name:"sessions",id:"one",query:q});
   expect(resolveRoute("#/workspace?task=one", false, true)).toMatchObject({name:"terminal",id:"one",query:q});
+  expect(resolveRoute("#/insights", false, true)).toEqual({redirect:"#/setup"});
   expect(resolveRoute("#/needs-you", false, true)).toEqual({redirect:"#/setup"});
+});
+
+test("bare workspace and terminal hashes redirect to Tasks and keep work scope", () => {
+  expect(resolveRoute("#/workspace")).toEqual({ redirect: "#/tasks" });
+  expect(resolveRoute("#/workspace?repo=acme&scope=all")).toEqual({ redirect: "#/tasks?repo=acme&scope=all" });
+  expect(resolveRoute("#/terminal")).toEqual({ redirect: "#/tasks" });
+  expect(resolveRoute("#/terminal?repo=acme")).toEqual({ redirect: "#/tasks?repo=acme" });
+  expect(resolveRoute("#/workspace?task=one&panel=notes&repo=acme")).toMatchObject({ name: "terminal", id: "one", panel: "notes", query: { repo: "acme", scope: null } });
+  expect(parentFor(route("#/workspace?task=one&repo=acme"))).toEqual(routes.tasks({ repo: "acme", scope: null }));
+});
+
+test("onboarded installs keep Insights when required probes regress", async () => {
+  const { setupCompleteFrom } = await import("../app/src/router");
+  expect(setupCompleteFrom({ complete: false, onboarded: true })).toBe(true);
+  expect(setupCompleteFrom({ complete: false })).toBe(false);
+  expect(setupCompleteFrom({ complete: true, onboarded: false })).toBe(true);
+  expect(resolveRoute("#/insights", setupCompleteFrom({ complete: false, onboarded: true }))).toEqual({ name: "insights", query: q });
+  expect(resolveRoute("#/insights", setupCompleteFrom({ complete: false }))).toEqual({ redirect: "#/setup" });
 });
 
 test("while the first setup check is in flight, screens wait instead of flashing Setup", () => {
@@ -72,6 +93,7 @@ test("setup is unknown until a setup check answers; a failed check keeps waiting
   expect(setupCompleteFrom("error")).toBeNull();
   expect(setupCompleteFrom({ complete: false })).toBe(false);
   expect(setupCompleteFrom({ complete: true })).toBe(true);
+  expect(setupCompleteFrom({ complete: false, onboarded: true })).toBe(true);
 });
 
 test("Setup is reachable after required completion and Settings remains available before it", () => {
@@ -105,10 +127,12 @@ test("canonical route targets generate URLs that round-trip with metadata", () =
   [routes.needsYou(), "#/needs-you", "Needs you", "review", null],
   [routes.tasks(), "#/tasks", "Tasks", "sessions", null],
   [routes.task("a b/c"), "#/tasks/a%20b%2Fc", "Task", "sessions", routes.tasks()],
-  [routes.settings("executors"), "#/settings/executors", "Agents", "settings", routes.settings()],
+  [routes.agents(), "#/settings/agents", "Dispatcher", "settings", routes.settings()],
+  [routes.agents("codex#team"), "#/settings/agents?agent=codex%23team", "Dispatcher", "settings", routes.settings()],
+  [routes.settings("rules"), "#/settings/rules", "Dispatcher", "settings", routes.settings()],
   [routes.hosts(), "#/settings/hosts", "Machines", "settings", routes.settings()],
   [routes.host("dev box/a"), "#/settings/hosts/dev%20box%2Fa", "Host", "settings", routes.hosts()],
-  [routes.addExecutor(), "#/settings/add-executor", "Add an agent", "settings", routes.settings()],
+  [routes.addExecutor(), "#/settings/add-executor", "Add an agent", "settings", routes.agents()],
   [routes.setup(), "#/setup", "Set up pacer", null, null],
  ] as const;
  for (const [target, href, title, primary, parent] of cases) {
@@ -146,4 +170,16 @@ test("#/overview redirects to the Dispatch home and keeps its repo and scope", (
 test("withQuery joins with & when the link already has a query string", () => {
   expect(withQuery("#/settings/add-executor?host=gpu-1", { repo: "acme", scope: "mine" })).toBe("#/settings/add-executor?host=gpu-1&repo=acme&scope=mine");
   expect(withQuery("#/settings/accounts", { repo: "acme", scope: null })).toBe("#/settings/accounts?repo=acme");
+});
+
+test("retired Agents, Accounts and Model matrix links redirect to Dispatcher › Agents with their agent and scope", () => {
+  for (const name of ["executors", "accounts", "models"]) {
+    expect(resolveRoute(`#/settings/${name}`)).toEqual({ redirect: "#/settings/agents" });
+    expect(resolveRoute(`#/settings/${name}?repo=acme`)).toEqual({ redirect: "#/settings/agents?repo=acme" });
+  }
+  expect(resolveRoute("#/settings/executors?agent=codex%23team&scope=all")).toEqual({ redirect: "#/settings/agents?agent=codex%23team&scope=all" });
+  expect(settingsPath("executors")).toBe("/settings/agents");
+  expect(settingsPath("models")).toBe("/settings/agents");
+  expect(settingsPath("routing")).toBe("/settings/dispatcher");
+  expect(hrefFor(routes.agents("codex#team"), { repo: "acme", scope: null })).toBe("#/settings/agents?agent=codex%23team&repo=acme");
 });

@@ -1,11 +1,10 @@
 import { expect, test } from 'bun:test';
 import { renderToString } from 'preact-render-to-string';
-import { AccountsSection } from '../app/src/screens/settings/Accounts';
 import { SettingsGeneral } from '../app/src/screens/settings/General';
 import { SetupEditor } from '../app/src/screens/settings/DispatcherSetup';
 import { dispatchConfigSchema } from '../src/dispatch/types';
 import { costCopy, reasonCopy } from '../src/view-model/copy';
-import { AgentsIntro, ExecutorsSection } from '../app/src/screens/settings/Executors';
+import { AgentsPage } from './fixtures/ui/agents';
 import { TaskContext } from '../app/src/screens/task-shared';
 import { initialState } from '../app/src/data/store';
 import { accountLabel } from '../src/view-model/words';
@@ -40,7 +39,7 @@ test('weekly copy keeps a meter but omits compact pace and engine strings', () =
   expect(usageView(usageStateFor({ usedPct: null, window: 'weekly', verdict: 'UNMETERED' }, snap.at ?? 1000), snap.at ?? 1000).figure).toBe('Unmetered');
   const reset = (snap.at ?? 1800000000) + 2 * 86400; // a reset inside the next seven days keeps its weekday
   expect(usageView(usageStateFor({ usedPct: 81, window: 'weekly', resetsAt: reset, verdict: 'ON_PACE' }, snap.at ?? 1000), snap.at ?? 1000).reset).toMatch(/^resets \w{3} \d{2}:\d{2}$/);
-  const html = draw(<ExecutorsSection/>, withUsageState(snap));
+  const html = draw(<AgentsPage/>, withUsageState(snap));
   expect(html).toContain('role="meter"');
   expect(visible(html)).toContain('of week');
   expect(visible(html)).not.toContain('Eligible');
@@ -65,6 +64,19 @@ test('readiness maps authoritative eligibility and pace with one short reason', 
   expect(executorReadiness({...ready,untested:true,eligibility:undefined},snap)).toMatchObject({label:'Skipped',reason:'Refresh to confirm availability'});
 });
 
+test('an unavailable endpoint names its test failure and the tooltip does not repeat itself', () => {
+  const unavailable = {...eligible,state:'ineligible',reasons:[{code:'unavailable'}]};
+  const down = {...row,state:'down' as const,eligibility:unavailable};
+  expect(executorReadiness({...down,reason:'Not working · test task failed: Model unavailable'},snap)).toMatchObject({label:'Cannot take work',reason:'Last test task failed'});
+  expect(executorReadiness({...down,reason:'Key missing'},snap)).toMatchObject({label:'Cannot take work',reason:'Key missing'});
+  // Other unavailable reasons (remote host, routing restrictions) are not test failures.
+  expect(executorReadiness({...down,reason:'remote host offline'},snap)).toMatchObject({label:'Cannot take work',reason:'Agent needs attention'});
+  const tooltip = executorReadiness({...down,reason:'Not working · x',sub:'Unavailable · Executor is unavailable · this Mac'},snap).tooltip;
+  const parts = tooltip.split(' · ');
+  expect(new Set(parts).size).toBe(parts.length);
+  expect(tooltip).toContain('this Mac');
+});
+
 test('account labels use agent names and distinguish named accounts', () => {
   for (const [name,kind,label] of [['claude-code','claude','Claude Code'],['codex','codex','Codex'],['agy','agy','Antigravity'],['byteplus','endpoint','BytePlus'],['local','endpoint','Local model'],['claude1','claude','Claude Code · claude1']]) {
     expect(accountLabel({name:name!,kind:kind!})).toBe(label!);
@@ -74,16 +86,21 @@ test('account labels use agent names and distinguish named accounts', () => {
   expect(html).not.toContain('opencode#local');
 });
 
-test('planner card reports only known connection facts', () => {
-  const html = visible(draw(<AgentsIntro tab="executors"/>));
+test('the planner reports only known connection facts', () => {
+  const planner = {...row, id:'claude-code', agent:'claude-code', account:'claude-code', rank:'planner' as const};
+  const base = {...snapshot, executors:[planner, row]} as ClientSnapshot;
+  const page = (snap: ClientSnapshot) => visible(draw(<AgentsPage agent="claude-code"/>, snap));
+  const html = page(base);
   expect(html).toContain('Plans and reviews');
-  const connected = {...snapshot,console:{pid:1,handle:null,paneKey:null,startedAt:snapshot.at-60,heartbeatAt:snapshot.at-10}};
-  expect(visible(draw(<AgentsIntro tab="executors"/>,connected))).toContain('Connected');
-  expect(visible(draw(<AgentsIntro tab="executors"/>,connected))).toContain('connection seen 10s ago');
-  expect(visible(draw(<AgentsIntro tab="executors"/>,{...connected,console:{...connected.console,heartbeatAt:snapshot.at-600}}))).not.toContain('Connected');
+  const connected = {...base,console:{pid:1,handle:null,paneKey:null,startedAt:snapshot.at-60,heartbeatAt:snapshot.at-10}} as ClientSnapshot;
+  expect(page(connected)).toContain('Connected');
+  expect(page(connected)).toContain('connection seen 10s ago');
+  expect(page(connected)).toContain('Hooks observed');
+  expect(page({...connected,console:{...connected.console!,heartbeatAt:snapshot.at-600}})).not.toContain('Connected');
   expect(html).not.toContain('hooks and status line');
   expect(html).not.toContain('keeps 10%');
-  expect(visible(draw(<AgentsIntro tab="executors"/>,{...snapshot,console:null}))).not.toContain('Connected');
+  expect(page({...base,console:null})).not.toContain('Connected');
+  expect(page({...base,console:null})).toContain('Hooks not observed');
 });
 
 test('fractional usage and task-cost captions use whole percentages', () => {
@@ -139,13 +156,16 @@ test.skipIf(!process.env.PACER_TEST_BROWSER)('Dispatcher technical detail opens 
   } finally { await browser.close(); }
 });
 
-test('Accounts quota copy suppresses synthetic reactive and unmetered readings', () => {
+test('Agents usage copy suppresses synthetic reactive and unmetered readings', () => {
   for (const [action, source, label] of [['unsupported', 'reactive', 'No usage figure'], ['unmetered', 'unmetered', 'Unmetered']] as const) {
     const account = {name:'synthetic',kind:'endpoint',signedIn:true,usageCheck:{action,consentRequired:false,description:'Provider explanation'},usageState:usageStateFor({usedPct:null,verdict:source==='unmetered'?'UNMETERED':'OK',source},snapshot.at)};
-    const html = draw(<AccountsSection initialData={[account]} initialConfig={{keys:{},planners:[]} as any}/>, {...snapshot,accounts:[{...snapshot.accounts![0]!,name:account.name,source,usedPct:0,capturedAt:snapshot.at,stale:true}]});
-    expect(visible(html)).toContain(label);
+    const agent = {...row, id:'opencode#synthetic', agent:'opencode', account:'synthetic', usageState:undefined};
+    const html = draw(<AgentsPage initialAccounts={[account] as any} initialConfig={{keys:{},planners:[]} as any}/>, {...snapshot,planner:null,executors:[agent],accounts:[{...snapshot.accounts![0]!,name:account.name,source,usedPct:0,capturedAt:snapshot.at,stale:true}]} as ClientSnapshot);
+    const usage = visible(html.split('aria-label="Usage"')[1]!.split('aria-label="Account"')[0]!);
+    expect(usage).toContain(label);
+    expect(usage).toContain('Provider explanation');
     expect(html).not.toContain('role="meter"');
-    expect(visible(html)).not.toMatch(/0%|Last observed|No observation|No usage reported|Usage observed|Historical usage|Stale|check account usage/);
+    expect(usage).not.toMatch(/0%|Last observed|No observation|No usage reported|Usage observed|Historical usage|Stale|check account usage/);
     expect(html).not.toContain('Check usage<span');
   }
 });

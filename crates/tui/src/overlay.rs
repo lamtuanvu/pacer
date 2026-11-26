@@ -25,12 +25,8 @@ fn scrolled(rows: Vec<Line>, scroll: usize, room: usize) -> Vec<Line> {
     out
 }
 fn help(ctx: &Ctx, screen: &str) -> Vec<Line> {
-    let tabs = if ctx.s["setup"]["ready"] == false {
-        5
-    } else {
-        4
-    };
-    let switch = format!("1-{tabs} / Tab Shift-Tab");
+    let tabs = screen_tabs(ctx.s);
+    let switch = format!("1-{} / Tab Shift-Tab", tab_key_max(&tabs));
     let anywhere = [
         ("TABS", "Switch screen", ""),
         (",", "Settings", ""),
@@ -67,6 +63,16 @@ fn help(ctx: &Ctx, screen: &str) -> Vec<Line> {
             ("m", "Open in a tmux pane", "task.attach"),
             ("s", "Stop", "task.stop"),
             ("x", "Dismiss", "task.dismiss"),
+        ],
+        "runs" => vec![
+            ("⏎", "Open run / task", ""),
+            ("a", "Answer", "question.answer"),
+            ("p", "Pause or resume", "run.pause"),
+            ("s", "Stop", "run.stop"),
+            ("P", "Cycle priority", "run.set_priority"),
+            ("A", "Toggle auto", "run.set_auto"),
+            ("m", "Message orchestrator", "msg.send"),
+            ("Esc", "Back to run list", ""),
         ],
         "settings" => vec![
             ("⏎ / →", "Open a section", ""),
@@ -107,6 +113,7 @@ fn help(ctx: &Ctx, screen: &str) -> Vec<Line> {
         "home" => "Home",
         "review" => "Needs you",
         "sessions" => "Tasks",
+        "runs" => "Runs",
         "settings" => "Settings",
         _ => "Setup",
     };
@@ -140,15 +147,16 @@ pub fn build(ctx: &Ctx, overlay: &V, screen: &str, width: usize, height: usize) 
                 );
             }
             body.push(vec![]);
-            let mut l = vec!["y".into(), format!(" {}", text(&overlay["yes"]))];
+            // Enter confirms and Esc cancels for every confirm (same as y/n).
+            let mut l = vec!["y/⏎".into(), format!(" {}", text(&overlay["yes"]))];
             if !overlay["alt"].is_null() {
                 l.extend([
-                    "   ".into(),
+                    " · ".into(),
                     text(&overlay["alt"]["key"]).into(),
                     format!(" {}", text(&overlay["alt"]["label"])),
                 ]);
             }
-            l.extend(["   ".into(), "n".into(), " Cancel".into()]);
+            l.extend([" · ".into(), "n/Esc".into(), " Cancel".into()]);
             body.push(l);
             boxed(title, body, w)
         }

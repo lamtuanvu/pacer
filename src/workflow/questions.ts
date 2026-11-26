@@ -2,7 +2,8 @@
 // Ops/CLI/MCP wire-up lands in a later task; this module is the engine API.
 import type { Ctx } from "../types";
 import { CoreError } from "../core/errors";
-import { answer as answerTask, requireAskingExecutor } from "../core/tasks";
+import { answer as answerTask } from "../core/tasks";
+import { requireStepWorker } from "./step-identity";
 import { isExecutorSession, isOrchestratorSession } from "../install/role";
 import { insertMessage } from "../messaging/store";
 import { rootOf } from "../messaging/participants";
@@ -10,10 +11,12 @@ import { readTask, updateTask } from "../tasks/store";
 import type { SpawnRunner } from "../tasks/api";
 import { canAutoDecide } from "./auto";
 import {
-  questionAnswerInputSchema, questionInputSchema, validateQuestionAnswer, type QuestionInput,
+  NOTE_TOO_LONG, questionAnswerInputSchema, questionInputSchema, sanitizeAnswerNote,
+  validateQuestionAnswer, type QuestionInput,
 } from "./question-schema";
 import { directInputAvailable } from "../session/send";
 import type { HumanStep } from "./schema";
+import type { EngineDeps } from "./engine";
 import {
   answerQuestionRecord,
   escalateQuestionRecord,
@@ -121,6 +124,8 @@ export type AnswerQuestionInput = {
 
 export type QuestionDeps = {
   spawnRunner?: SpawnRunner;
+  /** Optional engine deps so human_step answers can advance with a test stub. */
+  engineDeps?: EngineDeps;
 };
 
 /** Redacted question entity for link/plugins: id, run, status, blocks only — no bodies. */
@@ -218,7 +223,7 @@ export async function askQuestion(ctx: Ctx, raw: AskQuestionInput): Promise<Ques
     return q;
   }
 
-  const taskId = requireAskingExecutor(ctx);
+  const taskId = requireStepWorker(ctx);
   const step = stepByTask(ctx, taskId);
   if (!step) throw new CoreError("not_allowed", "Structured questions require a run step task");
   const run = getRun(ctx, step.runId);
@@ -309,6 +314,7 @@ export function resolveHumanStepQuestion(
   answer: string,
   answeredBy: string,
   branch?: string,
+  note?: string,
 ): QuestionRow | null {
   const open = listQuestions(ctx, runId, "open").filter(q =>
     q.askerKind === "human_step"
@@ -320,6 +326,7 @@ export function resolveHumanStepQuestion(
   if (!q) return null;
   const answered = answerQuestionRecord(ctx, q.id, {
     answer,
+    ...(note !== undefined ? { note } : {}),
     expectRev: q.rev,
     answeredBy,
   });
@@ -403,9 +410,20 @@ export async function answerQuestion(
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "invalid answer";
+    if (msg.includes(NOTE_TOO_LONG) || /note.*(4000|too_big|Too big)/i.test(msg)) {
+      throw new CoreError("invalid_input", NOTE_TOO_LONG);
+    }
     throw new CoreError("invalid_input", msg.includes("2000") || msg.includes("<=2000")
       ? "answer must contain 1–2000 characters"
       : msg);
+  }
+  if (parsed.note !== undefined) {
+    const cleaned = sanitizeAnswerNote(parsed.note);
+    if (cleaned.length > 4000) throw new CoreError("invalid_input", NOTE_TOO_LONG);
+    // Trim before emptiness: whitespace-only notes must not produce empty fenced blocks.
+    parsed = cleaned.trim() === ""
+      ? { answer: parsed.answer, expectRev: parsed.expectRev }
+      : { ...parsed, note: cleaned };
   }
   const unknownMsg = `unknown question ${raw.id}`;
   const current = getQuestion(ctx, raw.id);
@@ -463,7 +481,7 @@ export async function answerQuestion(
   }
 
   // Human steps settle through the Phase 1 compare-and-set (answerHumanStep),
-  // which also resolves the open question record.
+  // which also resolves the open question record (including the revise note).
   if (current.askerKind === "human_step") {
     if (current.rev !== parsed.expectRev) {
       throw new CoreError("conflict", `conflict: question ${current.id} changed since rev ${parsed.expectRev}`);
@@ -471,7 +489,16 @@ export async function answerQuestion(
     const run = getRun(ctx, current.runId);
     if (!run) throw new CoreError("not_found", `unknown run ${current.runId}`);
     const { answerHumanStep } = await import("./engine");
-    await answerHumanStep(ctx, current.runId, current.stepId, parsed.answer, run.rev, undefined, deps.spawnRunner);
+    await answerHumanStep(
+      ctx,
+      current.runId,
+      current.stepId,
+      parsed.answer,
+      run.rev,
+      deps.engineDeps,
+      deps.spawnRunner,
+      parsed.note,
+    );
     const settled = getQuestion(ctx, current.id);
     if (!settled || settled.status !== "answered") {
       throw new CoreError("conflict", `conflict: question ${current.id} was not resolved`);

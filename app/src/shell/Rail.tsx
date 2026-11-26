@@ -5,17 +5,27 @@ import { useContext } from "preact/hooks";
 import { SetupContext } from "../screens/setup/context";
 import type { Counts } from "../../../src/api/read-model/types";
 import type { ClientSnapshot } from "../../../src/view-model/snapshot";
+import { runsBadgeCount } from "../data/runs-badge";
 import { Tooltip } from "../ds/Tooltip";
 import { Icon, type IconName } from "../ds/icons";
 import { primaryFor, routes, type Route, type RouteTarget } from "../router";
-import { StrategyQuickAccess } from "./StrategyQuickAccess";
+import { TaskContext } from "../screens/task-shared";
 
-const ITEMS: { name: "insights" | "dispatch" | "review" | "sessions" | "terminal"; label: string; to: RouteTarget; icon: IconName; count: (c: Counts) => number; words: string; tone: "warn" | "info" }[] = [
+type RailItem = {
+  name: "insights" | "dispatch" | "review" | "sessions" | "runs";
+  label: string;
+  to: RouteTarget;
+  icon: IconName;
+  count: (c: Counts, snapshot: ClientSnapshot | null) => number;
+  words: string;
+  tone: "warn" | "info";
+};
+const ITEMS: RailItem[] = [
   { name: "dispatch", label: "Dispatch", to: routes.dispatch(), icon: "activity-dispatch", count: () => 0, words: "", tone: "info" },
   { name: "review", label: "Needs you", to: routes.needsYou(), icon: "needs-you", count: c => c.attention, words: "items", tone: "warn" },
+  { name: "runs", label: "Runs", to: routes.runs(), icon: "activity-runs", count: (_c, snapshot) => runsBadgeCount(snapshot?.attention), words: "questions", tone: "warn" },
   { name: "sessions", label: "Tasks", to: routes.tasks(), icon: "task-checklist", count: () => 0, words: "running", tone: "info" },
   { name: "insights", label: "Insights", to: routes.insights(), icon: "activity-insights", count: () => 0, words: "", tone: "info" },
-  { name: "terminal", label: "Workspace", to: routes.terminal(), icon: "activity-terminal", count: () => 0, words: "", tone: "info" },
 ];
 const SETTINGS = new Set(["settings", "hosts", "add-executor"]);
 const EXECUTOR_PROBLEMS = new Set(["failing", "down", "blocked", "exhausted"]);
@@ -25,13 +35,16 @@ export const settingsAttention = (snapshot: ClientSnapshot | null): number => sn
 export function Rail({ route, counts, narrow = false, settingsAttention: attention = 0, terminal }: { route: Route; counts: Counts | null; narrow?: boolean; settingsAttention?: number; terminal?: {open: boolean; toggle: () => void} }) {
   const { surfaces } = useContext(PluginContext);
   const { checklist } = useContext(SetupContext);
+  const task = useContext(TaskContext);
+  const snapshot = task?.state.snapshot ?? null;
   const setupOpen = checklist ? !checklist.complete : (counts?.setupOpen ?? 0) > 0;
   const showSetup = checklist ? !checklist.ready : setupOpen;
   const settingsLabel = attention ? `Settings, ${attention} ${attention === 1 ? "agent needs" : "agents need"} attention` : "Settings";
   return <nav className={narrow ? "pc-bottom-bar" : "pc-rail"} aria-label="pacer">
-    {ITEMS.filter(item => !narrow || item.name !== "terminal").map(item => {
-      const n = counts && !(narrow && item.name === "sessions") ? item.count(counts) : 0;
-      const label = item.name === "terminal" ? "Workspace" : n > 0 ? `${item.label}, ${n} ${item.words}` : item.label;
+    {ITEMS.map(item => {
+      const n = counts && !(narrow && item.name === "sessions") ? item.count(counts, snapshot) : 0;
+      const words = item.words && n === 1 && item.words.endsWith("s") ? item.words.slice(0, -1) : item.words;
+      const label = n > 0 ? `${item.label}, ${n} ${words}` : item.label;
       return <Tooltip key={item.name} text={label}>
         <AppLink className={`pc-rail__item${primaryFor(route) === item.name ? " on" : ""}`} to={item.to} query={route.query} aria-label={label}  aria-current={primaryFor(route) === item.name ? "page" : undefined}>
           <Icon name={item.icon} />{narrow && <span>{item.label}</span>}{n > 0 && <span className={`pc-rail__badge pc-rail__badge--${item.tone}${item.tone === "warn" ? " pc-rail__badge--count" : ""}`} aria-hidden="true">{n}</span>}

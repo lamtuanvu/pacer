@@ -35,7 +35,7 @@ test("eligibility goldens cover spending, conflicts, unavailable and unmetered c
 
 test("rank goldens cover kind routing, exclusions, planner include and conversation fallback", () => {
   const names = engineGoldens().rank.map(item => item.name);
-  for (const name of ["kind-review", "exclusions", "planner-excluded", "planner-included", "expiring"]) {
+  for (const name of ["kind-review", "exclusions", "planner-excluded", "planner-included", "expiring", "tier-fallback", "tier-fallback-off"]) {
     expect(names).toContain(name);
   }
   expect(engineGoldens().conversation.map(item => item.name)).toEqual(["append-planner", "already-ranked"]);

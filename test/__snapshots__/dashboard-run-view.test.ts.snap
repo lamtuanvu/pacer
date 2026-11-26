@@ -1,0 +1,71 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`run view screen snapshots at 120x40 1`] = `
+" ▬┃ pacer   Home  Needs you 4  Tasks 2  [ Runs ]  Settings                            All repos · Normal · ● live 08:00
+ Claude Code planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
+ ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+   planner at limit until 09:00                       │ REVIEW
+   A Ship the frame · feature                         │ ? Waits on you
+                                                      │ 
+   ✓ plan                  done          …            │ QUESTIONS
+   ▶ build                 running           running… │ Ship it?
+ › ? review                waits on you      waiting… │ Yes / No · Open
+                                                      │ 
+                                                      │ 
+                                                      │ 
+                                                      │ 
+                                                      │ 
+                                                      │ 
+                                                      │ 
+                                                      │ 
+                                                      │ 
+                                                      │ 
+                                                      │ 
+                                                      │ 
+                                                      │ 
+                                                      │ 
+                                                      │ 
+                                                      │ 
+                                                      │ 
+                                                      │ 
+                                                      │ 
+                                                      │ 
+                                                      │ 
+                                                      │ 
+                                                      │ 
+                                                      │ 
+                                                      │ 
+                                                      │ 
+                                                      │ 
+                                                      │ 
+ ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ 
+ m message orchestrator  . actions (1)  Esc back  ? help                             policy: unknown · pacer 0.0.0-test"
+`;
+
+exports[`run view screen snapshots at 80x24 1`] = `
+" ▬┃ pacer   Home  Needs you 4  Tasks 2  [ Runs ]  Settings         ● live 08:00
+ Claude Code  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h ·…
+ ──────────────────────────────────────────────────────────────────────────────
+   planner at limit until 09:00
+   A Ship the frame · feature
+   
+   ✓ plan                                          done                        
+   ▶ build                                         running           running 1m
+ › ? review                                        waits on you      waiting 0m
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ ──────────────────────────────────────────────────────────────────────────────
+ 
+ m message orchestrator  . actions (1)  Esc back  ? help        policy: unknown"
+`;

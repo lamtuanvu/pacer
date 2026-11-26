@@ -14,7 +14,7 @@ export function fakeCtx(options: Partial<Ctx> = {}): Ctx {
   const token = crypto.randomUUID();
   const commands: Record<string, string[]> = {
     arkcli: ["usage", "plan", "--product", "coding-plan"],
-    opencode: ["stats", "--models", "--cost", "--json", "--days", "7"],
+    opencode: ["stats", "--standalone", "--models", "--cost", "--json", "--days", "7"],
   };
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     if (new URL(request.url).pathname !== `/${token}` || request.method !== "POST") return new Response("refused", { status: 403 });

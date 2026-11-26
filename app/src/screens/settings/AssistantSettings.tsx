@@ -1,6 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import type { AssistantSettings as Settings } from "../../../../src/assistant/types";
-import { askModeCheckCopy, ASSISTANT_READS_SUMMARY_ONLY, executorAssistantDescription } from "../../../../src/view-model/copy";
+import { askModeCheckCopy, ASSISTANT_READS_SUMMARY_ONLY, assistantBackendChoiceLabel, executorAssistantDescription, type AssistantCli } from "../../../../src/view-model/copy";
 import { Alert } from "../../ds/Alert";
 import { Button } from "../../ds/Button";
 import { ChoicePicker } from "../../ds/ChoicePicker";
@@ -12,13 +12,13 @@ import { ErrorMessage, useTaskContext } from "../task-shared";
 import { Section, useResource } from "./shared";
 
 type Backend = "pacer" | "executor";
-interface Candidate { account: string; backend: Backend; available: boolean; liveTools?: boolean; reason?: string; models: { id: string; name: string }[]; runners: { id: string; model: string | null }[]; isPlanner: boolean }
+interface Candidate { account: string; backend: Backend; available: boolean; liveTools?: boolean; cli?: AssistantCli; reason?: string; models: { id: string; name: string }[]; runners: { id: string; model: string | null }[]; isPlanner: boolean }
 interface Candidates { accounts: Candidate[]; reads: string[] }
 /** One picker value per account and backend: an account can answer through both. */
 const choiceOf = (account: string | null, backend: Backend) => account ? `${backend}:${account}` : "";
 const parseChoice = (value: string): { account: string | null; backend: Backend } =>
   value.startsWith("executor:") ? { account: value.slice(9), backend: "executor" } : value.startsWith("pacer:") ? { account: value.slice(6), backend: "pacer" } : { account: null, backend: "pacer" };
-interface Status { available: boolean; liveTools?: boolean; reason?: string; hint?: string; today: { turns: number; input: number; output: number } }
+interface Status { available: boolean; liveTools?: boolean; cli?: AssistantCli; reason?: string; hint?: string; today: { turns: number; input: number; output: number } }
 
 /** Settings › Assistant: which account answers, what it can read, limits, history. Off until an account is chosen. */
 export function AssistantSettingsSection() {
@@ -39,7 +39,7 @@ export function AssistantSettingsSection() {
   };
   const save = async () => {
     // Choosing an agent CLI to answer is a trust decision (spec §7): say what it can and cannot do, once per switch.
-    if (backend === "executor" && settings.data!.backend !== "executor" && !(await confirmExecutorTrust(dialogs.confirm, chosen?.liveTools === true))) return;
+    if (backend === "executor" && settings.data!.backend !== "executor" && !(await confirmExecutorTrust(dialogs.confirm, chosen?.liveTools === true, chosen?.cli))) return;
     await act(() => api.call("assistant.settings.set", { account, backend, runner: runner || null, expect_rev: settings.data!.rev, limits: { turnsPerDay: Number(turns) }, retention: { days: Number(days) } }), "Saved.");
   };
   const check = () => act(() => api.call("assistant.selftest", { account }), "Check finished.").then(() => candidates.reload());
@@ -49,8 +49,8 @@ export function AssistantSettingsSection() {
     <div className="pc-card pc-stack pc-stack--normal">
       <Field label="Account that answers" help="The assistant uses this account only. It never moves to another one, and its use is counted as assistant use, apart from your tasks.">
         <ChoicePicker value={choiceOf(account, backend)} placeholder="Off — choose an account" options={[{ value: "", agent: "opencode", label: "Off" }, ...candidates.data.accounts.map(a => ({
-          value: choiceOf(a.account, a.backend), agent: a.runners[0]?.id ?? a.account,
-          label: `${a.account}${a.isPlanner ? " (planner)" : ""} · ${a.backend === "executor" ? "via agent CLI" : "pacer's agent"}`,
+          value: choiceOf(a.account, a.backend), agent: a.backend === "executor" ? (a.cli ?? a.runners[0]?.id ?? a.account) : (a.runners[0]?.id ?? a.account),
+          label: assistantBackendChoiceLabel(a.account, a.backend, a.cli, a.isPlanner),
           description: a.backend === "executor" ? executorAssistantDescription(a.available, a.liveTools) : "Answers directly with this account's key. Fastest.",
         }))]} onValueChange={value => { const next = parseChoice(value); setAccount(next.account); setBackend(next.backend); setRunner(""); }} />
       </Field>

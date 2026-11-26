@@ -22363,7 +22363,7 @@
         }
       },
       "plugin.enable": {
-        "description": "Enable a plugin. An installed plugin without a matching grant returns needs_grant with its capability set until called with grant: true.",
+        "description": "Enable a plugin. An installed plugin without a matching grant returns needs_grant with its capability set (and any UI surfaces or contributed workflow names) until called with grant: true.",
         "params": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "type": "object",
@@ -23412,6 +23412,10 @@
               "minLength": 1,
               "maxLength": 4000
             },
+            "note": {
+              "type": "string",
+              "maxLength": 4000
+            },
             "expect_rev": {
               "type": "integer",
               "exclusiveMinimum": 0,
@@ -23561,7 +23565,7 @@
         }
       },
       "run.get": {
-        "description": "One run with its step instances and generated graph versions. Person, or a live run grant for its own run (expect_rev for sync/publish).",
+        "description": "One run with its step instances and generated graph versions. When the exact workflow@version definition is stored, the result includes additive `definition` `{ entry, edges[{ from, to, when?, maxLoops? }], steps{ id: { type, branches? } } }` (fanout steps carry `branches`); the field is omitted when that version is missing. Person, or a live run grant for its own run (expect_rev for sync/publish).",
         "params": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "type": "object",
@@ -23850,7 +23854,7 @@
         }
       },
       "run.start": {
-        "description": "Start a run of an installed workflow for one brief and repository; the entry step becomes an ordinary task.",
+        "description": "Start a run of an installed workflow for one brief and repository; the entry step becomes an ordinary task. Pass workflow `auto` to start the configured router (strategy workflows.router, default pacer-dev/router).",
         "params": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "type": "object",
@@ -26392,7 +26396,7 @@
         }
       },
       "workflow.list": {
-        "description": "Installed workflow definitions, oldest first.",
+        "description": "Installed workflow definitions, oldest first. Each entry includes origin (manual or plugin:<id>@<version>) and whether it is disabled.",
         "params": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "type": "object",
