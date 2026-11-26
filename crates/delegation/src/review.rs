@@ -801,7 +801,7 @@ fn work_root(ctx: &Ctx, id: &str) -> Result<String, CoreError> {
     let work = state
         .work(id)
         .map_err(|e| internal(e.to_string()))?
-        .ok_or_else(|| unknown("work"))?;
+        .ok_or_else(|| CoreError::new(Code::UnknownTask, "Unknown work"))?;
     work.get("rootId")
         .and_then(Value::as_str)
         .map(str::to_owned)

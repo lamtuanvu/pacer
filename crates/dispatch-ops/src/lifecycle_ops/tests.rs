@@ -98,16 +98,23 @@ fn work_options_validate_natively_and_interleave_with_field_issues() {
 }
 
 #[test]
-fn native_wait_answers_every_number_shape() {
+fn numbers_serde_may_round_differently_forward() {
     let ctx = ctx(&[]);
     let parse = |text: &str| serde_json::from_str::<Value>(text).unwrap();
-    // `dispatch.wait` is native under B2-10, including bodies whose numbers
-    // serde_json may round differently: Rust parses and answers them itself.
+    // B2-10 answers `dispatch.wait` natively, but a body whose number serde_json
+    // may round differently from JSON.parse still reaches Core byte for byte.
     for body in [
         r#"{"id": "t", "timeout_s": 1.5}"#,
         r#"{"id": "t", "timeout_s": 3000.0}"#,
         r#"{"id": "t", "timeout_s": 1e300}"#,
         r#"{"id": "", "timeout_s": 99999999999999999999}"#,
+    ] {
+        assert!(
+            lifecycle_stays_forwarded(&ctx, "dispatch.wait", &parse(body)),
+            "{body}"
+        );
+    }
+    for body in [
         r#"{"id": "", "timeout_s": 18446744073709551615}"#,
         r#"{"id": "", "timeout_s": -9223372036854775808}"#,
         r#"{"id": "", "extra": 1.5}"#,
@@ -218,3 +225,4 @@ async fn a_request_core_must_run_is_unavailable_natively() {
     let err = dispatch_wait(&ctx, Value::Null).await.unwrap_err();
     assert_eq!(err.code, Code::InvalidInput);
 }
+

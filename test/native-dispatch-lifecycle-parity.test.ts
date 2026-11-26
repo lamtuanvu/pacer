@@ -99,7 +99,9 @@ test.skipIf(!front)("requests Core must run and work options stay with TypeScrip
     // New child fields must be validated together with the original fields by Core.
     request(14, "dispatch.child", { difficulty: "invalid", model: 42 }),
   ];
-  const routed = await exchange(ctx.home, requests, false, {}, [5, 6, 7, 8, 11, 12]);
+  // B2-10 serves `dispatch.wait`, `dispatch.review` and `dispatch.stop` natively.
+  // Bodies with inexact numbers (11, 12) still reach Core unchanged.
+  const routed = await exchange(ctx.home, requests, false, {}, [0, 1, 4, 5, 6, 7, 8, 11, 12]);
   expect(wire(routed)).toEqual(wire(await exchange(ctx.home, requests, true)));
   expect(routed.every(reply => reply.error != null)).toBe(true);
   expect(routed[6].error.message).toContain("options");

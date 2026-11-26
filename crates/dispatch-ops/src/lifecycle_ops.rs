@@ -258,15 +258,15 @@ pub fn lifecycle_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
     if !LIFECYCLE_OPS.contains(&op) {
         return false;
     }
-    if matches!(
-        op,
-        "dispatch.submit"
-            | "dispatch.child"
-            | "dispatch.wait"
-            | "dispatch.review"
-            | "dispatch.stop"
-    ) {
+    if matches!(op, "dispatch.submit" | "dispatch.child") {
         return false;
+    }
+    if matches!(op, "dispatch.wait" | "dispatch.review" | "dispatch.stop") {
+        // B2-10 answers these natively, but a body whose numbers serde_json may
+        // round differently from JSON.parse still reaches Core verbatim.
+        return params_object(params)
+            .ok()
+            .is_some_and(|p| shape(op).is_some_and(|shape| inexact_number(shape, &p)));
     }
     check(ctx, op, params).is_ok()
 }

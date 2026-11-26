@@ -406,7 +406,10 @@ pub async fn stop_work(
     expect_rev: Option<i64>,
 ) -> Result<Value, CoreError> {
     let mut store = TaskStore::open(&ctx.pacer_home).map_err(|e| internal(e.to_string()))?;
-    let root = store.read(id).map_err(|e| internal(e.to_string()))?.ok_or_else(|| unknown(id))?;
+    let root = store
+        .read(id)
+        .map_err(|e| internal(e.to_string()))?
+        .ok_or_else(|| CoreError::new(Code::UnknownTask, "Unknown work"))?;
     if let Some(expect) = expect_rev
         && root.get("rev").and_then(Value::as_i64) != Some(expect)
     {
