@@ -109,6 +109,7 @@ export interface RunQuestion {
   blocks: string;
   status: string;
   answerer: string;
+  askerKind?: string;
   rev: number;
   answer?: string;
   note?: string;

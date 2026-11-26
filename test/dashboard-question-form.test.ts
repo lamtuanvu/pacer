@@ -652,3 +652,28 @@ describe("multi focus marker and empty-options overlay (B1 / N6)", () => {
     expect(text).toContain('"<your answer>"');
   });
 });
+
+describe("approvals and human steps take an explicit choice", () => {
+  const base = { id: "q_1", runId: "run_aaaaaaaaaa", text: "Publish?", blocks: "step", status: "open", answerer: "person", rev: 1 };
+  const cases = [
+    { ...base, answerType: "approve_revise", askerKind: "human_step" },
+    { ...base, answerType: "approve_revise", askerKind: "executor" },
+    { ...base, answerType: "yes_no", askerKind: "human_step" },
+    { ...base, answerType: "single", askerKind: "human_step", options: [{ value: "merge" }, { value: "drop" }] },
+  ];
+  for (const question of cases) {
+    test(`Enter alone does not answer ${question.answerType} from ${question.askerKind}`, () => {
+      const opened = trigger(initialState("home"), { label: "Answer", effect: { type: "answer-form", form: formSpecForQuestion(question) } });
+      expect(opened.state.overlay).toMatchObject({ kind: "answer", index: -1 });
+      const ctx = runsCtx([]);
+      const first = reduceKey(opened.state, "enter", ctx);
+      expect(first.effect).toBeUndefined();
+      expect(first.state.overlay).toMatchObject({ kind: "answer", error: expect.stringContaining("Choose first") });
+      const chosen = reduceKey(reduceKey(opened.state, "down", ctx).state, "enter", ctx);
+      expect(chosen.effect).toMatchObject({ type: "action", action: { op: "question.answer" } });
+    });
+  }
+  test("an ordinary single choice keeps its first option ready", () => {
+    expect(formSpecForQuestion({ ...base, answerType: "single", askerKind: "executor", options: [{ value: "a" }] }).explicit).toBeUndefined();
+  });
+});

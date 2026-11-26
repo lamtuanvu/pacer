@@ -341,12 +341,8 @@ async function patchRun(ctx: Ctx, runId: string, patch: RunPatch, o?: EngineOpti
   // Terminal status + question withdrawal share one transaction (M-j): a crash
   // between updateRun and withdraw must not leave open questions on a terminal run.
   let withdrawn: ReturnType<typeof withdrawOpenQuestionsForRun> = [];
-  // A finished run waits on nothing: a planner hold or block ends with it.
-  const settled: RunPatch = patch.status === "done"
-    ? { reason: null, orchestratorState: "idle", nextWakeAt: null, ...patch }
-    : patch;
   const updated = workflowDatabase(ctx).transaction(() => {
-    const next = updateRun(ctx, runId, run.rev, settled);
+    const next = updateRun(ctx, runId, run.rev, patch);
     if (patch.status && RUN_TERMINAL.includes(patch.status)) {
       withdrawn = withdrawOpenQuestionsForRun(ctx, runId);
     }

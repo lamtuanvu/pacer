@@ -68,6 +68,8 @@ export function executorCaption(account?: AccountLike): string {
 }
 export interface Status { label: string; tone: Tone; glyph: string }
 const status = (label: string, tone: Tone, glyph: string): Status => ({ label, tone, glyph });
+/** A workflow run that cannot go on by itself. */
+export const runBlocked: Status = status("Run blocked", "bad", "✕");
 const unknownStatus = status("Unknown", "neutral", "?");
 const taskStates: Record<string, Status> = {
   needs_input: status("Needs your answer", "warn", "!"), running: status("Working", "info", "▶"),
@@ -154,7 +156,7 @@ export function paceStatus(verdict: string): Status {
 export function attentionStatus(item: { kind: string; taskId?: string; gate?: { kind: string } }, tasks: (TaskStatusInput & { id: string })[] = []): Status {
   const task = tasks.find(t => t.id === item.taskId);
   if (item.gate?.kind === "step_conflict" || item.gate?.kind === "branch_conflict") return mergeConflictStatus;
-  if (item.gate?.kind === "adoption") return status("Run blocked", "bad", "✕");
+  if (item.gate?.kind === "adoption") return runBlocked;
   if (item.kind === "review") return waitingReview;
   if (item.kind === "message") return status("Waiting on you", "warn", "!");
   if (item.kind === "failed" && (task?.state === "done" || task?.acceptanceState === "failed")) return status("Checks failed", "bad", "✕");

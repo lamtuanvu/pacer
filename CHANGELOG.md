@@ -11,7 +11,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - **Plan approvals are visible.** A generated plan that needs approval now raises an approve-or-revise question, shown in Needs you, `pacer question list` and `pacer run show`; with auto mode on, the planner is asked for `approval: auto` steps. A re-plan that asks always goes to you.
 - Planner turns are headless unless a step they perform is `interactive: true`; an interactive turn keeps the two-hour deadline.
 - A planner blocked on something you have since resolved continues without "Retry now". `pacer run retry-orchestrator <run>` retries a blocked planner from the command line.
-- In the terminal dashboard, Enter on a workflow question in Home or Review opens the answer form instead of picking the first answer.
+- **One key can no longer approve a workflow step.** In the terminal dashboard, Enter on a workflow question in Home or Needs you opens the answer form instead of picking the first answer, and an approval or human-step form starts with nothing chosen. Every one-click answer to a human step or plan approval asks for confirmation first, in the app, tray and terminal.
+- **Needs you in the web app lists a workflow run's own items.** Questions (publishing included), a blocked planner, a failed step and planning budgets were missing there; they are now listed, counted in their tabs and answerable from the row or the run view.
 - Live validation: the guarded `pacer` lets a sandbox planner turn send a task back (`pacer review <task> --send-back`), and still refuses `--retry-on` and other delegation.
 
 ### Changed

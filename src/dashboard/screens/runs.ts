@@ -64,6 +64,7 @@ export function questionFromAttention(item: AttentionItem): RunQuestion | undefi
     status: "open",
     answerer: "person",
     rev: q.rev,
+    ...(typeof q.askerKind === "string" ? { askerKind: q.askerKind } : {}),
     ...(typeof q.stepId === "string" ? { stepId: q.stepId } : {}),
     ...(typeof q.attempt === "number" && Number.isFinite(q.attempt) ? { attempt: q.attempt } : {}),
     ...(typeof q.branch === "string" && q.branch ? { branch: q.branch } : {}),

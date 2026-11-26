@@ -529,17 +529,6 @@ test("a review verdict unblocks a planner that left the review open", async () =
   await w.turn(run.id);
 });
 
-test("a run that finishes while the planner was blocked keeps no blocked reason", async () => {
-  const w = world();
-  const run = await failedStep(w);
-  updateRun(w.ctx, run.id, run.rev, { orchestratorState: "blocked", reason: "unresolved wake x after 2 done turns" });
-  await w.person("step.skip", { id: run.id, step: "work", expect_rev: getRun(w.ctx, run.id)!.rev });
-  const done = getRun(w.ctx, run.id)!;
-  expect(done.status).toBe("done");
-  expect(done.reason ?? null).toBeNull();
-  expect(done.orchestratorState).toBe("idle");
-});
-
 test("pacer run retry-orchestrator clears a blocked planner", async () => {
   const w = world();
   const { run } = await blockedOnReview(w);
@@ -598,4 +587,15 @@ test("the first turn of a headless step creates a headless task", async () => {
   const run = await w.start(brainstorm);
   const first = await w.turn(run.id);
   expect(readTask(w.ctx, first.taskId!)).toMatchObject({ interactive: false, timeoutS: 1200 });
+});
+
+test("every one-click answer to a human step or plan approval asks first", async () => {
+  const w = world();
+  await submitted(w);
+  const [item] = deriveWorkflowAttention(w.ctx);
+  expect(item!.actions).toHaveLength(1);
+  expect(item!.actions[0]!.confirm).toContain('Answer "approve" to: Approve the plan');
+  const own = world();
+  await asked(own);
+  expect(deriveWorkflowAttention(own.ctx)[0]!.actions.map(a => a.confirm)).toEqual([undefined, undefined]);
 });

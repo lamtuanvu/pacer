@@ -32,6 +32,14 @@ function answerEffect(q: RunQuestion, answer: string, note?: string): Effect {
 }
 
 export function formSpecForQuestion(q: RunQuestion): AnswerFormSpec {
+  const spec = answerSpec(q);
+  // Approvals and human steps take an explicit choice before Enter answers them.
+  return spec.mode !== "text" && (spec.mode === "approve_revise" || q.askerKind === "human_step")
+    ? { ...spec, explicit: true }
+    : spec;
+}
+
+function answerSpec(q: RunQuestion): AnswerFormSpec {
   const recommended = q.recommended;
   const mode = (["yes_no", "single", "multi", "text", "approve_revise"] as const)
     .includes(q.answerType as AnswerFormSpec["mode"])

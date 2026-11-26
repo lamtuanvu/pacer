@@ -299,7 +299,7 @@ function overlayLines(input: FrameInput, overlay: Overlay, view: ScreenView, wid
         ? "Esc cancel"
         : overlay.mode === "multi"
           ? "space toggle · ⏎ submit · Esc cancel"
-          : "1-9 or ⏎ choose · Esc cancel";
+          : overlay.index < 0 ? "↑↓ then ⏎, or 1-9, choose · Esc cancel" : "1-9 or ⏎ choose · Esc cancel";
       lines.push([], [span(hint, { fg: "muted" })]);
       return box(theme, "Answer", lines, w);
     }

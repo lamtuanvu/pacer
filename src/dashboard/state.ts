@@ -61,6 +61,8 @@ export interface AnswerFormSpec {
   recommended?: string;
   /** Shown when options are empty (malformed single/multi); Esc closes. */
   emptyHint?: string;
+  /** Nothing is chosen when the form opens: Enter alone never answers. */
+  explicit?: boolean;
   submit(answer: string, note?: string): Effect;
 }
 export type Overlay =
@@ -172,7 +174,7 @@ export function trigger(state: UiState, act: Act | undefined, confirmed = false)
           ...(form.emptyHint ? { emptyHint: form.emptyHint } : {}),
           selected: [],
           note: "",
-          index: 0,
+          index: form.explicit ? -1 : 0,
           phase,
           submit: form.submit,
         },
@@ -313,10 +315,9 @@ function answerOverlayKey(
   if (key === "enter") {
     const current = overlay.options[overlay.index];
     if (!current) {
-      if (!overlay.options.length) {
-        return { state: { ...state, overlay: { ...overlay, error: "No options to choose. Esc to close." } } };
-      }
-      return { state };
+      return { state: { ...state, overlay: { ...overlay, error: overlay.options.length
+        ? "Choose first: move with the arrow keys, or press the option's key."
+        : "No options to choose. Esc to close." } } };
     }
     if (overlay.mode === "multi") {
       if (!overlay.selected.length) {

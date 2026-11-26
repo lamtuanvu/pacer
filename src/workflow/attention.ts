@@ -141,6 +141,15 @@ function optionChoiceActions(
  * renders only the first action). Text/multi and other shapes have no op action.
  */
 export function runQuestionActions(q: QuestionRow): Action[] {
+  const actions = questionAnswerActions(q);
+  // A human step decides what the run does next (publishing included): every
+  // one-click answer to it asks first, so no single key or click decides it.
+  if (q.askerKind !== "human_step") return actions;
+  const asked = clipCodePoints(collapsedQuestionText(q.text), FULL_QUESTION_CLIP, true);
+  return actions.map(action => ({ ...action, confirm: `Answer "${String(action.params.answer)}" to: ${asked}` }));
+}
+
+function questionAnswerActions(q: QuestionRow): Action[] {
   const id = q.id;
   const expect_rev = q.rev;
   if (q.answerType === "yes_no") {

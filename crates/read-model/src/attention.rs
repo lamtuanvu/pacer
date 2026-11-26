@@ -351,6 +351,31 @@ fn option_choice_actions(
     Value::Array(actions)
 }
 
+/// A human step decides what the run does next (publishing included): every one-click
+/// answer to it asks first. Mirrors the TS `runQuestionActions` confirm.
+fn confirm_human_answers(actions: &mut Value, text_body: &str) {
+    let asked = clip_code_points(
+        &collapsed_question_text(text_body),
+        FULL_QUESTION_CLIP,
+        true,
+    );
+    for action in actions.as_array_mut().into_iter().flatten() {
+        let Some(action) = action.as_object_mut() else {
+            continue;
+        };
+        let answer = action
+            .get("params")
+            .and_then(|p| p.get("answer"))
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        action.insert(
+            "confirm".into(),
+            json!(format!("Answer \"{answer}\" to: {asked}")),
+        );
+    }
+}
+
 /// Mirror of TS `runQuestionActions` — first action must succeed via direct op call.
 fn run_question_actions(
     id: &str,
@@ -686,13 +711,16 @@ pub fn run_question_items(ctx: &Ctx) -> Vec<Value> {
             .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
             .and_then(|v| v.as_array().cloned());
         let recommended_val = recommended.filter(|s| !s.is_empty());
-        let actions = run_question_actions(
+        let mut actions = run_question_actions(
             &id,
             rev,
             &answer_type,
             parsed_options.as_deref(),
             recommended_val.as_deref(),
         );
+        if asker_kind == "human_step" {
+            confirm_human_answers(&mut actions, &text_body);
+        }
         let item_title = run_question_title(&text_body);
         let detail = run_question_detail(
             &asker_kind,
