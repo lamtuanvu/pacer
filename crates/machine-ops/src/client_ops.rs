@@ -189,11 +189,7 @@ pub async fn call(
         }
         "client.heartbeat" => heartbeat(ctx, &p),
         "client.list" => Ok(Value::Array(
-            read_entries(ctx)
-                .into_iter()
-                .filter(|entry| ctx.now - number(entry, "heartbeatAt") <= LAPSE_S)
-                .map(Value::Object)
-                .collect(),
+            live_entries(ctx).into_iter().map(Value::Object).collect(),
         )),
         "client.control.enroll" => {
             let kind = p["kind"].as_str().unwrap_or_default();
@@ -637,6 +633,15 @@ fn read_entries(ctx: &Ctx) -> Vec<Map<String, Value>> {
         .unwrap_or_default()
 }
 
+/// `list(ctx)`: the registry entries whose 45 s lease has not lapsed. Shared with the
+/// notification operations, which select presenters and ack targets from the same view.
+pub fn live_entries(ctx: &Ctx) -> Vec<Map<String, Value>> {
+    read_entries(ctx)
+        .into_iter()
+        .filter(|entry| ctx.now - number(entry, "heartbeatAt") <= LAPSE_S)
+        .collect()
+}
+
 fn write_entries(ctx: &Ctx, entries: Vec<Map<String, Value>>) -> Result<(), CoreError> {
     let list = Value::Array(entries.into_iter().map(Value::Object).collect());
     write_private(&registry_path(ctx), quoted::stringify(&list).as_bytes())
@@ -697,7 +702,7 @@ fn real_permission(value: Option<&Value>) -> bool {
     value.is_some_and(|value| value != "unsupported")
 }
 
-fn heartbeat(ctx: &Ctx, p: &Map<String, Value>) -> Result<Value, CoreError> {
+pub fn heartbeat(ctx: &Ctx, p: &Map<String, Value>) -> Result<Value, CoreError> {
     let id = p["client_id"].as_str().unwrap_or_default();
     let _guard = REGISTRY.lock().unwrap_or_else(PoisonError::into_inner);
     let mut entries = read_entries(ctx);

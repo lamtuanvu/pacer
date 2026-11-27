@@ -53,6 +53,7 @@ use pacer_install::agent_ops as agent_ops_mod;
 use pacer_install::install_ops;
 pub(crate) use pacer_machine_ops::client_ops;
 use pacer_machine_ops::machine_identity;
+use pacer_machine_ops::notification_ops;
 use pacer_machine_ops::machine_ops;
 use pacer_task_ops::lifecycle_ops;
 use pacer_task_ops::session_context_ops;
@@ -427,6 +428,22 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "notifications.set",
         call: config_writes::notifications_set,
+    },
+    NativeOp {
+        name: "notifications.test",
+        call: notification_ops::notification_test,
+    },
+    NativeOp {
+        name: "notifications.ack",
+        call: notification_ops::notification_ack,
+    },
+    NativeOp {
+        name: "notifications.request",
+        call: notification_ops::notification_request,
+    },
+    NativeOp {
+        name: "notifications.health",
+        call: notification_ops::notification_health,
     },
     NativeOp {
         name: "config.get",
@@ -819,6 +836,10 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: setup_ops::ops()[0].name,
         call: setup_ops::ops()[0].call,
+    },
+    NativeOp {
+        name: setup_ops::ops()[1].name,
+        call: setup_ops::ops()[1].call,
     },
     NativeOp {
         name: "setup.init",

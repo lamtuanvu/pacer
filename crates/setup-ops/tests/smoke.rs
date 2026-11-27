@@ -11,10 +11,9 @@ fn doctor_bridge_flags_the_setup_doctor_ops() {
 }
 
 #[test]
-fn setup_ops_include_onboarding_skip() {
-    assert!(
-        setup_ops::ops()
-            .iter()
-            .any(|op| op.name == "onboarding.skip")
-    );
+fn setup_ops_include_both_skip_ops() {
+    let names: Vec<&str> = setup_ops::ops().iter().map(|op| op.name).collect();
+    assert!(names.contains(&"onboarding.skip"));
+    assert!(names.contains(&"setup.skip"));
+    assert_eq!(names.len(), 2);
 }

@@ -8,3 +8,4 @@ pub mod doctor_ops;
 pub mod setup_checklist;
 pub mod setup_gate;
 pub mod setup_ops;
+pub mod setup_skip;
