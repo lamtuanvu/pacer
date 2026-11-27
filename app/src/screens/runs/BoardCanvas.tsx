@@ -2,6 +2,7 @@
 import { useEffect, useRef } from "preact/hooks";
 import { stepMarkerFor, stepMarkerGlyph, runStatus } from "../../../../src/view-model/runs";
 import { sentenceCase } from "../../../../src/view-model/run-board";
+import { mergeConflictStatus, stepReviewStatus } from "../../../../src/view-model/words";
 import { Creature, PersonFigure, creatureHeight } from "./MascotArt";
 import { FIGURE, GAP_X, STATION_H, STATION_W, type BoardNode, type BoardZone, type LiveBoardLayout } from "./live-board-layout";
 import { graphStatusLabel, nodeLabel } from "./live-board-model";
@@ -10,8 +11,10 @@ import { graphStatusLabel, nodeLabel } from "./live-board-model";
 export interface CanvasAgent { taskId: string; nodeId: string; x: number; y: number; executor: string; name: string; label: string }
 
 /** The words a desk shows: a glyph and a status word, never colour alone (UI-2, UI-10). */
-export function deskWords(n: { status: string; waitsOnYou: boolean }): { glyph: string; label: string; cls: string } {
+export function deskWords(n: { status: string; waitsOnYou: boolean; awaitsReview?: boolean; conflict?: boolean }): { glyph: string; label: string; cls: string } {
   if (n.waitsOnYou) return { glyph: stepMarkerGlyph("waits_you"), label: "Waits on you", cls: "you" };
+  if (n.conflict) return { glyph: mergeConflictStatus.glyph, label: mergeConflictStatus.label, cls: "you" };
+  if (n.awaitsReview) return { glyph: stepReviewStatus.glyph, label: stepReviewStatus.label, cls: n.status };
   if (n.status === "pending") return { glyph: stepMarkerGlyph("unknown"), label: "Not started", cls: "pending" };
   const s = runStatus(n.status);
   return { glyph: stepMarkerGlyph(stepMarkerFor({ status: n.status })), label: s.label, cls: n.status };
@@ -109,7 +112,7 @@ export function BoardCanvas(p: CanvasProps) {
   }, []);
   const { layout } = p;
   const visible = p.visible ?? (() => true);
-  const statusOf = p.statusOf ?? ((n: BoardNode) => ({ status: n.status, waitsOnYou: n.waitsOnYou }));
+  const statusOf = p.statusOf ?? ((n: BoardNode) => ({ status: n.status, waitsOnYou: n.waitsOnYou, awaitsReview: n.awaitsReview, conflict: n.conflict }));
   const shown = new Set(layout.nodes.filter(visible).map(n => n.id));
   const personAt = p.personAt === undefined ? layout.person.at : p.personAt;
   const person = personAt === null

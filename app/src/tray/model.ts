@@ -2,6 +2,7 @@ import { agentInfo, markAgent } from "../../../src/view-model/agents";
 import { policyCaption } from "../../../src/view-model/words";
 import { usageView, windowWords, resetWords } from "../../../src/view-model/usage";
 import { desktopUpdateIndicator } from "../../../src/view-model/updates";
+import { OutcomeError } from "../../../src/view-model/run-gate";
 import { settingsPath } from "../router";
 import type { Action } from "../../../src/attention/types";
 import type { ClientSnapshot } from "../../../src/view-model/snapshot";
@@ -19,12 +20,15 @@ export function actionRoute(action: Action): string {
   const { route, view, id, section } = action.params;
   if (typeof route === "string" && /^#?\//.test(route)) return route.replace(/^#/, "");
   if (view === "session" && typeof id === "string") return `/workspace?task=${encodeURIComponent(id)}&panel=session`;
+  // The native shell opens no run view; Needs you links to the run.
+  if (view === "run") return "/needs-you";
   if ((view === "task" || view === "review") && typeof id === "string") return taskRoute(id, view === "task" && action.params.tab === "answer");
   if (view === "settings" && typeof section === "string") return settingsPath(section);
   return ({ overview: "/", home: "/", delegate: "/", settings: "/settings", executors: "/settings/agents", accounts: "/settings/agents", hosts: "/settings/hosts", setup: "/", tasks: "/sessions", strategy: "/settings/dispatcher" } as Record<string, string>)[String(view)] ?? "/";
 }
 /** Plain reason and next step for a tray action that did not work. */
 export function actionError(error: unknown): string {
+  if (error instanceof OutcomeError) return error.message;
   const reason = error instanceof Error ? error.message : typeof error === "string" ? error : "";
   const plain = !reason || /^invalid route$/i.test(reason.trim()) ? "pacer could not open that" : reason.trim().replace(/\.+$/, "");
   return `${plain}. Try again, or open pacer to finish there.`;

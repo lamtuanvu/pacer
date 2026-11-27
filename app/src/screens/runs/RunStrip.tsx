@@ -10,7 +10,7 @@ export function RunStrip({ steps }: { steps: StripStep[] }) {
         <li key={step.id} className={`rv-step${step.waitsOnYou ? " rv-step--you" : ""}`} data-step={step.stepId}>
           <span className="rv-step-name" title={step.label}>{step.label}</span>
           <span className="rv-row">
-            <StepState marker={step.marker} status={step.status} waitsOnYou={step.waitsOnYou} />
+            <StepState marker={step.marker} status={step.status} waitsOnYou={step.waitsOnYou} awaitsReview={step.awaitsReview} />
             {step.progress ? <span className="rv-cap rv-num">{step.progress.done} of {step.progress.total} done</span> : null}
           </span>
         </li>

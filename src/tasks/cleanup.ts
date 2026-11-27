@@ -1,3 +1,4 @@
+import { reviewHolds } from "../workflow/review";
 import { agentChecksPending } from "../session/agents-checks";
 import { agentWorkspaceBusy } from "../session/agents-state";
 import { randomBytes } from "node:crypto";
@@ -139,7 +140,7 @@ function cleanableChain(ctx: Ctx, task: TaskRecord): boolean {
   const seen = new Set<string>();
   let current: TaskRecord | null = task;
   while (current) {
-    if (seen.has(current.id) || !cleanable(current)) return false;
+    if (seen.has(current.id) || !cleanable(current) || reviewHolds(ctx, current.id)) return false;
     seen.add(current.id);
     if (!current.retriedBy) return true;
     current = readTask(ctx, current.retriedBy);

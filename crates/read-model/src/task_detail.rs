@@ -223,9 +223,12 @@ pub fn timeline_store(task: &Value) -> Vec<Value> {
             .and_then(|a| a["endedAt"].as_f64())
             .unwrap_or(num(&task["createdAt"]));
         let progress_at = task["progress"]["updatedAt"].as_f64().unwrap_or(0.0);
+        // A workflow conflict record waits in needs_input but asks nothing.
+        let record =
+            task["state"] == "needs_input" && text(&task["requestId"]).starts_with("wfconflict:");
         timeline.push(json!({
             "at": ended.max(progress_at),
-            "text": text(&task["state"]),
+            "text": if record { "Merge conflict recorded" } else { text(&task["state"]) },
         }));
     }
     timeline.sort_by(|a, b| num(&a["at"]).total_cmp(&num(&b["at"])));

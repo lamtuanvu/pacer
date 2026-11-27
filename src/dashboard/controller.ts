@@ -5,6 +5,7 @@ import type { Action } from "../attention/types";
 import { emptySnapshot } from "../link/envelope";
 import type { ClientSnapshot, ClientTask } from "../view-model/snapshot";
 import { displayTitle } from "../view-model/titles";
+import { outcomeProblem } from "../view-model/run-gate";
 import { jobKindCopy } from "../view-model/copy";
 import type { StatusTone } from "../view-model/words";
 import { renderFrame, screenView, tabs, type FrameInput } from "./screens/shell";
@@ -362,7 +363,7 @@ export class Dashboard {
       case "history-more": this.loadHistory(this.data.history?.value?.next??undefined); return;
       case "navigate": this.navigate(effect.screen, effect.id, effect.section); return;
       case "run-view":
-        this.state = { ...this.state, runView: effect.id, focus: "list", scroll: 0, overlay: null, selected: { ...this.state.selected, runs: effect.id ? undefined : this.state.selected.runs } };
+        this.state = { ...this.state, ...(effect.id ? { screen: "runs" as const } : {}), runView: effect.id, focus: "list", scroll: 0, overlay: null, selected: { ...this.state.selected, runs: effect.id ? undefined : this.state.selected.runs } };
         if (effect.id) this.loadRunDetail(effect.id);
         this.loadNeeds();
         this.draw();
@@ -401,8 +402,12 @@ export class Dashboard {
       if ((action.op === "question.answer" || action.op === "run.answer") && this.state.overlay) {
         this.state = { ...this.state, overlay: null };
       }
-      this.report(action.op === "config.set" && typeof result?.warning === "string" ? result.warning : successCopy(action, result), action.op === "config.set" && typeof result?.warning === "string" ? "warn" : "good");
-      if (action.op === "task.review") this.afterReview(String(action.params.id));
+      const problem = outcomeProblem(action.op, result);
+      if (problem) this.report(problem, "bad");
+      else {
+        this.report(action.op === "config.set" && typeof result?.warning === "string" ? result.warning : successCopy(action, result), action.op === "config.set" && typeof result?.warning === "string" ? "warn" : "good");
+        if (action.op === "task.review") this.afterReview(String(action.params.id));
+      }
     } catch (error) {
       if (error instanceof ApiError && error.code === "conflict" && action.op === "task.review") this.report("Another client already reviewed this task.", "warn");
       else if (error instanceof ApiError && error.code === "conflict" && (action.op === "question.answer" || action.op === "run.answer")) {

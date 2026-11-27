@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { CoreError } from "../../../src/core/errors";
+import { isReviewGate, REVIEW_GATE_STAYS } from "../../../src/view-model/run-gate";
 import { workActionRequestId } from "../../../src/work/action-id";
 const transpiler = new Bun.Transpiler({ loader: "ts" });
 function load(path: string, names: string[], deps: Record<string, any>) {
@@ -132,7 +133,7 @@ export async function reference(c: any): Promise<any> {
       const api = load(
         "src/attention/store.ts",
         ["applyStore", "dismissItem", "snoozeItem"],
-        { ...memory, ...rules },
+        { ...memory, ...rules, isReviewGate, REVIEW_GATE_STAYS },
       );
       const results = [];
       for (const a of c.actions) {
@@ -337,6 +338,7 @@ export async function reference(c: any): Promise<any> {
           }),
           listRepos: () => c.repos ?? [],
           listJobs: () => c.jobs ?? [],
+          reviewHolds: (_ctx: unknown, id: string) => !!c.held?.includes(id),
           listTasks: () =>
             c.candidates
               ? c.candidates

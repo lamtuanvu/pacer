@@ -47,7 +47,11 @@ pub fn counts(snapshot: &Value) -> Value {
             {
                 return false;
             }
-            task["state"] == "partial"
+            // A workflow review gate is raised only while a verdict is owed.
+            item["id"]
+                .as_str()
+                .is_some_and(|id| id.starts_with("run_review:"))
+                || task["state"] == "partial"
                 || task["acceptanceState"] == "failed"
                 || task["state"] != "done"
                 || truthy(&task["reviewRequest"])

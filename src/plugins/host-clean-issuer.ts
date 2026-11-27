@@ -5,6 +5,7 @@ import { loadStrategy } from "../config/strategy";
 import { CoreError } from "../core/errors";
 import { readTask } from "../tasks/store";
 import { TERMINAL_STATES } from "../tasks/types";
+import { reviewHolds } from "../workflow/review";
 import type { Ctx } from "../types";
 import type { HostOperationResource } from "./authority";
 
@@ -30,7 +31,7 @@ const deny = (): never => { throw new CoreError("capability_denied", "configured
 async function snapshot(ctx: Ctx, alias: string, taskId: string, force: boolean) {
   const task = readTask(ctx, taskId), run = task?.run;
   if (!task || !run || !TERMINAL_STATES.includes(task.state) ||
-    !(task.review || task.dismissed || task.resolved) || run.host !== alias || run.mode !== "new" ||
+    !(task.review || task.dismissed || task.resolved) || reviewHolds(ctx, taskId) || run.host !== alias || run.mode !== "new" ||
     !isAbsolute(task.brief.repo) || !run.remoteWorktree || !run.remoteDir ||
     !Number.isSafeInteger(run.attempt) || run.attempt < 1) return deny();
   const host = loadStrategy(ctx).hosts[alias];

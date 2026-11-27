@@ -296,7 +296,7 @@ export function renderTurnPrompt(ctx: Ctx, task: TaskRecord, messages: Message[]
     "---",
     o.live ? `Your final response in this turn is sent to ${label(parent)} (${parent}) as your report.` : `Your final response in this turn is sent to ${label(parent)} (${parent}) as your report. This turn runs headless: do not run \`pacer report\`.`,
     `To message another participant or ask a question, run: pacer msg send --to <participant> "<text>" [--question]`,
-    "Do not commit.",
+    task.brief.commitWork ? "Commit your work on the current task branch before you finish; do not push or switch branches." : "Do not commit.",
   ].join("\n\n");
 }
 

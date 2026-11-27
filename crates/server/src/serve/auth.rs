@@ -165,8 +165,8 @@ pub fn classify<B>(req: &Request<B>, port: u16, token: &str, ctx: &Ctx) -> Decis
             auth: AuthKind::Bearer,
         };
     }
-    // Only the core can validate a task grant. The front door limits its transport
-    // before forwarding it with the internal generation credential.
+    // Only the core can validate a scoped grant (`pwg_`, `pet_`, `pag_`, `prg_`). The front
+    // door limits its transport before forwarding it with the internal generation credential.
     let authorization = header("authorization");
     let bearer = authorization
         .as_deref()
@@ -174,14 +174,19 @@ pub fn classify<B>(req: &Request<B>, port: u16, token: &str, ctx: &Ctx) -> Decis
         .strip_prefix("Bearer ")
         .unwrap_or("");
     if bearer.len() == 68
-        && (bearer.starts_with("pwg_") || bearer.starts_with("pet_") || bearer.starts_with("pag_"))
+        && ["pwg_", "pet_", "pag_", "prg_"]
+            .iter()
+            .any(|prefix| bearer.starts_with(prefix))
         && bearer[4..]
             .bytes()
             .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
     {
         // The assistant grant (`pag_`) is a third, narrower credential: one operation, `assistant.tool`.
+        // The workflow run grant (`prg_`, API-5b) posts operations; the core checks that it is
+        // live, that the operation is a run-grant one and that the target is in its own run.
         if req.method() == "POST"
-            && (bearer.starts_with("pwg_") && path.starts_with("/v3/ops/")
+            && ((bearer.starts_with("pwg_") || bearer.starts_with("prg_"))
+                && path.starts_with("/v3/ops/")
                 || bearer.starts_with("pet_") && path == "/v3/ops/dispatch.enforcement.denied"
                 || bearer.starts_with("pag_") && path == "/v3/ops/assistant.tool")
         {
@@ -356,6 +361,73 @@ mod tests {
             verdict(Method::POST, "/v3/ops/assistant.tool", &enforcement),
             Verdict::Rejected(StatusCode::FORBIDDEN)
         );
+    }
+
+    #[test]
+    fn a_run_grant_forwards_operation_posts_for_the_core_to_verify() {
+        // The core, not the front door, decides which operations and which run the grant covers.
+        let run = format!("prg_{HEX}");
+        for path in [
+            "/v3/ops/run.get",
+            "/v3/ops/run.publish",
+            "/v3/ops/run.submit_graph",
+            "/v3/ops/run.choose",
+            "/v3/ops/run.decide",
+            "/v3/ops/step.retry",
+            "/v3/ops/step.skip",
+            "/v3/ops/question.answer",
+            "/v3/ops/run.answer",
+            "/v3/ops/run.start",
+        ] {
+            assert_eq!(verdict(Method::POST, path, &run), Verdict::Task, "{path}");
+        }
+    }
+
+    #[test]
+    fn a_run_grant_is_refused_off_the_operation_route() {
+        let run = format!("prg_{HEX}");
+        for path in [
+            "/v3/snapshot",
+            "/v3/events",
+            "/v3/hello",
+            "/v3/session/exchange",
+            "/v3/tasks/t-1/log",
+            "/v3/tasks/t-1/session",
+            "/v2/ops/run.get",
+            "/v3/ops",
+            "/app/x",
+            "/other",
+        ] {
+            assert_eq!(
+                verdict(Method::POST, path, &run),
+                Verdict::Rejected(StatusCode::FORBIDDEN),
+                "{path}"
+            );
+        }
+        for method in [Method::GET, Method::HEAD, Method::PUT, Method::DELETE] {
+            assert_eq!(
+                verdict(method.clone(), "/v3/ops/run.get", &run),
+                Verdict::Rejected(StatusCode::FORBIDDEN),
+                "{method}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_malformed_run_grant_is_never_a_task_grant() {
+        for bearer in [
+            format!("prg_{}", &HEX[1..]),
+            format!("prg_{HEX}0"),
+            format!("prg_{}", "A".repeat(64)),
+            format!("prg_{}", HEX.replace('a', "g")),
+            format!("prgx{HEX}"),
+        ] {
+            assert_eq!(
+                verdict(Method::POST, "/v3/ops/run.get", &bearer),
+                Verdict::Rejected(StatusCode::UNAUTHORIZED),
+                "{bearer}"
+            );
+        }
     }
 
     #[test]

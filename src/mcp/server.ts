@@ -132,7 +132,7 @@ export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRu
         finally { client.close(); }
       } catch (error) { return { ...json({ error: error instanceof Error ? error.message : "Scoped request failed" }), isError: true }; }
     };
-    server.registerTool("task_review", { description: "Review a step task in this run (accept or reject only; never send_back/retry).", inputSchema: { task_id: z.string(), verdict: z.enum(["accept", "reject"]), expect_rev: z.number().int().positive(), note: z.string().optional() } },
+    server.registerTool("task_review", { description: "Review a step task in this run: accept, reject, or send_back (continues the same task; needs a note). Never retry.", inputSchema: { task_id: z.string(), verdict: z.enum(["accept", "reject", "send_back"]), expect_rev: z.number().int().positive(), note: z.string().optional() } },
       async ({ task_id, verdict, expect_rev, note }) => scoped("task.review", { id: task_id, verdict, expect_rev, note }));
     server.registerTool("task_stop", { description: "Stop a step task in this run.", inputSchema: { task_id: z.string(), expect_rev: z.number().int().positive().optional() } },
       async ({ task_id, expect_rev }) => scoped("task.stop", { id: task_id, expect_rev }));

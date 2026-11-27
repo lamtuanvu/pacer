@@ -51,7 +51,9 @@ export async function runBulkReview({ items, passingOnly, verdict, runner, confi
   if (verdict === "reject" && !note?.trim()) return "Cancelled. Rejection requires a note.";
   const label = verdict === "accept" ? "Accept" : "Reject";
   const list = tasks.map(task => `• ${task.title ?? task.goal} (${task.id}) · ${task.repo.label}`).join("\n");
-  if (!await confirm(`${label} ${tasks.length} task(s)?\n\n${list}\n\n${note ? `Note: ${note}\n\n` : ""}This records verdicts only. You merge branches.${messages.length ? `\n\nSkipped:\n${messages.join("\n")}` : ""}`)) return "Cancelled. No verdicts recorded.";
+  const merges = verdict === "accept" && unique.some(item => item.gate && tasks.some(task => task.id === item.taskId));
+  const effect = merges ? "Accepting a workflow step merges its changes into the run branch. Other tasks only record the verdict; you merge those branches." : "This records verdicts only. You merge branches.";
+  if (!await confirm(`${label} ${tasks.length} task(s)?\n\n${list}\n\n${note ? `Note: ${note}\n\n` : ""}${effect}${messages.length ? `\n\nSkipped:\n${messages.join("\n")}` : ""}`)) return "Cancelled. No verdicts recorded.";
   let done = 0;
   for (const task of tasks) {
     const result = await runner.run(`review:${task.id}`, {
@@ -73,7 +75,8 @@ export function ReviewCheckbox({ item }: { item: AttentionItem }) {
 }
 export function BulkReview({ snapshot, repo, runner, children }: { snapshot: ClientSnapshot; repo: string | null; runner: ActionRunner; children: ComponentChildren }) {
   const dialogs = useDialogs();
-  const items = scopedReviewQueue(snapshot, repo);
+  // A branch conflict's record is resolved on its own page, never in bulk.
+  const items = scopedReviewQueue(snapshot, repo).filter(item => item.gate?.kind !== "branch_conflict");
   const [selection, setSelection] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false), [message, setMessage] = useState("");
   const inFlight = useRef(false);

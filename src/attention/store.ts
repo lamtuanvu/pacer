@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { readJson, writeJsonAtomic } from "../fsutil";
 import { withLockSync } from "../core/lock";
 import { CoreError } from "../core/errors";
+import { isReviewGate, REVIEW_GATE_STAYS } from "../view-model/run-gate";
 import type { Ctx } from "../types";
 import { deriveItems, sortItems, type RuleInput } from "./rules";
 import type { AttentionItem } from "./types";
@@ -42,13 +43,15 @@ export function applyStore(ctx: Ctx, items: AttentionItem[], prune: true | Reado
     }
     return sortItems(items.flatMap(item=>{
       const entry=store[item.id]??= {since:ctx.now};
-      if (entry.dismissedSince===entry.since || (entry.snoozedUntil??0)>ctx.now) return [];
-      return [{...item,since:entry.since,...(!item.taskId?{raisedAt:entry.since}:{}),...(entry.snoozedUntil!==undefined?{snoozedUntil:entry.snoozedUntil}:{})}];
+      const stays=isReviewGate(item.id);
+      if (!stays && (entry.dismissedSince===entry.since || (entry.snoozedUntil??0)>ctx.now)) return [];
+      return [{...item,since:entry.since,...(!item.taskId?{raisedAt:entry.since}:{}),...(!stays&&entry.snoozedUntil!==undefined?{snoozedUntil:entry.snoozedUntil}:{})}];
     }));
   });
 }
 export function currentAttention(ctx: Ctx, input: RuleInput): AttentionItem[] { return applyStore(ctx,deriveItems(input)); }
 function raised(store: Store, ctx: Ctx, id: string, items: AttentionItem[], allowDismissed = false): Entry {
+  if (isReviewGate(id)) throw new CoreError("not_allowed", REVIEW_GATE_STAYS);
   if (!items.some(i=>i.id===id) && !(allowDismissed && store[id]?.dismissedSince===store[id]?.since && store[id])) throw new CoreError("unknown_task",`unknown attention item "${id}"`);
   return store[id]??= {since:ctx.now};
 }

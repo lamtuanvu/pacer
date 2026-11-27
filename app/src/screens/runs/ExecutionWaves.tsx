@@ -26,7 +26,7 @@ export function ExecutionWaves({ data, now }: { data: WavesData | null; now: num
                 <li key={step.stepId} className="rv-box" data-step={step.stepId}>
                   <span className="rv-row">
                     <strong className="rv-grow rv-clip">{step.label}</strong>
-                    <StepState marker={step.marker} status={step.status} />
+                    <StepState marker={step.marker} status={step.status} awaitsReview={step.awaitsReview} />
                   </span>
                   {step.blocked
                     ? <p className="rv-text">Blocked until {step.after.join(", ")} {step.after.length === 1 ? "finishes" : "finish"}.</p>

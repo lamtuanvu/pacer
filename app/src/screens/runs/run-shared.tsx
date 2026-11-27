@@ -9,6 +9,7 @@ import { useActions } from "../../data/action-context";
 import type { BrowserApi } from "../../data/api";
 import type { RunQuestionView } from "../../data/runs";
 import { runStatus, stepMarkerGlyph, RUN_ARTIFACT_ERROR, RUN_QUESTIONS_ERROR, type StepMarker } from "../../../../src/view-model/runs";
+import { stepReviewStatus } from "../../../../src/view-model/words";
 import type { ArtifactMeta } from "../../../../src/view-model/run-board";
 
 const styled = new WeakSet<Document>();
@@ -26,8 +27,9 @@ export function useRunViewStyles() {
 }
 
 /** One status chip: a glyph and a word, never colour alone (UI-2, UI-10). */
-export function StepState({ marker, status, waitsOnYou }: { marker: StepMarker; status: string; waitsOnYou?: boolean }) {
+export function StepState({ marker, status, waitsOnYou, awaitsReview }: { marker: StepMarker; status: string; waitsOnYou?: boolean; awaitsReview?: boolean }) {
   if (waitsOnYou) return <Pill tone="warn"><span aria-hidden="true">{stepMarkerGlyph("waits_you")} </span>Waits on you</Pill>;
+  if (awaitsReview) return <Pill tone={stepReviewStatus.tone}><span aria-hidden="true">{stepReviewStatus.glyph} </span>{stepReviewStatus.label}</Pill>;
   if (status === "pending") return <Pill tone="neutral"><span aria-hidden="true">{stepMarkerGlyph("unknown")} </span>Not started</Pill>;
   const s = runStatus(status);
   return <Pill tone={s.tone}><span aria-hidden="true">{stepMarkerGlyph(marker)} </span>{s.label}</Pill>;

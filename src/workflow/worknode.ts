@@ -4,8 +4,8 @@
 //
 // The engine already creates a successor only after its predecessor settles (`done`),
 // so engine-created steps do NOT add dispatcher dependency edges. The root is used
-// for parenting, limits and visibility only. Accept-before-dependents belongs to the
-// run-branch design (Phase 5), not Phase 3 work-node chains.
+// for parenting, limits and visibility only. Accept-before-dependents is the
+// engine's review gate (workflow/review.ts), not Phase 3 work-node chains.
 import type { Ctx } from "../types";
 import type { SpawnRunner, DelegateInput } from "../tasks/api";
 import type { TaskRecord } from "../tasks/types";

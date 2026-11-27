@@ -123,22 +123,24 @@ mod tests {
     }
     #[test]
     fn task_grant_is_forwarded_only_in_its_dedicated_header() {
-        let grant = format!("pwg_{}", "a".repeat(64));
-        let mut request = Request::builder()
-            .header("authorization", format!("Bearer {grant}"))
-            .header("cookie", "pacer_session=forged")
-            .header("x-pacer-auth", "bearer")
-            .header("x-pacer-work-grant", "Bearer forged")
-            .body(())
-            .unwrap();
-        headers(request.headers_mut(), "internal", AuthKind::Task).unwrap();
-        assert_eq!(request.headers()["authorization"], "Bearer internal");
-        assert_eq!(request.headers()["x-pacer-auth"], "task");
-        assert_eq!(
-            request.headers()["x-pacer-work-grant"],
-            format!("Bearer {grant}")
-        );
-        assert!(!request.headers().contains_key("cookie"));
+        for prefix in ["pwg", "prg"] {
+            let grant = format!("{prefix}_{}", "a".repeat(64));
+            let mut request = Request::builder()
+                .header("authorization", format!("Bearer {grant}"))
+                .header("cookie", "pacer_session=forged")
+                .header("x-pacer-auth", "bearer")
+                .header("x-pacer-work-grant", "Bearer forged")
+                .body(())
+                .unwrap();
+            headers(request.headers_mut(), "internal", AuthKind::Task).unwrap();
+            assert_eq!(request.headers()["authorization"], "Bearer internal");
+            assert_eq!(request.headers()["x-pacer-auth"], "task");
+            assert_eq!(
+                request.headers()["x-pacer-work-grant"],
+                format!("Bearer {grant}")
+            );
+            assert!(!request.headers().contains_key("cookie"));
+        }
     }
     #[tokio::test]
     async fn oversized_operations_return_core_error_before_connecting() {

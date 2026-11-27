@@ -454,13 +454,19 @@ pub fn clean(c: &Value) -> Value {
         if run["host"] != c["alias"] || run["mode"] != "new" {
             continue;
         }
-        let eligible = terminal(s(&t["state"]))
+        let settled = terminal(s(&t["state"]))
             && (truth(&t["review"]) || truth(&t["dismissed"]) || truth(&t["resolved"]));
+        // A task a workflow review holds is kept (`reviewHolds`).
+        let held = settled && a(&c["held"]).contains(&t["id"]);
+        let eligible = settled && !held;
         let received = eligible && truth(&c["transferred"][s(&t["id"])]);
         let paths = truth(&run["remoteWorktree"]) && truth(&run["remoteDir"]);
         let mapped = mapped(c).is_some();
         let removable = received && paths && (!dry || mapped);
         worktrees.push(json!({"branch":run.get("remoteBranch").filter(|v|!v.is_null()).cloned().unwrap_or_else(||json!(format!("pacer/{}",s(&t["id"])))),"state":t["state"],"fate":if !terminal(s(&t["state"])){"in use"}else if removable{"will remove"}else{"kept"}}));
+        if held && !dry {
+            kept.push(json!({"id":t["id"],"reason":"a workflow review is waiting on it"}));
+        }
         if dry || !eligible {
             continue;
         }

@@ -2,6 +2,7 @@ import { budgetResourceRevision } from "../data/budget-revision";
 import { Alert } from "../ds/Alert";
 import { TextAction } from "../ds/Button";
 import { useActions } from "../data/action-context";
+import { OutcomeError } from "../../../src/view-model/run-gate";
 import { createContext, type ComponentChildren } from "preact";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { StoreState } from "../data/store";
@@ -25,7 +26,7 @@ export function useTaskContext() {
 }
 export function ErrorMessage({ error }: { error: unknown }) {
   if (!error) return null;
-  return <Alert tone="error" title="Something went wrong"><p>{error instanceof Error ? error.message : String(error)}</p>{error instanceof ApiError && error.hint && !error.message.includes(error.hint) && <p>{error.hint}</p>}</Alert>;
+  return <Alert tone="error" title={error instanceof OutcomeError ? "Not done" : "Something went wrong"}><p>{error instanceof Error ? error.message : String(error)}</p>{error instanceof ApiError && error.hint && !error.message.includes(error.hint) && <p>{error.hint}</p>}</Alert>;
 }
 /** Task reads follow only this task, rather than unrelated snapshot traffic. */
 const CONFIG_AREAS = ['accounts', 'config', 'delegation', 'hosts', 'machine', 'mode', 'plugins', 'project-strategies', 'routing', 'runners', 'setup', 'strategy', 'update', 'discovery', 'project-messaging', 'diagnostics'];

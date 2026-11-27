@@ -9,7 +9,7 @@
  * the order the rows arrive in.
  */
 import type { RunGraphSummary, RunStepRow } from "../../../../src/dashboard/screens/types";
-import { questionMatchesStep } from "../../../../src/view-model/run-tree";
+import { questionMatchesStep, stepAwaitsReview } from "../../../../src/view-model/run-tree";
 
 export interface LayoutDefinition {
   entry?: string;
@@ -64,6 +64,9 @@ export interface BoardNode {
   /** Set for steps drawn inside a generated-graph zone. */
   zoneId?: string;
   waitsOnYou: boolean;
+  /** A code step that reported and waits for its verdict, or whose merge conflicted. */
+  awaitsReview?: boolean;
+  conflict?: boolean;
 }
 export interface BoardEdge { id: string; from: string; to: string; x1: number; y1: number; x2: number; y2: number }
 export interface BoardBand { id: string; stepId: string; x: number; y: number; w: number; h: number; lanes: number; zoneId?: string }
@@ -198,6 +201,7 @@ function place(rows: RunStepRow[], def: LayoutDefinition | undefined, ox: number
     id, kind, stepId: row.stepId, ...(row.branch ? { branch: row.branch } : {}), attempt: row.attempt, status: row.status,
     ...(row.taskId ? { taskId: row.taskId } : {}), startedAt: row.startedAt, ...(row.endedAt !== undefined ? { endedAt: row.endedAt } : {}),
     x: nx, y: ny, w: DESK_W, h: DESK_H, layer, ...(zoneId ? { zoneId } : {}), waitsOnYou: isWaitingOnYou(row, questions),
+    ...(stepAwaitsReview(row) ? { awaitsReview: true } : {}),
   });
   layerSizes.forEach((layer, li) => {
     let y = oy + Math.floor((tallest - layer.h) / 2);

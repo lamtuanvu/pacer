@@ -469,6 +469,19 @@ export function p6eCases(): any[] {
         { type: "dismiss", id: "missing", items: [] },
       ],
     });
+    // A review gate ignores a stored dismissal or snooze and refuses both operations.
+    const gate = { ...item, id: "run_review:t", kind: "review", taskId: "t" };
+    cases.push({
+      op: "attention.store",
+      store: { [gate.id]: { since: 1, dismissedSince: 1, snoozedUntil: 9999999999 } },
+      actions: [
+        { type: "apply", items: [gate, item] },
+        { type: "dismiss", id: gate.id, items: [gate] },
+        { type: "snooze", id: gate.id, duration: "1h", items: [gate] },
+        { type: "dismiss", id: gate.id, items: [] },
+        { type: "apply", items: [gate] },
+      ],
+    });
     for (const duration of ["1h", "4h", "1d"])
       cases.push({
         op: "attention.store",
@@ -875,6 +888,17 @@ export function p6eCases(): any[] {
             transferred: Object.fromEntries(tasks.map((t) => [t.id, received])),
             cleanCodes: { done1: 1 },
           });
+    // A task a workflow review holds is kept and says why.
+    for (const dryRun of [true, false])
+      cases.push({
+        op: "host.clean",
+        alias: "h",
+        host,
+        tasks,
+        dryRun,
+        transferred: Object.fromEntries(tasks.map((t) => [t.id, true])),
+        held: tasks.map((t) => t.id),
+      });
     for (const paused of [true, false])
       for (const failures of [0, 2])
         for (const checking of [true, false])

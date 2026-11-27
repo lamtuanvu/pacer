@@ -5,13 +5,27 @@ use pacer_foundation::{
 };
 use pacer_lifecycle::{DismissError, dismiss_tasks};
 use pacer_read_model::tasks::{full_title, task_data};
-use pacer_store::{TaskStore, append_activity, publish};
+use pacer_store::{TaskStore, append_activity, publish, read_only::workflow_involved};
 use serde_json::{Map, Value, json};
 
 use super::lifecycle_ops::{invalid, object, optional_expect_rev, project_api_task, type_name};
 
 pub fn needs_task_clean_bridge(op: &str) -> bool {
     matches!(op, "task.dismiss")
+}
+
+/// A workflow review may hold a task these operations dismiss, archive or clean:
+/// only Core knows which, so it takes them when a workflow could be involved.
+pub fn workflow_hold_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
+    let ids = match op {
+        "task.dismiss" => match ids_from_params(params) {
+            Ok(ids) => Some(ids),
+            Err(_) => return false,
+        },
+        "task.prune" | "host.clean" => None,
+        _ => return false,
+    };
+    workflow_involved(&ctx.pacer_home, ids.as_deref()).unwrap_or(true)
 }
 
 pub fn ids_from_params(params: &Value) -> Result<Vec<String>, CoreError> {
@@ -177,4 +191,60 @@ pub fn task_dismiss<'a>(ctx: &'a Ctx, params: Value, clean: OpFuture<'a>) -> OpF
             "unknown": batch.unknown,
         }))
     })
+}
+
+#[cfg(test)]
+mod forward_tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+
+    #[test]
+    fn a_task_a_workflow_names_is_forwarded() {
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = Ctx::with(
+            dir.path().into(),
+            dir.path().join(".pacer"),
+            Default::default(),
+            1.0,
+        );
+        let forwarded =
+            |id: &str| workflow_hold_stays_forwarded(&ctx, "task.dismiss", &json!({"ids": [id]}));
+        assert!(!forwarded("t-step"));
+        TaskStore::open(&ctx.pacer_home)
+            .unwrap()
+            .connection()
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE workflow_steps(task_id TEXT);
+                 CREATE TABLE workflow_runs(conflict TEXT, status TEXT);
+                 INSERT INTO workflow_steps VALUES ('t-step');
+                 INSERT INTO workflow_runs VALUES ('[{\"taskId\":\"t-conflict\",\"resolutionTaskId\":\"t-record\"}]', 'waiting');",
+            )
+            .unwrap();
+        for id in ["t-step", "t-conflict", "t-record"] {
+            assert!(forwarded(id), "{id}");
+        }
+        assert!(!forwarded("t-other"));
+        assert!(!workflow_hold_stays_forwarded(
+            &ctx,
+            "task.list",
+            &json!({"ids": ["t-step"]})
+        ));
+        // Archiving and host cleanup name no task: a live run is enough.
+        for (status, live) in [("done", false), ("waiting", true), ("running", true)] {
+            TaskStore::open(&ctx.pacer_home)
+                .unwrap()
+                .connection()
+                .unwrap()
+                .execute("UPDATE workflow_runs SET status = ?1", [status])
+                .unwrap();
+            for op in ["task.prune", "host.clean"] {
+                assert_eq!(
+                    workflow_hold_stays_forwarded(&ctx, op, &json!({})),
+                    live,
+                    "{op} {status}"
+                );
+            }
+        }
+    }
 }
