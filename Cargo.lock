@@ -1672,6 +1672,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-host-ops"
+version = "0.0.0"
+dependencies = [
+ "pacer-config",
+ "pacer-config-ops",
+ "pacer-foundation",
+ "pacer-lifecycle",
+ "pacer-repos",
+ "pacer-store",
+ "ryu-js",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "pacer-install"
 version = "0.0.0"
 dependencies = [
@@ -2064,6 +2080,7 @@ dependencies = [
  "pacer-dispatch-ops",
  "pacer-engine",
  "pacer-foundation",
+ "pacer-host-ops",
  "pacer-install",
  "pacer-issues",
  "pacer-lifecycle",

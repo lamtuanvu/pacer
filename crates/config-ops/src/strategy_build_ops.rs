@@ -35,7 +35,7 @@ fn zod_len(text: &str) -> usize {
 }
 
 /// Zod `uuid()`: RFC 9562 versions 1–8 and variant 8–b, or the nil and max UUIDs.
-pub(crate) fn zod_uuid(text: &str) -> bool {
+pub fn zod_uuid(text: &str) -> bool {
     let lower = text.to_ascii_lowercase();
     if lower == "00000000-0000-0000-0000-000000000000"
         || lower == "ffffffff-ffff-ffff-ffff-ffffffffffff"
