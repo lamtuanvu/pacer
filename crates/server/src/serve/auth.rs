@@ -26,10 +26,12 @@ pub enum Decision {
     Forward { auth: AuthKind },
 }
 
-/// A rejected app request needs the core's /_internal/app-page HTML template.
+/// A rejected app request becomes a native error page; status and message stay
+/// the marker the front door renders with `serve::app_pages::app_page`.
 #[derive(Debug, Clone)]
 pub struct AppPage {
     pub message: &'static str,
+    pub status: StatusCode,
 }
 
 pub fn safe_equal(left: &str, right: &str) -> bool {
@@ -95,7 +97,9 @@ fn reject(status: StatusCode, body: &'static str, app_message: Option<&'static s
         );
     }
     if let Some(message) = app_message {
-        response.extensions_mut().insert(AppPage { message });
+        response
+            .extensions_mut()
+            .insert(AppPage { message, status });
     }
     Decision::Reject(response)
 }
