@@ -91,7 +91,7 @@ test("valid params need a door's Core channel", () => {
     ["assistant.ask", ask({ scope: { kind: "repo", repo: "/r" } })],
     ["assistant.cancel", { turnId: emoji.repeat(128), extra: 1 }],
   ] as [string, unknown][]) {
-    expect(native(op, params), JSON.stringify(params)).toMatchObject({ error: { code: "unavailable", message: "assistant turn bridge unavailable" } });
+    expect(native(op, params), JSON.stringify(params)).toMatchObject({ error: { code: "unavailable", message: "The assistant needs the native plugin host." } });
   }
 }, 120_000);
 

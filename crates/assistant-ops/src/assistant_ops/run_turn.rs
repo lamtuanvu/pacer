@@ -18,7 +18,7 @@ use pacer_foundation::{
     Ctx,
     api::{Code, CoreError, OpFuture},
 };
-use pacer_store::{TaskStore, assistant};
+use pacer_store::{TaskStore, assistant, work_grants};
 use serde_json::{Map, Value, json};
 use std::{sync::Arc, time::Duration};
 use tokio::sync::watch;
@@ -235,13 +235,24 @@ fn keys(ctx: &Ctx, strategy: &Value) -> Vec<String> {
     out
 }
 
-#[derive(Default)]
 struct Usage {
     input: i64,
     output: i64,
     cache_read: Option<i64>,
     cache_write: Option<i64>,
     coverage: String,
+}
+
+impl Default for Usage {
+    fn default() -> Self {
+        Self {
+            input: 0,
+            output: 0,
+            cache_read: None,
+            cache_write: None,
+            coverage: "unknown".into(),
+        }
+    }
 }
 
 impl Usage {
@@ -259,7 +270,7 @@ impl Usage {
 
 /// Validate ask params the way `startAsk` does, before reserving the slot.
 /// Returns `(question, scope, parsed ask)`.
-fn validate(params: &Value) -> Result<(String, Value, Value), CoreError> {
+pub(crate) fn validate(params: &Value) -> Result<(String, Value, Value), CoreError> {
     let Params::Ask(ask) = parse("assistant.ask", params.clone())? else {
         return Err(CoreError::new(Code::InvalidInput, "invalid ask params"));
     };
@@ -366,6 +377,10 @@ async fn start(
     .map_err(store_error)?;
     live::mark_inflight(&home, &started.1);
     let cancel = live::open(&started.1);
+    // One `pag_` grant per turn, bound to its conversation and revoked the
+    // moment the turn ends. It is the only credential `assistant.tool` accepts.
+    let grant = work_grants::issue_assistant(db, &started.0, ctx.now).map_err(store_error)?;
+    live::set_grant(&started.1, grant);
     let reply_to = started.clone();
     let ctx = ctx.clone();
     tokio::spawn(async move {
@@ -560,6 +575,15 @@ pub async fn run(
             ctx.now,
         );
     }
+    // The turn's tools and its `pag_` grant close together, before the final
+    // state lands: a tool call after `done` is refused.
+    if let Some(grant) = live::grant(&turn_id)
+        && let Ok(mut store) = TaskStore::open(&ctx.pacer_home)
+        && let Ok(db) = assistant::database(&mut store)
+    {
+        let _ = work_grants::revoke_assistant(db, &grant);
+    }
+    live::close_tools(&turn_id);
     if !answer.is_empty() && !live::streamed(&turn_id) {
         live::emit(&turn_id, json!({"delta":answer}));
     }

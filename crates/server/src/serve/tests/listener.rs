@@ -389,6 +389,13 @@ async fn a_run_grant_reaches_no_native_operation() {
         "b".repeat(64)
     );
     for name in names {
+        // `assistant.tool` is the one native op bound to a `pag_` grant, not a
+        // run grant; it refuses here without reaching the core.
+        if name == "assistant.tool" {
+            let response = request(port, "POST", "/v3/ops/assistant.tool", &headers).await;
+            assert!(response.starts_with("HTTP/1.1 403"), "{response}");
+            continue;
+        }
         let path = format!("/v3/ops/{name}");
         let response = request(port, "POST", &path, &headers).await;
         assert!(response.starts_with("HTTP/1.1 403"), "{name}: {response}");

@@ -187,6 +187,17 @@ pub fn set_grant(turn_id: &str, grant: String) {
     }
 }
 
+/// Close a turn's tool context while its stream is still open. Called before
+/// the terminal frame so no tool call can slip in after the answer lands.
+pub fn close_tools(turn_id: &str) {
+    state()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .live
+        .get_mut(turn_id)
+        .map(|turn| turn.tools = None);
+}
+
 /// Deliver a stream frame to every subscriber, keeping frames for replay.
 pub fn emit(turn_id: &str, frame: Frame) {
     let mut state = state().lock().unwrap_or_else(|e| e.into_inner());
@@ -346,8 +357,7 @@ pub fn forget_request(key: &str) {
         .remove(key);
 }
 
-/// Test-only: clear all in-memory state between cases.
-#[cfg(test)]
+/// Clear all in-memory state between test cases. Not used by runtime code.
 pub fn reset() {
     *state().lock().unwrap_or_else(|e| e.into_inner()) = State::default();
 }

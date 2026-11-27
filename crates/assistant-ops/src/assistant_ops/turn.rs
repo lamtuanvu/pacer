@@ -41,6 +41,8 @@ fn runner<'a>() -> Result<Arc<dyn ReplyRunner>, CoreError> {
 /// executor sessions and work-grant callers keep their established refusals.
 pub fn assistant_ask(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
+        super::refuse(ctx)?;
+        run_turn::validate(&params)?;
         let reply = runner()?;
         run_turn::ask(ctx, params, reply).await
     })
@@ -48,8 +50,10 @@ pub fn assistant_ask(ctx: &Ctx, params: Value) -> OpFuture<'_> {
 
 pub fn assistant_cancel(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
+        super::refuse(ctx)?;
+        let _ = super::params::parse("assistant.cancel", params.clone())?;
         let _ = runner()?;
-        run_turn::cancel(ctx, params).map_err(|error| error)
+        run_turn::cancel(ctx, params)
     })
 }
 

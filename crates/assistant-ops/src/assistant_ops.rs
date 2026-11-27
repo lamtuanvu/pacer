@@ -50,7 +50,7 @@ fn unavailable(message: &str) -> CoreError {
 }
 
 /// `authorizeWorkOperation` and `isExecutorSession`, ahead of the params.
-fn refuse(ctx: &Ctx) -> Result<(), CoreError> {
+pub(crate) fn refuse(ctx: &Ctx) -> Result<(), CoreError> {
     if env(ctx, "PACER_ENFORCEMENT_TOKEN").is_some() {
         return Err(CoreError::new(
             Code::NotAllowed,

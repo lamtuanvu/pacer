@@ -199,6 +199,7 @@ pub fn classify<B>(req: &Request<B>, port: u16, token: &str, ctx: &Ctx) -> Decis
         if req.method() == "POST"
             && ((bearer.starts_with("pwg_") || bearer.starts_with("prg_"))
                 && path.starts_with("/v3/ops/")
+                && path != "/v3/ops/assistant.tool"
                 || bearer.starts_with("pet_") && path == "/v3/ops/dispatch.enforcement.denied")
         {
             return Decision::Forward {
