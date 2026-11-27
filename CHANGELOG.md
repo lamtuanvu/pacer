@@ -4,6 +4,16 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-11-27
+
+### Added
+
+- List Codex, Cursor and Antigravity models in Add a model (#1390).
+
+### Changed
+
+- Release 0.19.0 (#1391).
+
 ## [0.19.0] - 2026-11-27
 
 ### Changed
