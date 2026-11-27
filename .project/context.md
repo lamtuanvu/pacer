@@ -45,6 +45,7 @@ pacer paces AI coding work across subscription budgets. A planner plans and revi
 | `crates/assistant-protocol` | `pacer-assistant-protocol`: generated assistant operation types, split from the client schema under CRATE-3 |
 | `crates/mdns` | `pacer-mdns`: the LAN discovery radio's mDNS responder and browser for `_pacer._udp.local.`, IPv4 on one interface, on-link traffic only (SEC-11) |
 | `crates/read-model` | `pacer-read-model`: snapshot composition, task/message/discovery reads, v2 compatibility, status/context caches and SSE replay semantics; library only until native cutover |
+| `crates/setup-ops` | `pacer-setup-ops`: native setup and doctor operation handlers (setup gate, checklist, `setup.health`, `doctor.run`, diagnostic summary, `onboarding.skip`), moved from `pacer-config-ops` in M3 B6-2; layer 8 |
 | `crates/cli` | `pacer-cli`: argv dispatch, core exec, status line, self-repair |
 | `crates/pacer` | `pacer`: the binary, start-up and dispatch only |
 | `crates/plugin-ops` | `pacer-plugin-ops`: native plugin list/diagnostic/UI-list/settings reads over the `pacer-js-json` codec; layer 5, target ≤ 5,000 LOC ([ADR 0020](../docs/decisions/0020-native-plugin-read-operations-crate.md)) |

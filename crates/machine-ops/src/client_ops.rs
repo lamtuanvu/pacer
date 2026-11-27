@@ -1,22 +1,21 @@
 //! Native `client.register`, `client.heartbeat`, `client.list` and `client.control.*`
 //! (`src/clients/registry.ts`, `src/api/ops-client-control.ts`).
 //!
-//! Rust owns the published params (Zod issue order and text) and the client registry
-//! file, `state/clients.json`, byte for byte. Core keeps what lives only in its process:
-//! the control broker's workers and requests, and the desktop capture broker's worker
-//! credentials. Those cross the sealed `client-control` bridge, so credentials never
-//! leave the private channel between the front door and Core.
+//! Rust owns the published params (Zod issue order and text), the client registry file
+//! `state/clients.json` byte for byte, and the control broker's workers and requests
+//! ([`crate::client_control`]). Core keeps only the desktop capture broker's worker
+//! credentials, which cross the sealed `client-control` bridge.
 #![allow(clippy::result_large_err)]
 use pacer_foundation::{
     Ctx,
     api::{Code, CoreError, OpFuture},
     fsutil::write_private,
 };
+use crate::client_control::SharedControl;
 use pacer_js_json::quoted;
 use serde_json::{Map, Number, Value, json};
 use std::{
     fs,
-    io::ErrorKind,
     path::PathBuf,
     sync::{Mutex, PoisonError},
 };
@@ -32,10 +31,6 @@ pub const CLIENT_OPS: &[&str] = &[
     "client.control.claim",
     "client.control.complete",
 ];
-
-/// Core asked the door to run the original request: its reply holds values the
-/// bridge's serde documents cannot carry exactly.
-pub const FORWARD_TO_CORE: &str = "client control request stays with Core";
 
 const KINDS: &[&str] = &["app", "desktop", "orca", "tui", "status", "tray", "cli"];
 const PERMISSIONS: &[&str] = &[
@@ -61,7 +56,8 @@ const DISCRIMINATOR: &str = "action.type: Invalid discriminator value. Expected 
 /// its single thread for the same guarantee.
 static REGISTRY: Mutex<()> = Mutex::new(());
 
-/// One Core call per request; see `src/api/client-control-bridge.ts`.
+/// The one Core call left here: minting a desktop capture credential. See
+/// `src/api/client-control-bridge.ts`.
 pub trait ClientBridge: Send {
     fn call(&mut self, request: Value) -> OpFuture<'_>;
 }
@@ -83,10 +79,9 @@ pub fn is_client_op(op: &str) -> bool {
     CLIENT_OPS.contains(&op)
 }
 
-/// True when answering this request needs Core: the control broker or a capture credential.
+/// Only a capture credential still needs Core; control ops run in the door's broker.
 pub fn needs_core(op: &str, params: &Value) -> bool {
-    op.starts_with("client.control.")
-        || (op == "client.register" && params.get("capture") == Some(&Value::Bool(true)))
+    op == "client.register" && params.get("capture") == Some(&Value::Bool(true))
 }
 
 /// Registry entries for ops that only run through [`call`] with a bridge.
@@ -94,71 +89,150 @@ pub fn control_stub(_: &Ctx, _: Value) -> OpFuture<'_> {
     Box::pin(async { Err(unavailable()) })
 }
 
+/// A broker for callers that reach the op through the registry rather than a door state.
+fn process_control() -> &'static SharedControl {
+    static CONTROL: std::sync::OnceLock<SharedControl> = std::sync::OnceLock::new();
+    CONTROL.get_or_init(crate::client_control::shared)
+}
+
 pub fn client_register(ctx: &Ctx, params: Value) -> OpFuture<'_> {
-    Box::pin(async move { call(ctx, "client.register", params, &mut NoBridge).await })
+    Box::pin(async move {
+        call(
+            ctx,
+            "client.register",
+            params,
+            process_control(),
+            &mut NoBridge,
+        )
+        .await
+    })
 }
 
 pub fn client_heartbeat(ctx: &Ctx, params: Value) -> OpFuture<'_> {
-    Box::pin(async move { call(ctx, "client.heartbeat", params, &mut NoBridge).await })
+    Box::pin(async move {
+        call(
+            ctx,
+            "client.heartbeat",
+            params,
+            process_control(),
+            &mut NoBridge,
+        )
+        .await
+    })
 }
 
 pub fn client_list(ctx: &Ctx, params: Value) -> OpFuture<'_> {
-    Box::pin(async move { call(ctx, "client.list", params, &mut NoBridge).await })
+    Box::pin(async move {
+        call(ctx, "client.list", params, process_control(), &mut NoBridge).await
+    })
 }
 
-/// Callers Core authorizes itself, and registry files only TypeScript reads faithfully.
-pub fn client_stays_forwarded(ctx: &Ctx, op: &str) -> bool {
-    if !is_client_op(op) {
-        return false;
+/// Scoped identities get the same refusals as `authorizeWorkOperation` in `src/core/work.ts`,
+/// before the params are read. All nine client ops are native; none of these grants owns them.
+fn scoped_refusal(ctx: &Ctx) -> Result<(), CoreError> {
+    if ctx
+        .env
+        .get("PACER_ASSISTANT_GRANT")
+        .is_some_and(|token| !token.is_empty())
+    {
+        return Err(CoreError::new(
+            Code::NotAllowed,
+            "An assistant grant runs assistant.tool only.",
+        ));
     }
-    let scoped = [
-        "PACER_WORK_GRANT",
-        "PACER_ENFORCEMENT_TOKEN",
-        "PACER_ASSISTANT_GRANT",
-    ]
-    .iter()
-    .any(|name| ctx.env.get(*name).is_some_and(|value| !value.is_empty()));
-    scoped || (!op.starts_with("client.control.") && registry_needs_core(ctx))
+    if ctx
+        .env
+        .get("PACER_ENFORCEMENT_TOKEN")
+        .is_some_and(|token| !token.is_empty())
+    {
+        return Err(CoreError::new(
+            Code::NotAllowed,
+            "Enforcement identity only reports a native child denial",
+        ));
+    }
+    if ctx
+        .env
+        .get("PACER_WORK_GRANT")
+        .is_some_and(|token| !token.is_empty())
+    {
+        return Err(CoreError::new(
+            Code::NotAllowed,
+            "Operation is not allowed by this work grant",
+        ));
+    }
+    Ok(())
 }
 
 pub async fn call(
     ctx: &Ctx,
     op: &str,
     params: Value,
-    bridge: &mut dyn ClientBridge,
+    control: &SharedControl,
+    capture: &mut dyn ClientBridge,
 ) -> Result<Value, CoreError> {
+    scoped_refusal(ctx)?;
     let p = params_object(&params)?;
     finish(issues(op, &p)?)?;
     match op {
         "client.register" => {
-            let capture = p.get("capture") == Some(&Value::Bool(true));
+            let capture_worker = p.get("capture") == Some(&Value::Bool(true));
             let registration = register(ctx, &p)?;
-            if !capture {
+            if !capture_worker {
                 return Ok(registration);
             }
             let request =
                 json!({"op": "client.capture.register", "client_id": registration["client_id"]});
-            let worker = reply(bridge.call(request).await?)?;
+            let worker = reply(capture.call(request).await?)?;
             let mut registration = registration;
             registration["capture_worker"] = worker;
             Ok(registration)
         }
         "client.heartbeat" => heartbeat(ctx, &p),
         "client.list" => Ok(Value::Array(
-            read_entries(ctx)
-                .into_iter()
-                .filter(|entry| ctx.now - number(entry, "heartbeatAt") <= LAPSE_S)
-                .map(Value::Object)
-                .collect(),
+            live_entries(ctx).into_iter().map(Value::Object).collect(),
         )),
-        _ => reply(bridge.call(json!({"op": op, "params": p})).await?),
+        "client.control.enroll" => {
+            let kind = p["kind"].as_str().unwrap_or_default();
+            let window = p["window"].as_str().unwrap_or_default();
+            control.lock().await.enroll(kind, window)
+        }
+        "client.control.targets" => Ok(control.lock().await.targets()),
+        "client.control.request" => {
+            let id = p["client_id"].as_str().unwrap_or_default();
+            control
+                .lock()
+                .await
+                .request(id, p["action"].clone())
+        }
+        "client.control.result" => {
+            control.lock().await.result(p["request_id"].as_str().unwrap_or_default())
+        }
+        "client.control.claim" => {
+            control.lock().await.claim(
+                p["client_id"].as_str().unwrap_or_default(),
+                p["worker_token"].as_str().unwrap_or_default(),
+            )
+        }
+        "client.control.complete" => {
+            let error = p
+                .get("error")
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+            control.lock().await.complete(
+                p["request_id"].as_str().unwrap_or_default(),
+                p["worker_token"].as_str().unwrap_or_default(),
+                p.get("result").cloned(),
+                error,
+            )
+        }
+        _ => Err(CoreError::new(
+            Code::UnknownOp,
+            format!("unknown operation \"{op}\""),
+        )),
     }
 }
 
 fn reply(value: Value) -> Result<Value, CoreError> {
-    if value.get("forward") == Some(&Value::Bool(true)) {
-        return Err(CoreError::new(Code::Unavailable, FORWARD_TO_CORE));
-    }
     value.get("reply").cloned().ok_or_else(unavailable)
 }
 
@@ -474,98 +548,6 @@ fn js_number(n: f64) -> Option<Value> {
     Number::from_f64(n).map(Value::Number)
 }
 
-fn exact_number(n: f64) -> bool {
-    // serde's number text must repeat exactly what `JSON.stringify` writes, or
-    // the plain reply would diverge from the bridged TypeScript string. Render
-    // serde's `value` into a fixed stack buffer and ryu-js's `n` into its own,
-    // then compare the two text slices — no owned String is created just for the
-    // comparison.
-    let Some(value) = js_number(n) else {
-        return false;
-    };
-    let mut serde_txt = NumberText::default();
-    let mut js = ryu_js::Buffer::new();
-    serde_txt.render(&value);
-    serde_txt.as_slice() == js.format(n).as_bytes()
-}
-
-/// A fixed stack buffer for the short decimal a JSON number renders as. The
-/// largest is a binary64 exponent string (~24 chars); 96 bytes leaves headroom
-/// for a full 64-bit integer too. Only ASCII digits are ever written here.
-struct NumberText {
-    bytes: [u8; 96],
-    len: usize,
-}
-
-impl Default for NumberText {
-    fn default() -> Self {
-        Self {
-            bytes: [0; 96],
-            len: 0,
-        }
-    }
-}
-
-impl NumberText {
-    fn render(&mut self, value: &Value) {
-        use std::fmt::Write as _;
-        let _ = write!(self, "{value}");
-    }
-
-    fn as_slice(&self) -> &[u8] {
-        &self.bytes[..self.len]
-    }
-}
-
-impl std::fmt::Write for NumberText {
-    fn write_str(&mut self, text: &str) -> std::fmt::Result {
-        let end = self.len + text.len();
-        if end > self.bytes.len() {
-            return Err(std::fmt::Error);
-        }
-        self.bytes[self.len..end].copy_from_slice(text.as_bytes());
-        self.len = end;
-        Ok(())
-    }
-}
-
-/// Text or numbers a plain serde reply would not repeat as `JSON.stringify` writes them.
-fn inexact(value: &Value) -> bool {
-    match value {
-        Value::String(text) => text.contains('\u{fdd0}'),
-        Value::Number(n) => n.as_f64().is_none_or(|n| !exact_number(n)),
-        Value::Array(items) => items.iter().any(inexact),
-        Value::Object(map) => map
-            .iter()
-            .any(|(key, value)| key.contains('\u{fdd0}') || inexact(value)),
-        Value::Null | Value::Bool(_) => false,
-    }
-}
-
-/// Paths whose failures name Node's temporary file, nesting past the native bound, and
-/// values only `JSON.stringify` repeats exactly stay with TypeScript.
-fn registry_needs_core(ctx: &Ctx) -> bool {
-    let file = registry_path(ctx);
-    match fs::metadata(ctx.pacer_home.join("state")) {
-        Ok(meta) if !meta.is_dir() => return true,
-        Err(error) if error.kind() != ErrorKind::NotFound => return true,
-        _ => {}
-    }
-    match fs::metadata(&file) {
-        Ok(meta) if !meta.is_file() => return true,
-        Err(error) if error.kind() == ErrorKind::NotFound => return false,
-        Err(_) => return true,
-        Ok(_) => {}
-    }
-    let Ok(bytes) = fs::read(&file) else {
-        return true;
-    };
-    match quoted::parse_file(&bytes) {
-        Ok(value) => inexact(&value),
-        Err(error) => error == quoted::NESTING_FALLBACK,
-    }
-}
-
 fn number(entry: &Map<String, Value>, key: &str) -> f64 {
     entry.get(key).and_then(Value::as_f64).unwrap_or(f64::NAN)
 }
@@ -626,13 +608,38 @@ fn parse_entry(value: &Value) -> Option<Map<String, Value>> {
     Some(out)
 }
 
+/// `quoted` encodes lone UTF-16 units and U+FDD0 behind its own noncharacter marker.
+/// The marker is an internal ABI, never an API value: a file holding one reads as
+/// unreadable, the same empty list a failed `JSON.parse` gives. Numbers are not
+/// affected: their serde spelling is the reply spelling (S0/Q3).
+fn has_quoted_text(value: &Value) -> bool {
+    match value {
+        Value::String(text) => text.contains('\u{fdd0}'),
+        Value::Array(items) => items.iter().any(has_quoted_text),
+        Value::Object(map) => map
+            .iter()
+            .any(|(key, value)| key.contains('\u{fdd0}') || has_quoted_text(value)),
+        Value::Null | Value::Bool(_) | Value::Number(_) => false,
+    }
+}
+
 /// `read`: one invalid entry empties the whole list, as `z.array().safeParse` does.
 fn read_entries(ctx: &Ctx) -> Vec<Map<String, Value>> {
     fs::read(registry_path(ctx))
         .ok()
         .and_then(|bytes| quoted::parse_file(&bytes).ok())
+        .filter(|value| !has_quoted_text(value))
         .and_then(|value| value.as_array()?.iter().map(parse_entry).collect())
         .unwrap_or_default()
+}
+
+/// `list(ctx)`: the registry entries whose 45 s lease has not lapsed. Shared with the
+/// notification operations, which select presenters and ack targets from the same view.
+pub fn live_entries(ctx: &Ctx) -> Vec<Map<String, Value>> {
+    read_entries(ctx)
+        .into_iter()
+        .filter(|entry| ctx.now - number(entry, "heartbeatAt") <= LAPSE_S)
+        .collect()
 }
 
 fn write_entries(ctx: &Ctx, entries: Vec<Map<String, Value>>) -> Result<(), CoreError> {
@@ -695,7 +702,7 @@ fn real_permission(value: Option<&Value>) -> bool {
     value.is_some_and(|value| value != "unsupported")
 }
 
-fn heartbeat(ctx: &Ctx, p: &Map<String, Value>) -> Result<Value, CoreError> {
+pub fn heartbeat(ctx: &Ctx, p: &Map<String, Value>) -> Result<Value, CoreError> {
     let id = p["client_id"].as_str().unwrap_or_default();
     let _guard = REGISTRY.lock().unwrap_or_else(PoisonError::into_inner);
     let mut entries = read_entries(ctx);
@@ -751,7 +758,7 @@ mod tests {
         tokio::runtime::Builder::new_current_thread()
             .build()
             .unwrap()
-            .block_on(call(ctx, op, params, &mut NoBridge))
+            .block_on(call(ctx, op, params, process_control(), &mut NoBridge))
     }
 
     #[test]
@@ -809,13 +816,26 @@ mod tests {
     }
 
     #[test]
-    fn scoped_callers_and_unreadable_registries_stay_with_core() {
+    fn scoped_identities_are_refused_natively() {
         let (_dir, mut ctx) = ctx(10.0);
-        assert!(!client_stays_forwarded(&ctx, "client.list"));
-        fs::create_dir_all(registry_path(&ctx)).unwrap();
-        assert!(client_stays_forwarded(&ctx, "client.list"));
-        assert!(!client_stays_forwarded(&ctx, "client.control.targets"));
-        ctx.env.insert("PACER_WORK_GRANT".into(), "pwg_x".into());
-        assert!(client_stays_forwarded(&ctx, "client.control.targets"));
+        for (name, message) in [
+            ("PACER_ASSISTANT_GRANT", "An assistant grant runs assistant.tool only."),
+            ("PACER_ENFORCEMENT_TOKEN", "Enforcement identity only reports a native child denial"),
+            ("PACER_WORK_GRANT", "Operation is not allowed by this work grant"),
+        ] {
+            ctx.env.insert(name.into(), "x".into());
+            let error = run(&ctx, "client.list", json!({})).unwrap_err();
+            assert_eq!(error.code, Code::NotAllowed);
+            assert_eq!(error.message, message);
+            ctx.env.remove(name);
+        }
+        run(&ctx, "client.list", json!({})).unwrap();
+    }
+
+    #[test]
+    fn only_a_capture_registration_needs_core() {
+        assert!(!needs_core("client.control.claim", &json!({})));
+        assert!(!needs_core("client.register", &json!({"capture": false})));
+        assert!(needs_core("client.register", &json!({"capture": true})));
     }
 }

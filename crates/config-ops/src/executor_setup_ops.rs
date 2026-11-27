@@ -17,11 +17,11 @@ use std::cmp::Ordering;
 const GROUPS: &[&str] = &["signed_in", "local", "catalog"];
 pub(crate) const CATALOG_MAX_AGE_S: f64 = 24.0 * 3600.0;
 
-pub(crate) fn invalid(message: impl Into<String>) -> CoreError {
+pub fn invalid(message: impl Into<String>) -> CoreError {
     CoreError::new(Code::InvalidInput, message)
 }
 
-pub(crate) fn type_name(value: Option<&Value>) -> &'static str {
+pub fn type_name(value: Option<&Value>) -> &'static str {
     match value {
         None => "undefined",
         Some(Value::Null) => "null",

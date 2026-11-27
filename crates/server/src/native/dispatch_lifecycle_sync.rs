@@ -19,7 +19,6 @@ pub(crate) fn forwards_undecodable_body(op: &str) -> bool {
         || lifecycle_ops::LIFECYCLE_OPS.contains(&op)
         || pacer_task_ops::session_lifecycle_ops::uses_admission(op)
         || pacer_task_ops::task_delegation_ops::is_delegation_op(op)
-        || crate::native::client_ops::is_client_op(op)
         || crate::native::terminal_ops::uses_bridge(op)
 }
 
@@ -69,7 +68,6 @@ mod tests {
         for op in lifecycle_ops::LIFECYCLE_OPS
             .iter()
             .chain(&["config.set"])
-            .chain(crate::native::client_ops::CLIENT_OPS)
             .chain(TERMINAL.iter())
         {
             assert!(forwards_undecodable_body(op));

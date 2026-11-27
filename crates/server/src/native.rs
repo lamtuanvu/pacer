@@ -10,7 +10,6 @@ pub(crate) mod account_list_sync;
 pub(crate) use account_list_ops::needs_account_list_bridge;
 use pacer_account_ops::account_list_ops;
 use pacer_config_ops::config_writes;
-use pacer_config_ops::doctor_ops;
 use pacer_config_ops::executor_setup_ops;
 pub(crate) use pacer_core_bridge::client_control_sync;
 pub(crate) use pacer_core_bridge::config_host_sync;
@@ -25,6 +24,7 @@ use pacer_dispatch_ops::learning_ops;
 use pacer_dispatch_ops::lifecycle_ops as dispatch_lifecycle_ops;
 use pacer_dispatch_ops::planning_ops;
 pub(crate) use pacer_dispatch_ops::preview_ops;
+use pacer_setup_ops::doctor_ops;
 pub(crate) mod dispatch_preview_sync;
 pub use dispatch_preview_sync::dispatch_preview_stays_forwarded;
 pub(crate) mod dispatch_enforcement_sync;
@@ -52,8 +52,8 @@ pub(crate) mod onboarding_sync;
 use pacer_install::agent_ops as agent_ops_mod;
 use pacer_install::install_ops;
 pub(crate) use pacer_machine_ops::client_ops;
-pub use pacer_machine_ops::client_ops::client_stays_forwarded;
 use pacer_machine_ops::machine_identity;
+use pacer_machine_ops::notification_ops;
 use pacer_machine_ops::machine_ops;
 use pacer_task_ops::lifecycle_ops;
 use pacer_task_ops::session_context_ops;
@@ -74,12 +74,12 @@ pub(crate) use pacer_core_bridge::session_sync;
 pub(crate) use pacer_core_bridge::setup_effects_sync;
 pub(crate) use pacer_task_ops::session_ops;
 pub(crate) mod setup_doctor_sync;
-use pacer_config_ops::setup_ops;
 pub(crate) use pacer_core_bridge::snapshot_sync;
 pub(crate) use pacer_core_bridge::status_sync;
 pub(crate) use pacer_core_bridge::task_clean_sync;
 pub(crate) use pacer_core_bridge::task_read_sync;
 pub(crate) use pacer_core_bridge::task_review_sync;
+use pacer_setup_ops::setup_ops;
 use pacer_task_ops::snapshot_get_ops;
 pub(crate) use pacer_task_ops::status_ops;
 pub(crate) use pacer_task_ops::task_delegation_ops;
@@ -428,6 +428,22 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "notifications.set",
         call: config_writes::notifications_set,
+    },
+    NativeOp {
+        name: "notifications.test",
+        call: notification_ops::notification_test,
+    },
+    NativeOp {
+        name: "notifications.ack",
+        call: notification_ops::notification_ack,
+    },
+    NativeOp {
+        name: "notifications.request",
+        call: notification_ops::notification_request,
+    },
+    NativeOp {
+        name: "notifications.health",
+        call: notification_ops::notification_health,
     },
     NativeOp {
         name: "config.get",
@@ -820,6 +836,10 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: setup_ops::ops()[0].name,
         call: setup_ops::ops()[0].call,
+    },
+    NativeOp {
+        name: setup_ops::ops()[1].name,
+        call: setup_ops::ops()[1].call,
     },
     NativeOp {
         name: "setup.init",

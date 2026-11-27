@@ -51,6 +51,7 @@ use pacer_foundation::{
     Ctx,
     api::{Code, CoreError, Registry},
 };
+use pacer_machine_ops::client_control::{SharedControl, shared as shared_control};
 use serde_json::Value;
 use std::{collections::HashMap, io, sync::Arc};
 // Bun's HTTP listener joins Cookie fields with semicolon-space; Fetch joins
@@ -84,6 +85,8 @@ struct Listener {
     plugins: crate::native::plugins::Service,
     forward_log_follow: bool,
     forward_events: bool,
+    /// The control broker for this serve process; stdio connections keep their own.
+    control: SharedControl,
 }
 async fn forward_plugin_read(
     state: &Listener,
@@ -209,7 +212,6 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             || crate::native::dispatch_preview_stays_forwarded(&ctx, op.name, &params)
             || crate::native::dispatch_enforcement_stays_forwarded(&ctx, op.name, &params)
             || crate::native::session_lifecycle_stays_forwarded(&ctx, op.name, &params)
-            || crate::native::client_stays_forwarded(&ctx, op.name)
             || crate::native::terminal_stays_forwarded(&ctx, op.name, &params)
         {
             let Some(target) = state.core.target().await else {
@@ -247,19 +249,18 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             if target.is_none() && client_ops::needs_core(op.name, &params) {
                 return proxy::unavailable(false);
             }
-            let mut bridge = HttpBridge {
-                target: target.clone(),
-            };
+            let mut bridge = HttpBridge { target };
             let request_ctx = ctx.at_now();
-            return match client_ops::call(&request_ctx, op.name, params, &mut bridge).await {
+            return match client_ops::call(
+                &request_ctx,
+                op.name,
+                params,
+                &state.control,
+                &mut bridge,
+            )
+            .await
+            {
                 Ok(result) => native_json(StatusCode::OK, serde_json::json!({"result":result})),
-                Err(error) if error.message == client_ops::FORWARD_TO_CORE => {
-                    let Some(target) = target else {
-                        return proxy::unavailable(false);
-                    };
-                    proxy::forward(Request::from_parts(parts, Body::from(bytes)), target, auth)
-                        .await
-                }
                 Err(error) => native_error(error),
             };
         }
@@ -989,6 +990,7 @@ pub async fn run_serve(
         plugins,
         forward_log_follow,
         forward_events,
+        control: shared_control(),
     });
     let app = Router::new()
         .fallback(any(handle))

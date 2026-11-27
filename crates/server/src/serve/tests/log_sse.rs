@@ -43,6 +43,7 @@ async fn listener_with_core(
         plugins: crate::native::plugins::Service::default(),
         forward_log_follow: forwarded,
         forward_events: false,
+        control: shared_control(),
     });
     let app = Router::new()
         .fallback(any(handle))

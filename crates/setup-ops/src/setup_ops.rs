@@ -8,7 +8,7 @@ use pacer_store::publish_config_change;
 use serde_json::{Value, json};
 use std::{fs, io::Write, path::Path};
 
-use super::executor_setup_ops::{invalid, type_name};
+use pacer_config_ops::executor_setup_ops::{invalid, type_name};
 
 fn empty_object(params: &Value) -> Result<(), CoreError> {
     let map = params.as_object().ok_or_else(|| {
@@ -71,10 +71,16 @@ pub fn onboarding_skip(ctx: &Ctx, params: Value) -> OpFuture<'_> {
 
 /// Native setup operations provided to the server registry.
 pub const fn ops() -> &'static [pacer_foundation::api::NativeOp] {
-    &[pacer_foundation::api::NativeOp {
-        name: "onboarding.skip",
-        call: onboarding_skip,
-    }]
+    &[
+        pacer_foundation::api::NativeOp {
+            name: "onboarding.skip",
+            call: onboarding_skip,
+        },
+        pacer_foundation::api::NativeOp {
+            name: "setup.skip",
+            call: crate::setup_skip::setup_skip,
+        },
+    ]
 }
 
 #[cfg(test)]

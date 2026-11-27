@@ -27,6 +27,7 @@ async fn listener(home: &std::path::Path, forwarded: bool) -> (u16, tokio::task:
         plugins: crate::native::plugins::Service::default(),
         forward_log_follow: false,
         forward_events: forwarded,
+        control: shared_control(),
     });
     let app = Router::new().fallback(any(handle)).with_state(state);
     let server = tokio::spawn(async move {

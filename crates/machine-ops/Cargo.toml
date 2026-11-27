@@ -10,13 +10,14 @@ rust-version.workspace = true
 tokio.workspace = true
 serde_json.workspace = true
 ryu-js = "1"
-pacer-foundation = { path = "../foundation" }
+pacer-foundation = { path = "../foundation", features = ["async"] }
 pacer-js-json = { path = "../js-json" }
 pacer-store = { path = "../store" }
 ring = "0.17"
 sha2 = "0.10"
 hex = "0.4"
 rand = "0.9"
+subtle = "2"
 base64 = "0.22"
 
 [dev-dependencies]

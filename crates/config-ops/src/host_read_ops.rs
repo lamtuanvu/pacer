@@ -16,11 +16,11 @@ pub fn needs_host_read_injection(op: &str) -> bool {
     matches!(op, "host.list" | "host.get" | "host.set")
 }
 
-pub(crate) fn invalid(message: impl Into<String>) -> CoreError {
+pub fn invalid(message: impl Into<String>) -> CoreError {
     CoreError::new(Code::InvalidInput, message)
 }
 
-pub(crate) fn type_name(value: &Value) -> &'static str {
+pub fn type_name(value: &Value) -> &'static str {
     match value {
         Value::Null => "null",
         Value::Bool(_) => "boolean",

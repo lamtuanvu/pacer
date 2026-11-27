@@ -1,20 +1,20 @@
 import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { toApiError } from "../src/api/errors";
 import { clientControlBridge } from "../src/api/client-control-bridge";
+import { ClientControl } from "../src/clients/control";
 import type { Ctx } from "../src/types";
 import { closedPort, pinnedPort } from "./helpers";
 
 const front = process.env.PACER_TEST_NATIVE_FRONT_DOOR;
 const core = JSON.stringify([process.execPath, join(import.meta.dir, "../src/cli.ts")]);
-const OPS = ["client.register", "client.heartbeat", "client.list", "client.control.enroll", "client.control.targets",
-  "client.control.request", "client.control.result", "client.control.claim", "client.control.complete"];
 const U = "00000000-0000-4000-8000-000000000000", T = "a".repeat(64);
 
-const baseEnv = (home: string, forward: boolean, extra: Record<string, string> = {}) => ({
+const baseEnv = (home: string, extra: Record<string, string> = {}) => ({
   HOME: home, PACER_HOME: join(home, ".pacer"), PATH: process.env.PATH ?? "/usr/bin:/bin", PACER_CORE_ARGV: core,
   PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off", PACER_DEBUG_NATIVE: "1",
-  ...extra, ...(forward ? { PACER_FORWARD_OPS: OPS.join(",") } : {}),
+  ...extra,
 });
 function tempHome() {
   const home = mkdtempSync("/tmp/pcl-");
@@ -32,12 +32,12 @@ function normalize(text: string) {
       if (!seen.has(match)) seen.set(match, `<id${seen.size}>`);
       return seen.get(match)!;
     })
-    .replace(/"(deadline|registeredAt|heartbeatAt|permission_changed_at)":[0-9.e+]+/g, '"$1":"<time>"');
+    .replace(/"(deadline|registeredAt|heartbeatAt|permission_changed_at)":[0-9.e+-]+/g, '"$1":"<time>"');
 }
 
 /** One interactive `pacer api --stdio` connection; replies are matched by request id. */
-async function stdio(home: string, forward: boolean, extra: Record<string, string> = {}) {
-  const child = Bun.spawn([front!, "api", "--stdio"], { cwd: home, env: pinnedPort(baseEnv(home, forward, extra)), stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+async function stdio(home: string, extra: Record<string, string> = {}) {
+  const child = Bun.spawn([front!, "api", "--stdio"], { cwd: home, env: pinnedPort(baseEnv(home, extra)), stdin: "pipe", stdout: "pipe", stderr: "pipe" });
   const stderr = new Response(child.stderr).text();
   const waiting = new Map<number, (line: string) => void>();
   const reader = (async () => {
@@ -73,9 +73,10 @@ async function stdio(home: string, forward: boolean, extra: Record<string, strin
   return { raw, close };
 }
 
-async function serve(home: string, forward: boolean) {
+/** `ready=false` is for scoped sessions, whose Core child cannot announce `/v3/hello`. */
+async function serve(home: string, extra: Record<string, string> = {}, ready = true) {
   const port = closedPort();
-  const env = pinnedPort(baseEnv(home, forward), port);
+  const env = pinnedPort(baseEnv(home, extra), port);
   const child = Bun.spawn([front!, "serve", "--port", String(port)], { env, stdin: "ignore", stdout: "ignore", stderr: "pipe" });
   const stderr = new Response(child.stderr).text();
   const base = `http://127.0.0.1:${port}`;
@@ -83,6 +84,8 @@ async function serve(home: string, forward: boolean) {
   for (let n = 0; n < 500 && !token; n++) {
     try {
       const candidate = readFileSync(join(env.PACER_HOME, "token"), "utf8").trim();
+      if (!candidate) continue;
+      if (!ready) { token = candidate; break; }
       const response = await fetch(`${base}/v3/hello`, { headers: { Authorization: `Bearer ${candidate}` }, signal: AbortSignal.timeout(500) });
       if (response.ok) token = candidate;
     } catch {}
@@ -126,100 +129,101 @@ const invalidParams: [string, unknown][] = [
   ["client.control.complete", { request_id: "x", worker_token: "y", error: 1 }],
 ];
 
-test.skipIf(!front)("params errors match forced forwarding byte for byte over stdio", async () => {
-  const run = async (forward: boolean) => {
-    const home = tempHome();
-    const client = await stdio(home, forward);
-    try {
-      const replies: string[] = [];
-      for (const [op, params] of invalidParams) replies.push(await client.raw(op, params));
-      return { replies, stderr: await client.close() };
-    } finally { await client.close(); rmSync(home, { recursive: true, force: true }); }
-  };
-  const native = await run(false), forwarded = await run(true);
-  expect(native.replies).toEqual(forwarded.replies);
-  expect(stdioMarkers(native.stderr)).toEqual(invalidParams.map(([op]) => `native ${op}`));
-  expect(stdioMarkers(forwarded.stderr)).toEqual([]);
-  // The two valid heartbeats name an unknown client, which is also `invalid_input`.
-  expect(native.replies.every(line => JSON.parse(line).error?.data?.code === "invalid_input")).toBe(true);
+test.skipIf(!front)("published params are enforced natively over stdio", async () => {
+  const home = tempHome();
+  const client = await stdio(home);
+  try {
+    const replies: string[] = [];
+    for (const [op, params] of invalidParams) replies.push(await client.raw(op, params));
+    expect(replies.every(line => JSON.parse(line).error?.data?.code === "invalid_input")).toBe(true);
+    expect(stdioMarkers(await client.close())).toEqual(invalidParams.map(([op]) => `native ${op}`));
+  } finally { await client.close(); rmSync(home, { recursive: true, force: true }); }
 }, 120000);
 
-test.skipIf(!front)("params errors and undecodable bodies match forced forwarding over HTTP", async () => {
+test.skipIf(!front)("published params and undecodable bodies are enforced natively over HTTP", async () => {
   const bytes = (...parts: (string | number[])[]) => new Uint8Array(parts.flatMap(part => typeof part === "string" ? [...new TextEncoder().encode(part)] : part));
-  const cases: { op: string; body: string | Uint8Array<ArrayBuffer>; native: boolean }[] = [
-    ...invalidParams.filter(([, params]) => params !== undefined).map(([op, params]) => ({ op, body: JSON.stringify(params), native: true })),
-    // Bodies serde_json refuses reach Core unchanged, as TypeScript's decoder reads them.
-    { op: "client.list", body: "{", native: false },
-    { op: "client.list", body: "", native: false },
-    { op: "client.register", body: String.raw`{"kind":"app","version":"\ud800"}`, native: false },
-    { op: "client.heartbeat", body: bytes([0xef, 0xbb, 0xbf], '{"client_id":""}'), native: false },
-    { op: "client.heartbeat", body: bytes('{"client_id":"', [0xff, 0xfe], '"}'), native: false },
-    { op: "client.control.complete", body: `{"request_id":"${U}","worker_token":"${T}","result":1e400}`, native: false },
-    { op: "client.list", body: "x".repeat(256 * 1024 + 1), native: false },
+  const paramsCases = invalidParams.filter(([, params]) => params !== undefined).map(([op, params]) => [op, JSON.stringify(params)] as [string, string]);
+  // A BOM is stripped by the JSON reader, so this is a published-params error, not a decode error.
+  paramsCases.push(["client.heartbeat", new TextDecoder().decode(bytes([0xef, 0xbb, 0xbf], '{"client_id":""}'))]);
+  // Bodies only a JavaScript parser accepts (S0/Q3), plus malformed bytes and an oversized body.
+  const undecodable: [string, string | Uint8Array<ArrayBuffer>][] = [
+    // A lone surrogate is a JSON escape JavaScript accepts but the serde documents refuse.
+    ["client.register", String.raw`{"kind":"app","version":"\ud800"}`],
+    ["client.control.complete", `{"request_id":"${U}","worker_token":"${T}","result":"\\ud800"}`],
+    ["client.list", "{"],
+    ["client.list", ""],
+    ["client.heartbeat", bytes('{"client_id":"', [0xff, 0xfe], '"}')],
+    ["client.control.complete", `{"request_id":"${U}","worker_token":"${T}","result":1e400}`],
+    ["client.list", "x".repeat(256 * 1024 + 1)],
   ];
-  const run = async (forward: boolean) => {
-    const home = tempHome();
-    const service = await serve(home, forward);
-    try {
-      const replies = [];
-      for (const { op, body } of cases) replies.push(await service.post(op, body));
-      return { replies: replies.map(reply => ({ ...reply, body: normalize(reply.body) })), stderr: await service.stop() };
-    } finally { await service.stop(); rmSync(home, { recursive: true, force: true }); }
-  };
-  const native = await run(false), forwarded = await run(true);
-  expect(native.replies).toEqual(forwarded.replies);
-  expect(httpMarkers(native.stderr)).toEqual(cases.filter(c => c.native).map(c => `native ${c.op}`));
-  expect(httpMarkers(forwarded.stderr)).toEqual([]);
-  expect(native.replies.at(-1)!.status).toBe(413);
+  const home = tempHome();
+  const service = await serve(home);
+  try {
+    const replies = [];
+    for (const [op, body] of paramsCases) replies.push(await service.post(op, body));
+    for (const [op, body] of undecodable) replies.push(await service.post(op, body));
+    expect(httpMarkers(await service.stop())).toEqual(paramsCases.map(([op]) => `native ${op}`));
+    for (const reply of replies.slice(0, paramsCases.length)) {
+      expect(JSON.parse(reply.body).error.code).toBe("invalid_input");
+    }
+    for (const [index, reply] of replies.slice(paramsCases.length, -1).entries()) {
+      expect(JSON.parse(reply.body).error, `undecodable case ${index}: ${undecodable[index]![0]}`).toEqual({ code: "invalid_input", message: "body is not JSON" });
+    }
+    expect(replies.at(-1)!.status).toBe(413);
+  } finally { await service.stop(); rmSync(home, { recursive: true, force: true }); }
 }, 120000);
 
-/** Stored shapes `client.list` must read exactly as TypeScript does. */
+/** Stored shapes `client.list` must read exactly as TypeScript does; S0 cases read as unreadable. */
 const FUTURE = 4102444800;
 const entry = (fields: Record<string, unknown> = {}) => ({ client_id: "c1", kind: "app", version: "1", notifier: false, registeredAt: 1, heartbeatAt: FUTURE, ...fields });
-const seeds: [string, string][] = [
-  ["missing", ""],
-  ["unparsable", "{"],
-  ["bom", `﻿${JSON.stringify([entry()])}`],
-  ["object", "{}"],
-  ["null", "null"],
-  ["empty", "[]"],
-  ["valid", JSON.stringify([entry()])],
-  ["stripped and reordered", JSON.stringify([{ extra: 1, heartbeatAt: FUTURE, registeredAt: 1, notifier: true, version: "2", kind: "tui", client_id: "c2", permission_changed_at: 7.5, notification_alerts: "banner", notification_permission: "denied" }])],
-  ["lapsed entry is hidden", JSON.stringify([entry({ heartbeatAt: 1 }), entry({ client_id: "c3" })])],
-  ["one invalid entry empties the list", JSON.stringify([entry(), entry({ client_id: "" })])],
-  ["invalid kind", JSON.stringify([entry({ kind: "bogus" })])],
-  ["null permission", JSON.stringify([entry({ notification_permission: null })])],
-  ["string clock", JSON.stringify([entry({ heartbeatAt: "1" })])],
-  ["infinite clock", JSON.stringify([entry()]).replace(String(FUTURE), "1e999")],
-  ["whole float", JSON.stringify([entry()]).replace(String(FUTURE), `${FUTURE}.0`)],
-  ["fraction", JSON.stringify([entry({ registeredAt: 1763512345.125 })])],
-  ["exponent clock", JSON.stringify([entry({ registeredAt: 1e21 })])],
-  ["small clock", JSON.stringify([entry({ registeredAt: 0.0000015 })])],
-  ["large whole clock", JSON.stringify([entry({ registeredAt: 1e20 })])],
-  ["noncharacter text", JSON.stringify([entry({ version: "﷐" })])],
-  ["lone surrogate", JSON.stringify([entry()]).replace('"version":"1"', String.raw`"version":"\ud800"`)],
-  ["unicode", JSON.stringify([entry({ version: "é😀 " })])],
-  ["deep unknown field", JSON.stringify([{ ...entry(), deep: 0 }]).replace('"deep":0', `"deep":${"[".repeat(600)}${"]".repeat(600)}`)],
+const seeds: [string, string, number, boolean][] = [
+  ["missing", "", 0, false],
+  ["unparsable", "{", 0, false],
+  ["bom", `﻿${JSON.stringify([entry()])}`, 0, false],
+  ["object", "{}", 0, false],
+  ["null", "null", 0, false],
+  ["empty", "[]", 0, false],
+  ["valid", JSON.stringify([entry()]), 1, true],
+  ["stripped and reordered", JSON.stringify([{ extra: 1, heartbeatAt: FUTURE, registeredAt: 1, notifier: true, version: "2", kind: "tui", client_id: "c2", permission_changed_at: 7.5, notification_alerts: "banner", notification_permission: "denied" }]), 1, false],
+  ["lapsed entry is hidden", JSON.stringify([entry({ heartbeatAt: 1 }), entry({ client_id: "c3" })]), 1, true],
+  ["one invalid entry empties the list", JSON.stringify([entry(), entry({ client_id: "" })]), 0, false],
+  ["invalid kind", JSON.stringify([entry({ kind: "bogus" })]), 0, false],
+  ["null permission", JSON.stringify([entry({ notification_permission: null })]), 0, false],
+  ["string clock", JSON.stringify([entry({ heartbeatAt: "1" })]), 0, false],
+  ["infinite clock", JSON.stringify([entry()]).replace(String(FUTURE), "1e999"), 0, false],
+  ["whole float", JSON.stringify([entry()]).replace(String(FUTURE), `${FUTURE}.0`), 1, true],
+  ["fraction", JSON.stringify([entry({ registeredAt: 1763512345.125 })]), 1, true],
+  ["exponent clock", JSON.stringify([entry({ registeredAt: 1e21 })]), 1, true],
+  ["small clock", JSON.stringify([entry({ registeredAt: 0.0000015 })]), 1, true],
+  ["large whole clock", JSON.stringify([entry({ registeredAt: 1e20 })]), 1, true],
+  // S0/Q3: quoted JS-only strings and deep nesting read as an unreadable, empty file.
+  ["noncharacter text", JSON.stringify([entry({ version: "﷐" })]), 0, false],
+  ["lone surrogate", JSON.stringify([entry()]).replace('"version":"1"', String.raw`"version":"\ud800"`), 0, false],
+  ["unicode", JSON.stringify([entry({ version: "é😀 " })]), 1, true],
+  ["deep unknown field", JSON.stringify([{ ...entry(), deep: 0 }]).replace('"deep":0', `"deep":${"[".repeat(600)}${"]".repeat(600)}`), 0, false],
+  ["exponent heartbeatAt", JSON.stringify([entry({ heartbeatAt: 1e3 })]), 0, true],
 ];
 
-test.skipIf(!front)("stored registries read and rewrite as TypeScript reads and rewrites them", async () => {
-  const run = async (forward: boolean) => {
-    const out: Record<string, unknown> = {};
-    for (const [name, seed] of seeds) {
-      const home = tempHome();
-      if (name !== "missing") writeFileSync(registryFile(home), seed);
-      const client = await stdio(home, forward);
-      try {
-        const list = await client.raw("client.list", {});
-        const beat = await client.raw("client.heartbeat", { client_id: "c1", notifier: true, notification_alerts: "alert" });
-        let file = "";
-        try { file = readFileSync(registryFile(home), "utf8"); } catch {}
-        out[name] = { list, beat, file: normalize(file) };
-      } finally { await client.close(); rmSync(home, { recursive: true, force: true }); }
-    }
-    return out;
-  };
-  expect(await run(false)).toEqual(await run(true));
+test.skipIf(!front)("stored registries read and rewrite natively", async () => {
+  for (const [name, seed, count, beatOk] of seeds) {
+    const home = tempHome();
+    if (name !== "missing") writeFileSync(registryFile(home), seed);
+    const client = await stdio(home);
+    try {
+      const listed = JSON.parse(await client.raw("client.list", {})).result;
+      expect(listed, name).toHaveLength(count);
+      const beat = JSON.parse(await client.raw("client.heartbeat", { client_id: "c1", notifier: true, notification_alerts: "alert" }));
+      expect(beat.error?.data?.code === "invalid_input", name).toBe(!beatOk);
+      let file = "";
+      try { file = readFileSync(registryFile(home), "utf8"); } catch {}
+      if (beatOk) {
+        expect(file, name).toContain('"notifier":true');
+        expect(file, name).toContain('"notification_alerts":"alert"');
+      } else {
+        expect(normalize(file), name).toBe(normalize(seed));
+      }
+    } finally { await client.close(); rmSync(home, { recursive: true, force: true }); }
+  }
 }, 240000);
 
 test.skipIf(!front)("registration, heartbeat and listing write the same file as TypeScript", async () => {
@@ -228,53 +232,57 @@ test.skipIf(!front)("registration, heartbeat and listing write the same file as 
     ["client.register", { version: "é😀", kind: "tui" }],
     ["client.register", { kind: "cli", version: "2", notification_alerts: "banner", notifier: false, capture: false }],
   ];
-  const run = async (forward: boolean) => {
-    const home = tempHome();
-    const client = await stdio(home, forward);
-    try {
-      const log: string[] = [], ids: string[] = [];
-      for (const [op, params] of flows) {
-        const line = await client.raw(op, params);
-        ids.push(JSON.parse(line).result.client_id);
-        log.push(line, readFileSync(registryFile(home), "utf8"));
+  const home = tempHome();
+  const client = await stdio(home);
+  try {
+    const log: string[] = [];
+    const ids: string[] = [];
+    for (const [op, params] of flows) {
+      const line = await client.raw(op, params);
+      ids.push(JSON.parse(line).result.client_id);
+      expect(ids.at(-1)).toMatch(/^[0-9a-f-]{36}$/);
+      log.push(normalize(line), normalize(readFileSync(registryFile(home), "utf8")));
+    }
+    const beats: Record<string, unknown>[] = [
+      { client_id: ids[0], notification_permission: "authorized" },
+      { client_id: ids[0], notification_permission: "denied" },
+      { client_id: ids[0], notification_alerts: "alert", notifier: false },
+      { client_id: ids[1], notification_permission: "denied", notification_alerts: "none" },
+      { client_id: ids[1] },
+      { client_id: "missing" },
+    ];
+    let marker: unknown;
+    for (const beat of beats) {
+      const line = await client.raw("client.heartbeat", beat);
+      log.push(normalize(line), normalize(readFileSync(registryFile(home), "utf8")));
+      if (beat.client_id === ids[0] && beat.notification_permission === "denied") {
+        const stored = JSON.parse(readFileSync(registryFile(home), "utf8"));
+        marker = stored.find((item: { client_id: string }) => item.client_id === ids[0]).permission_changed_at;
       }
-      const beats: Record<string, unknown>[] = [
-        { client_id: ids[0], notification_permission: "authorized" }, // from the placeholder: no marker
-        { client_id: ids[0], notification_permission: "denied" }, // a real change stamps the marker
-        { client_id: ids[0], notification_alerts: "alert", notifier: false },
-        { client_id: ids[1], notification_permission: "denied", notification_alerts: "none" }, // first reports: no marker
-        { client_id: ids[1] },
-        { client_id: "missing" },
-      ];
-      for (const beat of beats) log.push(await client.raw("client.heartbeat", beat), readFileSync(registryFile(home), "utf8"));
-      log.push(await client.raw("client.list"));
-      return { log: log.map(normalize), stderr: await client.close() };
-    } finally { await client.close(); rmSync(home, { recursive: true, force: true }); }
-  };
-  const native = await run(false), forwarded = await run(true);
-  expect(native.log).toEqual(forwarded.log);
-  expect(stdioMarkers(native.stderr).length).toBe(10);
-  expect(stdioMarkers(forwarded.stderr)).toEqual([]);
+    }
+    expect(marker).toBeDefined();
+    expect(JSON.parse(await client.raw("client.list")).result).toHaveLength(3);
+    expect(stdioMarkers(await client.close()).length).toBe(10);
+  } finally { await client.close(); rmSync(home, { recursive: true, force: true }); }
 }, 60000);
 
 test.skipIf(!front)("entries a day past their heartbeat are dropped at the next registration", async () => {
   const home = tempHome();
   const now = Date.now() / 1000;
   writeFileSync(registryFile(home), JSON.stringify([entry({ client_id: "old", heartbeatAt: now - 86500 }), entry({ client_id: "kept", heartbeatAt: now - 3600 })]));
-  const client = await stdio(home, false);
+  const client = await stdio(home);
   try {
     await client.raw("client.register", { kind: "app", version: "1" });
     const stored = JSON.parse(readFileSync(registryFile(home), "utf8")) as { client_id: string }[];
     expect(stored.map(item => item.client_id).slice(0, 1)).toEqual(["kept"]);
     expect(stored).toHaveLength(2);
-    // The lapsed entry stays stored for a waking client but is not listed.
     expect(JSON.parse(await client.raw("client.list")).result).toHaveLength(1);
   } finally { await client.close(); rmSync(home, { recursive: true, force: true }); }
 }, 30000);
 
 test.skipIf(!front)("concurrent HTTP registrations lose no entry", async () => {
   const home = tempHome();
-  const service = await serve(home, false);
+  const service = await serve(home);
   try {
     const replies = await Promise.all(Array.from({ length: 24 }, (_, n) => service.post("client.register", JSON.stringify({ kind: "app", version: String(n) }))));
     expect(replies.every(reply => reply.status === 200)).toBe(true);
@@ -283,10 +291,24 @@ test.skipIf(!front)("concurrent HTTP registrations lose no entry", async () => {
 }, 60000);
 
 type Call = (op: string, params?: unknown) => Promise<string>;
+/** Normalize a transport line to `{result}` or `{error:{code,message,hint?}}` for comparison. */
+function shape(line: string): string {
+  const reply = JSON.parse(line);
+  if (reply.result !== undefined) return normalize(JSON.stringify({ result: reply.result }));
+  const data = reply.error?.data ?? reply.error;
+  return normalize(JSON.stringify({
+    error: { code: data.code ?? reply.error.code, message: reply.error.message, ...(data.hint ? { hint: data.hint } : {}) },
+  }));
+}
+
 /** The whole worker loop and each refusal; returns normalized replies. */
 async function controlFlow(call: Call) {
   const log: string[] = [];
-  const step = async (op: string, params?: unknown) => { const line = await call(op, params); log.push(line); return JSON.parse(line); };
+  const step = async (op: string, params?: unknown) => {
+    const line = await call(op, params);
+    log.push(shape(line));
+    return JSON.parse(line);
+  };
   const value = (reply: any) => reply.result ?? reply;
   const app = value(await step("client.control.enroll", { kind: "app", window: "main" }));
   const tray = value(await step("client.control.enroll", { kind: "desktop", window: "tray" }));
@@ -313,72 +335,80 @@ async function controlFlow(call: Call) {
   await step("client.control.complete", { request_id: failed.request_id, worker_token: desktop.worker_token, result: "ignored", error: "unsupported" });
   await step("client.control.result", { request_id: failed.request_id });
   await step("client.control.result", { request_id: U });
-  return log.map(normalize);
+  return log;
 }
 
-test.skipIf(!front)("the control worker loop matches forced forwarding over stdio", async () => {
-  const run = async (forward: boolean) => {
-    const home = tempHome();
-    const client = await stdio(home, forward);
+/** The TypeScript reference the native broker was ported from. */
+function referenceCall(broker: ClientControl): Call {
+  return async (op, params) => {
+    const p = (params ?? {}) as any;
     try {
-      const log = await controlFlow(client.raw);
-      return { log, stderr: await client.close() };
-    } finally { await client.close(); rmSync(home, { recursive: true, force: true }); }
-  };
-  const native = await run(false), forwarded = await run(true);
-  expect(native.log).toEqual(forwarded.log);
-  expect(stdioMarkers(native.stderr).length).toBe(native.log.length);
-  expect(stdioMarkers(forwarded.stderr)).toEqual([]);
-  expect(JSON.parse(native.log[0]!).result.worker_token).toBe("<id1>");
-}, 60000);
-
-test.skipIf(!front)("the control worker loop matches forced forwarding over HTTP", async () => {
-  const run = async (forward: boolean) => {
-    const home = tempHome();
-    const service = await serve(home, forward);
-    try {
-      const log = await controlFlow(async (op, params) => {
-        const reply = await service.post(op, params === undefined ? "null" : JSON.stringify(params));
-        return JSON.stringify({ status: reply.status, type: reply.type, ...JSON.parse(reply.body) });
-      });
-      return { log, stderr: await service.stop() };
-    } finally { await service.stop(); rmSync(home, { recursive: true, force: true }); }
-  };
-  const native = await run(false), forwarded = await run(true);
-  expect(native.log).toEqual(forwarded.log);
-  expect(httpMarkers(native.stderr).length).toBe(native.log.length);
-  expect(httpMarkers(forwarded.stderr)).toEqual([]);
-}, 60000);
-
-test.skipIf(!front)("values serde cannot repeat exactly are answered by Core", async () => {
-  const run = async (forward: boolean) => {
-    const home = tempHome();
-    const service = await serve(home, forward);
-    try {
-      const post = async (op: string, body: string) => (await service.post(op, body)).body;
-      const worker = JSON.parse(await post("client.control.enroll", '{"kind":"app","window":"main"}')).result;
-      const log: string[] = [];
-      for (const result of ["1e21", "1.5e-7", "100000000000000000000", '"\\ud83d"', "-0"]) {
-        const request = JSON.parse(await post("client.control.request", JSON.stringify({ client_id: worker.client_id, action: { type: "theme.get" } }))).result;
-        log.push(await post("client.control.claim", JSON.stringify({ client_id: worker.client_id, worker_token: worker.worker_token })));
-        log.push(await post("client.control.complete", `{"request_id":"${request.request_id}","worker_token":"${worker.worker_token}","result":${result}}`));
-        log.push(await post("client.control.result", JSON.stringify({ request_id: request.request_id })));
+      let result: unknown;
+      switch (op) {
+        case "client.control.enroll": result = broker.enroll(p.kind, p.window); break;
+        case "client.control.targets": result = broker.targets(); break;
+        case "client.control.request": result = broker.request(p.client_id, p.action); break;
+        case "client.control.result": result = broker.result(p.request_id); break;
+        case "client.control.claim": result = broker.claim(p.client_id, p.worker_token); break;
+        case "client.control.complete": result = broker.complete(p.request_id, p.worker_token, p.result, p.error); break;
+        default: throw new Error(`unexpected op ${op}`);
       }
-      // A route holding an unpaired surrogate reaches Core whole, and so does the claim that hands it out.
-      const route = await post("client.control.request", `{"client_id":"${worker.client_id}","action":{"type":"navigate","route":"/\\ud83d"}}`);
-      log.push(route, await post("client.control.claim", JSON.stringify({ client_id: worker.client_id, worker_token: worker.worker_token })));
-      return log.map(normalize);
-    } finally { await service.stop(); rmSync(home, { recursive: true, force: true }); }
+      return JSON.stringify({ result });
+    } catch (error) { return JSON.stringify({ error: toApiError(error) }); }
   };
-  const native = await run(false), forwarded = await run(true);
-  expect(native).toEqual(forwarded);
-  expect(native.join("\n")).toContain("1e+21");
-  expect(native.join("\n")).toContain("\\ud83d");
+}
+
+test.skipIf(!front)("the control worker loop matches the TypeScript broker over stdio", async () => {
+  const home = tempHome();
+  const client = await stdio(home);
+  try {
+    const log = await controlFlow(client.raw);
+    expect(log).toEqual(await controlFlow(referenceCall(new ClientControl(() => Date.now()))));
+    expect(stdioMarkers(await client.close()).length).toBe(log.length);
+    expect(JSON.parse(log[0]!).result.worker_token).toBe("<id1>");
+  } finally { await client.close(); rmSync(home, { recursive: true, force: true }); }
+}, 60000);
+
+test.skipIf(!front)("the control worker loop matches the TypeScript broker over HTTP", async () => {
+  const home = tempHome();
+  const service = await serve(home);
+  try {
+    const log = await controlFlow(async (op, params) => {
+      const reply = await service.post(op, params === undefined ? "null" : JSON.stringify(params));
+      return reply.body;
+    });
+    expect(log).toEqual(await controlFlow(referenceCall(new ClientControl(() => Date.now()))));
+    expect(httpMarkers(await service.stop()).length).toBe(log.length);
+  } finally { await service.stop(); rmSync(home, { recursive: true, force: true }); }
+}, 60000);
+
+test.skipIf(!front)("control results use serde number spelling and refuse unpaired surrogates", async () => {
+  const home = tempHome();
+  const service = await serve(home);
+  try {
+    const post = async (op: string, body: string) => (await service.post(op, body)).body;
+    const worker = JSON.parse(await post("client.control.enroll", '{"kind":"app","window":"main"}')).result;
+    const log: string[] = [];
+    for (const result of ["1e21", "1.5e-7", "100000000000000000000", "-0"]) {
+      const request = JSON.parse(await post("client.control.request", JSON.stringify({ client_id: worker.client_id, action: { type: "theme.get" } }))).result;
+      log.push(await post("client.control.claim", JSON.stringify({ client_id: worker.client_id, worker_token: worker.worker_token })));
+      log.push(await post("client.control.complete", `{"request_id":"${request.request_id}","worker_token":"${worker.worker_token}","result":${result}}`));
+      log.push(await post("client.control.result", JSON.stringify({ request_id: request.request_id })));
+    }
+    // serde_json writes exponent numbers with an explicit `+` sign, as JSON.stringify does here.
+    expect(log.join("\n")).toContain("1e+21");
+    expect(log.join("\n")).toContain("1.5e-7");
+    expect(log.join("\n")).toContain("1e+20");
+    expect(log.join("\n")).toContain("-0.0");
+    // S0/Q3: the serde body decoder refuses the escape JavaScript accepts.
+    const rejected = JSON.parse(await post("client.control.complete", `{"request_id":"${U}","worker_token":"${T}","result":"\\ud800"}`));
+    expect(rejected.error).toEqual({ code: "invalid_input", message: "body is not JSON" });
+  } finally { await service.stop(); rmSync(home, { recursive: true, force: true }); }
 }, 60000);
 
 test.skipIf(!front)("a desktop capture registration carries a credential Core's broker accepts", async () => {
   const home = tempHome();
-  const client = await stdio(home, false);
+  const client = await stdio(home);
   try {
     const reply = JSON.parse(await client.raw("client.register", { kind: "desktop", version: "1", capture: true })).result;
     expect(Object.keys(reply)).toEqual(["client_id", "lease_s", "capture_worker"]);
@@ -391,32 +421,53 @@ test.skipIf(!front)("a desktop capture registration carries a credential Core's 
   } finally { await client.close(); rmSync(home, { recursive: true, force: true }); }
 }, 30000);
 
-test.skipIf(!front)("scoped callers and unusual registry paths stay on the forwarded path", async () => {
-  const results = [];
-  for (const forward of [false, true]) {
+test.skipIf(!front)("assistant and enforcement callers are refused natively over HTTP", async () => {
+  // A scoped stdio session forwards the whole connection to Core before any op runs,
+  // so those identities are observed over HTTP, where each op is dispatched natively.
+  for (const [extra, message] of [
+    [{ PACER_ASSISTANT_GRANT: "pag_x" }, "An assistant grant runs assistant.tool only."],
+    [{ PACER_ENFORCEMENT_TOKEN: "pet_x" }, "Enforcement identity only reports a native child denial"],
+  ] as [Record<string, string>, string][]) {
     const home = tempHome();
-    const client = await stdio(home, forward, { PACER_ENFORCEMENT_TOKEN: "pet_x" });
+    const service = await serve(home, extra, false);
     try {
-      const replies = [await client.raw("client.list", {}), await client.raw("client.control.targets", {})];
-      results.push({ replies, markers: stdioMarkers(await client.close()) });
-    } finally { await client.close(); rmSync(home, { recursive: true, force: true }); }
+      for (const op of ["client.list", "client.control.targets"]) {
+        const reply = JSON.parse((await service.post(op, "{}")).body);
+        expect(reply.error).toEqual({ code: "not_allowed", message });
+      }
+      expect(httpMarkers(await service.stop())).toEqual(["native client.list", "native client.control.targets"]);
+    } finally { await service.stop(); rmSync(home, { recursive: true, force: true }); }
   }
-  expect(results[0]!.replies).toEqual(results[1]!.replies);
-  expect(results[0]!.markers).toEqual([]);
-  expect(JSON.parse(results[0]!.replies[0]!).error.data.code).toBe("not_allowed");
+}, 60000);
+
+test.skipIf(!front)("forced forwarding reports unavailable for a native-only op", async () => {
+  const home = tempHome();
+  const service = await serve(home, { PACER_FORWARD_OPS: "client.control.targets" });
+  try {
+    const reply = JSON.parse((await service.post("client.control.targets", "{}")).body);
+    expect(reply.error).toEqual({
+      code: "unavailable",
+      message: "client.control.targets is answered by the pacer front door",
+      hint: "Unset PACER_FORWARD_OPS for this operation.",
+    });
+  } finally { await service.stop(); rmSync(home, { recursive: true, force: true }); }
+}, 60000);
+
+test.skipIf(!front)("a directory registry is refused natively", async () => {
   const home = tempHome();
   mkdirSync(registryFile(home));
-  const client = await stdio(home, false);
+  const client = await stdio(home);
   try {
     const reply = JSON.parse(await client.raw("client.register", { kind: "app", version: "1" }));
     expect(reply.error.data.code).toBe("internal");
-    expect(stdioMarkers(await client.close())).toEqual([]);
+    expect(reply.error.message).toMatch(/directory/i);
+    expect(stdioMarkers(await client.close())).toEqual(["native client.register"]);
   } finally { await client.close(); rmSync(home, { recursive: true, force: true }); }
 }, 60000);
 
 test.skipIf(!front)("the client control bridge is sealed from stdio callers", async () => {
   const home = tempHome();
-  const client = await stdio(home, false);
+  const client = await stdio(home);
   try {
     const request = { op: "client.control.targets", params: {} };
     for (const params of [{ request }, { request, key: "guess" }]) {
@@ -430,16 +481,12 @@ test("the client control bridge gates desktop capture registration on a live des
   const now = Date.now() / 1000;
   const ctx = { pacerHome: join(home, ".pacer"), now } as Ctx;
   const request = { op: "client.capture.register", client_id: "abc" };
-  // No connected desktop client: the bridge refuses before minting a worker.
   await expect(clientControlBridge(ctx, request)).rejects.toMatchObject({ code: "not_found" });
-  // A live desktop entry satisfies the gate, and the minted credential is a 64-hex token.
   writeFileSync(registryFile(home), JSON.stringify([{ client_id: "abc", kind: "desktop", version: "1", notifier: false, registeredAt: now, heartbeatAt: now }]));
   const reply = await clientControlBridge(ctx, request) as { reply: string };
   expect(reply.reply).toMatch(/^[0-9a-f]{64}$/);
-  // A lapsed (heartbeated 45s+ ago) desktop entry is treated as not connected.
   writeFileSync(registryFile(home), JSON.stringify([{ client_id: "abc", kind: "desktop", version: "1", notifier: false, registeredAt: now, heartbeatAt: now - 60 }]));
   await expect(clientControlBridge(ctx, request)).rejects.toMatchObject({ code: "not_found" });
-  // A live but non-desktop kind still fails the gate.
   writeFileSync(registryFile(home), JSON.stringify([{ client_id: "abc", kind: "app", version: "1", notifier: false, registeredAt: now, heartbeatAt: now }]));
   await expect(clientControlBridge(ctx, request)).rejects.toMatchObject({ code: "not_found" });
   rmSync(home, { recursive: true, force: true });
