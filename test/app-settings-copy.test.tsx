@@ -66,6 +66,7 @@ test('readiness maps authoritative eligibility and pace with one short reason', 
   expect(executorReadiness({...ready,enabled:false,state:'exhausted'},snap).availability).toBe('off');
   expect(executorReadiness(ready,snap).availability).toBe('takes');
   expect(executorReadiness({...ready,state:'full'},snap).availability).toBe('skipped');
+  expect(executorReadiness({...ready,state:'failing',recentFailures:2,eligibility:{...eligible,state:'uncertain',reasons:[]}},snap).availability).toBe('skipped');
   expect(executorReadiness({...ready,untested:true},snap)).toMatchObject({label:'Not tested',tone:'neutral',reason:'Still takes work · run a test task to confirm'});
   expect(executorReadiness({...ready,untested:true},{...snap,accounts:[{...snap.accounts![0]!,verdict:'AHEAD'}]}).label).toBe('Not tested');
   expect(executorReadiness({...ready,untested:true,state:'full'},snap)).toMatchObject({label:'Skipped',reason:'All parallel slots are in use'});

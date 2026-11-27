@@ -101,8 +101,8 @@ export function executorReadiness(executor: ExecutorRow, snapshot: ClientSnapsho
   // A key for logic, from the engine facts rather than the label: off and blocked agents are left out of ranking;
   // skipped agents can still be ranked as uncertain fallbacks but are not taking work right now.
   const blocked = codes.includes("subscription_missing") || codes.some(code => ["authentication_failed", "signed_out"].includes(code))
-    || decision?.state === "ineligible" || ["down", "blocked", "exhausted"].includes(executor.state)
-    || (executor.state === "failing" && decision?.state !== "eligible");
+    || decision?.state === "ineligible" || ["down", "blocked", "exhausted"].includes(executor.state);
+  // A failing agent the engine has not ruled out stays ranked as an uncertain fallback, so it keys as skipped.
   const availability: "takes" | "skipped" | "off" | "blocked" = !executor.enabled || executor.state === "disabled" ? "off"
     : blocked ? "blocked"
     : stale || codes.includes("budget_expired_or_unknown") || !decision || decision.state === "uncertain" || executor.state === "full" ? "skipped"
