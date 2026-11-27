@@ -1,5 +1,6 @@
 /** Run step tree from `run.get` (shared by the TUI run view and the app run view). Framework-free. */
 import type { RunDetail, RunQuestion, RunStepRow } from "../dashboard/screens/types";
+import { fanoutAttempt } from "../workflow/fanout";
 export interface TreeLine {
   id: string;
   stepId: string;
@@ -12,6 +13,8 @@ export interface TreeLine {
   attempts: number;
   label: string;
   waitsOnYou: boolean;
+  /** A code step that reported and waits for its verdict. */
+  awaitsReview?: boolean;
 }
 
 export function stepTypeOf(detail: RunDetail, stepId: string): string | undefined {
@@ -103,6 +106,15 @@ function stepWaitsOnYou(
   return openKeys.has(`${step.stepId}\0\0${step.branch ?? ""}`);
 }
 
+export const WAITING_FOR_REVIEW = "waiting for review";
+
+/** A step parked for its verdict: it waits with its task's result (a generate
+ *  step waiting on its child run does not). The CLI reads the same fact. */
+export function stepAwaitsReview(step: { status: string; taskId?: string; result?: unknown }): boolean {
+  return step.status === "waiting" && !!step.taskId && step.result !== undefined && step.result !== null
+    && !(typeof step.result === "object" && "childRunId" in step.result);
+}
+
 /**
  * Build tree lines only from `run.get` steps, definition edges/types and graph versions.
  * Fan-out branch rows share the fan-out stepId (engine key); they nest under that step.
@@ -167,6 +179,7 @@ export function buildRunTree(detail: RunDetail, openQuestions: RunQuestion[] | S
       attempts,
       label: `${step.stepId}${branch}${attemptLabel}`,
       waitsOnYou,
+      ...(stepAwaitsReview(step) ? { awaitsReview: true } : {}),
     });
     if (!step.branch) {
       const graph = approvedByGenerate.get(`${step.stepId}\0${step.attempt}`);
@@ -188,7 +201,7 @@ export function buildRunTree(detail: RunDetail, openQuestions: RunQuestion[] | S
   const pushFanout = (stepId: string, depth: number) => {
     const branches = branchesByFanout.get(stepId) ?? [];
     const join = joinByFanout.get(stepId);
-    const attempt = join?.attempt ?? Math.max(0, ...branches.map(b => b.attempt));
+    const attempt = join?.attempt ?? Math.max(0, ...branches.map(fanoutAttempt));
     const status = fanoutStatus(branches, join);
     const parentKey = `${stepId}\0`;
     const attempts = join
@@ -208,6 +221,8 @@ export function buildRunTree(detail: RunDetail, openQuestions: RunQuestion[] | S
       attempts,
       label: `${stepId}${attemptLabel}`,
       waitsOnYou,
+      // Nothing runs and a branch waits for its verdict: the whole fan-out does.
+      ...(status === "waiting" && branches.some(stepAwaitsReview) && !branches.some(b => b.status === "running") ? { awaitsReview: true } : {}),
     });
     for (const child of branches) pushStep(child, depth + 1);
   };

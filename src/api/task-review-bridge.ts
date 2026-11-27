@@ -29,7 +29,8 @@ export function taskReviewProbe(ctx: Ctx, id: string, params: TaskReviewProbePar
   if (summary.mode === "closed" && summary.plugins > 0) return { forward: true as const, reason: "policy" };
   // Phase 5: accept of a run-branch step must merge via TypeScript `review`.
   // Lookup is read-only (no workflow DDL) and never fails ordinary tasks.
-  if (verdict === "accept" && stepTaskNeedsRunBranchMerge(ctx, id)) {
+  // A reject goes the same way, so no verdict lands between a merge and its record.
+  if ((verdict === "accept" || verdict === "reject") && stepTaskNeedsRunBranchMerge(ctx, id)) {
     return { forward: true as const, reason: "run branch" };
   }
   return { forward: false as const };

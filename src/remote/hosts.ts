@@ -23,6 +23,7 @@ import { pluginRegistry } from "../plugins";
 import { issueConfiguredHostIdentity } from "../plugins/host-identity-issuer";
 import { issueConfiguredHostClone, type ConfiguredHostCloneSnapshot } from "../plugins/host-clone-issuer";
 import { issueConfiguredHostClean } from "../plugins/host-clean-issuer";
+import { reviewHolds } from "../workflow/review";
 
 export interface HostFacts {
   os: string | null;
@@ -335,7 +336,8 @@ export async function clean(ctx: Ctx, alias: string, o: { dryRun?: boolean } = {
   const worktrees: HostWorktree[] = [];
   for (const t of listTasks(ctx, Infinity)) {
     if (t.run?.host !== alias || t.run.mode !== "new") continue;
-    const eligible = TERMINAL_STATES.includes(t.state) && !!(t.review || t.dismissed || t.resolved);
+    const settled = TERMINAL_STATES.includes(t.state) && !!(t.review || t.dismissed || t.resolved);
+    const held = settled && reviewHolds(ctx, t.id), eligible = settled && !held;
     const received = eligible && await transferred(ctx, t).catch(() => false);
     let removable = received && !!t.run.remoteWorktree && !!t.run.remoteDir;
     if (removable && o.dryRun) {
@@ -344,6 +346,7 @@ export async function clean(ctx: Ctx, alias: string, o: { dryRun?: boolean } = {
     }
     worktrees.push({ branch: t.run.remoteBranch ?? `pacer/${t.id}`, state: t.state,
       fate: !TERMINAL_STATES.includes(t.state) ? "in use" : removable ? "will remove" : "kept" });
+    if (held && !o.dryRun) kept.push({ id: t.id, reason: "a workflow review is waiting on it" });
     if (o.dryRun || !eligible) continue;
     try {
       const local = await localRepo(ctx, t.brief.repo), checkout = local.key && host.repos[local.key];

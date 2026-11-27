@@ -14,6 +14,7 @@ import {
   RUNS_REFRESH_ERROR,
   RUNS_UNAVAILABLE,
   waitsOnLabel,
+  awaitsVerdict,
 } from "../../../src/view-model/runs";
 import type { BrowserApi } from "./api";
 
@@ -255,7 +256,8 @@ export function mergeSnapshotRuns(
   return [...byId.values()];
 }
 
-function waitsOnFor(run: RunSummaryRow, attention: AttentionItem[]): string {
+function waitsOnFor(run: RunSummaryRow, attention: AttentionItem[], all: AttentionItem[] | undefined): string {
+  if (awaitsVerdict(run.id, all) && !attention.some(a => a.run?.id === run.id && a.kind === "question")) return "review";
   if (run.waits_on) return run.waits_on;
   if (attention.some(a => a.run?.id === run.id && a.kind === "question")) return "you";
   if (run.status === "waiting") return "orchestrator";
@@ -303,7 +305,7 @@ export function buildRunsListState(input: {
       workflow: run.workflow,
       status,
       priority: runPriorityOf(run.priority),
-      waitsOn: waitsOnLabel(waitsOnFor(run, queueItems)),
+      waitsOn: waitsOnLabel(waitsOnFor(run, queueItems, input.attention)),
       age: runAge(run.createdAt, input.now),
       createdAt: run.createdAt,
       pausedReason: run.paused_reason ?? run.pausedReason,

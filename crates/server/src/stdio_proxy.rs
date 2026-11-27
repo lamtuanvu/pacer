@@ -343,6 +343,7 @@ async fn forward_input<
                     &params,
                 )
                 && !crate::native::msg_stays_forwarded(op.name, ctx)
+                && !crate::native::workflow_hold_stays_forwarded(ctx, op.name, &params)
                 && !crate::native::msg_answer_stays_forwarded(op.name, ctx, &params)
                 && !crate::native::repo_registry_stays_forwarded(&ctx.at_now(), op.name, &params)
                 && !crate::native::discovery_stays_forwarded(&ctx.at_now(), op.name, &params)

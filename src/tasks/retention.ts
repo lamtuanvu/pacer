@@ -10,6 +10,7 @@ import { withLock } from "../core/lock";
 import type { Ctx } from "../types";
 import { listTasksWhere, readTask, taskArchiveDir, taskSettledAt, tasksDir, updateTask, withTaskLockAsync } from "./store";
 import { TERMINAL_STATES, type TaskRecord } from "./types";
+import { reviewHolds } from "../workflow/review";
 import { expireDraftAttachments } from "../attachments/store";
 
 async function withRetentionLock<T>(ctx: Ctx, action: () => Promise<T>): Promise<T> {
@@ -31,7 +32,7 @@ export function retentionDays(ctx: Ctx): number {
 export function eligibleForRetention(ctx: Ctx, task: TaskRecord, days: number): boolean {
   if (days <= 0 || task.archived || !TERMINAL_STATES.includes(task.state) || !(task.review || task.dismissed)
     || taskSettledAt(task) >= ctx.now - days * 86400) return false;
-  if (task.run?.remoteWorktree) return false;
+  if (task.run?.remoteWorktree || reviewHolds(ctx, task.id)) return false;
   const paths = [task.worktree, task.result?.worktree, task.run?.mode === "new" ? task.run.workdir : undefined];
   return !paths.some(path => path && existsSync(path));
 }

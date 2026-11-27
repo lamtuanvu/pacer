@@ -8,7 +8,7 @@ import { CoreError } from "../core/errors";
 import { gitInfo } from "../core/git";
 import { removeTaskWorktree } from "../supervisor/worktree";
 import {
-  clearRunBranch, clearRunConflict, getRun, stepsOfRun, type RunRow,
+  clearRunBranch, clearRunConflict, getRun, runsSharingBranch, stepsOfRun, type RunRow,
 } from "./store";
 import {
   integrationWorktreePath, withMergeLock,
@@ -56,7 +56,8 @@ export async function deleteMergedTaskBranches(ctx: Ctx, run: RunRow): Promise<s
   if (!run.branch) return [];
   const deleted: string[] = [];
   const seen = new Set<string>();
-  for (const step of stepsOfRun(ctx, run.id)) {
+  // Generated children merge into this branch too: their task branches are settled here.
+  for (const step of runsSharingBranch(ctx, run).flatMap(shared => stepsOfRun(ctx, shared.id))) {
     if (!step.taskId) continue;
     const branch = `pacer/${step.taskId}`;
     if (seen.has(branch) || branch === run.branch) continue;

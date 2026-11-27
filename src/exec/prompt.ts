@@ -1,9 +1,13 @@
 import type { Brief } from "../tasks/types";
 
+const NO_COMMIT_RULE = "- Do not commit, push, or change git branches.";
+/** A workflow code step is reviewed by merging its branch, so its work must be committed. */
+const COMMIT_RULE = "- Commit your work on the current task branch, signed off if the repository requires it (`git commit -s`), before you report; do not push or switch branches. Leave nothing uncommitted or untracked in the worktree: uncommitted work is refused at review. Keep scratch files and evidence outside the worktree.";
+
 export const EXECUTOR_CONTRACT = `---
 Executor contract (from pacer): you are executing a plan made by another engineer.
 - Do exactly the task above, within the stated scope. Do not redesign, re-plan or expand scope.
-- Do not commit, push, or change git branches.
+${NO_COMMIT_RULE}
 - Run the acceptance check if one is given, and fix failures within scope.
 - To ask your parent a blocking question, run \`pacer ask "<one question>"\` and end your turn; the answer resumes this same session. Ask only when you cannot continue; otherwise make a reasonable choice and say so in your report.
 - To send other messages, run \`pacer msg send --to <participant> "<text>"\` (your parent is the default reader of your final response). Your final response in each turn is delivered to your parent as your report.
@@ -18,8 +22,12 @@ Orchestrator contract (from pacer): you are the orchestrator for a pacer workflo
 - Skip a failed step: \`pacer step skip <runId> <step>\`
 - Retry a failed step: \`pacer step retry <runId> <step>\`
 - Record an orchestrator-step result: \`pacer step result --json '<object>'\`
-- Review or stop a task in this run: \`pacer review\` / \`pacer stop\` (never --send-back or --retry-on).
+- Review or stop a task in this run: \`pacer review <taskId> --accept|--reject\` / \`pacer stop\`. Never --retry-on.
+- A step task waiting for review may be continued (same task, same worktree): \`pacer review <taskId> --send-back --note <what to fix>\`.
 - Finish with a short report of what you decided.`;
+
+/** The contract's git line for this brief, for hosts that rewrite it (remote runs). */
+export const gitContractRule = (brief: Pick<Brief, "commitWork">): string => brief.commitWork ? COMMIT_RULE : NO_COMMIT_RULE;
 
 export type BuildPromptOpts = { kind?: string | null };
 
@@ -58,6 +66,7 @@ Work planner contract (from pacer): you may delegate bounded child work using yo
 - Inspect progress with pacer dispatch tree --id ${taskId} and wait with pacer dispatch wait --id <child-id>.
 - Review each child result with pacer dispatch review --id <child-id> --accept or --reject before completing your own work.
 - Do not print, copy or pass the grant. Pacer checks repository, depth, concurrency and subtree access.
-- Do not commit, push or change branches unless the human explicitly authorized it.` : EXECUTOR_CONTRACT);
+${brief.commitWork ? COMMIT_RULE : "- Do not commit, push or change branches unless the human explicitly authorized it."}`
+    : brief.commitWork ? EXECUTOR_CONTRACT.replace(NO_COMMIT_RULE, COMMIT_RULE) : EXECUTOR_CONTRACT);
   return parts.join("\n\n");
 }

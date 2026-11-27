@@ -8,7 +8,8 @@ import { executorLabel, taskStatus, taskOutcome, attentionStatus, type Status } 
 import type { ClientTask } from "../../view-model/snapshot";
 import { box, cols, flex, glyph, heading, span, statusSpans, wrap, type Line, lineWidth } from "../frame";
 import type { Act, Item } from "../state";
-import { blank, defined, empty, GAP, MARK, time, wrapLines, serviceAct } from "./common";
+import { blank, defined, empty, GAP, MARK, time, wrapAfter, wrapLines, serviceAct } from "./common";
+import { acceptWords, gateStatus, isConflictGate, MERGE_ON_ACCEPT_WORDS, RECORD_ONLY_WORDS } from "../../view-model/run-gate";
 import type { Resource, Row, ScreenCtx, ScreenView, TaskDetail } from "./types";
 import { managedSkipRows } from "./work";
 import {workRows} from "./work";
@@ -46,7 +47,7 @@ export function reviewItem(ctx: ScreenCtx, a: AttentionItem, task?: ClientTask, 
     ({ type: "action" as const, action: { label, op: "task.review", params: { ...base, verdict, ...extra } } });
   if (!ctx.supports("task.review")) return { id: `review:${id}`, actions: [], keys: {} };
   const acceptAllowed = a.kind === "review" && (task ?? detail)?.state === "done" && task?.acceptanceState !== "failed" && detail?.acceptance?.state !== "failed";
-  const accept: Act = { label: "Mark accepted", effect: verdict("Accepted", "accept"), confirm: { title: `Accept "${title}"?`, body: ["Accept records the verdict; you merge the branch."], yes: "Accept" } };
+  const accept: Act = { label: "Mark accepted", effect: verdict("Accepted", "accept"), confirm: { title: `Accept "${title}"?`, body: [RECORD_ONLY_WORDS], yes: "Accept" } };
   const note = (label: string, verdictName: string, title: string): Act => ({
     label, danger: verdictName === "reject",
     effect: { type: "prompt", prompt: { title, label: "Note for the executor and your planner", required: "Add a note first.", submit: value => verdict(verdictName === "reject" ? "Rejected" : "Sent back", verdictName, { note: value }) } },
@@ -76,6 +77,28 @@ export function reviewItem(ctx: ScreenCtx, a: AttentionItem, task?: ClientTask, 
   } : managedAnswerAct(ctx,id,rev,detail);
   const path: Act | undefined = detail?.worktree ? { label: "Show worktree path", effect: { type: "local", label: `Worktree: ${detail.worktree}`, run: () => {} } } : undefined;
   const { reply, answer } = threadActs(ctx, id, detail);
+  // A workflow review gate offers what its service item says can be done now.
+  if (a.gate) {
+    const keys: Item["keys"] = {};
+    const actions = defined(a.actions.map((action): Act | undefined => {
+      const kind = action.op === "task.review" ? String(action.params.verdict) : action.op;
+      const own = serviceAct(ctx, action, title);
+      if (!own) return undefined;
+      const act: Act = kind === "accept"
+        ? { label: action.label === "Accept" ? "Accept and merge" : action.label, effect: { type: "action", action: { ...action, label: "Accepted" } }, confirm: { title: `Accept "${title}"?`, body: [action.confirm ?? MERGE_ON_ACCEPT_WORDS], yes: "Accept" } }
+        : kind === "send_back" ? { label: action.label, effect: { type: "action", action: { ...action, label: "Sent back" } } }
+        : kind === "reject" ? reject
+        : own;
+      const key = ({ accept: "a", send_back: "s", reject: "r", "run.sync_base": "t" } as Record<string, string>)[kind];
+      if (key) keys[key] = act;
+      return act;
+    }));
+    // A review without a conflict still takes the person's own send-back note.
+    if (a.gate.kind === "step_review" && sendBack) { actions.splice(1, 0, sendBack); keys.s = sendBack; }
+    if (path) keys.o = path;
+    if (reply) keys.p = reply;
+    return { id: `review:${id}`, actions: defined([...actions, path, reply]), keys };
+  }
   return {
     id: `review:${id}`, actions: defined([
       a.kind !== "review" && (task ?? detail)?.state === "done" && task?.acceptanceState !== "failed" && detail?.acceptance?.state !== "failed" ? {...accept,label:"Mark accepted (optional verdict)"} : undefined,
@@ -110,6 +133,14 @@ export function reviewScreen(ctx: ScreenCtx): ScreenView {
     : selected ? wrap(selected.detail,width).map(line=>({line:[span(line)]})) : [], needs:selected?.taskId?[selected.taskId]:[]};
 }
 
+/** Why a gate item holds a conflict and the commands that resolve it, wrapped at spaces. */
+export function conflictRows(a: AttentionItem, width: number): Row[] {
+  return [
+    ...wrapAfter([], a.detail, width, { fg: "warn" }),
+    ...(a.gate?.commands ?? []).flatMap(command => wrapAfter([], `$ ${command}`, width, { fg: "secondary" })),
+  ];
+}
+
 function loadingRow(ctx: ScreenCtx, text: string): Row {
   return { line: [span(ctx.spinner ? `${ctx.spinner} ${text}` : text, { fg: "muted" })] };
 }
@@ -122,7 +153,9 @@ export function reviewDetail(ctx: ScreenCtx, a: AttentionItem, resource: Resourc
   const title = task ? displayTitle(task) : d ? displayTitle(d) : a.title;
   const rows: Row[] = [];
   for (const line of wrap(title, width, 2)) rows.push({ line: [span(line, { bold: true })] });
-  const status = taskStatus(d ?? task ?? { state: "done" });
+  // What a gate holds up beats "completed", as in the list beside this page; a conflict record asks nothing.
+  const shown = d ?? task ?? { state: "done" };
+  const status = gateStatus(s.attention, { ...shown, id: a.taskId! }) ?? taskStatus(shown);
   const executor = d?.executor ?? task?.executor ?? a.executor;
   const ran = d?.startedAt && d.endedAt ? `ran ${elapsed(d.endedAt - d.startedAt)}` : task?.attemptStartedAt ? `ran ${elapsed(task.updatedAt - task.attemptStartedAt)}` : "";
   const branch = d?.branch ? `${d.branch}${d.base ? ` ${glyph(theme, "→")} ${d.base}` : ""}` : "";
@@ -135,6 +168,8 @@ export function reviewDetail(ctx: ScreenCtx, a: AttentionItem, resource: Resourc
   rows.push(...facts(statusSpans(theme, status), [executorLabel(executor), ran, branch], width).map(line => ({ line })));
   const finished = d?.endedAt ?? task?.updatedAt;
   rows.push({ line: [span([a.repo?.label ?? task?.repo?.label, finished ? `finished ${time(ctx, finished)}` : ""].filter(Boolean).join(` ${glyph(theme, "·")} `), { fg: "muted" })] });
+  // A conflict leads the page: what happened and the commands that resolve it.
+  if (isConflictGate(a)) rows.push(blank(), ...conflictRows(a, width));
   if (resource?.loading && !d) return [...rows, blank(), loadingRow(ctx, "Loading task…")];
   if (resource?.error && !d) {
     const removed = /worktree/i.test(resource.error.message) && /removed|missing|not found/i.test(resource.error.message);
@@ -187,8 +222,10 @@ export function reviewDetail(ctx: ScreenCtx, a: AttentionItem, resource: Resourc
   // Verdict
   rows.push(blank());
   const can = a.kind === "review" && ctx.supports("task.review") && !d.review && !d.resolved && !d.dismissed && !d.retriedBy;
+
   // Each verdict key stays whole; groups move to the next line when the box is narrow.
   const available:Partial<Record<"a"|"s"|"r"|"t",Act>>=can?reviewItem(ctx,a,task,d).keys:{};
+  // A gate item words its own actions; `t` there tries the base update again.
   const groups: Line[] = (["a","s","r","t"] as const).flatMap(key=>{
     const action=available[key];
     return action?[[span(key,{bold:true}),span(` ${action.label}`,{fg:key==="r"?"bad":key==="a"?"ink":"secondary",bold:key==="a"})]]:[];
@@ -201,7 +238,7 @@ export function reviewDetail(ctx: ScreenCtx, a: AttentionItem, resource: Resourc
   }
   const body: Line[] = can ? keyLines : wrapLines([], `This pacer service does not offer reviews here. Use pacer review ${d.id}.`, width - 4, { fg: "muted" });
   if (a.kind === "review" && !ctx.supports("task.review")) rows.push(empty("This service does not offer reviews here."));
-  if (can) rows.push(...box(theme, "Your verdict", [...body, ...wrapLines([], "Accept records the verdict; you merge the branch.", width - 4, { fg: "muted" })], width).map(line => ({ line })));
+  if (can) rows.push(...box(theme, "Your verdict", [...body, ...wrapLines([], acceptWords(a.gate ? a : undefined), width - 4, { fg: "muted" })], width).map(line => ({ line })));
   void now;
   return rows;
 }

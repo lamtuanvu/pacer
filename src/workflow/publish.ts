@@ -5,11 +5,12 @@ import type { Ctx } from "../types";
 import { CoreError } from "../core/errors";
 import { ghEnv } from "../core/issue-import";
 import {
-  getRun, listDecisions, setRunPrUrl, type RunRow,
+  branchOwner, getRun, listDecisions, recordDecision, setRunPrUrl, type RunRow,
 } from "./store";
 import {
-  integrationWorktreeUnderLock, withMergeLock,
+  adoptGeneratedBranches, integrationWorktreeUnderLock, withMergeLock,
 } from "./branch";
+import { pruneAbandonedConflicts } from "./review";
 
 /** Extra names beyond ghEnv that publish children may need. */
 const PUBLISH_EXTRA = new Set([
@@ -114,20 +115,37 @@ export function approvedTipFromReason(reason: string): string | null {
   return m?.[1]?.toLowerCase() ?? null;
 }
 
-/** Gate check (D5): draft opt-in, or a person publish_approved for the current tip. */
-export async function assertPublishGate(ctx: Ctx, run: RunRow, draft: boolean): Promise<void> {
+/** What allows a publish: the person's approval of this tip, or only their draft
+ *  opt-in, which must never reach anything but a draft pull request. */
+export type PublishAuthority = "approval" | "draft_opt_in";
+
+/** Gate check (D5): a person publish_approved for the current tip, or a draft
+ *  opt-in. A generated child is checked as the run that owns its branch. */
+export async function assertPublishGate(ctx: Ctx, of: RunRow, draft: boolean): Promise<PublishAuthority> {
+  const run = branchOwner(ctx, of);
   if (!run.branch) throw new CoreError("invalid_input", `run ${run.id} has no branch to publish`);
+  pruneAbandonedConflicts(ctx, run.id);
   if (hasUnresolvedConflictTask(ctx, run.id)) {
     throw new CoreError("not_allowed", "run has an unresolved conflict task");
   }
-  if (run.publishOptIn === "draft" && draft === true) return;
+  try {
+    await assertApprovedTip(ctx, run);
+    return "approval";
+  } catch (error) {
+    if (run.publishOptIn === "draft" && draft === true) return "draft_opt_in";
+    throw error;
+  }
+}
 
+/** A person approved publishing exactly the current run branch tip. */
+async function assertApprovedTip(ctx: Ctx, run: RunRow): Promise<void> {
+  const branch = run.branch!;
   const approvals = listDecisions(ctx, run.id).filter(d => d.kind === "publish_approved" && d.actor === "person");
   const latest = approvals[approvals.length - 1];
   if (!latest) {
     throw new CoreError("not_allowed", "publishing requires a must approval or draft opt-in");
   }
-  const tipSha = (await branchTipSha(ctx, run.repo, run.branch)).toLowerCase();
+  const tipSha = (await branchTipSha(ctx, run.repo, branch)).toLowerCase();
   const approvedTip = approvedTipFromReason(latest.reason);
   if (approvedTip) {
     if (approvedTip !== tipSha) {
@@ -136,7 +154,7 @@ export async function assertPublishGate(ctx: Ctx, run: RunRow, draft: boolean): 
     return;
   }
   // Legacy decisions without tip=: require floored approval time strictly after tip time.
-  const tipCt = await branchTipCommitTime(ctx, run.repo, run.branch);
+  const tipCt = await branchTipCommitTime(ctx, run.repo, branch);
   if (!(Math.floor(latest.at) > tipCt)) {
     throw new CoreError("not_allowed", "publish approval is older than the run branch's last change");
   }
@@ -148,6 +166,118 @@ function assertHttpsPrUrl(url: string): string {
     throw new CoreError("unavailable", "gh returned a non-https PR URL");
   }
   return trimmed;
+}
+
+/** Defensive: never push or open a PR for a branch that holds no work. A count
+ *  git cannot make is left to the push. */
+async function assertBranchHasCommits(ctx: Ctx, run: RunRow): Promise<void> {
+  const count = await ctx.run(
+    ["git", "-C", run.repo, "rev-list", "--count", `${run.baseSha ?? run.baseRef}..refs/heads/${run.branch}`],
+    15_000,
+  );
+  if (count.code === 0 && count.stdout.trim() === "0") {
+    throw new CoreError("not_allowed", "the run branch has no commits beyond its base: nothing to publish");
+  }
+}
+
+/** Whether the run branch tip is what the pull request already has: the tip the
+ *  last publish recorded, else (later work, which the person may have pushed, or a
+ *  publish from before tips were recorded) the remote branch itself. Never assumed:
+ *  later work is pushed or refused. */
+async function alreadyPushed(ctx: Ctx, run: RunRow): Promise<boolean> {
+  if (!run.branch) return true; // cleaned up after publishing: nothing left to push
+  const local = (await branchTipSha(ctx, run.repo, run.branch)).toLowerCase();
+  const published = listDecisions(ctx, run.id).filter(d => d.kind === "published").at(-1);
+  if (published && approvedTipFromReason(published.reason) === local) return true;
+  const remote = await ctx.run(
+    ["git", "-C", run.repo, "ls-remote", "origin", `refs/heads/${run.branch}`],
+    60_000, { env: publishChildEnv(ctx) },
+  );
+  if (remote.code !== 0) {
+    throw new CoreError("unavailable", `cannot confirm that ${run.prUrl} has the run branch's latest work: ${firstLine(remote.stderr) || `git ls-remote exit ${remote.code}`}`);
+  }
+  return remote.stdout.trim().split(/\s+/)[0]?.toLowerCase() === local;
+}
+
+/** The publish gate; on a run with a pull request, says that it lacks later work. */
+async function gateFor(ctx: Ctx, run: RunRow, draft: boolean): Promise<PublishAuthority> {
+  try {
+    return await assertPublishGate(ctx, run, draft);
+  } catch (error) {
+    if (run.prUrl && error instanceof CoreError) {
+      throw new CoreError(error.code, `the run branch has work that was not pushed to ${run.prUrl}: ${error.message}. ${byHand(run)}`);
+    }
+    throw error;
+  }
+}
+
+/** The way out when pacer may not push: the person's own git. A finished approval
+ *  step cannot be answered again, so such a refusal is final inside pacer. */
+const byHand = (run: RunRow) => `To publish it yourself, run: git push origin ${run.branch}`;
+
+type PullRequest = { url: string; state: string; isDraft: boolean };
+
+const asPullRequest = (value: unknown, url?: string): PullRequest | null => {
+  const pr = value as { url?: unknown; state?: unknown; isDraft?: unknown } | null;
+  const at = typeof pr?.url === "string" ? pr.url : url;
+  return pr && at && typeof pr.state === "string" && typeof pr.isDraft === "boolean"
+    ? { url: at, state: pr.state.toUpperCase(), isDraft: pr.isDraft } : null;
+};
+
+/** What gh says now. Anything it cannot confirm refuses: nothing is pushed. */
+async function ghJson(
+  ctx: Ctx, argv: string[], wt: string, env: Record<string, string | undefined>, what: string,
+): Promise<unknown> {
+  const got = await ctx.run(argv, 30_000, { env, stdin: "", cwd: wt });
+  if (got.code === 0) {
+    try { return JSON.parse(got.stdout); } catch { /* reported below */ }
+  }
+  throw new CoreError(
+    "unavailable",
+    `cannot confirm ${what}, so nothing was pushed: ${cap(firstLine(got.stderr) || `gh exit ${got.code}`, STDERR_CAP)}`,
+  );
+}
+
+/**
+ * Checks the pull requests a push would change. A stored one must still be open;
+ * the draft opt-in additionally requires every pull request of the branch to be a
+ * draft now, and a stored one to have been published as one. Returns the stored
+ * pull request, when there is one.
+ */
+async function assertPushablePr(
+  ctx: Ctx, run: RunRow, via: PublishAuthority, wt: string,
+  env: Record<string, string | undefined>, ghBin: string, repoSlug: string | null,
+): Promise<PullRequest | null> {
+  const onlyDraft = (url: string) => new CoreError(
+    "not_allowed",
+    `the draft opt-in only publishes to a draft pull request, and ${url} is not one (or cannot be confirmed as one): nothing was pushed. ${byHand(run)}`,
+  );
+  if (run.prUrl) {
+    const seen = await ghJson(ctx, [ghBin, "pr", "view", run.prUrl, "--json", "url,state,isDraft"], wt, env, `the state of ${run.prUrl}`);
+    const pr = asPullRequest(seen, run.prUrl);
+    if (!pr) throw new CoreError("unavailable", `cannot confirm the state of ${run.prUrl}, so nothing was pushed`);
+    if (pr.state !== "OPEN") {
+      throw new CoreError(
+        "not_allowed",
+        `${run.prUrl} is ${pr.state.toLowerCase()}: the later work was not pushed. ${byHand(run)} and open a new pull request`,
+      );
+    }
+    const published = listDecisions(ctx, run.id).filter(d => d.kind === "published").at(-1);
+    if (via === "draft_opt_in" && !(pr.isDraft && /\bdraft=true\b/.test(published?.reason ?? ""))) throw onlyDraft(run.prUrl);
+    return pr;
+  }
+  if (via === "draft_opt_in") {
+    const listed = await ghJson(ctx, [
+      ghBin, "pr", "list", "--head", run.branch!, "--state", "open", "--json", "url,state,isDraft", "--limit", "30",
+      ...(repoSlug ? ["--repo", repoSlug] : []),
+    ], wt, env, "that the branch has no ready pull request");
+    if (!Array.isArray(listed)) throw new CoreError("unavailable", "cannot confirm that the branch has no ready pull request, so nothing was pushed");
+    for (const entry of listed) {
+      const pr = asPullRequest(entry);
+      if (!pr?.isDraft) throw onlyDraft(pr?.url ?? "an open pull request of the branch");
+    }
+  }
+  return null;
 }
 
 /** Parse `owner/name` from an origin remote URL for `gh --repo` (M9). */
@@ -197,25 +327,30 @@ async function existingPrUrl(
  */
 export async function publishRun(ctx: Ctx, runId: string, input: PublishInput): Promise<PublishResult> {
   validatePublishInput(input);
-  const run = getRun(ctx, runId);
-  if (!run) throw new CoreError("not_found", `unknown run ${runId}`);
-  if (run.rev !== input.expectRev) {
+  const asked = getRun(ctx, runId);
+  if (!asked) throw new CoreError("not_found", `unknown run ${runId}`);
+  if (asked.rev !== input.expectRev) {
     throw new CoreError("conflict", `conflict: run ${runId} changed since rev ${input.expectRev}`);
   }
-  if (run.prUrl) return { pr_url: run.prUrl, run };
+  await adoptGeneratedBranches(ctx, asked);
+  // A generated child publishes its owner's branch, under the owner's gate.
+  const run = branchOwner(ctx, asked);
+  const rev = run.rev;
+  if (run.prUrl && await alreadyPushed(ctx, run)) return { pr_url: run.prUrl, run };
 
-  await assertPublishGate(ctx, run, input.draft);
+  await gateFor(ctx, run, input.draft);
 
   return withMergeLock(ctx, run.id, async () => {
-    const live = getRun(ctx, runId) ?? run;
-    if (live.rev !== input.expectRev) {
+    const live = getRun(ctx, run.id) ?? run;
+    if (live.rev !== rev) {
       throw new CoreError("conflict", `conflict: run ${runId} changed since rev ${input.expectRev}`);
     }
-    if (live.prUrl) return { pr_url: live.prUrl, run: live };
-    await assertPublishGate(ctx, live, input.draft);
+    if (live.prUrl && await alreadyPushed(ctx, live)) return { pr_url: live.prUrl, run: live };
+    const via = await gateFor(ctx, live, input.draft);
     if (!live.branch || !live.baseRef) {
       throw new CoreError("invalid_input", `run ${runId} has no branch to publish`);
     }
+    await assertBranchHasCommits(ctx, live);
 
     const wt = await integrationWorktreeUnderLock(ctx, live);
     const pathEnv = publishChildEnv(ctx);
@@ -224,6 +359,7 @@ export async function publishRun(ctx: Ctx, runId: string, input: PublishInput): 
       throw new CoreError("unavailable", "gh is not installed");
     }
     const repoSlug = await originRepoSlug(ctx, wt);
+    const stored = await assertPushablePr(ctx, live, via, wt, pathEnv, ghBin, repoSlug);
 
     const pushed = await ctx.run(
       ["git", "-C", wt, "push", "origin", `refs/heads/${live.branch}:refs/heads/${live.branch}`],
@@ -234,8 +370,13 @@ export async function publishRun(ctx: Ctx, runId: string, input: PublishInput): 
       throw new CoreError("unavailable", cap(firstLine(pushed.stderr) || firstLine(pushed.stdout) || `git push exit ${pushed.code}`, STDERR_CAP));
     }
 
-    let prUrl = await existingPrUrl(ctx, wt, live.branch, pathEnv, ghBin, repoSlug);
+    // Later work goes to the branch of the pull request already opened.
+    let prUrl = live.prUrl ?? await existingPrUrl(ctx, wt, live.branch, pathEnv, ghBin, repoSlug);
+    // Whether pacer knows the pull request is a draft (recorded for later pushes):
+    // seen just now, created as one, or found under the opt-in, which allows no other.
+    let isDraft = stored?.isDraft ?? (!!prUrl && via === "draft_opt_in");
     if (!prUrl) {
+      isDraft = input.draft;
       const base = live.baseRef.startsWith("origin/") ? live.baseRef.slice("origin/".length) : live.baseRef;
       const argv = [
         ghBin, "pr", "create",
@@ -253,6 +394,7 @@ export async function publishRun(ctx: Ctx, runId: string, input: PublishInput): 
         if (!prUrl) {
           throw new CoreError("unavailable", cap(firstLine(created.stderr) || firstLine(created.stdout) || `gh pr create exit ${created.code}`, STDERR_CAP));
         }
+        isDraft = false;
       } else {
         const token = created.stdout.trim().split(/\s+/).find(s => /:\/\//.test(s));
         if (token) {
@@ -268,6 +410,10 @@ export async function publishRun(ctx: Ctx, runId: string, input: PublishInput): 
     prUrl = assertHttpsPrUrl(prUrl);
 
     setRunPrUrl(ctx, live.id, prUrl);
+    recordDecision(ctx, {
+      runId: live.id, stepId: "publish", attempt: 1, actor: "engine", kind: "published", choice: prUrl,
+      reason: `tip=${await branchTipSha(ctx, live.repo, live.branch)} draft=${isDraft}`,
+    });
     const updated = getRun(ctx, live.id) ?? { ...live, prUrl };
     return { pr_url: prUrl, run: updated };
   });

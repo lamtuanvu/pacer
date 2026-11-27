@@ -3,7 +3,9 @@
 // Definitions are immutable per version; run updates go through expect_rev.
 import type { Database, SQLQueryBindings } from "bun:sqlite";
 import { randomBytes } from "node:crypto";
-import { taskDatabase } from "../tasks/store";
+import { readTask, taskDatabase } from "../tasks/store";
+import { fanoutAttempt } from "./fanout";
+export { fanoutAttempt };
 import type { TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
 import { CoreError } from "../core/errors";
@@ -423,6 +425,9 @@ export type RunConflict = {
   taskId: string;
   branch: string;
   resolutionTaskId: string;
+  /** Whether a step still held the task when the merge conflicted (unset on
+   *  markers stored before this was recorded: treated as held). */
+  live?: boolean;
 };
 
 function isConflictEntry(value: unknown): value is RunConflict {
@@ -1155,6 +1160,56 @@ export function rootRunId(ctx: Ctx, runId: string): string {
   }
 }
 
+/** True when `run` is the child a `generate` step started under `parent`. */
+function isGeneratedChild(ctx: Ctx, run: RunRow, parent: RunRow): boolean {
+  if (!run.parentStep) return false;
+  const def = getDefinition(ctx, `${parent.workflow}@${parent.version}`) ?? getDefinition(ctx, parent.workflow);
+  return def?.steps[run.parentStep]?.type === "generate";
+}
+
+/** The run that owns `run`'s run branch. A generated child works on its parent's
+ *  branch, so the parent's publish steps see the code; a top-level or
+ *  `choose_workflow` run owns its own (it has its own publish steps). A generated
+ *  child that already has a branch (started before this rule) keeps it until the
+ *  branch is handed to the owner (`adoptGeneratedBranches`). */
+export function branchOwner(ctx: Ctx, run: RunRow): RunRow {
+  let current = getRun(ctx, run.id) ?? run;
+  while (current.parentRunId && !current.branch) {
+    const parent = getRun(ctx, current.parentRunId);
+    if (!parent || !isGeneratedChild(ctx, current, parent)) break;
+    current = parent;
+  }
+  return current;
+}
+
+/** The runs a `generate` step of `parent` started, oldest first. */
+export function generatedChildren(ctx: Ctx, parent: RunRow): RunRow[] {
+  return workflowDatabase(ctx).query<{ id: string }, [string]>(
+    "SELECT id FROM workflow_runs WHERE parent_run_id = ? ORDER BY created_at, id",
+  ).all(parent.id)
+    .map(({ id }) => getRun(ctx, id))
+    .filter((child): child is RunRow => !!child && isGeneratedChild(ctx, child, parent));
+}
+
+/** Whether a `generate` step produced `run`, directly or through its parents. */
+export function isGeneratedRun(ctx: Ctx, run: RunRow): boolean {
+  let current: RunRow | null = run;
+  while (current?.parentRunId) {
+    const parent: RunRow | null = getRun(ctx, current.parentRunId);
+    if (!parent) return false;
+    if (isGeneratedChild(ctx, current, parent)) return true;
+    current = parent;
+  }
+  return false;
+}
+
+/** `owner` plus every generated descendant: all runs whose steps share its branch. */
+export function runsSharingBranch(ctx: Ctx, owner: RunRow): RunRow[] {
+  const out: RunRow[] = [owner];
+  for (let i = 0; i < out.length; i++) out.push(...generatedChildren(ctx, out[i]!));
+  return out;
+}
+
 export function getRun(ctx: Ctx, id: string): RunRow | null {
   const row = workflowDatabase(ctx).query<RunDbRow, [string]>("SELECT * FROM workflow_runs WHERE id = ?").get(id);
   return row ? runFromRow(row) : null;
@@ -1222,6 +1277,12 @@ export function setRunPrUrl(ctx: Ctx, runId: string, prUrl: string): void {
  */
 export function setRunConflict(ctx: Ctx, runId: string, conflict: RunConflict): void {
   const db = workflowDatabase(ctx);
+  db.transaction(() => upsertRunConflict(ctx, runId, conflict)).immediate();
+  touchMeaningful(ctx, runId);
+}
+
+function upsertRunConflict(ctx: Ctx, runId: string, conflict: RunConflict): void {
+  const db = workflowDatabase(ctx);
   const current = getRun(ctx, runId);
   if (!current) throw new CoreError("not_found", `unknown run ${runId}`);
   const list = [...(current.conflict ?? [])];
@@ -1232,7 +1293,16 @@ export function setRunConflict(ctx: Ctx, runId: string, conflict: RunConflict): 
     "UPDATE workflow_runs SET conflict = ? WHERE id = ?",
   ).run(JSON.stringify(list), runId);
   if (result.changes === 0) throw new CoreError("not_found", `unknown run ${runId}`);
-  touchMeaningful(ctx, runId);
+}
+
+/** Removes the matching entries from the run's current list, in one transaction. */
+export function removeRunConflicts(ctx: Ctx, runId: string, match: (entry: RunConflict) => boolean): RunConflict[] {
+  return workflowDatabase(ctx).transaction(() => {
+    const list = getRun(ctx, runId)?.conflict ?? [];
+    const removed = list.filter(match);
+    if (removed.length > 0) replaceRunConflicts(ctx, runId, list.filter(entry => !match(entry)));
+    return removed;
+  }).immediate();
 }
 
 /** Replace the full conflict list (or clear when empty). */
@@ -1256,10 +1326,7 @@ export function clearRunConflictEntry(
   runId: string,
   match: (entry: RunConflict) => boolean,
 ): void {
-  const current = getRun(ctx, runId);
-  if (!current?.conflict?.length) return;
-  const next = current.conflict.filter(e => !match(e));
-  if (next.length !== current.conflict.length) replaceRunConflicts(ctx, runId, next);
+  removeRunConflicts(ctx, runId, match);
 }
 
 /** Find a conflict entry that names this resolution task (or the conflicting task). */
@@ -1461,6 +1528,18 @@ export function insertStep(ctx: Ctx, s: NewStep): StepRow {
   db.query("INSERT INTO workflow_steps(run_id, step_id, attempt, branch, task_id, status, result, error, started_at, ended_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
     .run(row.runId, row.stepId, row.attempt, row.branch ?? "", row.taskId ?? null, row.status, null, null, row.startedAt, null);
   return row;
+}
+
+/** A new attempt of one fan-out branch, joined with the rest of its fan-out. */
+export function insertBranchRetry(
+  ctx: Ctx, failed: StepRow & { branch: string }, attempt: number,
+): StepRow {
+  const trigger = `retry:${fanoutAttempt(failed)}:${failed.runId}/${failed.stepId}/${failed.branch}#${attempt}`;
+  workflowDatabase(ctx).query(
+    `INSERT INTO workflow_steps(run_id, step_id, attempt, branch, task_id, status, result, error, started_at, ended_at, "trigger")
+     VALUES (?, ?, ?, ?, NULL, 'running', NULL, NULL, ?, NULL, ?)`,
+  ).run(failed.runId, failed.stepId, attempt, failed.branch, ctx.now, trigger);
+  return { runId: failed.runId, stepId: failed.stepId, attempt, branch: failed.branch, status: "running", startedAt: ctx.now, trigger };
 }
 
 /** Inserts every branch row of one fan-out attempt in ONE transaction (the fireEdge
@@ -1679,6 +1758,22 @@ export function claimStepAnswer(
   return claimed;
 }
 
+/** Claims the verdict on a step that waits for review: the write lands only while
+ *  the row is still `waiting` for the same task, so one caller advances the run. */
+export function claimStepReview(ctx: Ctx, key: StepKey, taskId: string, patch: StepPatch & { status: "done" | "failed" }): StepRow | null {
+  const db = workflowDatabase(ctx);
+  const where = stepWhere(key);
+  const claimed = db.transaction(() => {
+    const row = db.query<StepDbRow, SQLQueryBindings[]>(`SELECT * FROM workflow_steps WHERE ${where.sql}`).get(...where.bindings);
+    if (!row || row.status !== "waiting" || row.task_id !== taskId) return null;
+    db.query(`UPDATE workflow_steps SET status = ?, error = ?, ended_at = ? WHERE ${where.sql} AND status = 'waiting'`)
+      .run(patch.status, patch.error ?? null, patch.endedAt ?? null, ...where.bindings);
+    return stepFromRow({ ...row, status: patch.status, error: patch.error ?? null, ended_at: patch.endedAt ?? null });
+  }).immediate();
+  if (claimed) touchMeaningful(ctx, key.runId);
+  return claimed;
+}
+
 /** Done step rows whose outgoing edges may never have been processed (advanced_at
  *  unset), in live runs, completed before `before`: the stalled advancements each
  *  tick re-advances. Fan-out branch rows are excluded here and by the caller: their
@@ -1701,8 +1796,23 @@ export function stepByTask(ctx: Ctx, taskId: string): StepRow | null {
 }
 
 /**
+ * The step a task works for: its own step row, else the row of the task it
+ * retried (a retry successor the engine has not adopted yet still carries that
+ * step's code). Read-only; never creates the workflow schema.
+ */
+export function stepByTaskLineage(ctx: Ctx, taskId: string): StepRow | null {
+  const seen = new Set<string>();
+  for (let id: string | undefined = taskId; id && !seen.has(id); id = readTask(ctx, id)?.retryOf) {
+    seen.add(id);
+    const step = stepByTaskIfPresent(ctx, id);
+    if (step) return step;
+  }
+  return null;
+}
+
+/**
  * Read-only: true when `taskId` is a workflow step of a run that already has a
- * branch. Uses sqlite_master only — never runs workflow DDL — so ordinary
+ * branch (its own, or an ancestor's for a generated child). Uses sqlite_master only — never runs workflow DDL — so ordinary
  * accepts and the native review probe stay side-effect free on old DBs.
  * Missing tables / columns mean "no". Other errors propagate (M4: fail closed
  * for the probe only means "table/column missing", not "swallow everything").
@@ -1723,14 +1833,19 @@ export function stepTaskNeedsRunBranchMerge(ctx: Ctx, taskId: string): boolean {
   }
   if (!present || !runsPresent) return false;
   try {
-    const row = db.query<{ branch: string | null }, [string]>(
-      `SELECT r.branch AS branch
-       FROM workflow_steps s
-       JOIN workflow_runs r ON r.id = s.run_id
-       WHERE s.task_id = ?
-       LIMIT 1`,
-    ).get(taskId);
-    if (typeof row?.branch === "string" && row.branch.length > 0) return true;
+    const stepRunId = stepByTaskLineage(ctx, taskId)?.runId;
+    if (stepRunId) {
+      const row = db.query<{ ok: number }, [string]>(
+        `WITH RECURSIVE up(id) AS (
+           VALUES (?)
+           UNION SELECT r.parent_run_id FROM workflow_runs r JOIN up ON r.id = up.id
+             WHERE r.parent_run_id IS NOT NULL
+         )
+         SELECT 1 AS ok FROM workflow_runs r JOIN up ON r.id = up.id
+         WHERE r.branch IS NOT NULL AND r.branch != '' LIMIT 1`,
+      ).get(stepRunId);
+      if (row) return true;
+    }
     // Conflict-resolution tasks are not step-attached; they still merge into the run branch.
     const conflictCol = db.query(
       "SELECT 1 AS ok FROM pragma_table_info('workflow_runs') WHERE name = 'conflict'",

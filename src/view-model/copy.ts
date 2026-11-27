@@ -98,6 +98,7 @@ export const executorIdHelp = (created: boolean) => `Used in routing rules and t
 
 const events: Record<string,string> = {
   Testing:'Running checks', testing:'Running checks', done:'Run completed', partial:'Run ended with work to review',
+  'Merge conflict recorded':'Merge conflict recorded',
   failed:'Run failed', limit:'Run stopped at the quota limit', stopped:'Run stopped', running:'Run started', queued:'Run queued', needs_input:'Waiting for your answer',
   'hook: PostToolUse':'Agent finished a tool step', 'hook: PreToolUse':'Agent started a tool step',
   'hook: Stop':'Agent finished responding', 'hook: SessionStart':'Agent session started', 'hook: SessionEnd':'Agent session ended',

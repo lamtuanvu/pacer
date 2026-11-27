@@ -12,6 +12,9 @@ import { Pill } from "../../ds/Pill";
 import { useActions } from "../../data/action-context";
 import { hrefFor, routes, type RouteQuery } from "../../router";
 import { ErrorMessage, useQuery, useTaskContext } from "../task-shared";
+import { conflictRecordFor, gateFor, isConflictGate, MERGE_ON_ACCEPT_WORDS, OutcomeError } from "../../../../src/view-model/run-gate";
+import { mergeConflictStatus } from "../../../../src/view-model/words";
+import { RunGatePanel, sendBackOnly } from "./RunGatePanel";
 import { Failure } from "../failure/Failure";
 import { reviewAvailable } from "../failure/model";
 import { Diff } from "./Diff";
@@ -24,14 +27,25 @@ export function useResultAction() {
   const runner = useActions(), inFlight = useRef(false), mounted = useRef(true);
   useEffect(() => () => { mounted.current = false; }, []);
   const [busy, setBusy] = useState(false), [error, setError] = useState<unknown>();
+  // A busy button is disabled and loses focus: give it back once the call ends.
+  const invoker = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    const element = invoker.current;
+    if (busy || !element) return;
+    invoker.current = null;
+    const active = element.ownerDocument.activeElement;
+    if (element.isConnected && (!active || active === element.ownerDocument.body)) element.focus();
+  }, [busy]);
   async function run(op: string, params: Record<string, unknown>, done: (result: unknown) => void | Promise<void>) {
     if (inFlight.current) return;
+    invoker.current = typeof document === "undefined" ? null : document.activeElement as HTMLElement | null;
     inFlight.current = true; setBusy(true); setError(undefined);
     try {
       const key = `result:${op}:${JSON.stringify(params)}`;
       const outcome = await runner.run(key, {label: "Update task", op, params});
       if (!mounted.current) return;
       if (outcome.status === "done") await done(runner.result(key));
+      else if (outcome.status === "error" && outcome.problem) setError(new OutcomeError(outcome.message));
       else if (outcome.status === "error" || outcome.status === "handled") setError(new Error(outcome.message));
     } catch (error) { if (mounted.current) setError(error); }
     finally { inFlight.current = false; if (mounted.current) setBusy(false); }
@@ -39,12 +53,12 @@ export function useResultAction() {
   return {run, busy, error, unavailable: runner?.unavailable()};
 }
 export const tokenCount = (total: number | null | undefined) => total == null ? "Unknown tokens" : `${Intl.NumberFormat("en", {notation: "compact", maximumFractionDigits: 1}).format(total)} tokens`;
-export function ResultHeader({task, query, failure, actions, requesting, subtasks}: {task: TaskDetail; query: RouteQuery; failure?: boolean; actions?: ComponentChildren; requesting?: boolean; subtasks?: number}) {
+export function ResultHeader({task, query, failure, actions, requesting, subtasks, conflict}: {task: TaskDetail; query: RouteQuery; failure?: boolean; actions?: ComponentChildren; requesting?: boolean; subtasks?: number; conflict?: boolean}) {
   const accepted = task.review?.accepted;
-  const status = failure ? "Checks failed" : accepted === true ? "Accepted" : requesting ? "Changes requested" : accepted === false ? "Rejected" : "Waiting for review";
+  const status = conflict && !task.review ? mergeConflictStatus.label : failure ? "Checks failed" : accepted === true ? "Accepted" : requesting ? "Changes requested" : accepted === false ? "Rejected" : "Waiting for review";
   return <><nav aria-label="Breadcrumb" className="pc-result-breadcrumb"><TextAction href={hrefFor(routes.needsYou(query))}>Needs you</TextAction><span aria-hidden="true">/</span><span className="pc-result-mono">{task.id}</span></nav>
     <header className="pc-result-header"><div className="pc-result-identity"><h1>{task.title || task.fullTitle || task.goal}</h1><div className="pc-result-meta">
-      <Pill tone={failure ? "bad" : accepted === true ? "good" : requesting ? "warn" : accepted === false ? "bad" : "info"}>{status}</Pill>
+      <Pill tone={conflict && !task.review ? "warn" : failure ? "bad" : accepted === true ? "good" : requesting ? "warn" : accepted === false ? "bad" : "info"}>{status}</Pill>
       {!failure && <Pill tone={task.acceptance.state === "passed" ? "good" : task.acceptance.state === "failed" ? "bad" : "neutral"}>{task.acceptance.state === "passed" ? "Checks passed · 1 of 1" : task.acceptance.state === "failed" ? "Checks failed · 1 of 1" : "No final checks"}</Pill>}
       {task.kind && <Pill>{task.kind}</Pill>}<span className="pc-result-caption pc-result-mono">{task.repo.label} · {task.branch ?? "Branch unknown"}{!failure && task.base ? ` → ${task.base}` : ""}</span>
       <span className="pc-result-caption">· {failure ? `${task.attempts.length} attempt${task.attempts.length === 1 ? "" : "s"} on ${executorLabel(task.executor ?? task.attempts.at(-1)?.executor)}` : `${subtasks ? `${subtasks} subtasks · ` : ""}${[...new Set(task.attempts.map(a => executorLabel(a.executor)))].join(", ") || executorLabel(task.executor)}`} · {tokenCount(task.tokens && task.tokens.unknownAttempts === task.attempts.length ? null : task.tokens?.total)}{failure && task.endedAt ? ` · last ${clock(task.endedAt, Date.now()/1000)}` : ""}</span>
@@ -76,7 +90,11 @@ function ReviewResult({task, query, reload, tree}: {task: TaskDetail; query: Rou
   const diff = useQuery<ResultDiff>("task.diff", {id: task.id, ...(path ? {path} : {})});
   const node = tree?.nodes.find(n => n.taskId === task.id), children = tree?.nodes.filter(n => n.parentId === task.id) ?? [];
   const childrenReady = !task.work || !!node && children.every(child => child.review?.accepted || node.waivedChildren?.includes(child.taskId));
-  const canReview = reviewAvailable(task) && !recorded && state.features.ops.has(task.work ? "dispatch.review" : "task.review");
+  // A workflow step's gate, or the conflict this task only records.
+  const gate = gateFor(state.snapshot?.attention, task.id), record = conflictRecordFor(state.snapshot?.attention, task.id);
+  const isRecord = !!record && record.gate?.recordId === task.id;
+  const [merged, setMerged] = useState(false);
+  const canReview = !isRecord && reviewAvailable(task) && !recorded && state.features.ops.has(task.work ? "dispatch.review" : "task.review");
   const executor = executorLabel(task.executor ?? task.attempts.at(-1)?.executor);
   const submit = (verdict: "accept" | "reject" | "send_back") => {
     const op = task.work ? "dispatch.review" : "task.review";
@@ -84,6 +102,7 @@ function ReviewResult({task, query, reload, tree}: {task: TaskDetail; query: Rou
     void action.run(op, params, async () => {
       try {
         if (task.work && verdict === "send_back") await retryReviewedWork(task.id, note, api.call.bind(api));
+        if (verdict === "accept" && gate) setMerged(true);
         setRecorded(verdict); setRequesting(false); setRejecting(false);
       } finally {reload();}
     });
@@ -97,13 +116,14 @@ function ReviewResult({task, query, reload, tree}: {task: TaskDetail; query: Rou
     try { const result = await api.call<{text:string}>("session.file.read", {id:task.id, attempt:session.data!.attempt!, reference:path}); setFile({path, text:result.text}); }
     catch (error) {setFileError(error);} finally {setOpening(false);}
   };
-  return <><ResultHeader task={recorded === "accept" ? {...task,review:{...task.review,accepted:true} as TaskDetail["review"]} : task} query={query} subtasks={tree?.nodes.filter(n => n.taskId !== task.id).length} requesting={requesting || recorded === "send_back"} actions={canReview && !requesting && !rejecting && <>
+  return <><ResultHeader task={recorded === "accept" ? {...task,review:{...task.review,accepted:true} as TaskDetail["review"]} : task} query={query} subtasks={tree?.nodes.filter(n => n.taskId !== task.id).length} conflict={isRecord || isConflictGate(gate)} requesting={requesting || recorded === "send_back"} actions={canReview && !requesting && !rejecting && <>
     <Button busy={action.busy} onClick={() => {setRejecting(true); setNote("");}}>Reject</Button>
     {(task.work || task.executor) && <Button busy={action.busy} onClick={() => {setRequesting(true); setNote("");}}>Request changes</Button>}
-    {childrenReady ? <Button variant="primary" busy={action.busy} onClick={() => submit("accept")}>Accept result</Button> : <span className="pc-result-caption">Review required child work before accepting.</span>}
+    {childrenReady ? <Button variant={isConflictGate(gate) ? "secondary" : "primary"} busy={action.busy} onClick={() => submit("accept")}>Accept result</Button> : <span className="pc-result-caption">Review required child work before accepting.</span>}
   </>}/>
     <ErrorMessage error={action.error}/>
-    {accepted && <div role="status" className="pc-result-accepted"><span className="pc-result-good" aria-hidden="true">✓</span><span><b>Accepted.</b> Branch <span className="pc-result-mono">{task.branch ?? "(unknown)"}</span> is kept with its {task.files.length} files; the report is filed on the task. {remaining === 0 ? "Nothing else needs you." : remaining === undefined ? "" : `${remaining} more ${remaining === 1 ? "needs" : "need"} you · `}{remaining !== undefined && remaining > 0 && <TextAction className="pc-result-good" href={hrefFor(routes.needsYou(query))}>Open Needs you</TextAction>}</span><ButtonLink size="sm" href={hrefFor(routes.tasks(query))}>Back to Tasks</ButtonLink></div>}
+    {isRecord ? <RunGatePanel item={record!}/> : gate && task.dismissed ? <RunGatePanel item={gate}/> : !recorded && gate && (isConflictGate(gate) ? <RunGatePanel item={gate} offer={sendBackOnly}/> : <p className="pc-result-caption">{MERGE_ON_ACCEPT_WORDS}</p>)}
+    {accepted && <div role="status" className="pc-result-accepted"><span className="pc-result-good" aria-hidden="true">✓</span><span><b>Accepted.</b> {merged ? "The changes were merged into the run branch. " : ""}Branch <span className="pc-result-mono">{task.branch ?? "(unknown)"}</span> is kept with its {task.files.length} files; the report is filed on the task. {remaining === 0 ? "Nothing else needs you." : remaining === undefined ? "" : `${remaining} more ${remaining === 1 ? "needs" : "need"} you · `}{remaining !== undefined && remaining > 0 && <TextAction className="pc-result-good" href={hrefFor(routes.needsYou(query))}>Open Needs you</TextAction>}</span><ButtonLink size="sm" href={hrefFor(routes.tasks(query))}>Back to Tasks</ButtonLink></div>}
     {recorded === "reject" && <p role="status">Result rejected. The verdict is filed on the task.</p>}
     {recorded === "send_back" && <p role="status">Changes requested. Sent back to {executor}.</p>}
     {(requesting || rejecting) && <section className="pc-result-request" aria-labelledby="request-heading"><h2 id="request-heading">{rejecting ? "Why reject this result?" : "What should change?"}</h2>

@@ -71,10 +71,15 @@ export function nextRunPriority(priority: string | null | undefined): RunPriorit
   return order[(order.indexOf(current) + 1) % order.length]!;
 }
 
+/** A code step of the run waits for a verdict the person (or its planner) can give. */
+export const awaitsVerdict = (runId: string, attention: readonly { run?: { id: string }; gate?: { kind: string } }[] | undefined): boolean =>
+  !!attention?.some(a => a.run?.id === runId && (a.gate?.kind === "step_review" || a.gate?.kind === "step_conflict"));
+
 /** What the run is waiting on, in plain words (UI-12). */
 export function waitsOnLabel(waitsOn: string | null | undefined): string {
   if (!waitsOn || waitsOn === "-") return "—";
   if (waitsOn === "you" || waitsOn === "person") return "You";
+  if (waitsOn === "review") return "Review by you or the planner";
   if (waitsOn === "orchestrator" || waitsOn === "planner") return "Orchestrator";
   if (waitsOn === "executors") return "Executors";
   if (waitsOn === "nothing") return "Nothing";
@@ -96,6 +101,10 @@ export function pausedReasonLabel(reason: string | null | undefined): string {
  * First line of the run view: the orchestrator block.
  * Example: `planner at limit until 18:00`.
  */
+/** A run's stored reason in plain words (UI-12). */
+export const runReasonWords = (reason: string): string => /^unresolved wake /i.test(reason)
+  ? "The planner stopped after two turns that left work undone. Retry it to continue." : reason;
+
 export function orchestratorBlock(
   orch: { state?: string; planner?: string; reason?: string; next_wake_at?: number } | null | undefined,
   now: number,
@@ -110,7 +119,7 @@ export function orchestratorBlock(
       });
       return `planner at limit until ${until}`;
     }
-    return reason;
+    return runReasonWords(reason);
   }
   if (orch.state === "turn") return "Orchestrator working";
   if (orch.state === "retrying") return "Orchestrator retrying";

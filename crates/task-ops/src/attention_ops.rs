@@ -184,6 +184,12 @@ fn transaction(
     allow_dismissed: bool,
     change: impl FnOnce(&mut Map<String, Value>),
 ) -> Result<(), CoreError> {
+    if pacer_lifecycle::attention::is_review_gate(id) {
+        return Err(CoreError::new(
+            Code::NotAllowed,
+            pacer_lifecycle::attention::REVIEW_GATE_STAYS,
+        ));
+    }
     with_lock(ctx, "attention", LockOptions::default(), || {
         let unusable = || {
             CoreError::new(

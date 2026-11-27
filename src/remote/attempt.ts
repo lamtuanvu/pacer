@@ -9,7 +9,7 @@ import { validateExecution } from "../config/execution";
 import { gitInfo } from "../core/git";
 import { finishRun, outcome, progressPoller, runDir, type AttemptOutcome } from "../exec/direct";
 import { remoteLaunch } from "../exec/launch";
-import { buildPrompt } from "../exec/prompt";
+import { buildPrompt, gitContractRule } from "../exec/prompt";
 import { tasksDir, updateTask } from "../tasks/store";
 import { resolvePlacement, type RunRef, type TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
@@ -81,7 +81,7 @@ export async function runRemoteAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRec
     built = replaceLast(built, 'run `pacer ask "<one question>"` and end your turn; the answer resumes this same session',
       'write your one question (1–1000 characters) verbatim to .pacer-question in the worktree, leave that file uncommitted, then stop');
     built = replaceLast(built, '\n- To send other messages, run `pacer msg send --to <participant> "<text>"` (your parent is the default reader of your final response). Your final response in each turn is delivered to your parent as your report.', "");
-    const prompt = replaceLast(built, "- Do not commit, push, or change git branches.",
+    const prompt = replaceLast(built, gitContractRule(task.brief),
       `- Work only on ${remoteBranch} and commit there; don't push or change git config; leave the worktree clean.`);
     const runner = resolveRunner(s, cfg.id)!, env: Record<string, string> = { PACER_ROLE: "executor", PACER_TASK_ID: task.id };
     const home = host.accounts[runner.account ?? ""]?.home;

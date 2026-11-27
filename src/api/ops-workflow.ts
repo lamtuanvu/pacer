@@ -30,6 +30,7 @@ import {
 import { listArtifacts, storeArtifact } from "../workflow/artifacts";
 import { syncBase } from "../workflow/branch";
 import { publishRun } from "../workflow/publish";
+import { assertStepCommitted } from "../workflow/review";
 import { cleanupRun } from "../workflow/cleanup";
 import { canAutoApproveGenerate, canAutoDecide } from "../workflow/auto";
 import { applyBudgetRaise, isBudgetBlocked, parseSpent, serializeSpent } from "../workflow/budget";
@@ -305,7 +306,11 @@ export const workflowOps: Record<string, OpDef> = {
   "step.result": op({
     description: "Record the calling executor's structured result for its workflow step task, validated at once; once per step, before the task settles.",
     params: z.object({ result: z.record(z.string(), z.json()) }),
-    handler: (ctx, p) => recordStepResult(ctx, requireStepResultCaller(ctx), p.result),
+    handler: async (ctx, p) => {
+      const taskId = requireStepResultCaller(ctx);
+      await assertStepCommitted(ctx, taskId);
+      return recordStepResult(ctx, taskId, p.result);
+    },
   }),
   "step.artifact": op({
     description: "Attach a file from the calling step task's worktree or evidence directory to the run's artifact store. Own step only; 10 MiB per file, 200 MiB per run.",

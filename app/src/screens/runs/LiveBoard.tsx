@@ -5,7 +5,7 @@
  */
 import { useEffect, useId, useMemo, useRef, useState } from "preact/hooks";
 import styles from "./live-board.css" with { type: "text" };
-import { orchestratorBlock, pausedReasonLabel, runAge, runPriorityLabel, runStatus, waitsOnLabel, RUN_QUESTIONS_ERROR, RUN_SEEN_ERROR } from "../../../../src/view-model/runs";
+import { orchestratorBlock, pausedReasonLabel, runAge, runPriorityLabel, runStatus, waitsOnLabel, awaitsVerdict, RUN_QUESTIONS_ERROR, RUN_SEEN_ERROR } from "../../../../src/view-model/runs";
 import { sentenceCase, orchestratorNeedsAttention } from "../../../../src/view-model/run-board";
 import type { RunQuestionView } from "../../data/runs";
 import { useActions } from "../../data/action-context";
@@ -24,6 +24,7 @@ import { BoardCanvas, deskWords, plannerNoteFor, zoneSummary } from "./BoardCanv
 import { BoardViewport } from "./BoardViewport";
 import { FIGURE, layoutLiveBoard } from "./live-board-layout";
 import { executorName, executorOf, layoutInputFromDetail, nodeLabel } from "./live-board-model";
+import { conflictedTasks, runGateNote } from "../../../../src/view-model/run-gate";
 import { CHANNEL_HINTS, CHANNEL_LABELS, messageTargets, sendToTargets, summarizeSend, type MessageChannel } from "./live-board-messages";
 import { liveHref, runViewHref, sessionHref } from "./live-links";
 import { runIdentity, useRetryFocus, useRunDetail, useRunSeen } from "./run-data";
@@ -74,11 +75,13 @@ export function LiveBoard({ runId, query, outputPollMs }: { runId: string; query
   const run = isObj(raw) ? raw : null;
   const questions = (detail?.questions ?? []).filter(isOpenForPerson);
 
-  const layout = useMemo(() => detail?.run
-    ? layoutLiveBoard(layoutInputFromDetail(detail, questions))
-    : null,
+  const layout = useMemo(() => {
+    if (!detail?.run) return null;
+    const drawn = layoutLiveBoard(layoutInputFromDetail(detail, questions));
+    const conflicts = conflictedTasks(state.snapshot?.attention);
+    return conflicts.size ? { ...drawn, nodes: drawn.nodes.map(n => n.taskId && conflicts.has(n.taskId) ? { ...n, conflict: true } : n) } : drawn;
   // eslint-disable-next-line react-hooks/exhaustive-deps -- questions derive from detail
-  [detail]);
+  }, [detail, state.snapshot?.attention]);
 
   useEffect(() => { setSelected(null); setSent(""); setSendError(""); setAnnounce(""); setChannel(null); setWhisper(""); }, [runId]);
   const tasks = state.snapshot?.tasks as ReadonlyArray<{ id: string; executor?: string | null }> | undefined;
@@ -176,7 +179,8 @@ export function LiveBoard({ runId, query, outputPollMs }: { runId: string; query
   const { letter, runName, title } = runIdentity(runId, run, store.list, state.snapshot?.runs);
   const pausedReason = typeof run?.pausedReason === "string" ? run.pausedReason : typeof snapRun?.paused_reason === "string" ? snapRun.paused_reason : undefined;
   const status = runStatus(pausedReason ? "paused" : String(run?.status ?? "running"));
-  const waits = snapRun?.waits_on ?? (questions.length ? "you" : status.label === "Waiting" ? "orchestrator" : "-");
+  const waits = !questions.length && awaitsVerdict(runId, state.snapshot?.attention) ? "review"
+    : snapRun?.waits_on ?? (questions.length ? "you" : status.label === "Waiting" ? "orchestrator" : "-");
   const createdAt = typeof run?.createdAt === "number" ? run.createdAt : 0;
   const orchLine = sentenceCase(orchestratorBlock(orch, now));
   const unavailable = !ops.has("run.get");
@@ -185,7 +189,7 @@ export function LiveBoard({ runId, query, outputPollMs }: { runId: string; query
   // The You station says nothing waits only when the questions were read and none is open.
   const personNote = detail?.error === RUN_QUESTIONS_ERROR ? "Questions not loaded"
     : questions.length ? "A question waits for you"
-      : detail?.error ? "May be out of date" : "Nothing waits on you";
+      : detail?.error ? "May be out of date" : runGateNote(runId, state.snapshot?.attention) ?? "Nothing waits on you";
   const agentByNode = new Map(agents.map(a => [a.nodeId, a]));
 
   return <>
@@ -305,7 +309,7 @@ export function LiveBoard({ runId, query, outputPollMs }: { runId: string; query
                 return (
                   <li key={n.id} className="lb-item" data-step-item={n.id}>
                     <span className="lb-item-name">{nodeLabel(n)}</span>
-                    <Pill tone={n.waitsOnYou ? "warn" : runStatus(n.status).tone}><span aria-hidden="true">{w.glyph} </span>{w.label}</Pill>
+                    <Pill tone={n.waitsOnYou || n.conflict ? "warn" : n.awaitsReview ? "info" : runStatus(n.status).tone}><span aria-hidden="true">{w.glyph} </span>{w.label}</Pill>
                     {agent ? <span className="lb-cap">{agent.name} is on it</span> : null}
                   </li>
                 );
