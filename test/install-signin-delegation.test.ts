@@ -142,13 +142,17 @@ async function browserFetch(page: Page, path: string, params?: Record<string, un
 }
 
 // The startup Checking setup gate precedes Dispatch. This sandbox has no planner
-// wiring: with warnings the gate enters on its own, and without a claude binary
-// on PATH it hard-fails and stays until the user chooses Continue anyway.
+// wiring: an all-passed check enters on its own, warnings stay on the gate until
+// the user chooses Continue to pacer, and a hard failure stays until Continue anyway.
 async function enterDispatch(page: Page) {
   const dispatch = page.getByRole("heading", { level: 1, name: "Dispatch" });
   const continueAnyway = page.getByRole("button", { name: "Continue anyway" });
-  await dispatch.or(continueAnyway).waitFor();
+  const continueToPacer = page.getByRole("button", { name: "Continue to pacer" });
+  const continueButton = page.getByRole("button", { name: "Continue", exact: true });
+  await dispatch.or(continueAnyway).or(continueToPacer).or(continueButton).waitFor();
   if (await continueAnyway.isVisible()) await continueAnyway.click();
+  else if (await continueToPacer.isVisible()) await continueToPacer.click();
+  else if (await continueButton.isVisible()) await continueButton.click();
   await dispatch.waitFor();
 }
 
