@@ -245,7 +245,8 @@ test.skipIf(!front)("dispatch reads refuse executor and enforcement identities l
     request(4, "dispatch.events", {}), request(5, "dispatch.config.get", {}),
   ];
   for (const env of [{ PACER_ROLE: "executor" }, { PACER_ENFORCEMENT_TOKEN: "pet_x" }, { PACER_ENFORCEMENT_TOKEN: "", PACER_ROLE: "planner" }] as Record<string, string>[]) {
-    const native = await exchange(ctx.home, requests, false, env);
+    // API-5: a non-empty enforcement identity runs nothing natively; an empty one is no identity.
+    const native = await exchange(ctx.home, requests, false, env, !env.PACER_ENFORCEMENT_TOKEN);
     const forwarded = await exchange(ctx.home, requests, true, env);
     expect(normalize(native)).toEqual(normalize(forwarded));
     expect(wire(native)).toEqual(wire(forwarded));

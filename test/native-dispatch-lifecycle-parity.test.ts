@@ -72,7 +72,8 @@ test.skipIf(!front)("callers without a work grant are refused natively as TypeSc
     request(5, "dispatch.review", {}), request(6, "dispatch.retry", { id: "t" }), request(7, "dispatch.answer", null), request(8, "dispatch.stop", { id: "t" }),
   ];
   for (const env of [{ PACER_ROLE: "executor" }, { PACER_ENFORCEMENT_TOKEN: "pet_x" }] as Record<string, string>[]) {
-    const native = await exchange(ctx.home, requests, false, env);
+    // API-5: under an enforcement identity every request is Core's to refuse.
+    const native = await exchange(ctx.home, requests, false, env, env.PACER_ENFORCEMENT_TOKEN ? [] : null);
     expect(wire(native)).toEqual(wire(await exchange(ctx.home, requests, true, env)));
     expect(native.every(reply => reply.error?.data?.code === "not_allowed")).toBe(true);
   }

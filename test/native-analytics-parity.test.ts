@@ -159,7 +159,8 @@ test.skipIf(!front)("caller identities and huge periods follow the TypeScript ga
   }
   const enforced = [request(2, "dispatch.analytics", {}), request(3, "insights.summary", { from: 0, to: 1 })];
   const env = { PACER_ENFORCEMENT_TOKEN: "pet_x" };
-  expect(await exchange(ctx.home, enforced, false, env)).toEqual(await exchange(ctx.home, enforced, true, env));
+  // API-5: a stdio session holding the identity runs nothing natively.
+  expect(await exchange(ctx.home, enforced, false, env, false)).toEqual(await exchange(ctx.home, enforced, true, env));
   const huge = [request(2, "insights.summary", { from: 1e20, to: 1e20 + 1e6 })];
   expect(wire(await exchange(ctx.home, huge, false, {}, false))).toEqual(wire(await exchange(ctx.home, huge, true)));
 }, 60000);
