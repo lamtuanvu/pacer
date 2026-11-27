@@ -8,7 +8,7 @@ import {callOp, parseOpParams} from "../src/api/ops";
 import {toApiError} from "../src/api/errors";
 import {CoreError} from "../src/core/errors";
 import {assistantDatabase, conversationTurns, getTurn, readSettings, updateCard} from "../src/assistant/store";
-import {deleteConversations, listHistory, refreshCard, saveSettings} from "../src/assistant/service";
+import {assistantStatus, candidates, deleteConversations, listHistory, refreshCard, READS_SUMMARY, saveSettings} from "../src/assistant/service";
 import {fakeCtx} from "./helpers";
 
 let binary: string;
@@ -99,9 +99,21 @@ async function reference(ctx: ReturnType<typeof fakeCtx>, op: string, params: un
     case "assistant.delete": return deleteConversations(ctx, p.id);
     case "assistant.card.record": return updateCard(ctx, p.turnId, p.cardId, {state: p.state, ...(p.result !== undefined ? {result: p.result} : {})});
     case "assistant.card.refresh": return refreshCard(ctx, p.turnId, p.cardId);
+    // B4-2: the public handlers are nativeOnly, so compare against the functions they used.
+    case "assistant.status": return assistantStatus(ctx);
+    case "assistant.candidates": return {accounts: candidates(ctx), reads: READS_SUMMARY};
     default: return callOp(ctx, op, p);
   }
 }
+
+/** The bundled `assistant-executor` reply plugin, as the native door's registry snapshot sees it. */
+const PLUGIN_ENTRIES = [{
+  id: "assistant-executor",
+  manifest: {contributes: {assistant: {backend: "executor", reply: true}}},
+  bundled: true, grant: {}, state: "ready", error: null, pid: null, served: [], protocol: null, restarts: 0,
+}];
+/** Read-only `computeStatus` parts: no live usage source is touched (no EXHAUSTED/reserve cases here). */
+const STATUS_PARTS = {accounts: [{name: "ep", verdict: "UNKNOWN", usedPct: null}], mode: "normal"};
 
 type SetupData = {strategy?: string; dirs?: string[]; sql?: string[]};
 type Golden = {file: "settings" | "history" | "cards"; setup: SetupData};
@@ -123,7 +135,11 @@ async function compare([op, params, setup, env = {}, golden]: Case) {
   const ctx = fakeCtx({pacerHome: ts, home: ts, now: NOW, env});
   let expected: unknown;
   try { expected = {result: await reference(ctx, op, params)}; } catch (error) { expected = {error: toApiError(error)}; }
-  const input = `${JSON.stringify({op, params, home: rs, now: NOW, env})}\n`;
+  const input = `${JSON.stringify({
+    op, params, home: rs, now: NOW, env,
+    ...(op === "assistant.status" || op === "assistant.candidates"
+      ? {pluginEntries: PLUGIN_ENTRIES, statusParts: STATUS_PARTS} : {}),
+  })}\n`;
   const actual = JSON.parse(execFileSync(driver(), [], {input}).toString());
   const label = `${op} ${JSON.stringify(params)} ${JSON.stringify(env)}`;
   expect(actual, `${label} actual=${JSON.stringify(actual)} expected=${JSON.stringify(expected)}`).toEqual(expected);
@@ -237,21 +253,23 @@ test("native assistant settings, history and cards match TypeScript results, err
   for (const item of cases) await compare(item);
 }, 600_000);
 
-test("native assistant leaves candidates, work grants and unregistered ops to the core", async () => {
-  const unusable = settings("ep", '{"turnsPerDay":0}');
+test("native assistant status and candidates match TypeScript without a reply plugin", async () => {
   const cases: Case[] = [
-    // Status admission still needs the core's plugins and cached status (B4-2 finishes it).
+    ["assistant.status", {}],
+    ["assistant.status", {}, all(settings(null), history)],
     ["assistant.status", {}, all(settings("ep"), strategy, history)],
-    ["assistant.status", {}, all(settings("ep", "{}"), strategy, history)],
-    ["assistant.status", {}, settings("ep")],
-    ["assistant.candidates", {}],
-    ["assistant.candidates", {}, strategy],
+    // A missing strategy keeps Rust's own message in the reason (S0 Q1), so it is not byte-compared here.
     ["assistant.status", {}, all(settings("ep", '{"turnsPerDay":3}', '{"conversations":200,"days":30}', "executor"), strategy, history)],
-    ["assistant.status", {}, unusable],
-    // Work grants are the remaining non-status selective forwarder.
-    ["assistant.turn", {turnId: "turn-1"}, history, {PACER_WORK_GRANT: "pwg_x"}],
+    // A missing strategy keeps Rust's own error text (S0 Q1), so it is not byte-compared here.
+    ["assistant.candidates", {}, strategy],
   ];
-  for (const item of cases) await forwarded(item);
+  for (const item of cases) await compare(item);
+});
+
+test("native assistant leaves work grants and unregistered ops to the core", async () => {
+  const unusable = settings("ep", '{"turnsPerDay":0}');
+  // Work grants are process-wide and stay with the core (C16).
+  await forwarded(["assistant.turn", {turnId: "turn-1"}, history, {PACER_WORK_GRANT: "pwg_x"}]);
   // The forwarded TypeScript reference reports the schema failure itself.
   const home = mkdtempSync(join(tmpdir(), "native-as-"));
   unusable(home);
