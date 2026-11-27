@@ -29,6 +29,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - After you install a newer pacer.app by hand, the app restarts its own older service onto the new version (handing running work over) instead of leaving the old service running with an "Older service" banner. It does this only on macOS, for the service it owns, with no update in progress.
 - Interactive and PTY attempts that hold a scoped grant, such as workflow planner turns and delegating workers, now start instead of failing with "executor wrapper state is uncertain": the grant's command allow-list no longer refuses the session host, the session hooks or `pacer report` for the attempt.
 - The hooks `pacer install` adds to an agent's user settings no longer fail inside workflow planner turns and delegating workers. `pacer msg hook`, `pacer status --hook` and `pacer statusline` do nothing there, and `pacer guard` applies its usual policy instead of blocking every matched tool call; strict enforcement is unchanged. Cursor's `session-start` hook is not covered yet.
+- Installed builds can snooze and dismiss workflow items (run budget, stopped planner and restart wait) instead of answering "unknown attention item", and `snapshot.get` lists them while a workflow run is live.
+
 
 ### Fixed
 
