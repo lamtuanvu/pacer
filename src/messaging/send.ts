@@ -10,6 +10,7 @@ import * as store from "./store";
 import { assertOpen, deliver, notifyMessage, readMessages, type Delivery, type TurnDelivery, type TurnHold } from "./turns";
 import type { TaskRecord } from "../tasks/types";
 import { participantSchema, type Message, type MsgKind } from "./types";
+import { isPlannerTask } from "../workflow/live-answer";
 export interface SendInput { to: string; kind?: MsgKind; body: string; replyTo?: string; requestId?: string }
 export interface SendDeps { appAuthenticated?: boolean; participant?: string; spawnRunner?: SpawnRunner }
 
@@ -69,7 +70,9 @@ function directAnswerTarget(ctx: Ctx, m: Message): string | undefined {
   const question = answeredQuestion(ctx, m.from, m.to, m.replyTo!);
   if (!question || !id) return undefined;
   const task = readTask(ctx, id);
-  return task?.question && task.question.answer === undefined && isTaskQuestion(task, question) && directInputAvailable(task) ? id : undefined;
+  // A planner's terminal is never typed a message, answer or not: delivery reports it held.
+  if (!task || isPlannerTask(ctx, task)) return undefined;
+  return task.question && task.question.answer === undefined && isTaskQuestion(task, question) && directInputAvailable(task) ? id : undefined;
 }
 
 /** The task's open question is the one the message replies to, matched as answerLiveTask matches it. */

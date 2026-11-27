@@ -348,7 +348,7 @@ test("no message starts a planner turn outside the engine, and none is typed aft
   expect(t.deliveries()).toBe(0);
   t.w.finish(t.taskId);
   const sent = await sendMessage(t.w.ctx, { to: `task:${t.taskId}`, body: "later note" }, { appAuthenticated: true, spawnRunner: t.w.spawn });
-  expect(sent.delivery).toBe("queued");
+  expect(sent.delivery).toBe("held");
   expect(readTask(t.w.ctx, t.taskId)!.pendingTurn).toBeUndefined();
   expect(store.turnsForTask(t.w.ctx, t.taskId)).toBe(0);
 });

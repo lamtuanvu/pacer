@@ -138,7 +138,7 @@ export async function brokerTick(ctx: Ctx, deps: BrokerDeps): Promise<BrokerRepo
           else {
             const result = (await deliver(ctx, node, deps.spawnRunner)).delivery;
             acted = true;
-            stallNow = ["cap", "no_session", "closed", "live_unavailable"].includes(result);
+            stallNow = !!seen?.planner || ["cap", "no_session", "closed", "live_unavailable"].includes(result);
           }
         } else if (stall.reason === "no_progress") {
           if (!nudgeAllowed || !canSpend) stallNow = true;

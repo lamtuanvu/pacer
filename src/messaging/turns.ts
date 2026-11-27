@@ -29,6 +29,8 @@ import { runIdForParticipant } from "./run-route";
 import { turnPlanner } from "../workflow/turn-planner";
 import { isPlannerTask } from "../workflow/live-answer";
 
+/** Why a message to a run's planner task is held: no turn and no live session carries it. */
+export const PLANNER_HOLD = "this task is a workflow planner, which takes no messages; only the person's answers to its own questions reach it";
 export type Delivery = "turn_started" | "queued" | "pull" | "held" | "closed" | "cap" | "live_unavailable" | "no_session" | "live";
 const REPORT_BYTES = 64 * 1024;
 
@@ -284,6 +286,7 @@ export function deliver(ctx: Ctx, to: string, spawn?: SpawnRunner): Promise<Turn
   if (!id) return Promise.resolve({ delivery: "pull" });
   const t = readTask(ctx, id);
   const blocked = turnBlocked(ctx, t);
+  if (t && blocked !== "closed" && isPlannerTask(ctx, t)) return Promise.resolve({ delivery: "held", hold: { reason: PLANNER_HOLD } });
   if (blocked && blocked !== "live") return Promise.resolve({ delivery: blocked });
   return beginTurn(ctx, id, spawn);
 }
