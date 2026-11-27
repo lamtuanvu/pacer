@@ -20,7 +20,8 @@ use std::{
 /// `AGENT_LIST_TIMEOUT_MS`: a hung CLI must not hold the request.
 pub const AGENT_LIST_TIMEOUT: Duration = Duration::from_secs(30);
 
-const CODEX_MISSING: &str = "Codex has not saved a model list yet; start Codex once with this account";
+const CODEX_MISSING: &str =
+    "Codex has not saved a model list yet; start Codex once with this account";
 const CODEX_UNREADABLE: &str = "Codex's saved model list could not be read";
 const CODEX_EMPTY: &str = "Codex's saved model list has no models; start Codex once to refresh it";
 const CODEX_NO_FOLDER: &str = "Codex's folder for this account was not found";
@@ -154,7 +155,9 @@ pub fn parse_codex_cache(value: &Value) -> Option<Vec<AvailableModel>> {
         else {
             continue;
         };
-        if e.get("visibility").is_some_and(|v| v.as_str() != Some("list")) {
+        if e.get("visibility")
+            .is_some_and(|v| v.as_str() != Some("list"))
+        {
             continue;
         }
         let mut model = AvailableModel::new(slug);
@@ -293,7 +296,9 @@ pub(crate) async fn list_cli(
     };
     let models = agent.parse(&String::from_utf8_lossy(&stdout));
     if models.is_empty() {
-        base.note = Some(format!("{label} lists no models; check that it is signed in"));
+        base.note = Some(format!(
+            "{label} lists no models; check that it is signed in"
+        ));
         return base;
     }
     base.models = Some(models);

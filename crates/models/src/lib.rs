@@ -21,7 +21,9 @@ mod reply;
 mod tests;
 mod validate;
 
-pub use agent_listings::{AGENT_LIST_TIMEOUT, parse_agy_models, parse_codex_cache, parse_cursor_models};
+pub use agent_listings::{
+    AGENT_LIST_TIMEOUT, parse_agy_models, parse_codex_cache, parse_cursor_models,
+};
 pub use available::{
     AvailableModel, AvailableModels, CACHE_TTL_S, Discovery, Listing, ModelSource, PROTOTYPE_KEYS,
     available_models, cache_file,

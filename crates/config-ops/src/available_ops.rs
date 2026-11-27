@@ -28,9 +28,16 @@ pub fn executor_models_available(ctx: &Ctx, params: Value) -> OpFuture<'_> {
             ));
         }
         let refresh = p["refresh"] == true;
-        available_reply(&ctx.pacer_home, &ctx.home, ctx.now, &strategy, runner, refresh)
-            .await
-            .ok_or_else(|| CoreError::new(Code::Unavailable, FORWARDED))
+        available_reply(
+            &ctx.pacer_home,
+            &ctx.home,
+            ctx.now,
+            &strategy,
+            runner,
+            refresh,
+        )
+        .await
+        .ok_or_else(|| CoreError::new(Code::Unavailable, FORWARDED))
     })
 }
 

@@ -110,7 +110,13 @@ pub(crate) async fn run_capped(
     timeout: Duration,
     cap: usize,
 ) -> Option<Vec<u8>> {
-    run_program(process, &["opencode", "models", "--standalone"], timeout, cap).await
+    run_program(
+        process,
+        &["opencode", "models", "--standalone"],
+        timeout,
+        cap,
+    )
+    .await
 }
 
 /// `execProcess` for `argv` as Core's `ctx.run` runs it (see [`run_models`]).
