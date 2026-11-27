@@ -1,0 +1,56 @@
+name: Commit trailers
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  reject-co-author-trailers:
+    name: Reject co-author trailers
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Reject Co-authored-by trailers
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          found=0
+
+          while IFS= read -r sha; do
+            [ -n "$sha" ] || continue
+            body=$(git log -1 --format=%B "$sha")
+            matches=$(printf '%s\n' "$body" | grep -iE '^\s*co-authored-by:' || true)
+            if [ -n "$matches" ]; then
+              found=1
+              while IFS= read -r line; do
+                [ -n "$line" ] || continue
+                printf '%s: %s\n' "$sha" "$line"
+              done <<< "$matches"
+            fi
+          done < <(git rev-list "${BASE_SHA}..${HEAD_SHA}")
+
+          body_matches=$(printf '%s\n' "${PR_BODY:-}" | grep -iE '^\s*co-authored-by:' || true)
+          if [ -n "$body_matches" ]; then
+            found=1
+            while IFS= read -r line; do
+              [ -n "$line" ] || continue
+              printf 'PR body: %s\n' "$line"
+            done <<< "$body_matches"
+          fi
+
+          if [ "$found" -ne 0 ]; then
+            echo "::error::Remove Co-authored-by trailers from commits (git rebase -i / amend) and the PR body. Agents must not add attribution."
+            exit 1
+          fi
