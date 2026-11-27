@@ -8,6 +8,7 @@ import {
   attachStepTask, getDefinition, getRun, liveRuns, rootRunId, stepsOfRun, updateStep, workflowDatabase,
 } from "./store";
 import { enqueueWakeup, liveTurn, openBlockingAsk, stepWakeRef, stepsOfRootTree } from "./wakeups";
+import { settleOrchestratorTaskForEndedRun } from "./orchestrator";
 
 /** Re-queues the shared orchestrator task for a new turn, clearing its last attempt. */
 export function requeueOrchestratorTask(ctx: Ctx, taskId: string): void {
@@ -43,25 +44,40 @@ export function resumeHeldSteps(ctx: Ctx): number {
       const taskId = getRun(ctx, root)?.orchestratorTaskId;
       // Another step of the tree owns the shared task until it settles.
       if (taskId && stepsOfRootTree(ctx, root).some(other => other.taskId === taskId && other.status === "running")) continue;
-      // The wake-up and the queued task come first: a crash before the step runs again
-      // leaves it waiting, and this pass repeats.
-      enqueueWakeup(ctx, {
-        runId: run.id, cause: "orchestrator_step",
-        ref: stepWakeRef(run.id, row.stepId, row.attempt, row.branch), byPerson: true,
-      });
+      // The queued task comes first: a crash before the step runs again leaves it
+      // waiting, and this pass repeats.
       const attach = taskId && readTask(ctx, taskId) ? taskId : undefined;
       if (attach) requeueOrchestratorTask(ctx, attach);
       const key = {
         runId: run.id, stepId: row.stepId, attempt: row.attempt,
         ...(row.branch !== undefined ? { branch: row.branch } : {}),
       };
-      workflowDatabase(ctx).transaction(() => {
+      // A stop or another resume may have landed from another process: the row moves
+      // only while it still waits in a live run, and its wake-up moves with it.
+      const moved = workflowDatabase(ctx).transaction(() => {
+        const live = getRun(ctx, run.id);
+        const current = stepsOfRun(ctx, run.id).find(s =>
+          s.stepId === row.stepId && s.attempt === row.attempt && s.branch === row.branch);
+        if (current?.status !== "waiting" || live?.status !== "running" && live?.status !== "waiting"
+          || openBlockingAsk(ctx, current) || liveTurn(ctx, root)) return false;
+        enqueueWakeup(ctx, {
+          runId: run.id, cause: "orchestrator_step",
+          ref: stepWakeRef(run.id, row.stepId, row.attempt, row.branch), byPerson: true,
+        });
         if (attach) {
           workflowDatabase(ctx).query("UPDATE workflow_steps SET task_id = NULL WHERE task_id = ?").run(attach);
           attachStepTask(ctx, key, attach);
         }
         updateStep(ctx, key, { status: "running" });
+        return true;
       }).immediate();
+      if (!moved) {
+        const ended = getRun(ctx, root);
+        if (ended?.status === "done" || ended?.status === "failed" || ended?.status === "stopped") {
+          settleOrchestratorTaskForEndedRun(ctx, ended, ended.status);
+        }
+        continue;
+      }
       resumed++;
     }
   }

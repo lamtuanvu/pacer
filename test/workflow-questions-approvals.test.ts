@@ -469,6 +469,21 @@ test("run show and question output carry no control sequences from agent text", 
   }
 });
 
+test("a stop landing while a held step resumes is not overwritten", async () => {
+  const w = world();
+  const { run, first, q } = await asked(w);
+  w.finish(first.taskId!);
+  await w.tick();
+  expect(w.row(run.id, "brainstorm").status).toBe("waiting");
+  // As another process would: the run stops between the resume's checks and its write.
+  workflowDatabase(w.ctx).exec(`CREATE TRIGGER stop_meanwhile AFTER UPDATE ON tasks WHEN NEW.state = 'queued' BEGIN
+    UPDATE workflow_runs SET status = 'stopped'; UPDATE workflow_steps SET status = 'stopped' WHERE status = 'waiting'; END`);
+  await w.person("question.answer", { id: q.id, answer: "sqlite", expect_rev: q.rev });
+  expect(w.row(run.id, "brainstorm").status).toBe("stopped");
+  expect(openWakeups(w.ctx, run.id).filter(o => o.cause === "orchestrator_step")).toEqual([]);
+  expect(readTask(w.ctx, first.taskId!)!.state).not.toBe("queued");
+});
+
 test("a one-click yes on a human step takes the edge and approves publishing in the engine's spelling", async () => {
   for (const spelling of ["Yes", "YES ", "yes"]) {
     const w = world();
