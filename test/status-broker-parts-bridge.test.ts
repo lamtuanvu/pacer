@@ -1,20 +1,23 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { join, relative } from "node:path";
-import { loadStrategy, loadStrategySnapshot } from "../src/config/strategy";
-import { runStdio } from "../src/api/stdio";
-import { computeStatus, statusBrokerParts } from "../src/engine/status";
-import { rankExecutors, type ProviderStatus } from "../src/engine/rank";
-import { startServer } from "../src/serve/http";
-import { draftStrategy, preview } from "../src/strategy/service";
+import { execFileSync } from "node:child_process";
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { createTask, updateTask } from "../src/tasks/store";
 import type { Ctx } from "../src/types";
+import { startServer } from "../src/serve/http";
 import { fakeCtx, withLoginIndicators } from "./helpers";
+import { front, serve } from "./native-repo-front-door";
+import { closedPort, spawnPinned } from "./port-isolation";
 
-// The sealed usage-broker parts route: HTTP `/_internal/status-broker-parts` and stdio
-// `_internal.status-broker.parts`, with its optional `draft` and `cacheOnly` params.
+// B12-6: status-broker parts are native. Every status op that used to ask the
+// TypeScript core for `computeStatus` parts now computes them in the Rust door.
+// The native replies (over stdio and HTTP) must equal the forced-forward replies
+// from the TS handlers, and the sealed route must be gone.
 
-const KEY = "fixture-private-key";
+const root = resolve(import.meta.dir, "..");
 const TOKEN = "s".repeat(64);
+const OPS = "limits.check,routing.status,runner.list,strategy.preview,mode.hold,task.retry_options,dispatch.preview";
 const STRATEGY = `planner: claude-code
 accounts:
   claude: {kind: claude}
@@ -24,57 +27,67 @@ runners:
   codex: {}
 pacing: {policy: priority, order: [claude-code, codex]}
 `;
-/** A saved strategy with an account and runner the active one lacks. */
 const WIDE = STRATEGY.replace("  codex: {kind: codex}\n", "  codex: {kind: codex}\n  cursor: {kind: cursor}\n")
   .replace("  codex: {}\n", "  codex: {}\n  cursor: {}\n");
 
-function fixture(): Ctx {
-  const ctx = withLoginIndicators(fakeCtx());
+const core = JSON.stringify([process.execPath, join(root, "src/cli.ts")]);
+const dirs: string[] = [];
+const fresh = (prefix: string) => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), prefix)));
+  dirs.push(dir);
+  return dir;
+};
+
+/** A checkout dispatch.preview can register without needing Core. */
+function gitRepo(dir: string): string {
+  const repo = join(dir, "repo");
+  mkdirSync(repo, { recursive: true });
+  execFileSync("git", ["init", "-q", "-b", "main"], { cwd: repo });
+  execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "init"], { cwd: repo });
+  return repo;
+}
+
+/** The shared fixture, with both strategies, a checkout and a failed task. */
+function fixture(): { home: string; id: string; repo: string } {
+  const dir = fresh("pacer-status-parts-");
+  const repo = gitRepo(dir);
+  const ctx: Ctx = withLoginIndicators(fakeCtx({ home: dir, pacerHome: join(dir, ".pacer") }));
   mkdirSync(join(ctx.pacerHome, "strategies"), { recursive: true });
   writeFileSync(join(ctx.pacerHome, "strategy.yaml"), STRATEGY);
   writeFileSync(join(ctx.pacerHome, "strategies", "wide.yaml"), WIDE);
-  return ctx;
+  const task = createTask(ctx, { brief: { goal: "Goal", repo }, kind: "tests", requestedExecutor: null, timeoutS: 60 });
+  updateTask(ctx, task.id, row => { row.state = "failed"; });
+  return { home: dir, id: task.id, repo };
 }
 
 /** Every file under PACER_HOME with its bytes and mode. */
-function files(ctx: Ctx): Record<string, string> {
+function files(ctxHome: string): Record<string, string> {
   const out: Record<string, string> = {};
+  const base = join(ctxHome, ".pacer");
   const walk = (dir: string) => {
     for (const name of readdirSync(dir)) {
       const path = join(dir, name), stat = statSync(path);
       if (stat.isDirectory()) walk(path);
-      else out[relative(ctx.pacerHome, path)] = `${(stat.mode & 0o777).toString(8)} ${readFileSync(path, "base64")}`;
+      else out[relativeBase(base, path)] = `${(stat.mode & 0o777).toString(8)} ${readFileSync(path, "base64")}`;
     }
   };
-  walk(ctx.pacerHome);
+  walk(base);
   return out;
 }
-
-/** The raw reply line, so `{}` can be compared byte for byte. `key` is the core's own key; `null` starts one with none. */
-async function stdio(ctx: Ctx, params: unknown, key: string | null = KEY): Promise<string> {
-  async function* input() { yield JSON.stringify({ jsonrpc: "2.0", id: 1, method: "_internal.status-broker.parts", params }); }
-  const out: string[] = [];
-  await runStdio(ctx, input(), line => out.push(line), { nativeConfigKey: key ?? undefined });
-  expect(out).toHaveLength(1);
-  return out[0]!.trimEnd();
-}
+const relativeBase = (base: string, path: string) => path.startsWith(base + "/") ? path.slice(base.length + 1) : path;
 
 /**
- * The home once a just-started server has finished writing its own state.
- * Server startup starts background plugins asynchronously (pacer-usage publishes
- * `starting` then `ready` entities), so a single quiet poll can return during
- * that startup and miss the later `ready` write. Require a sustained quiet
- * window so background startup publications have fully flushed before the
- * snapshot is taken.
+ * Wait for a just-started TypeScript core's background plugin publications to
+ * flush before snapshotting files, so both twins settle before comparison.
  */
-async function settled(ctx: Ctx): Promise<Record<string, string>> {
-  let last = files(ctx);
+async function settled(ctxHome: string): Promise<Record<string, string>> {
+  let last = files(ctxHome);
   let quiet = 0;
   for (let guard = 0; guard < 300; guard++) {
     await Bun.sleep(150);
-    const next = files(ctx);
+    const next = files(ctxHome);
     if (JSON.stringify(next) === JSON.stringify(last)) {
-      if (++quiet >= 10) return next; // ~1.5 s of sustained quiet covers plugin startup.
+      if (++quiet >= 10) return next;
     } else {
       quiet = 0;
       last = next;
@@ -83,168 +96,145 @@ async function settled(ctx: Ctx): Promise<Record<string, string>> {
   throw new Error("settled: home kept changing; possible background writer");
 }
 
-type Post = (body: string | undefined, headers?: Record<string, string>) => Promise<{ status: number; text: string }>;
-async function withServer<T>(ctx: Ctx, run: (post: Post) => Promise<T>): Promise<T> {
-  const s = startServer(() => ctx, { port: 0, pumpMs: 0, internal: { token: TOKEN } });
-  try {
-    return await run(async (body, headers = { authorization: `Bearer ${TOKEN}` }) => {
-      const r = await fetch(`http://127.0.0.1:${s.port}/_internal/status-broker-parts`, {
-        method: "POST", headers: { host: `127.0.0.1:${s.port}`, "content-type": "application/json", ...headers }, body,
-      });
-      return { status: r.status, text: await r.text() };
-    });
-  } finally { s.stop(); }
+const normalize = (text: string, dir: string) => text.replaceAll(dir, "<home>").replaceAll(realpathSync(dir), "<home>")
+  .replace(/"(evaluatedAt|validUntil|checkedAt|at|updatedAt|fetchedAt|capturedAt|until|resetAt|expiresAt|createdAt|settledAt|generatedAt|deadline|now)":[\d.e+-]+/g, '"$1":<t>')
+  .replace(/"(requestId|inputHash)":"[0-9a-f]+"/g, '"$1":<hash>');
+
+function env(dir: string, port: string, forward: boolean) {
+  return {
+    HOME: dir,
+    PACER_HOME: join(dir, ".pacer"),
+    PATH: `${join(dir, "bin")}:/usr/bin:/bin`,
+    PACER_PORT: port,
+    PACER_CORE_ARGV: core,
+    PACER_NO_UPDATE_CHECK: "1",
+    PACER_NO_SELF_REPAIR: "1",
+    PACER_DISCOVERY: "off",
+    PACER_LOGIN_ENV: "off",
+    PACER_DEBUG_NATIVE: "1",
+    ...(forward ? { PACER_FORWARD_OPS: OPS } : {}),
+  };
 }
 
-const ranking = (ctx: Ctx, draft: { from: string; set?: Record<string, unknown> }, parts: { providers: ProviderStatus[] }) =>
-  rankExecutors(null, draftStrategy(ctx, draft as never), Object.fromEntries(parts.providers.map(p => [p.id, p]))).ranked.map(x => x.id);
+type Step = { op: string; params: unknown };
+const steps = (id: string, repo: string): Step[] => [
+  { op: "limits.check", params: {} },
+  { op: "routing.status", params: {} },
+  { op: "runner.list", params: {} },
+  { op: "strategy.preview", params: { draft: { from: "wide" } } },
+  { op: "mode.hold", params: {} },
+  { op: "task.retry_options", params: { id } },
+  { op: "dispatch.preview", params: { repo, goal: "Goal", kind: "tests", delegationEnforcement: "cooperative" } },
+];
 
-test("the HTTP route admits only the internal bearer and refuses cookie and task callers", async () => {
-  const ctx = fixture();
-  await withServer(ctx, async post => {
-    expect((await post("{}", {})).status).toBe(401);
-    expect((await post("{}", { authorization: `Bearer ${"x".repeat(64)}` })).status).toBe(401);
-    expect((await post("{}", { authorization: TOKEN })).status).toBe(401);
-    const internal = { authorization: `Bearer ${TOKEN}` };
-    const before = await settled(ctx);
-    for (const body of ["{}", JSON.stringify({ cacheOnly: true }), JSON.stringify({ draft: { from: "wide" } })]) {
-      expect(await post(body, { ...internal, "x-pacer-auth": "cookie" })).toEqual({ status: 403, text: "forbidden\n" });
-      expect(await post(body, { ...internal, "x-pacer-auth": "task", "x-pacer-work-grant": "Bearer pwg_fixture" })).toEqual({ status: 403, text: "forbidden\n" });
-      expect(await post(body, { ...internal, "x-pacer-auth": "task", "x-pacer-work-grant": "Bearer pet_fixture" })).toEqual({ status: 403, text: "forbidden\n" });
-      expect(await post(body, { ...internal, "x-pacer-auth": "other" })).toEqual({ status: 403, text: "forbidden\n" });
-    }
-    expect(files(ctx)).toEqual(before);
-    const admitted = await post("{}", { ...internal, "x-pacer-auth": "bearer" });
-    expect(admitted.status).toBe(200);
-    expect(JSON.parse(admitted.text).result.providers.map((p: ProviderStatus) => p.id)).toEqual(["claude-code", "codex"]);
+async function stdio(dir: string, list: Step[], forward: boolean) {
+  const port = closedPort();
+  const child = spawnPinned([front!, "api", "--stdio"], {
+    cwd: dir, stdin: "pipe", stdout: "pipe", stderr: "pipe", env: env(dir, port, forward),
   });
-}, 30000);
-
-test("the sealed stdio method answers unknown_op for a missing or wrong key and for a work-grant caller", async () => {
-  const ctx = fixture();
-  const granted: Ctx = { ...ctx, env: { ...ctx.env, PACER_WORK_GRANT: "pwg_fixture" } };
-  const before = files(ctx);
-  for (const extra of [{}, { cacheOnly: true }, { draft: { from: "wide" } }]) {
-    const refused = [
-      await stdio(ctx, { key: "incorrect", ...extra }),
-      await stdio(ctx, { ...extra }),
-      await stdio(ctx, null),
-      await stdio(ctx, { key: KEY, ...extra }, null),
-      await stdio(ctx, { key: "", ...extra }, ""),
-      await stdio(granted, { key: KEY, ...extra }),
-    ];
-    for (const line of refused) {
-      expect(JSON.parse(line)).toEqual({ jsonrpc: "2.0", id: 1, error: { code: -32601, message: "unknown operation", data: { code: "unknown_op" } } });
-      expect(line).not.toContain(KEY);
-    }
+  const stderr = new Response(child.stderr).text();
+  try {
+    child.stdin.write([
+      { jsonrpc: "2.0", id: 0, method: "hello", params: { protocol: 3 } },
+      ...list.map((step, i) => ({ jsonrpc: "2.0", id: i + 1, method: step.op, params: step.params })),
+    ].map(request => JSON.stringify(request) + "\n").join(""));
+    await child.stdin.end();
+    const [code, stdout, trace] = await Promise.all([child.exited, new Response(child.stdout).text(), stderr]);
+    expect(code, trace).toBe(0);
+    const replies = stdout.trim().split("\n").filter(Boolean).map(line => JSON.parse(line))
+      .sort((a, b) => a.id - b.id).slice(1).map(reply => normalize(JSON.stringify(reply), dir));
+    const markers = trace.split("\n").filter(line => OPS.split(",").some(op => line.startsWith(`native ${op} `)));
+    return { replies, markers };
+  } finally {
+    if (child.exitCode === null) { child.kill("SIGTERM"); await child.exited; }
   }
-  expect(files(ctx)).toEqual(before);
-});
+}
 
-test("no params answer the active strategy's parts byte for byte", async () => {
-  const ctx = fixture();
-  // The reference is the route's reply before params existed; usage readings are cached in this process.
-  // The reply carries the strategy text the parts were computed against.
-  const reference = async () => {
-    const s = loadStrategySnapshot(ctx);
-    return { ...statusBrokerParts(await computeStatus(ctx, s.strategy)), strategy: { path: s.path, name: s.name, text: s.text } };
-  };
-  const expected = await reference();
-  expect(await stdio(ctx, { key: KEY })).toBe(JSON.stringify({ jsonrpc: "2.0", id: 1, result: expected }));
-  await withServer(ctx, async post => {
-    for (const body of ["{}", "", undefined, " \n"]) {
-      expect(await post(body), String(body)).toEqual({ status: 200, text: JSON.stringify({ result: expected }) });
-    }
-  });
-  expect(await reference()).toEqual(expected);
-  // The snapshot parses back to the same strategy the parts were computed with.
-  const reply = JSON.parse(await stdio(ctx, { key: KEY })).result;
-  expect(reply.strategy.name).toBe("default");
-  expect(reply.strategy.path.endsWith("strategy.yaml")).toBe(true);
-  expect(typeof reply.strategy.text).toBe("string");
-});
-
-test("cacheOnly answers read-only parts from cached readings and writes nothing", async () => {
-  const ctx = fixture();
-  const reference = async () => {
-    const s = loadStrategySnapshot(ctx);
-    return { ...statusBrokerParts(await computeStatus({ ...ctx, readOnly: true }, s.strategy, { cacheOnly: true })), strategy: { path: s.path, name: s.name, text: s.text } };
-  };
-  const before = files(ctx);
-  const cached = JSON.parse(await stdio(ctx, { key: KEY, cacheOnly: true })).result;
-  expect(files(ctx)).toEqual(before);
-  expect(cached).toEqual(await reference());
-  expect(cached.providers.map((p: ProviderStatus) => p.id)).toEqual(["claude-code", "codex"]);
-  // Nothing was cached and no usage source was read, so every account is stale with no reading.
-  for (const account of cached.accounts) expect([account.stale, account.capturedAt]).toEqual([true, null]);
-  await withServer(ctx, async post => {
-    const started = await settled(ctx);
-    const http = await post(JSON.stringify({ cacheOnly: true }));
-    expect(http.status).toBe(200);
-    expect(JSON.parse(http.text).result).toEqual(await reference());
-    expect(files(ctx)).toEqual(started);
-  });
-  // A fresh home without cacheOnly writes state, so the comparisons above can fail.
-  const other = fixture(), fresh = files(other);
-  await stdio(other, { key: KEY });
-  expect(Object.keys(files(other))).not.toEqual(Object.keys(fresh));
-}, 30000);
-
-test("a draft answers preview's current and draft parts, and the draft's ranking equals preview's", async () => {
-  const ctx = fixture();
-  const draft = { from: "wide", set: { "pacing.order": ["cursor", "codex", "claude-code"] } };
-  const reference = await preview(ctx, draft);
-  expect(reference.ok).toBe(true);
-  for (const reply of [JSON.parse(await stdio(ctx, { key: KEY, draft })).result,
-    await withServer(ctx, async post => JSON.parse((await post(JSON.stringify({ draft }))).text).result)]) {
-    expect(Object.keys(reply)).toEqual(["current", "draft"]);
-    expect(reply.current.providers.map((p: ProviderStatus) => p.id)).toEqual(["claude-code", "codex"]);
-    expect(reply.draft.providers.map((p: ProviderStatus) => p.id)).toEqual(["claude-code", "codex", "cursor"]);
-    expect(reply.draft.accounts.map((a: { name: string }) => a.name)).toEqual(["claude", "codex", "cursor"]);
-    expect(ranking(ctx, { from: "default" }, reply.current)).toEqual(reference.ranking.current);
-    expect(ranking(ctx, draft, reply.draft)).toEqual(reference.ranking.draft);
-    expect(reference.ranking.draft).toContain("cursor");
+async function http(dir: string, list: Step[], forward: boolean) {
+  const server = await serve(dir, forward ? OPS : null);
+  const replies: string[] = [];
+  let trace: string;
+  try {
+    for (const step of list) replies.push(normalize(await server.post(step.op, step.params), dir));
+    trace = await server.stop();
+  } catch (error) {
+    await server.stop();
+    throw error;
   }
-  // A failing draft carries preview's errors instead of draft parts.
-  const invalid = { from: "default", set: { "pacing.policy": "nope" } };
-  const failed = await preview(ctx, invalid);
-  expect(failed.ok).toBe(false);
-  const reply = JSON.parse(await stdio(ctx, { key: KEY, draft: invalid })).result;
-  expect(Object.keys(reply)).toEqual(["current", "errors"]);
-  expect(reply.errors).toEqual(failed.errors);
-  const unknown = JSON.parse(await stdio(ctx, { key: KEY, draft: { from: "gone" } })).result;
-  expect(unknown.errors).toEqual(['unknown strategy "gone"']);
-}, 30000);
+  const markers = trace!.split("\n").filter(line => OPS.split(",").some(op => line === `native ${op}`));
+  return { replies, markers };
+}
 
-test("draft mode is read-only, also with cacheOnly", async () => {
-  const ctx = fixture();
-  const before = files(ctx);
-  const draft = { from: "wide" };
-  const cached = JSON.parse(await stdio(ctx, { key: KEY, draft, cacheOnly: true })).result;
-  expect(cached.draft.providers.map((p: ProviderStatus) => p.id)).toEqual(["claude-code", "codex", "cursor"]);
-  for (const account of cached.draft.accounts) expect([account.stale, account.capturedAt]).toEqual([true, null]);
-  expect(files(ctx)).toEqual(before);
-  await stdio(ctx, { key: KEY, draft });
-  expect(files(ctx)).toEqual(before);
-}, 30000);
+test("status-broker parts are native over stdio and HTTP", async () => {
+  if (!front) return; // the door binary is supplied by the M1 gate / live harness
+  const fixtureHome = fixture();
+  for (const transport of ["stdio", "http"] as const) {
+    const list = steps(fixtureHome.id, fixtureHome.repo);
+    const twins = ["native", "forward"].map(side => {
+      const dir = fresh(`pacer-status-parts-${transport}-${side}-`);
+      cpSync(fixtureHome.home, dir, { recursive: true });
+      return dir;
+    });
+    const run = (dir: string, forward: boolean) => transport === "stdio" ? stdio(dir, list, forward) : http(dir, list, forward);
+    const [native, forwarded] = await Promise.all([
+      run(twins[0]!, false), run(twins[1]!, true),
+    ]);
+    list.forEach((step, i) => {
+      expect(`${transport} ${step.op}: ${native!.replies[i]}`, step.op).toBe(`${transport} ${step.op}: ${forwarded!.replies[i]}`);
+    });
+    expect(native!.markers).toEqual(list.flatMap((step, i) =>
+      [transport === "stdio" ? `native ${step.op} ${i + 1}` : `native ${step.op}`]));
+    expect(forwarded!.markers).toEqual([]);
+    // The cache-only write check lives in `crates/status/tests/parts.rs`
+    // (`cache_only_parts_write_nothing`), which compares the whole PACER_HOME
+    // tree before and after a cache-only computation.
+  }
+}, 300_000);
 
-test("unknown or malformed params are invalid_input on both transports", async () => {
-  const ctx = fixture();
-  const cases: [unknown, string][] = [
-    [{ cacheOnly: "yes" }, "cacheOnly: Invalid input: expected boolean, received string"],
-    [{ extra: 1 }, 'params: Unrecognized key: "extra"'],
-    [{ draft: [] }, "draft: Invalid input: expected object, received array"],
-    [{ draft: { from: "" } }, "draft.from: Too small: expected string to have >=1 characters"],
-  ];
-  await withServer(ctx, async post => {
-    const before = await settled(ctx);
-    for (const [params, message] of cases) {
-      const error = { code: "invalid_input", message };
-      expect(JSON.parse(await stdio(ctx, { key: KEY, ...(params as object) })).error).toEqual({ code: -32602, message, data: { code: "invalid_input" } });
-      expect(await post(JSON.stringify(params))).toEqual({ status: 400, text: JSON.stringify({ error }) });
-    }
-    expect(await post("not json")).toEqual({ status: 400, text: JSON.stringify({ error: { code: "invalid_input", message: "params: invalid JSON" } }) });
-    expect(await post("[]")).toMatchObject({ status: 400 });
-    expect(files(ctx)).toEqual(before);
-  });
+test("the sealed status-broker route and stdio method are gone", async () => {
+  const ctx = fakeCtx();
+  const server = startServer(() => ctx, { port: 0, pumpMs: 0, internal: { token: TOKEN } });
+  try {
+    const response = await fetch(`http://127.0.0.1:${server.port}/_internal/status-broker-parts`, {
+      method: "POST",
+      headers: { host: `127.0.0.1:${server.port}`, authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+      body: "{}",
+    });
+    // The private route no longer exists: the internal auth layer answers an
+    // unrecognised POST with 405, never a parts result.
+    expect(response.status).toBe(405);
+  } finally { server.stop(); }
 });
+
+test("the retained files helper snapshots the fixture with modes and bytes", async () => {
+  const { home } = fixture();
+  const snapshot = await settled(home);
+  expect(Object.keys(snapshot)).toContain("strategy.yaml");
+  expect(Object.keys(snapshot)).toContain("strategies/wide.yaml");
+  expect(files(home)).toEqual(snapshot);
+});
+
+test("cache-only parts used by dispatch.preview write nothing", async () => {
+  if (!front) return;
+  const dir = fresh("pacer-status-parts-cache-");
+  const repo = gitRepo(dir);
+  const ctx: Ctx = withLoginIndicators(fakeCtx({ home: dir, pacerHome: join(dir, ".pacer") }));
+  mkdirSync(join(ctx.pacerHome, "strategies"), { recursive: true });
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), STRATEGY);
+  writeFileSync(join(ctx.pacerHome, "strategies", "wide.yaml"), WIDE);
+  const port = closedPort();
+  const child = spawnPinned([front!, "api", "--stdio"], {
+    cwd: dir, stdin: "pipe", stdout: "pipe", stderr: "pipe", env: env(dir, port, false),
+  });
+  try {
+    child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "hello", params: { protocol: 3 } }) + "\n");
+    child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: 2, method: "dispatch.preview", params: { repo, goal: "Goal", kind: "tests", delegationEnforcement: "cooperative" } }) + "\n");
+    await child.stdin.end();
+    const [code, stdout, trace] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    expect(code, trace).toBe(0);
+    const replies = stdout.trim().split("\n").map(line => JSON.parse(line)).sort((a, b) => a.id - b.id);
+    expect(replies[1]?.result, trace).toBeTruthy();
+  } finally {
+    if (child.exitCode === null) { child.kill("SIGTERM"); await child.exited; }
+  }
+}, 60_000);

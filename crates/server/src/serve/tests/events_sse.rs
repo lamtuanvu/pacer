@@ -16,8 +16,10 @@ async fn listener(home: &std::path::Path, forwarded: bool) -> (u16, tokio::task:
         .unwrap();
     let port = socket.local_addr().unwrap().port();
     let ctx = Ctx::with(home.into(), home.into(), Default::default(), 1000.0);
+    let core = Arc::new(core_child::CoreChild::unavailable());
     let state = Arc::new(Listener {
-        core: Arc::new(core_child::CoreChild::unavailable()),
+        core: core.clone(),
+        status: crate::native::status_runtime::serve_runtime(core),
         heartbeat: Arc::new(heartbeat::Heartbeat::new()),
         ctx,
         port,

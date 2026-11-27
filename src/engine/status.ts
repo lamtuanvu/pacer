@@ -65,7 +65,7 @@ export interface Status {
   executors: { ranked: RankedExecutor[]; excluded: Excluded[]; tierFallback?: TierFallback & { runner: string } };
 }
 
-/** The computeStatus parts native status ops compose with (`_internal.status-broker.parts`). */
+/** The computeStatus parts native status ops compose with. */
 export const statusBrokerParts = (status: Status) => ({
   accounts: status.accounts, providers: status.providers, policy: status.policy, calendarPace: status.calendarPace,
   ...(status.warnings ? { warnings: status.warnings } : {}),

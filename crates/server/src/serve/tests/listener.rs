@@ -31,6 +31,7 @@ async fn public_listener_routes_static_and_forwards_fallbacks() {
     let session = sessions::create(&ctx.at_now()).unwrap();
     let state = Arc::new(Listener {
         core: core.clone(),
+        status: crate::native::status_runtime::serve_runtime(core.clone()),
         heartbeat: Arc::new(heartbeat::Heartbeat::new()),
         ctx,
         port,
@@ -143,6 +144,7 @@ async fn host_effects_bridge_to_core_over_http() {
     .unwrap();
     let state = Arc::new(Listener {
         core: core.clone(),
+        status: crate::native::status_runtime::serve_runtime(core.clone()),
         heartbeat: Arc::new(heartbeat::Heartbeat::new()),
         ctx,
         port,
@@ -241,6 +243,7 @@ async fn public_listener_forwards_to_available_core() {
     let port = socket.local_addr().unwrap().port();
     let state = Arc::new(Listener {
         core: core.clone(),
+        status: crate::native::status_runtime::serve_runtime(core.clone()),
         heartbeat: Arc::new(heartbeat::Heartbeat::new()),
         ctx,
         port,

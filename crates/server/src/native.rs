@@ -77,7 +77,7 @@ pub(crate) use pacer_task_ops::session_ops;
 pub(crate) mod setup_doctor_sync;
 use pacer_config_ops::setup_ops;
 pub(crate) use pacer_core_bridge::snapshot_sync;
-pub(crate) use pacer_core_bridge::status_sync;
+pub(crate) mod status_runtime;
 pub(crate) use pacer_core_bridge::task_clean_sync;
 pub(crate) use pacer_core_bridge::task_read_sync;
 pub(crate) use pacer_core_bridge::task_review_sync;

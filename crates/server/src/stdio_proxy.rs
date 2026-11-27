@@ -194,6 +194,9 @@ async fn forward_input<
     core_build: &CoreBuild<'_>,
     plugins: &mut Plugins,
 ) -> io::Result<()> {
+    // One native status runtime for the connection: usage reads and registry
+    // entries go through the stdio door's plugin link, not the sealed TS route.
+    let status = crate::native::status_runtime::stdio_runtime(plugins.link.clone());
     let mut line = Vec::new();
     let mut protocol = 2;
     // `msg.wait` blocks for minutes; the core answers other requests meanwhile, so waits run beside the loop.
@@ -534,9 +537,12 @@ async fn forward_input<
                     crate::native::msg_write_sync::trace(op.name, request.get("id"));
                     let mut bridge = crate::native::dispatch_preview_sync::StdioBridge {
                         core: &mut core,
+                        frames: &mut plugins.frames,
                         prefix: sync.0,
                         key: sync.1,
                         replies: &mut *sync.2,
+                        ctx: request_ctx.clone(),
+                        status: std::sync::Arc::clone(&status),
                     };
                     let result = crate::native::preview_ops::dispatch_preview(
                         &request_ctx,
@@ -944,18 +950,16 @@ async fn forward_input<
                 }
                 let result = if crate::native::needs_usage_broker(op.name) {
                     let broker_params = crate::native::usage_broker_params(op.name, &params);
-                    call_native(
+                    let status_op = call_native(
                         &request_ctx,
                         op,
                         params,
                         request.get("id"),
                         None,
-                        Some(Box::pin(crate::native::status_sync::stdio(
-                            &mut core,
-                            sync.0,
-                            sync.1,
+                        Some(Box::pin(crate::native::status_runtime::broker_parts(
+                            &status,
+                            request_ctx.clone(),
                             broker_params,
-                            sync.2,
                         ))
                             as pacer_foundation::api::OpFuture<'_>),
                         None,
@@ -970,8 +974,14 @@ async fn forward_input<
                         None,
                         None,
                         None,
+                    );
+                    crate::native::status_runtime::pump_frames(
+                        status_op,
+                        &mut plugins.frames,
+                        &mut core,
                     )
                     .await
+                    .unwrap_or_else(|error| Err(CoreError::new(Code::Internal, error.to_string())))
                 } else if crate::native::needs_task_read_bridge(op.name) {
                     let task_id = params
                         .get("id")
