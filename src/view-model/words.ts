@@ -1,4 +1,3 @@
-import { PLANNER_HOLD } from "../messaging/planner-hold";
 import { agentInfo, agentKey } from "./agents";
 /** The one vocabulary for statuses, verdicts, phases and modes. Every surface imports these; none spells a status on its own. */
 export type StatusTone = "good" | "warn" | "bad" | "info" | "neutral";
@@ -237,6 +236,8 @@ const answerDeliveries: Record<string, string> = {
   live_unavailable: "Answer saved, but the task can't continue from here yet.",
   no_session: "Answer saved, but the task has no session to continue.",
 };
+/** Why a message to a run's planner task is held: no turn and no live session carries it. */
+export const PLANNER_HOLD = "this task is a workflow planner, which takes no messages; only the person's answers to its own questions reach it";
 export const answerDeliveryWords = (delivery: unknown, hold?: { reason?: unknown }): string =>
   // A planner hold is not project policy and is not waiting for msg confirm.
   delivery === "held" && hold?.reason === PLANNER_HOLD ? `Answer held, not delivered yet: ${PLANNER_HOLD}. The question stays open.`
