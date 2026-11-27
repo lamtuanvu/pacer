@@ -254,7 +254,8 @@ test.skipIf(!front)("strategy.build writes the same intent files, prompt and ter
   expect(logs[0]).toBe(logs[1]!);
   const enforced = requests([["strategy.build", {}], ["executor.setup.candidates", {}], ["setup.init", { planner: "codex" }]]);
   const env = { PACER_ENFORCEMENT_TOKEN: "pet_x" };
-  expect(await exchange(homes[0]!, enforced, false, env)).toEqual(await exchange(homes[0]!, enforced, true, env));
+  // API-5: a stdio session holding the identity runs nothing natively.
+  expect(await exchange(homes[0]!, enforced, false, env, false)).toEqual(await exchange(homes[0]!, enforced, true, env));
 }, 120000);
 
 test.skipIf(!front)("executor.setup.candidates from a fresh catalog matches forced forwarding", async () => {

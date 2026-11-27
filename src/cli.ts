@@ -55,6 +55,7 @@ import { pruneUndoSnapshotsAtStartup } from "./install/undo-store";
 import { isAbsolute, join, resolve } from "node:path";
 import { EXTRA_COMMANDS, findCommand } from "./commands/index";
 import type { Result } from "./commands/types";
+import { GUARD_PLANNERS } from "./guard/guard";
 import { MissingStrategyError, PLANNERS, StrategyError, loadStrategy, strategyPath } from "./config/strategy";
 import { configCmd } from "./commands/config";
 import { accountCmd, runnerCmd } from "./commands/accounts";
@@ -465,6 +466,39 @@ function isStructuredAsk(args: string[]): boolean {
     .some(flag => a === flag || a.startsWith(`${flag}=`)));
 }
 
+/**
+ * Pacer's own re-entries from an agent launch environment, which carries the agent's scoped grant. These conditions
+ * only compare variables the caller controls, so they authorize nothing; each command checks its own proof. The
+ * session host must claim the unguessable admission lease `startRun` created (the host removes it before the agent
+ * starts), and the session hook and `report` must present their attempt's report token (`reportDestination`).
+ */
+function isAttemptPlumbing(cmd: string, args: string[], ctx: Ctx): boolean {
+  if (cmd === "_session") return args.length === 1 && isAbsolute(args[0]!) &&
+    ctx.env.PACER_ADMISSION_DIR === args[0] && !!ctx.env.PACER_ADMISSION_SESSION;
+  return (cmd === "_session-hook" || cmd === "report") && !!ctx.env.PACER_RUN_DIR && !!ctx.env.PACER_REPORT_TOKEN;
+}
+
+/**
+ * The exact planner hook commands `pacer install` writes into an agent's user settings that read or change the
+ * user's own planner session: its messages, budget status and rate limits. Under a grant they succeed with no
+ * output and dispatch nothing; a refusal (exit 2) would block the agent's prompts, stops and tools.
+ */
+function isUserPlannerHook(cmd: string, args: string[]): boolean {
+  if (cmd === "statusline") return args.length === 0;
+  if (cmd === "status") return args.length === 2 && args[0] === "--hook" && (PLANNERS as readonly string[]).includes(args[1]!);
+  return cmd === "msg" && args.length === 4 && args[0] === "hook" && ["session", "stop", "prompt"].includes(args[1]!) &&
+    args[2] === "--planner" && ["claude-code", "codex"].includes(args[3]!);
+}
+
+/**
+ * The installed guard hook keeps its policy under a grant, so it reaches `runGuard`. Strict enforcement is not
+ * widened: only a strict executor with its enforcement token passes, on the work-grant gate's own condition.
+ */
+function isPlannerGuard(cmd: string, args: string[], ctx: Ctx): boolean {
+  return cmd === "guard" && args.length === 2 && args[0] === "--planner" &&
+    (GUARD_PLANNERS as readonly string[]).includes(args[1]!) && ctx.env.PACER_ENFORCEMENT_MODE !== "strict";
+}
+
 /** The commands a workflow step worker may run under its work grant: its own step's reports. */
 function isStepReport(cmd: string, args: string[]): boolean {
   return cmd === "step" && (args[0] === "result" || args[0] === "artifact") || cmd === "ask" && isStructuredAsk(args);
@@ -487,7 +521,11 @@ function isStepReport(cmd: string, args: string[]): boolean {
   } catch (error) { return {code:2,out:"",err:explain(error)}; }
   if (secrets.ownerKey) holdOwnerKey(secrets.ownerKey);
   const [cmd = "status", ...rest] = argv;
-  if (ctx.env.PACER_WORK_GRANT && !["dispatch", "mcp", "api", "review"].includes(cmd)
+  const orchestrator = ctx.env.PACER_ROLE === "orchestrator" || !!ctx.env.PACER_RUN_GRANT;
+  if ((orchestrator || ctx.env.PACER_WORK_GRANT) && !ctx.env.PACER_ASSISTANT_GRANT && isUserPlannerHook(cmd, rest))
+    return {code:0,out:"",err:""};
+  const exempt = isAttemptPlumbing(cmd, rest, ctx) || isPlannerGuard(cmd, rest, ctx);
+  if (ctx.env.PACER_WORK_GRANT && !exempt && !["dispatch", "mcp", "api", "review"].includes(cmd)
     && !(cmd === "guard" && ctx.env.PACER_ENFORCEMENT_MODE === "strict" && !!ctx.env.PACER_ENFORCEMENT_TOKEN)
     && !(isStepReport(cmd, rest) && verifiedStepWorker(ctx)))
     return {code:2,out:"",err:"pacer: work grants only allow scoped dispatch commands"};
@@ -496,7 +534,7 @@ function isStepReport(cmd: string, args: string[]): boolean {
   // Orchestrator turns: review/stop/step result|skip|retry|artifact / run decide|choose|submit-graph|sync|publish,
   // plus structured question answer/escalate/ask (Phase 4). Never delegate or run.answer.
   // run.cleanup stays person-only (refused here and in the op).
-  if (ctx.env.PACER_ROLE === "orchestrator" || ctx.env.PACER_RUN_GRANT) {
+  if (!exempt && orchestrator) {
     const sub = rest[0];
     const allowed =
       cmd === "review" || cmd === "stop"

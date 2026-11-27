@@ -114,7 +114,8 @@ test.skipIf(!front)("caller identities, a missing strategy and a due refresh fol
   seed(ctx);
   const requests = [request(2, "dispatch.models", {}), request(3, "dispatch.refresh", {}), request(4, "dispatch.enforcement.consent", { account: "a", granted: true })];
   for (const env of [{ PACER_ROLE: "executor" }, { PACER_ENFORCEMENT_TOKEN: "pet_x" }] as Record<string, string>[]) {
-    const native = await exchange(ctx.home, requests, false, env);
+    // API-5: under an enforcement identity every request is Core's to refuse.
+    const native = await exchange(ctx.home, requests, false, env, env.PACER_ENFORCEMENT_TOKEN ? [] : null);
     expect(wire(native)).toEqual(wire(await exchange(ctx.home, requests, true, env)));
     expect(native.every(reply => reply.error?.data?.code === "not_allowed")).toBe(true);
   }

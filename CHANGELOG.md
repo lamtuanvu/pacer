@@ -4,18 +4,33 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Fixed
+
+- Workflow orchestrator turns work behind the native front door: `run publish`, `run submit-graph`, `run choose`, `run decide`, `step retry`, `step skip` and the other run-grant operations no longer answer HTTP 401. The front door forwards a `prg_` run grant on operation posts only and the core verifies it, as before. `pacer api --stdio` in an orchestrator turn now leaves every operation to the core instead of running some natively.
+- Security: `pacer api --stdio` holding an enforcement identity (`PACER_ENFORCEMENT_TOKEN`) or an assistant grant (`PACER_ASSISTANT_GRANT`) ran some operations natively, such as `repo.add`, even with an invalid token. The front door now leaves every operation to the core, which refuses them as before. Strict executors' denial reports and the assistant's MCP server are unchanged.
+
+## [0.18.8] - 2026-11-26
+
+### Changed
+
+- Settings › Dispatcher is now a hub with four tabs, each its own link: Overview (model choice and preview), Agents, Who can run what (guided rules) and Profiles (saved setups). The separate Agents, Accounts and Model matrix pages are gone; their links open Dispatcher › Agents and keep the selected agent.
+- Dispatcher › Agents lists the planner and executors beside one agent's page: usage, account and sign-in, where it runs, its models and its limits. Size each model, pick the default, turn models on or off, and add models from the agent's live listing (with a suggested size) or, for Claude Code, its aliases and pinned versions; any id can still be typed. Refresh re-reads an agent's models and usage. Models and limits save together from one save bar; Takes work and the planner's tier fallback apply at once.
+
+## [0.18.7] - 2026-11-26
+
 ### Changed
 
 - **Desktop updates no longer wait for handover-capable work.** Runners that advertise the handover protocol, their executor sessions and session hosts started by this version are marked as survivors. When the installed app and the update both support it (0.18.7 or later), an in-app update installs while they run: the update helper checks each survivor's code signature against the release signer before installing, and the new service asks older runners to hand over once the update commits (never during the rollback window). Other work, such as queue drains, launches, Orca sessions, remote runs and work started on older versions, still makes the update wait. While an update can still roll back, `service.handover` signals nothing and returns `deferred: true` ([ADR 2026-11-25](docs/decisions/2026-11-25-desktop-update-with-running-work.md)).
-- Settings › Dispatcher is now a hub with four tabs, each its own link: Overview (model choice and preview), Agents, Who can run what (guided rules) and Profiles (saved setups). The separate Agents, Accounts and Model matrix pages are gone; their links open Dispatcher › Agents and keep the selected agent.
-- Dispatcher › Agents lists the planner and executors beside one agent's page: usage, account and sign-in, where it runs, its models and its limits. Size each model, pick the default, turn models on or off, and add models from the agent's live listing (with a suggested size) or, for Claude Code, its aliases and pinned versions; any id can still be typed. Refresh re-reads an agent's models and usage. Models and limits save together from one save bar; Takes work and the planner's tier fallback apply at once.
 
 ### Fixed
 
 - `pacer service restart` and `pacer update` now hand running work to the new service instead of warning "running work was not handed over: pacer core is restarting".
 - Settings › Updates no longer keeps showing a failed update after you install that release another way, such as by hand; pacer drops the installed offer and checks again.
 - After you install a newer pacer.app by hand, the app restarts its own older service onto the new version (handing running work over) instead of leaving the old service running with an "Older service" banner. It does this only on macOS, for the service it owns, with no update in progress.
+- Interactive and PTY attempts that hold a scoped grant, such as workflow planner turns and delegating workers, now start instead of failing with "executor wrapper state is uncertain": the grant's command allow-list no longer refuses the session host, the session hooks or `pacer report` for the attempt.
+- The hooks `pacer install` adds to an agent's user settings no longer fail inside workflow planner turns and delegating workers. `pacer msg hook`, `pacer status --hook` and `pacer statusline` do nothing there, and `pacer guard` applies its usual policy instead of blocking every matched tool call; strict enforcement is unchanged. Cursor's `session-start` hook is not covered yet.
 - Installed builds can snooze and dismiss workflow items (run budget, stopped planner and restart wait) instead of answering "unknown attention item", and `snapshot.get` lists them while a workflow run is live.
+
 
 ### Fixed
 

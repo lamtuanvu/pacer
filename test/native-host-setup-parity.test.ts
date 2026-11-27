@@ -457,11 +457,12 @@ describe("stdio front door", () => {
 
     const [operator, enforced, granted] = native.sessions;
     expect(operator).toMatch(TRACED);
-    expect(enforced).toMatch(TRACED);
+    // API-5: the enforcement session, like the work-grant one, runs nothing natively.
+    expect(enforced).not.toMatch(TRACED);
     expect(granted).not.toMatch(TRACED);
     for (const trace of forwarded.sessions) expect(trace).not.toMatch(TRACED);
-    // Admitted requests are forwarded unchanged; then the work-grant session forwards both of its requests.
-    expect(native.calls).toEqual(Array(ADMITTED + 2).fill("host.repo.setup"));
+    // Admitted requests are forwarded unchanged; then the enforcement and work-grant sessions forward both of theirs.
+    expect(native.calls).toEqual(Array(ADMITTED + 4).fill("host.repo.setup"));
     expect(forwarded.calls).toEqual(Array(REFUSALS.length + ADMITTED + 4).fill("host.repo.setup"));
 
     const r = native.out as Record<string, any>;

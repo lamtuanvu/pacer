@@ -258,5 +258,6 @@ test.skipIf(!front)("executor.setup.models from a fresh catalog and executor.set
   expect(await exchange(dir, listed, false, { PATH: `${withOpencode}:/usr/bin:/bin` }, false)).toEqual(native.slice(0, 1));
   const enforced = requests([["job.list", {}], ["strategy.preview", { draft: { from: "default" } }], ["executor.setup.connect", { provider: "acme" }]]);
   const env = { PACER_ENFORCEMENT_TOKEN: "pet_x" };
-  expect(await exchange(dir, enforced, false, env)).toEqual(await exchange(dir, enforced, true, env));
+  // API-5: a stdio session holding the identity runs nothing natively.
+  expect(await exchange(dir, enforced, false, env, false)).toEqual(await exchange(dir, enforced, true, env));
 }, 60000);
