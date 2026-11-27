@@ -46,6 +46,10 @@ test("a picked or typed id gets the listing's size, a built-in size, or stays un
 test("model notes come from listing facts or what a Claude Code alias means", () => {
   expect(listingNote({ context: 200000, tools: true })).toBe("200K context · tools");
   expect(listingNote({})).toBeUndefined();
+  // A listing's name leads; one that only repeats the id is left out.
+  expect(listingNote({ id: "gpt-5.3-codex", name: "Codex 5.3", context: 272000 })).toBe("Codex 5.3 · 272K context");
+  expect(listingNote({ id: "auto", name: "Auto" })).toBeUndefined();
+  expect(listingNote({ id: "x", name: null })).toBeUndefined();
   expect(modelNote("opencode", listing, "terastor-ai")).toBe("128K context · tools");
   expect(modelNote("claude-code", undefined, "opus")).toBe("Alias for the newest Opus model");
   expect(modelNote("claude-code", undefined, "claude-sonnet-5-5")).toBe("Sonnet 5.5");

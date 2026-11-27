@@ -4377,7 +4377,7 @@ Params JSON Schema:
 
 ### `executor.models.available`
 
-Models an executor can use, from its provider's live listing; models is null when the listing is unknown.
+Models an executor can use, from its provider's live listing (OpenCode, an endpoint connection, Codex's saved model list, cursor-agent or agy); models is null when the listing is unknown.
 
 Params JSON Schema:
 

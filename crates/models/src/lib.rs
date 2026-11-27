@@ -7,7 +7,10 @@
 //! `opencode models` with the core child's environment and working directory
 //! (`discover`), which the front door records; without that record, and for
 //! cache or catalog shapes the native reply cannot reproduce, TypeScript
-//! still answers.
+//! still answers. For the pick list only, local Codex, Cursor and Antigravity
+//! runners list the agent's own models (`agent_listings`): Codex's saved
+//! `models_cache.json`, `cursor-agent models` and `agy models`.
+mod agent_listings;
 mod available;
 mod catalog;
 mod closest;
@@ -18,6 +21,9 @@ mod reply;
 mod tests;
 mod validate;
 
+pub use agent_listings::{
+    AGENT_LIST_TIMEOUT, parse_agy_models, parse_codex_cache, parse_cursor_models,
+};
 pub use available::{
     AvailableModel, AvailableModels, CACHE_TTL_S, Discovery, Listing, ModelSource, PROTOTYPE_KEYS,
     available_models, cache_file,

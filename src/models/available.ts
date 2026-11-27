@@ -8,27 +8,34 @@ import type { AccountCfg } from "../config/accounts";
 import { opencodeModelIds } from "../endpoints/detect";
 import { readCachedCatalog, type CatalogModel } from "../endpoints/catalog";
 import type { SetupDeps } from "../core/opencode-setup";
+import { cliModels, codexModels } from "./agent-listings";
 
 export interface AvailableModel { id: string; name?: string; context?: number; output?: number; tools?: boolean; costIn?: number | null; costOut?: number | null; release?: string }
-export type ModelSource = "opencode" | "connection" | "discovery" | "none";
+/**
+ * Where a listing came from. `codex` (Codex's saved model list), `cursor` (`cursor-agent models`) and `agy`
+ * (`agy models`) feed only the Add-a-model pick list; clients treat a source they don't know as a plain listing.
+ */
+export type ModelSource = "opencode" | "connection" | "codex" | "cursor" | "agy" | "discovery" | "none";
+/** Listings that run a CLI, and so are cached. */
+const CACHED: readonly unknown[] = ["opencode", "cursor", "agy"];
 /** `provider` names a listing for display: the account's provider for OpenCode accounts, else the account name. */
 export interface AvailableModels { runner: string; source: ModelSource; models: AvailableModel[] | null; fetchedAt: number; note?: string; provider?: string }
 
-/** OpenCode listings are cached for ten minutes; connection lists are read fresh every call. */
+/** CLI listings (OpenCode, Cursor, Antigravity) are cached for ten minutes; connection lists and Codex's saved list are read fresh every call. */
 const TTL_S = 600;
 function cacheFile(ctx: Ctx, runnerId: string): string {
   const hash = createHash("sha256").update(runnerId).digest("hex");
   return join(ctx.pacerHome, "cache", "available-models", `${hash}.json`);
 }
 
-function readCache(ctx: Ctx, path: string): AvailableModels | null {
+function readCache(ctx: Ctx, path: string, agents: boolean): AvailableModels | null {
   try {
     const v = JSON.parse(readFileSync(path, "utf8"));
     if (!isObj(v) || typeof v.runner !== "string" || typeof v.fetchedAt !== "number"
-      || !(v.source === "opencode" || v.source === "connection" || v.source === "discovery" || v.source === "none")
       || (v.models !== null && !Array.isArray(v.models))) return null;
-    // Only OpenCode listings are cached; a stale connection listing must never be served.
-    if (v.source !== "opencode") return null;
+    // Only CLI listings are cached; a stale connection listing must never be served. The model checks
+    // (agents off) read only OpenCode listings, as before agent listings existed.
+    if (v.source !== "opencode" && !(agents && CACHED.includes(v.source))) return null;
     if (ctx.now - v.fetchedAt >= TTL_S) return null;
     return v as unknown as AvailableModels;
   } catch { return null; }
@@ -71,11 +78,17 @@ function fact(entry: CatalogModel | undefined, base: AvailableModel): AvailableM
   return { ...base, name: entry.name, context: entry.context ?? undefined, output: entry.outputLimit ?? undefined, tools: entry.toolCall, costIn: entry.costIn, costOut: entry.costOut, release: entry.release ?? undefined };
 }
 
-/** List the models a runner can start, resolving the adapter from the runner's account. */
-export async function availableModels(ctx: Ctx, runnerId: string, o: { refresh?: boolean; deps?: SetupDeps } = {}): Promise<AvailableModels> {
+/**
+ * List the models a runner can start, resolving the adapter from the runner's account.
+ * `agents` also lists local Codex, Cursor and Antigravity runners from the agent's own list, for the pick list
+ * (`executor.models.available`). The model checks leave it off: those lists leave out ids the agent still accepts
+ * (Codex hides some), so they must not refuse or flag a declared model.
+ */
+export async function availableModels(ctx: Ctx, runnerId: string, o: { refresh?: boolean; deps?: SetupDeps; agents?: boolean } = {}): Promise<AvailableModels> {
   const path = cacheFile(ctx, runnerId);
+  const agents = o.agents === true;
   if (!o.refresh) {
-    const cached = readCache(ctx, path);
+    const cached = readCache(ctx, path, agents);
     if (cached) return cached;
   }
   const strategy = loadStrategy(ctx);
@@ -87,7 +100,8 @@ export async function availableModels(ctx: Ctx, runnerId: string, o: { refresh?:
   // Display name for the listing: the account's provider for OpenCode accounts, else the account name.
   base.provider = account.source === "opencode" && account.provider ? account.provider : runner.account;
   // Adapter pick: opencode source lists through the OpenCode CLI + catalog facts; an endpoint connection lists its
-  // configured models; anything else (native agents, plain opencode, undiscovered base_urls) has no adapter here.
+  // configured models; with `agents`, a local Codex, Cursor or Antigravity runner lists the agent's own models;
+  // anything else (Claude Code, plain opencode, remote runners, undiscovered base_urls) has no adapter here.
   let result: AvailableModels;
   if (account.source === "opencode" && account.provider) {
     result = await opencodeModels(ctx, account, o.deps, { ...base, source: "opencode" });
@@ -99,13 +113,17 @@ export async function availableModels(ctx: Ctx, runnerId: string, o: { refresh?:
     } else {
       result = { ...base, source: "connection", models: account.connection.models.map(m => ({ id: prefix + m.id, ...(m.name ? { name: m.name } : {}), context: m.context, output: m.output, tools: m.tools })) };
     }
+  } else if (agents && !runner.host && runner.agent === "codex" && account.kind === "codex") {
+    result = { ...base, source: "codex", ...codexModels(ctx, account) };
+  } else if (agents && !runner.host && (runner.agent === "cursor" || runner.agent === "agy") && account.kind === runner.agent) {
+    result = { ...base, source: runner.agent, ...await cliModels(ctx, runner.agent) };
   } else {
     return base;
   }
-  // Connection lists come from the strategy itself and are read fresh every call; only OpenCode
-  // listings (a CLI probe) are cached. A failed or empty listing is never cached: an unknown
-  // result must be re-probed on the next call.
-  if (result.models && result.source === "opencode") writeCache(ctx, path, result);
+  // Connection lists come from the strategy itself and Codex's list is a file, so both are read fresh every
+  // call; only CLI listings are cached. A failed or empty listing is never cached: an unknown result must be
+  // re-probed on the next call.
+  if (result.models && CACHED.includes(result.source)) writeCache(ctx, path, result);
   return result;
 }
 

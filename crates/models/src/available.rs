@@ -9,7 +9,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
-/// OpenCode listings are cached for ten minutes; connection lists are read fresh.
+/// CLI listings (OpenCode, and for the pick list Cursor and Antigravity) are
+/// cached for ten minutes; connection lists and Codex's saved list are read fresh.
 pub const CACHE_TTL_S: f64 = 600.0;
 
 /// Names a plain object (`strategy.accounts[name]`, `strategy.runners[name]`)
@@ -33,6 +34,12 @@ pub const PROTOTYPE_KEYS: [&str; 12] = [
 pub enum ModelSource {
     Opencode,
     Connection,
+    /// Codex's saved model list (`models_cache.json`), for the pick list only.
+    Codex,
+    /// `cursor-agent models`, for the pick list only.
+    Cursor,
+    /// `agy models`, for the pick list only.
+    Agy,
     Discovery,
     None,
 }
@@ -42,6 +49,9 @@ impl ModelSource {
         match self {
             Self::Opencode => "opencode",
             Self::Connection => "connection",
+            Self::Codex => "codex",
+            Self::Cursor => "cursor",
+            Self::Agy => "agy",
             Self::Discovery => "discovery",
             Self::None => "none",
         }
@@ -83,7 +93,7 @@ pub struct AvailableModels {
 }
 
 /// A Rust string as a quoted JavaScript string value.
-fn text(s: &str) -> Value {
+pub(crate) fn text(s: &str) -> Value {
     quoted::from_utf8(Value::String(s.to_owned()))
 }
 
@@ -170,7 +180,7 @@ pub fn cache_file(home: &Path, runner_id: &str) -> PathBuf {
 }
 
 /// A JavaScript string other than the quoted forms of signed Infinity.
-fn js_string(value: &Value) -> bool {
+pub(crate) fn js_string(value: &Value) -> bool {
     value.is_string() && quoted::number(value).is_none()
 }
 
@@ -180,7 +190,8 @@ fn plain_text(value: &Value) -> Option<&str> {
 }
 
 /// `readCache`: a miss wherever TypeScript returns null, else the parsed object.
-pub(crate) fn read_cache(path: &Path, now: f64) -> Cached {
+/// `agents` (the pick list) also serves Cursor and Antigravity listings.
+pub(crate) fn read_cache(path: &Path, now: f64, agents: bool) -> Cached {
     let Ok(meta) = fs::metadata(path) else {
         return Cached::Miss;
     };
@@ -206,9 +217,12 @@ pub(crate) fn read_cache(path: &Path, now: f64) -> Cached {
     let (Some(_), Some(fetched_at)) = (runner, fetched_at) else {
         return Cached::Miss;
     };
-    // Only OpenCode listings are cached; any other source is never served.
-    if v.get("source").and_then(Value::as_str) != Some("opencode") {
-        return Cached::Miss;
+    // Only CLI listings are cached; any other source is never served, and the
+    // model checks read only OpenCode listings.
+    match v.get("source").and_then(Value::as_str) {
+        Some("opencode") => {}
+        Some("cursor" | "agy") if agents => {}
+        _ => return Cached::Miss,
     }
     if !matches!(v.get("models"), Some(Value::Null | Value::Array(_))) {
         return Cached::Miss;
@@ -254,7 +268,7 @@ fn listing_of(value: &Value) -> Option<AvailableModels> {
 }
 
 /// `Date.now() / 1000` at millisecond resolution, as TypeScript stamps a listing.
-fn stamp(now: f64) -> f64 {
+pub(crate) fn stamp(now: f64) -> f64 {
     (now * 1000.0).floor() / 1000.0
 }
 
@@ -324,7 +338,7 @@ pub(crate) fn compose(now: f64, strategy: &Value, runner_id: &str) -> Listing {
 /// Only an OpenCode listing is cached, and a fresh cache is served whatever
 /// the account is now.
 pub fn available_models(home: &Path, now: f64, strategy: &Value, runner_id: &str) -> Listing {
-    match read_cache(&cache_file(home, runner_id), now) {
+    match read_cache(&cache_file(home, runner_id), now, false) {
         Cached::Hit(value) => listing_of(&value).map_or(Listing::Unsupported, Listing::Known),
         Cached::Unsupported => Listing::Unsupported,
         Cached::Miss => compose(now, strategy, runner_id),

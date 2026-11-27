@@ -414,6 +414,18 @@ shared titlebar retain their drag region. The empty progress announcement remain
 accessible without allocating an extra visible gap. Original code; no new upstream
 adaptation or dependency. Native validation retains its existing controls.
 
+### ActionStatus
+
+`ActionStatus` is the polite result line beside a control. It takes only its message
+as children and a ref. It is always mounted, visually hidden while empty, so a later
+message is announced. It is focusable by script only (`tabIndex={-1}`) and shows the
+standard focus ring when focused, outranking the app's `tabindex="-1"` outline reset.
+A screen focuses it only when the control that held focus is removed while its own
+action owns that focus, once per action. A
+caller never empties it while it holds focus: if its message goes away, the caller
+shows what the control reads now. Consumer: Dispatcher › Overview › Native subagent control. Original
+code; no upstream adaptation or dependency.
+
 ### Overview and App preferences boards
 
 `SettingRow variant="board"` adds the 300px label column, 24px control gap,

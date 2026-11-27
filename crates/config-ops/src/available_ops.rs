@@ -1,5 +1,6 @@
 //! `executor.models.available` (`src/api/ops.ts`): the models an executor can
-//! use, from the listing cache, the account's connection or `opencode models`.
+//! use, from the listing cache, the account's connection, `opencode models`, or
+//! a local Codex, Cursor or Antigravity runner's own model list.
 #![allow(clippy::result_large_err)]
 use crate::config_params::parse;
 use pacer_config::strategy::load_strategy;
@@ -27,9 +28,16 @@ pub fn executor_models_available(ctx: &Ctx, params: Value) -> OpFuture<'_> {
             ));
         }
         let refresh = p["refresh"] == true;
-        available_reply(&ctx.pacer_home, ctx.now, &strategy, runner, refresh)
-            .await
-            .ok_or_else(|| CoreError::new(Code::Unavailable, FORWARDED))
+        available_reply(
+            &ctx.pacer_home,
+            &ctx.home,
+            ctx.now,
+            &strategy,
+            runner,
+            refresh,
+        )
+        .await
+        .ok_or_else(|| CoreError::new(Code::Unavailable, FORWARDED))
     })
 }
 
@@ -53,6 +61,7 @@ pub fn executor_models_available_stays_forwarded(ctx: &Ctx, op: &str, params: &V
     }
     available_needs_core(
         &ctx.pacer_home,
+        &ctx.home,
         ctx.now,
         &strategy,
         runner,

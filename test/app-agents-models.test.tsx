@@ -81,3 +81,22 @@ test("UI-2: the pick list marks the agent's own ids, listed or typed earlier, as
   const options = pickOptions("opencode", listing, ["a", "custom-x"]);
   expect(options.map(option => [option.value, !!option.disabled])).toEqual([["a", true], ["a-pro", false], ["custom-x", true]]);
 });
+
+test("Cursor, Antigravity and Codex list their own models by name, named after the agent", () => {
+  const cursor = createDraft("cursor", "r1", "auto", [{ id: "auto", tier: "unknown" }], null, targets);
+  const listing: AvailableModels = { runner: "cursor", source: "cursor", fetchedAt: 1, provider: "cursor", models: [{ id: "auto", name: "Auto" }, { id: "gpt-5.3-codex", name: "Codex 5.3" }] };
+  const html = draw(state([cursor], [cursor], { cursor: listing }), "cursor", "cursor");
+  expect(html).toContain("2 models from Cursor");
+  expect(html).toContain("Codex 5.3");
+  expect(html).toContain("Size after adding");
+  const agy = createDraft("agy", "r1", null, [], null, targets);
+  expect(draw(state([agy], [agy], { agy: { runner: "agy", source: "agy", fetchedAt: 1, provider: "agy", models: [{ id: "gemini-4-hydrogen-high", name: "Gemini 4 Hydrogen (High)" }] } }), "agy", "agy"))
+    .toContain("1 model from Antigravity");
+  // Codex's saved list leaves out models Codex hides but still runs: a declared one is not flagged.
+  const codex = createDraft("codex", "r1", "gpt-reserve", [{ id: "gpt-reserve", tier: "small" }], null, targets);
+  const codexHtml = draw(state([codex], [codex], { codex: { runner: "codex", source: "codex", fetchedAt: 1, provider: "codex", models: [{ id: "gpt-6-luna", name: "GPT-6-Luna", context: 272000 }] } }), "codex", "codex");
+  expect(codexHtml).toContain("1 model from Codex");
+  // "GPT-6-Luna" only re-cases the id, so the facts stand alone.
+  expect(codexHtml).toContain('pc-combobox__description">272K context<');
+  expect(codexHtml).not.toContain("no longer offered");
+});
