@@ -2,25 +2,41 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import type { DispatchConfig, TierTargets } from "../../../../src/dispatch/types";
 import type { RunnerModels } from "../../../../src/core/runner-models";
 import { TIERS } from "../../../../src/dispatch/candidates";
+import { markAgent } from "../../../../src/view-model/agents";
+import { executorReadiness } from "../../../../src/view-model/capacity";
+import { ago } from "../../../../src/view-model/time";
 import type { BrowserApi } from "../../data/api";
 import { ApiError } from "../../data/api";
 import { executorLabel } from "../../../../src/view-model/words";
-import { Button, ButtonLink } from "../../ds/Button";
+import { AgentMark } from "../../ds/AgentMark";
+import { AgentStack } from "../../ds/AgentStack";
+import { Button, ButtonLink, TextAction } from "../../ds/Button";
 import { Dialog } from "../../ds/Dialog";
 import { Field, TextInput } from "../../ds/Controls";
+import { Icon } from "../../ds/icons";
 import { Card, FilterChip } from "../../ds/Patterns";
-import { RadioGroup, RadioCard } from "../../ds/Composer";
+import { Pill } from "../../ds/Pill";
+import { RadioGroup, RadioChip } from "../../ds/Composer";
 import { SectionHeading } from "../../ds/SectionHeading";
+import { StatusPill } from "../../ds/StatusPill";
+import { Tooltip } from "../../ds/Tooltip";
 import { ErrorMessage, useTaskContext } from "../task-shared";
-import { ResourceState, Section, useResource, useScoped } from "./shared";
+import { containTooltipEscape, ResourceState, resourceRevision, useResource, useScoped } from "./shared";
 import { difficultyLabels, tierLabels } from "../../model/executor-models";
 import {
-  adjustTier, applyPreset, matchingPreset, PRESETS, PRESET_LABELS, groupPreview,
-  unsteeredCopy, RATED_TIERS, DIFFICULTIES, type PresetName, type RatedTier, type Difficulty,
+  adjustTier, applyPreset, matchingPreset, PRESETS, PRESET_LABELS,
+  RATED_TIERS, DIFFICULTIES, type PresetName, type RatedTier, type Difficulty,
 } from "../../model/tier-targets";
+import { joinNames, overviewModel, type AgentBehavior, type HubAction, type HubAgent, type OverviewRow } from "../../model/dispatcher-hub";
+import type { Rule } from "../../model/executors";
+import { SaveBar } from "../../ds/SaveBar";
 import { hrefFor, routes } from "../../router";
 import type { DispatcherInventory } from "./Dispatcher";
-import { withoutPlanner } from "../../model/planner";
+import { plannerRunner } from "../../model/planner";
+import type { ConfigData } from "../../model/strategy";
+import { useDispatcherStyles } from "./dispatcher-styles";
+
+const messageOf = (failure: unknown) => failure instanceof Error ? failure.message : String(failure);
 
 type ConfigView = { strategy: string; source?: "built-in" | "strategy"; config: DispatchConfig; planner?: string; plannerAccount?: string };
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
@@ -30,16 +46,16 @@ const mappingError = (targets: TierTargets) => TIERS[targets.simple] > TIERS[tar
 export async function saveTierTargets(call: BrowserApi["call"], saved: ConfigView, targets: TierTargets, profileName = "model-choices"): Promise<void> {
   const error = mappingError(targets);
   if (error) throw new Error(error);
-  if (profileName === "default") throw new Error("Choose a name for the saved setup; default is protected.");
-  if (profileName === saved.strategy) throw new Error("Choose a new saved setup name; the active setup cannot be overwritten.");
+  if (profileName === "default") throw new Error("Choose a name for the new profile; default is protected.");
+  if (profileName === saved.strategy) throw new Error("Choose a new profile name; the active profile cannot be overwritten.");
   const latest = await call<ConfigView>("dispatch.config.get", {});
-  if (!same(latest.config, saved.config) || latest.strategy !== saved.strategy) throw new Error("The active saved setup changed in another client. Discard to load it.");
+  if (!same(latest.config, saved.config) || latest.strategy !== saved.strategy) throw new Error("The active profile changed in another client. Discard to load it.");
   const draft = { from: saved.strategy, set: { "dispatch.tierTargets": targets } };
   const preview = await call<{ ok: boolean; errors: string[] }>("strategy.preview", { draft });
   if (!preview.ok) throw new Error(preview.errors?.join(" ") || "Model choices could not be validated.");
   await call("strategy.save", { name: profileName, draft, reason: "Update model choices by task difficulty" });
   try { await call("strategy.use", { name: profileName }); }
-  catch (error) { throw new Error(`Saved model choices, but the setup could not be activated: ${error instanceof Error ? error.message : String(error)}`); }
+  catch (error) { throw new Error(`Saved model choices, but the profile could not be switched to: ${error instanceof Error ? error.message : String(error)}`); }
 }
 
 /** In-place save of the active setup through the revision-checked tier-targets operations. */
@@ -56,19 +72,31 @@ export async function saveTierTargetsInPlace(call: BrowserApi["call"], saved: Co
   }
 }
 
-const TIER_HINT: Record<RatedTier, string> = {
-  small: "Cheapest and fastest", medium: "Everyday coding", frontier: "Most capable",
-};
-const DIFF_HINT: Record<"simple" | "standard" | "complex", string> = {
+const DIFF_HINT: Record<Difficulty, string> = {
   simple: "Docs, renames, small fixes", standard: "Features, tests, ordinary bugs", complex: "Cross-cutting changes, hard debugging",
 };
+const SIZE_MARK: Record<RatedTier | "unknown", string> = { small: "S", medium: "M", frontier: "F", unknown: "?" };
+const FILTERS: { value: "all" | AgentBehavior; label: string }[] = [
+  { value: "all", label: "All" }, { value: "follow", label: "Follow the size" }, { value: "unrated", label: "Unrated" }, { value: "fixed", label: "Pick their own" },
+];
 
+/** A model id with its declared size as a one-letter badge (the full size is its accessible name). */
+function ModelChip({ id, tier }: { id: string; tier: RatedTier | "unknown" }) {
+  return <span className="pc-hub-model"><code>{id}</code><span className={`pc-hub-size pc-hub-size--${tier}`} title={tierLabels[tier]} aria-label={tierLabels[tier]} role="img">{SIZE_MARK[tier]}</span></span>;
+}
+
+/**
+ * Dispatcher › Overview: where work goes right now, the model size for each difficulty (the revision-checked
+ * tier targets, with presets and the monotonic rule) and what each agent runs for each difficulty.
+ */
 export function DispatcherModelChoice({ initialConfig, initialInventory, initialTargets, onSaved }: {
   initialConfig?: ConfigView; initialInventory?: DispatcherInventory; initialTargets?: TierTargets; onSaved?: () => void;
 }) {
+  useDispatcherStyles();
   const { api, state } = useTaskContext();
   const config = useResource<ConfigView>("dispatch.config.get", {}, initialConfig);
   const inventory = useResource<DispatcherInventory>("dispatch.models", {}, initialInventory);
+  const settings = useResource<ConfigData>("config.get");
   const [base, setBase] = useState(initialConfig);
   const [targets, setTargets] = useState(initialTargets ?? initialConfig?.config.tierTargets);
   const [busy, setBusy] = useState(false), [error, setError] = useState<unknown>(), [notice, setNotice] = useState("");
@@ -83,15 +111,27 @@ export function DispatcherModelChoice({ initialConfig, initialInventory, initial
   const [dialog, setDialog] = useState(false);
   const [profileName, setProfileName] = useState("");
   const [defaults, setDefaults] = useState<Record<string, string>>({});
+  const [filter, setFilter] = useState<"all" | AgentBehavior>("all");
+  const [refreshing, setRefreshing] = useState(false), [refreshedAt, setRefreshedAt] = useState<number | null>(null), [refreshFailed, setRefreshFailed] = useState("");
+  // The default list decides who the engine ranks. Right now waits for it rather than counting every agent as listed;
+  // only a service without routing.get (which has no list to read) counts every agent, and says so.
+  const hasRouting = state.features.ops.has("routing.get");
+  const [routing, setRouting] = useState<{ rules: Rule[] }>(), [routingError, setRoutingError] = useState<unknown>(), [routingTry, retryRouting] = useState(0);
+  const routingRevision = resourceRevision("routing.get", state.invalidations);
+  useEffect(() => {
+    if (!hasRouting) return;
+    let live = true;
+    setRoutingError(undefined);
+    api.call<{ rules: Rule[] }>("routing.get", {}).then(value => { if (live) setRouting(value); }, failure => { if (live) setRoutingError(failure); });
+    return () => { live = false; };
+  }, [api, hasRouting, routingTry, routingRevision, state.connected]);
+  const listState: "known" | "loading" | "failed" | "unsupported" = !hasRouting ? "unsupported" : routing ? "known" : routingError ? "failed" : "loading";
   const dirty = !!targets && !!base && !same(targets, base.config.tierTargets);
   useEffect(() => {
     if (config.data && !dirty) { setBase(config.data); setTargets(config.data.config.tierTargets); }
   }, [config.data]);
-  // A runner's configured default is not part of the dispatch.models inventory,
-  // so read it the same way the matrix does (runner.models.get) and pass it to
-  // the preview. Below-target follow executors are shown as skipped by
-  // automatic dispatch and run their default only if picked directly (plain
-  // delegation), so the default is not chosen in the preview itself.
+  // A runner's configured default is not part of the dispatch.models inventory, so read it the same way the
+  // Agents tab does (runner.models.get): an executor that picks its own model names it.
   useEffect(() => {
     let active = true;
     const runnerIds = [...new Set((inventory.data?.models ?? []).map(m => m.runner))].sort();
@@ -136,7 +176,7 @@ export function DispatcherModelChoice({ initialConfig, initialInventory, initial
       } else {
         // Conflict: the setup changed elsewhere since this draft began. Keep the draft so it can be
         // saved as a new setup; do not reload or overwrite the active setup with it.
-        flashNotice("The active setup changed elsewhere. Discard to load it, or save as a new setup.");
+        flashNotice("The active profile changed elsewhere. Discard to load it, or save as a new profile.");
       }
     } catch (failure) { setError(failure); }
     finally { pending.current = false; setBusy(false); }
@@ -149,146 +189,188 @@ export function DispatcherModelChoice({ initialConfig, initialInventory, initial
       await saveTierTargets(api.call.bind(api), base, targets, profileName.trim());
       setDialog(false);
       setBase({ ...base, strategy: profileName.trim(), config: { ...base.config, tierTargets: targets } });
-      flashNotice("Saved as a new setup and made it active."); config.reload(); inventory.reload(); onSaved?.();
+      flashNotice("Saved as a new profile and switched to it."); config.reload(); inventory.reload(); onSaved?.();
     } catch (failure) { setError(failure); }
     finally { pending.current = false; setBusy(false); }
   };
+  const refreshAll = async () => {
+    const runnerIds = [...new Set((inventory.data?.models ?? []).map(m => m.runner))];
+    setRefreshing(true); setRefreshFailed("");
+    try {
+      // Every failure is named, and the reading only counts as fresh when something did refresh.
+      const results = await Promise.all([
+        ...runnerIds.map(runner => api.call("executor.models.available", { runner, refresh: true }).then(() => null, (failure: unknown) => ({ who: `${executorLabel(runner)} models`, failure }))),
+        state.features.ops.has("limits.refresh") ? api.call("limits.refresh", {}).then(() => null, (failure: unknown) => ({ who: "usage", failure })) : Promise.resolve(null),
+      ]);
+      const failed = results.filter((item): item is { who: string; failure: unknown } => !!item);
+      if (failed.length) setRefreshFailed(`Couldn't refresh ${joinNames(failed.map(item => item.who))}: ${messageOf(failed[0]!.failure)}`);
+      if (failed.length < results.length) setRefreshedAt(Date.now() / 1000);
+      inventory.reload(); config.reload();
+    } finally { setRefreshing(false); }
+  };
 
-  // The planner's models are not dispatch targets; exclude them so every count on
-  // this screen covers only executors Pacer actually delegates to.
-  const records = withoutPlanner(inventory.data?.models ?? [], config.data?.planner, config.data?.plannerAccount);
-  const grouping = targets ? groupPreview(records, targets, defaults) : null;
-  const preset = targets ? matchingPreset(targets) : "custom";
   const scoped = useScoped();
+  const snapshot = state.snapshot;
+  const records = inventory.data?.models ?? [];
+  const planner = plannerRunner(records, config.data?.planner, config.data?.plannerAccount)
+    ?? snapshot?.executors?.find(row => row.rank === "planner")?.id ?? null;
+  // Agents the snapshot knows carry their readiness; an inventory runner it does not list yet still gets its name.
+  const agents: HubAgent[] = [
+    ...(snapshot?.executors ?? []).map(row => ({ runner: row.id, name: executorLabel(row.id), readiness: executorReadiness(row, snapshot!) })),
+    ...[...new Set(records.map(record => record.runner))].filter(runner => !snapshot?.executors?.some(row => row.id === runner)).map(runner => ({ runner, name: executorLabel(runner) })),
+  ];
+  const fallbackOn = settings.data?.keys?.["pacing.planner_tier_fallback"]?.value !== "off";
+  const defaultList = routing ? routing.rules.find(rule => !rule.kinds)?.executors ?? [] : undefined;
+  const model = targets ? overviewModel({ records, targets, agents, plannerRunner: planner, fallbackOn, defaults, defaultList }) : null;
+  const preset = targets ? matchingPreset(targets) : "custom";
+  const agentHref = (runner: string) => scoped(hrefFor(routes.agents(runner)));
+  const actionLink = (action: HubAction, variant: "secondary" | "quiet") => action.addAgent
+    ? <ButtonLink size="sm" variant={variant} href={scoped(hrefFor(routes.addExecutor()))}>{action.label}</ButtonLink>
+    : action.rules ? <ButtonLink size="sm" variant={variant} href={scoped("#/settings/rules")}>{action.label}</ButtonLink>
+    : <ButtonLink size="sm" variant={variant} href={action.agent ? agentHref(action.agent) : scoped(hrefFor(routes.agents()))}>{action.label}</ButtonLink>;
+  const readinessOf = (runner: string) => {
+    const row = snapshot?.executors?.find(item => item.id === runner);
+    return row && snapshot ? executorReadiness(row, snapshot) : undefined;
+  };
+  const shown = model?.rows.filter(row => filter === "all" || row.behavior === filter) ?? [];
+  const checkedAt = refreshedAt ?? inventory.data?.observedAt ?? null;
+  const now = snapshot?.at ?? Date.now() / 1000;
 
-  const count = grouping?.total ?? 0;
-  const steered = grouping?.steered ?? 0;
-  let headline = "Model choice";
-  let detail = "Choose the model tier for each task difficulty; harder tasks never get a smaller model.";
-  if (count === 0) {
-    headline = "No executors in the model inventory yet";
-    detail = "When executors are added, size their models on the Agents tab so task difficulty steers which model runs.";
-  } else if (steered === 0) {
-    headline = "Task difficulty does not change any model yet";
-    detail = `${unsteeredCopy(grouping!.unrated.length, grouping!.fixed.length)} Size their models on the Agents tab to make these choices count.`;
-  } else {
-    headline = `Task difficulty now steers ${steered} of ${count} executors`;
-    detail = `Simple work goes to ${tierLabels[targets!.simple].toLowerCase()} models and complex work to ${tierLabels[targets!.complex].toLowerCase()} models.`
-      + (grouping!.unrated.length ? ` ${grouping!.unrated.length} ${grouping!.unrated.length === 1 ? "executor runs" : "executors run"} an unrated model for every difficulty.` : "")
-      + (grouping!.fixed.length ? ` ${grouping!.fixed.length} ${grouping!.fixed.length === 1 ? "executor picks" : "executors pick"} their own model.` : "");
-  }
+  const agentRow = (row: OverviewRow) => {
+    const status = readinessOf(row.runner);
+    return <tr key={row.runner}>
+      <th scope="row" className="pc-hub-table__agent">
+        <span className="pc-hub-agent">
+          <AgentMark agent={markAgent(row.runner)} size={28} />
+          <span className="pc-hub-agent__text">
+            <strong>{row.name}</strong>
+            <span className="pc-hub-agent__meta"><code>{row.runner}</code>
+              {row.planner ? <Pill tone="info">Planner</Pill> : status ? <span onKeyDown={containTooltipEscape}><Tooltip text={`${status.reason}. ${status.tooltip}`}><span tabIndex={0}><StatusPill status={status} /></span></Tooltip></span> : null}
+              {!row.listed && <Pill tone="neutral">Not in the default list</Pill>}
+            </span>
+          </span>
+        </span>
+      </th>
+      <td className="pc-hub-table__models"><span className="pc-hub-models">
+        {row.models.length ? row.models.map(item => <ModelChip key={item.id} id={item.id} tier={item.tier} />) : <span className="u3-muted">No models set · uses its own default</span>}
+      </span></td>
+      {row.cells.map((cell, index) => <td key={cell.difficulty} className="pc-hub-table__cell">
+        <span className="pc-hub-cell__label">{difficultyLabels[cell.difficulty]}</span>
+        {index === 0 && row.flat && <Pill tone={row.flat.tone}>{row.flat.pill}</Pill>}
+        <code className={cell.muted ? "pc-hub-cell__model pc-hub-cell__model--muted" : "pc-hub-cell__model"}>{cell.model}</code>
+        {cell.note && <span className="pc-hub-cell__note">{cell.note}</span>}
+        {index === 0 && row.canRate && <TextAction size="caption" href={agentHref(row.runner)}>Set its size<span className="sr-only"> for {row.name}</span></TextAction>}
+      </td>)}
+      <td className="pc-hub-table__open"><ButtonLink size="sm" variant="quiet" href={agentHref(row.runner)} aria-label={`Open ${row.name}`}>Open<Icon name="chevron-right" /></ButtonLink></td>
+    </tr>;
+  };
 
-  return <Section id="model-choice" title="Model choice" detail="Choose the model tier for each task difficulty. Harder tasks never get a smaller model; picking one row moves the others to keep that order. Preview uses the current model inventory; availability can change at dispatch time.">
+  // #model-choice keeps the save dock's scroll padding (settings.css); the inner .pc-hub is the layout container.
+  return <div id="model-choice"><div className="pc-hub pc-stack pc-stack--section">
     <ResourceState resource={config}>
-      {config.data && targets && base && <>
-        <Card className="pc-model-choice__answer">
-          <div className="pc-model-choice__count"><strong>{steered}<span> of {count}</span></strong><span className="u3-muted">executors follow it</span></div>
-          <div className="pc-model-choice__copy"><strong>{headline}</strong><span className="u3-muted">{detail}</span></div>
-          <div className="u3-actions"><ButtonLink href={scoped(hrefFor(routes.agents()))} variant="secondary" size="sm">Size models in Agents</ButtonLink></div>
+      {config.data && targets && base && model && <>
+        <Card tone="sunken" className="pc-hub-now" aria-labelledby="hub-now-h">
+          {listState === "loading" || listState === "failed" ? <div className="pc-hub-now__text">
+            <SectionHeading id="hub-now-h">Right now</SectionHeading>
+            {listState === "loading" ? <p className="u3-muted" role="status">Reading the default list…</p> : <>
+              <p className="pc-hub-now__headline">The default list could not be read, so Pacer can't say where work goes.</p>
+              <ErrorMessage error={routingError} />
+              <div className="pc-hub-now__actions"><Button size="sm" variant="secondary" onClick={() => retryRouting(n => n + 1)}>Try again</Button></div>
+            </>}
+          </div> : <><div className="pc-hub-now__text">
+            <SectionHeading id="hub-now-h">Right now</SectionHeading>
+            <p className="pc-hub-now__headline">{model.summary.headline}</p>
+            <p className="pc-hub-now__consequence">{model.summary.consequence}</p>
+            {(model.summary.action || model.summary.secondary) && <div className="pc-hub-now__actions">
+              {model.summary.action && actionLink(model.summary.action, "secondary")}
+              {model.summary.secondary && actionLink(model.summary.secondary, "quiet")}
+            </div>}
+            {listState === "unsupported" && <p className="u3-muted">This service doesn't report the default list, so every agent counts as listed.</p>}
+          </div>
+          <ul className="pc-hub-tiles" aria-label="Who gets each difficulty">
+            {model.tiles.map(tile => <li key={tile.difficulty} className="pc-hub-tile">
+              <span className="pc-hub-tile__head"><strong>{difficultyLabels[tile.difficulty]}</strong><span className="u3-muted">needs {tierLabels[tile.target].toLowerCase()}</span></span>
+              <span className="pc-hub-tile__count">{tile.agents.length > 0 && <AgentStack agents={tile.agents.map(runner => markAgent(runner))} size={20} />}<strong>{tile.count}</strong></span>
+              <span className="pc-hub-tile__who">{tile.who}</span>
+            </li>)}
+          </ul></>}
         </Card>
 
-        <div className="pc-model-choice__presets" role="group" aria-label="Presets">
-          <span className="u3-muted">Presets</span>
-          {(Object.keys(PRESETS) as PresetName[]).map(name =>
-            <FilterChip key={name} selected={preset === name} disabled={busy} onClick={() => pickPreset(name)}>{PRESET_LABELS[name]}</FilterChip>)}
-          {preset === "custom" && <span className="pc-model-choice__preset-note">Custom</span>}
-        </div>
-
-        <div className="pc-tier-grid">
-          <div className="pc-tier-grid__head">
-            <span className="u3-muted">Task difficulty</span>
-            {RATED_TIERS.map(t => <div className="pc-tier-grid__colhead" key={t}>{tierLabels[t]}<span className="u3-muted">{TIER_HINT[t]}</span></div>)}
+        <section className="pc-stack pc-stack--normal" aria-labelledby="hub-sizes-h">
+          <div className="pc-hub-section-head">
+            <div className="pc-hub-section-head__text">
+              <SectionHeading id="hub-sizes-h">Model size for each difficulty</SectionHeading>
+              <p className="u3-muted">Harder tasks never get a smaller model. Picking one row moves the others to keep that order.</p>
+            </div>
+            <div className="pc-hub-chips" role="group" aria-label="Presets">
+              {(Object.keys(PRESETS) as PresetName[]).map(name =>
+                <FilterChip key={name} selected={preset === name} disabled={busy} onClick={() => pickPreset(name)}>{PRESET_LABELS[name]}</FilterChip>)}
+              {preset === "custom" && <span className="pc-model-choice__preset-note">Custom</span>}
+            </div>
           </div>
-          {DIFFICULTIES.map(d => (
-            <div className="pc-tier-grid__row" key={d}>
-              <div className="pc-tier-grid__label">{difficultyLabels[d]}<span className="u3-muted">{DIFF_HINT[d]}</span></div>
-              <RadioGroup label={`${difficultyLabels[d]} tasks`} className="pc-tier-grid__radios">
-                {RATED_TIERS.map(t => (
-                  <RadioCard key={t} checked={targets[d] === t} disabled={busy} onSelect={() => pickTier(d, t)} title={tierLabels[t]} sub="" />
-                ))}
+          <div className="pc-hub-sizes">
+            {DIFFICULTIES.map(d => <div className="pc-hub-sizes__row" key={d}>
+              <span className="pc-hub-sizes__label"><strong>{difficultyLabels[d]}</strong><span className="u3-muted">{DIFF_HINT[d]}</span></span>
+              <RadioGroup label={`${difficultyLabels[d]} tasks`} className="pc-hub-sizes__radios">
+                {RATED_TIERS.map(t => <RadioChip key={t} checked={targets[d] === t} disabled={busy} onSelect={() => pickTier(d, t)}>{tierLabels[t]}</RadioChip>)}
               </RadioGroup>
-            </div>
-          ))}
-        </div>
-
-        <div className="pc-model-choice__preview">
-          <SectionHeading>What each executor would run</SectionHeading>
-          <p className="u3-muted">From the model inventory read a moment ago. Pacer checks availability again when it dispatches.</p>
-          <ResourceState resource={inventory}>
-            {grouping && <div className="pc-model-preview" role="region" aria-label="What each executor would run" tabIndex={0}>
-              <div className="pc-model-preview__head">
-                <span className="u3-muted">Executor</span>
-                {grouping.cols.map(col => (
-                  <div className="pc-model-preview__colhead" key={col.difficulty}>{difficultyLabels[col.difficulty]}<span className="u3-muted">Target {tierLabels[col.target].toLowerCase()} · {col.eligible} of {grouping.total} can take it</span></div>
-                ))}
-              </div>
-              {!grouping.follow.length && !grouping.unrated.length && !grouping.fixed.length &&
-                <div className="pc-model-preview__empty u3-muted">No executors in the model inventory.</div>}
-
-              {grouping.follow.length > 0 && <>
-                <div className="pc-model-preview__group"><strong>Follow the tier · {grouping.follow.length}</strong><span className="u3-muted">A larger model steps in when the target tier has nothing free.</span></div>
-                {grouping.follow.map(row => (
-                  <div className="pc-model-preview__row" key={row.runner}>
-                    <div className="pc-model-preview__label">{executorLabel(row.runner)}<span className="u3-muted">{row.runner} · {row.model} · rated {tierLabels[row.tier ?? "unknown"].toLowerCase()}</span></div>
-                    {row.cells.map(cell => (
-                      <div className="pc-model-preview__cell" key={cell.difficulty}>
-                        {cell.skipped
-                          ? <span className="pc-model-preview__chosen">{cell.chosen}<span className="u3-muted pc-model-preview__note"> · {cell.note}</span></span>
-                          : <span className="pc-model-preview__chosen">{cell.chosen}<span className="u3-muted pc-model-preview__note"> · {cell.note}</span></span>}
-                      </div>
-                    ))}
-                  </div>
-                ))}
-              </>}
-
-              {grouping.unrated.length > 0 && <>
-                <div className="pc-model-preview__group"><strong>Unrated · tier ignored · {grouping.unrated.length}</strong><span className="u3-muted">Each runs its one model for every difficulty until you size it on the Agents tab.</span></div>
-                {grouping.unrated.map(row => (
-                  <div className="pc-model-preview__row" key={row.runner}>
-                    <div className="pc-model-preview__label">{executorLabel(row.runner)}<span className="u3-muted">{row.runner}</span></div>
-                    <div className="pc-model-preview__cell pc-model-preview__cell--span u3-muted">{row.model} for every difficulty</div>
-                  </div>
-                ))}
-              </>}
-
-              {grouping.fixed.length > 0 && <>
-                <div className="pc-model-preview__group"><strong>Choose their own model · {grouping.fixed.length}</strong><span className="u3-muted">These executors pick a model themselves, so they can take any difficulty.</span></div>
-                <div className="pc-model-preview__chips">
-                  {grouping.fixed.map(row => <span className="u3-chip" key={row.runner}><strong>{executorLabel(row.runner)}</strong><span className="u3-muted">{row.runner}</span></span>)}
-                </div>
-              </>}
-            </div>}
-          </ResourceState>
-        </div>
-
-        {(dirty || notice) && <div className="pc-model-choice__savedock">
-          {dirty && <div className="u3-save-bar">
-            <div className="pc-model-choice__savecopy">
-              <span role="status" aria-live="polite">{busy ? "Saving…" : `${changeCount} unsaved change${changeCount === 1 ? "" : "s"}`}</span>
-              <span className="u3-muted">Saving updates the active setup “{base?.strategy}”. New tasks use it at once.</span>
-            </div>
-            <div className="u3-actions">
-              <Button variant="ghost" disabled={busy} onClick={discard}>Discard</Button>
-              <Button variant={directSave ? "secondary" : "primary"} disabled={busy} onClick={openName}>Save as new setup…</Button>
-              {directSave && <Button variant="primary" busy={busy} onClick={() => void saveInPlace()}>Save</Button>}
-            </div>
+              <span className="pc-hub-sizes__who">{listState === "loading" || listState === "failed" ? "" : model.coverage[d]}</span>
+            </div>)}
+          </div>
+          {(changeCount > 0 || !!notice || !!error) && <div className="pc-model-choice__savedock">
+            <SaveBar count={changeCount} busy={busy} onDiscard={discard} onSave={() => directSave ? void saveInPlace() : openName()}
+              saveLabel={directSave ? "Save" : "Save as a new profile…"} scope={changeCount ? `active profile ${base.strategy}` : undefined} notice={notice || undefined}>
+              {changeCount > 0 || error ? <>
+                {changeCount > 0 && <div className="pc-hub-save-note"><span>New tasks use the change at once.</span>
+                  {directSave && <Button size="sm" variant="quiet" disabled={busy} onClick={openName}>Save as a new profile…</Button>}</div>}
+                <ErrorMessage error={error} />
+              </> : undefined}
+            </SaveBar>
           </div>}
-          {notice && <div className="pc-model-choice__notice" role="status" aria-live="polite">{notice}</div>}
-        </div>}
+        </section>
 
-        <ErrorMessage error={error} />
+        <section className="pc-stack pc-stack--normal" aria-labelledby="hub-agents-h">
+          <div className="pc-hub-section-head">
+            <div className="pc-hub-section-head__text">
+              <SectionHeading id="hub-agents-h">Agents and models</SectionHeading>
+              <p className="u3-muted">What each agent runs for each difficulty, from the model inventory read {checkedAt && now - checkedAt >= 60 ? ago(checkedAt, now) : "a moment ago"}. Pacer checks again when it dispatches.</p>
+            </div>
+            <div className="pc-hub-chips">
+              <span className="pc-hub-chips" role="group" aria-label="Show agents">
+                {FILTERS.map(item => <FilterChip key={item.value} selected={filter === item.value} disabled={item.value !== "all" && !model.counts[item.value]} onClick={() => setFilter(item.value)}>{item.label} <span className="pc-hub-chip-count">{model.counts[item.value]}</span></FilterChip>)}
+              </span>
+              <Button variant="ghost" size="sm" busy={refreshing} disabled={!state.connected} aria-label="Refresh all accounts: models, sign-in and usage" onClick={() => void refreshAll()}><Icon name="refresh" />Refresh all</Button>
+            </div>
+          </div>
+          {refreshFailed && <p className="pc-field__error" role="alert">{refreshFailed}</p>}
+          <ResourceState resource={inventory}>
+            {!model.rows.length ? <p className="u3-muted">No agents in the model inventory yet. <TextAction href={scoped(hrefFor(routes.addExecutor()))}>Add an agent</TextAction></p>
+              : <div className="pc-hub-table-wrap">
+                <table className="pc-hub-table">
+                  <thead><tr>
+                    <th scope="col">Agent</th><th scope="col">Models</th>
+                    {DIFFICULTIES.map(d => <th scope="col" key={d}>{difficultyLabels[d]} <span className="u3-muted">· {tierLabels[targets[d]].toLowerCase()}</span></th>)}
+                    <th scope="col"><span className="sr-only">Actions</span></th>
+                  </tr></thead>
+                  <tbody>{shown.map(agentRow)}</tbody>
+                </table>
+                {!shown.length && <p className="u3-muted pc-hub-table__empty">No agent matches this filter.</p>}
+              </div>}
+          </ResourceState>
+          <p className="u3-muted">Sizes are what you declared. Pacer never guesses a model's size; an unrated model runs for every difficulty until you set one.</p>
+        </section>
 
-        {dialog && <Dialog title="Save as a new setup" close={() => setDialog(false)}>
+        {dialog && <Dialog title="Save as a new profile" close={() => setDialog(false)}>
           <form className="pc-stack pc-stack--normal" onSubmit={event => { event.preventDefault(); void saveAsNew(); }}>
-            <p className="u3-muted">Name the saved setup so you can switch back later. The active setup keeps its current choices until you save.</p>
-            <Field label="Saved setup name"><TextInput value={profileName} autoFocus required disabled={busy} onInput={event => setProfileName(event.currentTarget.value)} /></Field>
+            <p className="u3-muted">Name the new profile so you can switch back later. The active profile keeps its current choices.</p>
+            <Field label="Profile name"><TextInput value={profileName} autoFocus required disabled={busy} onInput={event => setProfileName(event.currentTarget.value)} /></Field>
             <div className="u3-actions">
               <Button variant="ghost" disabled={busy} onClick={() => setDialog(false)}>Cancel</Button>
-              <Button type="submit" variant="primary" busy={busy} disabled={!profileName.trim() || busy}>Save and use setup</Button>
+              <Button type="submit" variant="primary" busy={busy} disabled={!profileName.trim() || busy}>Save and switch to it</Button>
             </div>
           </form>
         </Dialog>}
       </>}
     </ResourceState>
-  </Section>;
+  </div></div>;
 }

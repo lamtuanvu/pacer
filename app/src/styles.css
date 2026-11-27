@@ -636,12 +636,6 @@ body:has(.pc-app--narrow) .pc-toasts{bottom:calc(var(--size-56) + var(--space-5)
 .pc-ladder-number--warn{background:var(--warn-bg);color:var(--warn-fg)}
 /* ink-secondary rather than the board's ink-muted, which is 4.4:1 on surface-lane in light (UI-2). */
 .pc-ladder-number--muted{background:var(--surface-lane);color:var(--ink-secondary)}
-.pc-saved-setups{container: saved-setups / inline-size;border:1px solid var(--line);border-radius:var(--radius-lg);overflow:hidden}
-.pc-saved-setups__row{display:grid;grid-template-columns:var(--size-28) minmax(0,var(--size-180)) minmax(0,1fr) var(--size-110);align-items:center;gap:var(--space-3);padding:var(--space-2\.5) var(--space-3\.5);overflow-wrap:anywhere}
-.pc-saved-setups__row+ .pc-saved-setups__row{border-top:1px solid var(--line)}
-.pc-saved-setups__row--active{background:var(--surface-card)}
-.pc-saved-setups__row>div:last-child{text-align:right}
-.pc-saved-setups__row>span:nth-child(3){font-size:var(--type-caption-size);line-height:var(--type-caption-line);color:var(--ink-muted)}
 .pc-route-result{border:1px solid var(--line);border-radius:var(--radius-lg);overflow:hidden}
 .pc-route-result__header{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-4);padding:var(--space-3) var(--space-3\.5);background:var(--surface-card);border-bottom:1px solid var(--line)}
 .pc-route-result__header>p{margin:0}
@@ -654,11 +648,6 @@ body:has(.pc-app--narrow) .pc-toasts{bottom:calc(var(--size-56) + var(--space-5)
 .pc-route-result__glyph--neutral{color:var(--ink-muted)}
 .pc-route-result__glyph--soft{color:var(--warn-fg)}
 .pc-route-result__glyph--hard{color:var(--bad-fg)}
-@container saved-setups (max-width:700px){
- .pc-saved-setups__row{grid-template-columns:var(--size-28) minmax(0,1fr) auto}
- .pc-saved-setups__row>span:nth-child(3){grid-column:2;grid-row:2}
- .pc-saved-setups__row>div:last-child{grid-column:3;grid-row:1 / 3}
-}
 @container current-setup (max-width:700px){
  .pc-current-setup__cell{flex-basis:100%}
  .pc-current-setup__cell+ .pc-current-setup__cell{flex-basis:100%;border-left:0;border-top:1px solid var(--line)}
@@ -675,8 +664,6 @@ body:has(.pc-app--narrow) .pc-toasts{bottom:calc(var(--size-56) + var(--space-5)
 .pc-sortable--icons .pc-sortable__row:has(.pc-ladder-number) .pc-sortable__actions{grid-column:4}
 /* Dispatcher supplemental sections share the question heading type without a step badge. */
 :is(#native-control,#model-choices,#saved-profiles)>.u3-heading .pc-section-heading{font-size:var(--size-16);line-height:var(--size-22);font-weight:var(--type-headline-weight);letter-spacing:normal;text-transform:none;color:var(--ink)}
-.pc-dispatcher-scope-row{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2)}
-.pc-dispatcher-scope-row .dispatcher-repo-picker .pc-field{gap:0}
 .pc-dispatcher-callout{display:flex;align-items:flex-start;gap:var(--space-2)}
 .pc-dispatcher-callout__glyph{display:inline-flex;flex:none;font-weight:var(--type-match-strong-weight)}
 .pc-dispatcher-callout__glyph svg{width:var(--size-16);height:var(--size-16)}
