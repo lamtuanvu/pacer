@@ -58,7 +58,7 @@ icu_collator = { version = "=2.4.0", features = ["unstable"] }
 serde_json.workspace = true
 
 [target.'cfg(unix)'.dependencies]
-nix = { version = "0.31", features = ["signal"] }
+nix = { version = "0.32", features = ["signal"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 nix = { version = "0.31", features = ["socket", "uio", "fs", "user", "signal", "process"] }
