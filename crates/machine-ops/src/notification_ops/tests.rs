@@ -337,6 +337,13 @@ fn file_modes_are_private() {
 }
 
 #[test]
+fn clean_error_caps_utf16_units_like_javascript_slice() {
+    let cleaned = clean_error(&"😀".repeat(300));
+    assert_eq!(cleaned.chars().count(), 256);
+    assert_eq!(clean_error("a\u{1b}b\u{0}c"), "abc");
+}
+
+#[test]
 fn path_helpers_do_not_depend_on_the_host_home() {
     let (_dir, ctx) = ctx(10.0);
     assert!(health_path(&ctx).ends_with("notification-health.json"));

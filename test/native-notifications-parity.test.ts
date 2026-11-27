@@ -30,7 +30,7 @@ beforeAll(() => {
   execFileSync("cargo", ["build", "-q", "-p", "pacer", "--locked"], { stdio: "inherit", env });
   const metadata = JSON.parse(execFileSync("cargo", ["metadata", "--no-deps", "--format-version", "1", "--locked"], { env }).toString());
   binary = join(metadata.target_directory, "debug/pacer");
-});
+}, 600_000);
 
 afterAll(() => {
   for (const home of homes) rmSync(home, { recursive: true, force: true });

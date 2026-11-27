@@ -200,16 +200,23 @@ fn write_health(ctx: &Ctx, record: &Map<String, Value>) -> Result<(), CoreError>
         .map_err(|e| CoreError::new(Code::Internal, e.to_string()))
 }
 
-/// `cleanError`: strip C0/C1 controls (including ESC) and cap at 512 code units.
+/// `cleanError`: strip C0/C1 controls (including ESC) and cap at 512 UTF-16 units,
+/// matching JavaScript's `String.slice(0, 512)`.
 fn clean_error(message: &str) -> String {
-    message
-        .chars()
-        .filter(|c| {
-            let n = *c as u32;
-            !((0x00..=0x1f).contains(&n) || (0x7f..=0x9f).contains(&n))
-        })
-        .take(512)
-        .collect()
+    let mut out = String::new();
+    let mut units = 0usize;
+    for c in message.chars() {
+        let n = c as u32;
+        if (0x00..=0x1f).contains(&n) || (0x7f..=0x9f).contains(&n) {
+            continue;
+        }
+        if units + c.len_utf16() > 512 {
+            break;
+        }
+        units += c.len_utf16();
+        out.push(c);
+    }
+    out
 }
 
 /// `deliveryPresenters` in `src/clients/registry.ts`, over the same live registry.

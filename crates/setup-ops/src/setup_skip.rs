@@ -14,6 +14,9 @@ use pacer_store::publish_config_change;
 use serde_json::{Map, Value, json};
 
 fn validate(params: &Value) -> Result<(), CoreError> {
+    // `parseOpParams` applies `params ?? {}` before the schema, like other ports.
+    let empty = Value::Object(Map::new());
+    let params = if params.is_null() { &empty } else { params };
     let map = params.as_object().ok_or_else(|| {
         invalid(format!(
             "params: Invalid input: expected object, received {}",
