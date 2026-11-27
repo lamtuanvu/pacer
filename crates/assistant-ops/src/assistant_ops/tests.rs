@@ -1,4 +1,4 @@
-#![allow(clippy::unwrap_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 use super::*;
 use crate::assistant_ops::admission::{self, AssistantHost};
 

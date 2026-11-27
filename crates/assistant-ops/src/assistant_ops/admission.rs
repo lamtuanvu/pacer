@@ -208,17 +208,16 @@ async fn admit_with(
             ));
         }
     }
-    if strategy["planner"]["account"] == account {
-        if let Some(mode) = status["mode"].as_str() {
-            if matches!(mode, "strict" | "emergency") {
-                let name = agent_name(strategy["planner"]["agent"].as_str().unwrap_or(""));
-                let label = if mode == "strict" { "Strict" } else { "Emergency" };
-                return Ok(Admission::no(
-                    format!("{name} is in {label} mode. The assistant is paused to save the planner's budget."),
-                    None,
-                ));
-            }
-        }
+    if strategy["planner"]["account"] == account
+        && let Some(mode) = status["mode"].as_str()
+        && matches!(mode, "strict" | "emergency")
+    {
+        let name = agent_name(strategy["planner"]["agent"].as_str().unwrap_or(""));
+        let label = if mode == "strict" { "Strict" } else { "Emergency" };
+        return Ok(Admission::no(
+            format!("{name} is in {label} mode. The assistant is paused to save the planner's budget."),
+            None,
+        ));
     }
     Ok(Admission {
         ok: true,
@@ -380,24 +379,23 @@ pub fn assistant_status_with<'a>(
         let mut cli: Option<String> = None;
         if configured {
             let strategy = strategy(ctx);
-            if let Some(strategy) = &strategy {
-                if let Some(chosen) = candidate_rows(ctx, strategy, &entries)
+            if let Some(strategy) = &strategy
+                && let Some(chosen) = candidate_rows(ctx, strategy, &entries)
                     .into_iter()
                     .find(|row| {
                         row["account"] == settings.account.as_deref().unwrap_or("")
                             && row["backend"] == settings.backend
                     })
-                {
-                    live_tools = chosen["liveTools"].as_bool().unwrap_or(false);
-                    cli = chosen["cli"].as_str().map(str::to_owned);
-                }
+            {
+                live_tools = chosen["liveTools"].as_bool().unwrap_or(false);
+                cli = chosen["cli"].as_str().map(str::to_owned);
             }
-            if cli.is_none() && settings.backend == "executor" {
-                if let Some(strategy) = strategy {
-                    if let Some(account) = settings.account.as_deref() {
-                        cli = ask_adapter(ctx, &strategy["accounts"][account]).map(str::to_owned);
-                    }
-                }
+            if cli.is_none()
+                && settings.backend == "executor"
+                && let Some(strategy) = strategy
+                && let Some(account) = settings.account.as_deref()
+            {
+                cli = ask_adapter(ctx, &strategy["accounts"][account]).map(str::to_owned);
             }
         }
         let today = with_db_core(ctx, |db| {
