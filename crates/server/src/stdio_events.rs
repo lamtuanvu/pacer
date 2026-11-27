@@ -14,7 +14,7 @@ use tokio::{
     io::{AsyncWrite, AsyncWriteExt},
     sync::{Mutex, watch},
     task::JoinHandle,
-    time::{Duration, MissedTickBehavior, interval},
+    time::{Duration, sleep},
 };
 
 const POLL: Duration = Duration::from_millis(500);
@@ -111,7 +111,9 @@ impl StdioEvents {
     /// The reply's `last` comes from a replay of `since`; the poller's cursor
     /// stays at `since` until its first tick, as TypeScript's `setInterval` does.
     pub fn subscribe(&self, ctx: &Ctx, protocol: u8, params: Option<&Value>) -> Result<Value, CoreError> {
-        let params = params.filter(|value| !value.is_null()).unwrap_or(&Value::Null);
+        // TypeScript's `r.params ?? {}` accepts a missing or null params member.
+        let empty = json!({});
+        let params = params.filter(|value| !value.is_null()).unwrap_or(&empty);
         let object = params
             .as_object()
             .ok_or_else(|| invalid("subscribe params must be an object"))?;
@@ -156,18 +158,17 @@ async fn poll<W: AsyncWrite + Unpin>(
         Ok(store) => store,
         Err(_) => return,
     };
-    // `setInterval` fires after the first delay, not immediately.
-    let mut ticker = interval(POLL);
-    ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
-    ticker.tick().await;
     loop {
         tokio::select! {
             changed = rx.changed() => {
                 if changed.is_err() {
                     break;
                 }
+                // (Re)arming restarts the delay, as TypeScript's setInterval does:
+                // never emit a replay in the same turn as the subscribe reply.
+                continue;
             }
-            _ = ticker.tick() => {}
+            _ = sleep(POLL) => {}
         }
         let Some(cursor) = *rx.borrow() else {
             continue;

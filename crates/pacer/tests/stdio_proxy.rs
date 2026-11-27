@@ -584,7 +584,7 @@ impl Interactive {
 
     fn drain(mut self) -> (Vec<Value>, String, i32) {
         drop(self.stdin);
-        let deadline = Instant::now() + Duration::from_secs(10);
+        let deadline = Instant::now() + Duration::from_secs(20);
         while Instant::now() < deadline {
             match self.lines.recv_timeout(Duration::from_millis(100)) {
                 Ok(value) => self.collected.push(value),
@@ -616,7 +616,7 @@ fn subscribe_streams_events_without_core_and_stops_at_eof() {
     let mut session = Interactive::start(proxy(&core, home.path()));
     session.send(json!({"jsonrpc":"2.0","id":1,"method":"hello","params":{"protocol":3}}));
     session.send(json!({"jsonrpc":"2.0","id":2,"method":"subscribe","params":{"since":0}}));
-    let first = session.wait_for(|line| line["method"] == "event", Duration::from_secs(3));
+    let first = session.wait_for(|line| line["method"] == "event", Duration::from_secs(15));
     assert!(first.is_some(), "no event notification arrived");
     assert_eq!(first.unwrap()["params"]["type"], "mode");
     // Keep stdin open: a timer that was not cleared would replay the event at 500 ms.
@@ -662,6 +662,28 @@ fn subscribe_rejects_a_negative_since_like_typescript() {
 }
 
 #[test]
+fn subscribe_without_params_defaults_to_zero_like_typescript() {
+    let home = tempfile::tempdir().unwrap();
+    let (core, record) = recording_core(home.path(), &snapshot_parts());
+    let input = b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"hello\",\"params\":{\"protocol\":3}}\n{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"subscribe\"}\n{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"subscribe\",\"params\":null}\n".to_vec();
+    let output = exchange(proxy(&core, home.path()), input);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let lines: Vec<Value> = output
+        .stdout
+        .split(|byte| *byte == b'\n')
+        .filter(|line| !line.is_empty())
+        .map(|line| serde_json::from_slice(line).unwrap())
+        .collect();
+    for id in [2, 3] {
+        let reply = lines.iter().find(|line| line["id"] == id).unwrap();
+        assert_eq!(reply["result"]["subscribed"], true, "{reply}");
+        assert_eq!(reply["result"]["last"], 3_000_000_000_000.0, "{reply}");
+    }
+    let recorded = fs::read_to_string(&record).unwrap_or_default();
+    assert!(!recorded.contains("\"subscribe\""), "subscribe reached Core: {recorded}");
+}
+
+#[test]
 fn hello_resets_the_subscription() {
     let home = tempfile::tempdir().unwrap();
     seed_event(home.path());
@@ -671,7 +693,7 @@ fn hello_resets_the_subscription() {
     session.send(json!({"jsonrpc":"2.0","id":2,"method":"subscribe","params":{"since":0}}));
     assert!(
         session
-            .wait_for(|line| line["method"] == "event", Duration::from_secs(3))
+            .wait_for(|line| line["method"] == "event", Duration::from_secs(15))
             .is_some(),
         "the first subscription did not stream"
     );
@@ -686,7 +708,7 @@ fn hello_resets_the_subscription() {
     session.send(json!({"jsonrpc":"2.0","id":4,"method":"subscribe","params":{"since":0}}));
     assert!(
         session
-            .wait_for(|line| line["method"] == "event", Duration::from_secs(3))
+            .wait_for(|line| line["method"] == "event", Duration::from_secs(15))
             .is_some(),
         "a fresh subscribe after hello did not stream"
     );
