@@ -4,6 +4,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-11-27
+
 ### Changed
 
 - Settings › Dispatcher › Overview, Who can run what and Profiles are redesigned. Each starts with what is happening right now, worked out from the default list and the agents' models, sizes and availability, the same way the dispatcher decides: where simple, standard and complex work goes (for example, complex tasks going to the planner through its fallback, which covers complex tasks only), or how many agents in the default list can take work and who could be added. Overview adds a difficulty strip and an agents-and-models table with filters and links to each agent; Who can run what shows the default list, task-kind lists, repository lists and how Pacer chooses side by side; Profiles shows what switching to a profile changes before you switch (lists, pacing, the choice method, model sizes and each agent's models), lets you try a task with it, and saves the current settings as a new profile.
