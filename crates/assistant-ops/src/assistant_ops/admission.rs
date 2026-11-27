@@ -299,9 +299,22 @@ pub(super) fn candidate_rows(
             "codex" if ask_config_dir(ctx, account, "codex").is_none() => {
                 ("codex", Some(format!("{name} has no Codex home.")))
             }
-            _ => (ask_adapter(ctx, account).unwrap_or("opencode"), None),
+            // TypeScript drops accounts with no ask-mode adapter (`service.ts:592-593`).
+            _ => match ask_adapter(ctx, account) {
+                Some(adapter) => (adapter, None),
+                None => continue,
+            },
         };
-        let check = selftest_read::check(ctx, name, cli);
+        // A missing config directory short-circuits before any version probe in TypeScript.
+        let check = if config_problem.is_some() {
+            selftest_read::Check {
+                ok: false,
+                reason: None,
+                live_tools: false,
+            }
+        } else {
+            selftest_read::check(ctx, name, cli)
+        };
         let reason = config_problem.or_else(|| (!check.ok).then(|| check.reason.unwrap_or_default()));
         // The executor row is `{...row, cli, available, liveTools, ...reason}` (`service.ts:580-596`).
         let mut row = Map::new();
