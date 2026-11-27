@@ -10,7 +10,7 @@ const svc = () => import("../assistant/service");
 
 /** Client protocol v3 assistant ops (additive). Executor sessions get not_allowed for all of them (caller policy). */
 export const assistantOps: Record<string, OpDef> = {
-  "assistant.status": op({ description: "Whether the assistant is available, which account answers, why not when it is not, its limits and today's use.", params: z.object({}), handler: async ctx => (await svc()).assistantStatus(ctx) }),
+  "assistant.status": op({ description: "Whether the assistant is available, which account answers, why not when it is not, its limits and today's use.", params: z.object({}), handler: nativeOnly("assistant.status") }),
   "assistant.ask": op({ description: "Ask the assistant one question. The answer streams from /v3/assistant/turns/<turnId>/stream; nothing runs until the user confirms a proposed action.",
     params: z.object({ conversationId: id.optional(), text: z.string().min(1).max(4000), scope: scopeSchema, requestId: id }),
     handler: async (ctx, p) => (await svc()).ask(ctx, p) }),
@@ -25,7 +25,7 @@ export const assistantOps: Record<string, OpDef> = {
     params: z.object({ runner: z.string().min(1).max(128).nullable(), account: z.string().min(1).max(64).nullable(), limits: assistantLimitsSchema.partial().optional(), retention: retentionSchema.partial().optional(), expect_rev: z.number().int().positive(), backend: backendSchema.optional() }),
     handler: nativeOnly("assistant.settings.set") }),
   "assistant.selftest": op({ description: "Run the fail-closed ask-mode check for one account the executor backend drives: canary turns in ask mode must attempt and be denied a shell command, a file read outside the run directory and a URL fetch, on a first and a resumed turn. Records the result for that account and the installed CLI version. Runs the agent CLI and spends the account's tokens.", params: z.object({ account: z.string().min(1).max(64) }).strict(), handler: async (ctx, p) => (await svc()).selfTest(ctx, p.account) }),
-  "assistant.candidates": op({ description: "Endpoint accounts the assistant could run on, each with the backend it answers on, whether it is available and why not, and what the assistant is allowed to read.", params: z.object({}), handler: async ctx => { const m = await svc(); return { accounts: m.candidates(ctx), reads: m.READS_SUMMARY }; } }),
+  "assistant.candidates": op({ description: "Endpoint accounts the assistant could run on, each with the backend it answers on, whether it is available and why not, and what the assistant is allowed to read.", params: z.object({}), handler: nativeOnly("assistant.candidates") }),
   "assistant.card.record": op({ description: "Record the user's decision and the outcome on an action card in the conversation. The app runs the proposed op itself.", params: z.object({ turnId: id, cardId: id, state: z.enum(["done", "failed", "dismissed", "stale"]), result: z.string().max(500).optional() }),
     handler: nativeOnly("assistant.card.record") }),
   "assistant.card.refresh": op({ description: "Rebuild a card whose task changed, with the task's current revision.", params: z.object({ turnId: id, cardId: id }), handler: nativeOnly("assistant.card.refresh") }),

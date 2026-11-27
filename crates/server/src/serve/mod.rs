@@ -319,6 +319,29 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                 Err(error) => native_error(error),
             };
         }
+        if matches!(op.name, "assistant.status" | "assistant.candidates") {
+            crate::native::msg_write_sync::trace(op.name, None);
+            let Some(link) = crate::native::plugins::http_link(state.core.as_ref()).await else {
+                return proxy::unavailable(false);
+            };
+            let mut host = crate::native::assistant_host::HttpHost::new(
+                link,
+                state.core.target().await,
+            );
+            let result = if op.name == "assistant.status" {
+                pacer_assistant_ops::assistant_ops::assistant_status_with(&ctx, params, &mut host)
+                    .await
+            } else {
+                pacer_assistant_ops::assistant_ops::assistant_candidates_with(
+                    &ctx, params, &mut host,
+                )
+                .await
+            };
+            return match result {
+                Ok(result) => native_json(StatusCode::OK, serde_json::json!({"result":result})),
+                Err(error) => native_error(error),
+            };
+        }
         if crate::native::task_send_ops::needs_task_send_bridge(op.name) {
             crate::native::msg_write_sync::trace(op.name, None);
             let by = crate::native::task_send_ops::caller_identity(
