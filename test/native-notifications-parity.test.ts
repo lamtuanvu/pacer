@@ -13,6 +13,8 @@ import { join } from "node:path";
 import { closedPort, pinnedPort } from "./helpers";
 
 const OPS = ["notifications.test", "notifications.ack", "notifications.request", "notifications.health", "setup.skip"];
+// The front door needs a core argv at start-up even when every driven op is native.
+const CORE = JSON.stringify([process.execPath, join(import.meta.dir, "../src/cli.ts")]);
 const DESKTOP = "00000000-0000-4000-8000-000000000001";
 const OTHER = "00000000-0000-4000-8000-000000000002";
 const APP = "00000000-0000-4000-8000-000000000003";
@@ -62,6 +64,7 @@ async function door(pacerHome: string) {
       ...process.env,
       HOME: join(pacerHome, ".."),
       PACER_HOME: pacerHome,
+      PACER_CORE_ARGV: CORE,
       PACER_NO_UPDATE_CHECK: "1",
       PACER_NO_SELF_REPAIR: "1",
       PACER_DISCOVERY: "off",
@@ -96,7 +99,7 @@ async function door(pacerHome: string) {
     await child.stdin.flush();
     return JSON.parse(await reply);
   };
-  expect(JSON.parse(await raw("hello", { protocol: 3 })).result.protocol).toBe("3.0.0");
+  expect((await raw("hello", { protocol: 3 })).result.protocol).toBe("3.0.0");
   const call = async (op: string, params: unknown = {}) => {
     const line = await raw(op, params);
     return line.result !== undefined ? { result: line.result } : { error: line.error };
@@ -143,7 +146,7 @@ test("notifications.test refuses with the app-closed hint when no desktop is liv
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
-}, 120000);
+}, 30000);
 
 test("notifications.test names macOS when a non-presenter desktop is live", async () => {
   const { dir, pacerHome } = home([entry(DESKTOP, { notifier: false, notification_permission: "denied" })]);
@@ -162,7 +165,7 @@ test("notifications.test names macOS when a non-presenter desktop is live", asyn
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
-}, 120000);
+}, 30000);
 
 test("notifications.test stores a pending key and publishes one notify event", async () => {
   const { dir, pacerHome } = home([entry(DESKTOP)]);
@@ -180,7 +183,7 @@ test("notifications.test stores a pending key and publishes one notify event", a
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
-}, 120000);
+}, 30000);
 
 test("notifications.ack enforces the desktop check and cleans stored errors", async () => {
   const { dir, pacerHome } = home([entry(DESKTOP), entry(OTHER, { notifier: false }), entry(APP, { kind: "app" })]);
@@ -206,7 +209,7 @@ test("notifications.ack enforces the desktop check and cleans stored errors", as
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
-}, 120000);
+}, 30000);
 
 test("notifications.request targets the newest desktop and publishes a control event", async () => {
   const { dir, pacerHome } = home([
@@ -229,7 +232,7 @@ test("notifications.request targets the newest desktop and publishes a control e
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
-}, 120000);
+}, 30000);
 
 test("notifications.health returns the doctor Check for no desktop, denied and tested", async () => {
   const none = home();
@@ -289,7 +292,7 @@ test("notifications.health returns the doctor Check for no desktop, denied and t
   } finally {
     rmSync(tested.dir, { recursive: true, force: true });
   }
-}, 120000);
+}, 30000);
 
 test("setup.skip keeps other settings and publishes a config event", async () => {
   const { dir, pacerHome } = home([], { notifications: "off", setup: { planner_done: true } });
@@ -310,7 +313,7 @@ test("setup.skip keeps other settings and publishes a config event", async () =>
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
-}, 120000);
+}, 30000);
 
 test("all five operations are reachable in the v3 catalog", () => {
   const hello = JSON.parse(readFileSync("crates/server/src/stdio_hello.json", "utf8"));
