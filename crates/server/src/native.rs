@@ -52,7 +52,6 @@ pub(crate) mod onboarding_sync;
 use pacer_install::agent_ops as agent_ops_mod;
 use pacer_install::install_ops;
 pub(crate) use pacer_machine_ops::client_ops;
-pub use pacer_machine_ops::client_ops::client_stays_forwarded;
 use pacer_machine_ops::machine_identity;
 use pacer_machine_ops::machine_ops;
 use pacer_task_ops::lifecycle_ops;
