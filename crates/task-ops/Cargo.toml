@@ -25,6 +25,7 @@ rand = "0.9"
 sha2 = "0.10"
 
 [dev-dependencies]
+rusqlite = { version = "0.41", features = ["bundled"] }
 tempfile = "3"
 
 [lints]

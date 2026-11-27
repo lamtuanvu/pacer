@@ -332,7 +332,7 @@ fn session_item(ctx: &Ctx, t: &V) -> Item {
             },
         );
     }
-    if !active && ctx.supports("task.dismiss") {
+    if !active && ctx.supports("task.dismiss") && !holds_task(ctx.s, text(&t["id"])) {
         add("x", "Dismiss");
     }
     for (k, l) in thread_keys(ctx, t, d) {
@@ -390,13 +390,13 @@ pub fn build(ctx: &Ctx) -> View {
                 &item.id,
                 cols(vec![c(title(t), ws[0]), cr(timing, ws[1])], 2),
             ));
-            v.list.push(Row::cont(&item.id, status(t)));
+            v.list.push(Row::cont(&item.id, held_status(ctx.s, t)));
         } else {
             v.list.push(Row::item(
                 &item.id,
                 cols(
                     vec![
-                        (status(t), ws[0], false),
+                        (held_status(ctx.s, t), ws[0], false),
                         c(title(t), ws[1]),
                         cr(timing, ws[2]),
                     ],
@@ -529,7 +529,7 @@ fn session_detail(ctx: &Ctx, t: &V, w: usize) -> Vec<Row> {
             "Start time unknown".into()
         },
     ];
-    rows.extend(facts(status(t), parts, w));
+    rows.extend(facts(held_status(ctx.s, t), parts, w));
     let p = &t["progress"];
     let session_time = if t["state"] == "running" && !t["attemptStartedAt"].is_null() {
         format!(
@@ -617,7 +617,7 @@ fn session_detail(ctx: &Ctx, t: &V, w: usize) -> Vec<Row> {
     }
     if !d["work"].is_null() {
         rows.push(blank());
-        rows.extend(crate::work::rows(d, w));
+        rows.extend(crate::work::rows(ctx.s, d, w));
     }
     if ctx.supports("msg.log") && !d["messages"].is_null() {
         rows.extend(thread(ctx, d, w));
@@ -691,8 +691,10 @@ pub fn review_detail(ctx: &Ctx, a: &V, resource: &V, w: usize) -> Vec<Row> {
     } else {
         String::new()
     };
+    let mut shown = if !d.is_null() { d } else { t }.clone();
+    shown["id"] = a["taskId"].clone();
     rows.extend(facts(
-        status(if !d.is_null() { d } else { t }),
+        held_status(ctx.s, &shown),
         vec![executor(executor_id, &V::Null), ran, branch],
         w,
     ));
@@ -845,7 +847,7 @@ pub fn review_detail(ctx: &Ctx, a: &V, resource: &V, w: usize) -> Vec<Row> {
     );
     if !d["work"].is_null() {
         rows.push(blank());
-        rows.extend(crate::work::rows(d, w));
+        rows.extend(crate::work::rows(ctx.s, d, w));
     }
     if ctx.supports("msg.log") && !d["messages"].is_null() {
         rows.extend(thread(ctx, d, w));

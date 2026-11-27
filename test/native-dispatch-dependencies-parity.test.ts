@@ -170,7 +170,8 @@ test.skipIf(!front)("dependency writes refuse executor and enforcement identitie
     request(3, "dispatch.dependencies.waive", { id: s.a.id, dependency: s.d.id, reason: "x", expect_rev: s.rev(s.a.id) }),
   ];
   for (const env of [{ PACER_ROLE: "executor" }, { PACER_ENFORCEMENT_TOKEN: "pet_x" }] as Record<string, string>[]) {
-    const replies = await both(ctx, backup, requests, new Set(), env);
+    // API-5: under an enforcement identity both requests are Core's to refuse.
+    const replies = await both(ctx, backup, requests, new Set(env.PACER_ENFORCEMENT_TOKEN ? [0, 1] : []), env);
     expect(replies.map(r => r.error?.data?.code)).toEqual(["not_allowed", "not_allowed"]);
   }
 }, 60000);

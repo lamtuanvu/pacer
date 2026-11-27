@@ -1,4 +1,5 @@
 import { useDialogs } from "../ds/useDialogs";
+import { afterVerdict } from "../data/announce";
 import { OutcomeError, outcomeProblem, shortActionLabel } from "../../../src/view-model/run-gate";
 import { DensityProvider } from "../ds/Density";
 import { ListRow, ListRowLink, Skeleton } from "../ds/Patterns";
@@ -177,7 +178,7 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
   const navigate = (route: string) => (event: JSX.TargetedMouseEvent<HTMLAnchorElement>) => { event.preventDefault(); act(() => ipc.open(route)); };
   // An action that asks first runs only after the person confirms it; the dialog starts on Cancel.
   const perform = (action: Action, item: string) => {
-    const run = () => act(() => performAction(action, api, ipc, ops), item);
+    const run = () => act(async () => { await performAction(action, api, ipc, ops); afterVerdict(action); }, item);
     if (!action.confirm) { run(); return; }
     if (inFlight.current) return;
     void dialogs.confirm(action.confirm, action.label, shortActionLabel(action.label) ?? action.label).then(yes => { if (yes && mounted.current) run(); });
@@ -245,7 +246,7 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
           const detail = item.detail?.trim();
           const taskTitle=<strong className="tray-ellipsis" title={shortTitle({ ...item, fullTitle: task?.fullTitle })}>{shortTitle({ ...item, fullTitle: task?.fullTitle })}</strong>;
           return <ListRow className={`tray-attention tray-attention--${item.kind}`} key={item.id}
-            leading={<span className={`tray-attention-glyph tray-attention-glyph--${item.gate && item.gate.kind !== "step_review" ? status.tone : item.kind === "failed" ? "bad" : item.kind === "review" ? "info" : "warn"}`} title={status.label} aria-hidden="true">{item.gate && item.gate.kind !== "step_review" ? status.glyph : item.kind === "failed" ? "✕" : item.kind === "review" ? "●" : "◐"}</span>}
+            leading={<span className={`tray-attention-glyph tray-attention-glyph--${item.gate ? status.tone : item.kind === "failed" ? "bad" : item.kind === "review" ? "info" : "warn"}`} title={status.label} aria-hidden="true">{item.gate ? status.glyph : item.kind === "failed" ? "✕" : item.kind === "review" ? "●" : "◐"}</span>}
             content={<>{item.taskId?<TextAction className="tray-task-title" href={appHref(`/tasks/${encodeURIComponent(item.taskId)}`)} onClick={navigate(`/tasks/${encodeURIComponent(item.taskId)}`)}>{taskTitle}</TextAction>:taskTitle}<span className="tray-reason tray-ellipsis" title={detail}>{[item.repo?.label ?? task?.repo?.label, status.label, detail?.toLowerCase() === status.label.toLowerCase() ? undefined : detail].filter(Boolean).join(" · ")}</span></>}
             actions={action && <Button variant={item.id === model.recommendedId ? "primary" : "secondary"} size="sm" aria-busy={busy && busyItem === item.id} aria-disabled={busy || sessionEnded} disabled={sessionEnded} title={action.label} onClick={() => perform(action, item.id)}><span className="tray-action__label">{busy && busyItem === item.id ? "Working…" : rowLabel(action.label)}</span></Button>}
           />;

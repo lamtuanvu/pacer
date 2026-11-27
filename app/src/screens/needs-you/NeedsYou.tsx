@@ -63,7 +63,7 @@ export function NeedsYouPage({ query }: { query: RouteQuery }) {
             <span className="ny-reason" title={reason}>{reason}</span>
             <span className="ny-meta ny-cap"><AgentMark agent={agent} size={16} labelled={false} /><span className="ny-mono" title={repoLabel}>{repoLabel}</span> · {question ? "asked " : review ? "finished " : ""}{question || review ? `${durationWords(now - item.raisedAt)} ago` : clock(item.raisedAt, now)}</span>
           </TextAction>
-          <span className="ny-actions">{question ? <ButtonLink typography="board" size="sm" href={`#/workspace?task=${encodeURIComponent(item.taskId!)}&panel=session&tab=answer`}>Open in workspace</ButtonLink> : review ? <ButtonLink typography="board" size="sm" href={`#/workspace?task=${encodeURIComponent(item.taskId!)}`}>Open workspace</ButtonLink> : stop ? <ActionButton runner={runner} id={`${item.id}:stop`} action={{ ...stop, label: "Stop task" }} /> : null}<ButtonLink typography="board" size="sm" variant="primary" href={href}>{question ? "Answer" : review ? "Review" : "Inspect failures"}</ButtonLink></span>
+          <span className="ny-actions">{question ? <ButtonLink typography="board" size="sm" href={`#/workspace?task=${encodeURIComponent(item.taskId!)}&panel=session&tab=answer`}>Open in workspace</ButtonLink> : review ? <ButtonLink typography="board" size="sm" href={`#/workspace?task=${encodeURIComponent(item.taskId!)}`}>Open workspace</ButtonLink> : stop ? <ActionButton runner={runner} id={`${item.id}:stop`} action={{ ...stop, label: "Stop task" }} /> : null}<ButtonLink typography="board" size="sm" href={href}>{question ? "Answer" : review ? "Review" : "Inspect failures"}</ButtonLink></span>
         </div>;
       })}
       {!shown.length && <EmptyState title="Nothing needs your attention" description="Tasks appear here when they need an answer, a fix or a review." />}
@@ -91,8 +91,8 @@ function RunRow({ item, query, now }: { item: AttentionItem; query: RouteQuery; 
       <span className="ny-meta ny-cap">{item.run!.title} · waiting {durationWords(now - item.raisedAt)}</span>
     </div>
     <span className="ny-actions">
-      <ButtonLink typography="board" size="sm" variant={actions.length ? undefined : "primary"} href={href}>{item.question ? "Answer in run" : "Open run"}</ButtonLink>
-      {actions.map(action => <ActionButton key={action.label} runner={runner} id={`${item.id}:${action.label}`} action={action} strong={action.style === "primary"} />)}
+      <ButtonLink typography="board" size="sm" href={href}>{item.question ? "Answer in run" : "Open run"}</ButtonLink>
+      {actions.map(action => <ActionButton key={action.label} runner={runner} id={`${item.id}:${action.label}`} action={action} />)}
     </span>
   </div>;
 }
@@ -100,7 +100,7 @@ function RunRow({ item, query, now }: { item: AttentionItem; query: RouteQuery; 
 /** A workflow gate in its own words, with the actions its item offers. */
 function GateRow({ item, query, now }: { item: AttentionItem; query: RouteQuery; now: number }) {
   const runner = useActions(), review = item.gate!.kind === "step_review" || item.gate!.kind === "step_conflict";
-  const status = item.gate!.kind === "step_review" ? { label: "Ready for review", tone: "info" as const, glyph: "●" } : attentionStatus(item);
+  const status = attentionStatus(item);
   const task = item.taskId ? `#/tasks/${encodeURIComponent(item.taskId)}` : item.run ? `#/runs/${encodeURIComponent(item.run.id)}` : "#/runs";
   return <div className="ny-item" data-attention-id={item.id}>
     <span aria-hidden="true" className={`ny-glyph ny-glyph--${status.tone === "neutral" ? "info" : status.tone}`}>{status.glyph}</span>
@@ -112,7 +112,7 @@ function GateRow({ item, query, now }: { item: AttentionItem; query: RouteQuery;
     </div>
     <span className="ny-actions">
       {review && <ButtonLink typography="board" size="sm" href={withQuery(`${task}/review`, query)}>Review</ButtonLink>}
-      {item.actions.map(action => <ActionButton key={action.label} runner={runner} id={`${item.id}:${action.label}`} action={action} strong={action.style === "primary"} />)}
+      {item.actions.map(action => <ActionButton key={action.label} runner={runner} id={`${item.id}:${action.label}`} action={action} />)}
     </span>
   </div>;
 }

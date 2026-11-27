@@ -62,6 +62,14 @@ export async function recordServeAuth(): Promise<Record<string, unknown>[]> {
     { name: "cookie-get-v3-hello-same-origin", method: "GET", path: "/v3/hello", headers: { Host: "127.0.0.1:<port>", Cookie: "<cookie>", "Sec-Fetch-Site": "same-origin", Origin: `http://localhost:<port>` } },
     { name: "cookie-non-app-non-api", method: "GET", path: "/other", headers: { Host: "127.0.0.1:<port>", Cookie: "<cookie>" } },
     { name: "session-websocket-foreign-origin", method: "GET", path: "/v3/tasks/t-x/session", headers: { Host: "127.0.0.1:<port>", Cookie: "<cookie>", Origin: "http://example.com" } },
+    // The workflow run grant (`prg_`, API-5b) is refused off `POST /v3/ops/`; a malformed one is no grant.
+    ...([
+      ["run-grant-get-ops", "GET", "/v3/ops/run.get"],
+      ["run-grant-snapshot", "POST", "/v3/snapshot"],
+      ["run-grant-v2-ops", "POST", "/v2/ops/run.get"],
+      ["run-grant-app", "POST", "/app/x"],
+    ] as const).map(([name, method, path]) => ({ name, method, path, headers: { Host: "127.0.0.1:<port>", Authorization: `Bearer prg_${"a".repeat(64)}` } })),
+    { name: "run-grant-malformed", method: "POST", path: "/v3/ops/run.get", headers: { Host: "127.0.0.1:<port>", Authorization: `Bearer prg_${"A".repeat(64)}` }, body: "{}" },
   ];
 
   try {

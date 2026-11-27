@@ -106,6 +106,40 @@ pub fn open_read_only(path: &Path) -> Result<Option<ReadOnlyConnection>, ReadOnl
     }
 }
 
+/// Whether a workflow could hold a task: a step or a run's conflict names one of
+/// `ids`, or, with no ids, any run is still going. Reads only, so a request that
+/// is then refused leaves the store as it was.
+pub fn workflow_involved(home: &Path, ids: Option<&[String]>) -> Result<bool, ReadOnlyError> {
+    let Some(store) = open_read_only(&home.join("state/tasks.db"))? else {
+        return Ok(false);
+    };
+    if !store.tables.contains("workflow_runs") || !store.tables.contains("workflow_steps") {
+        return Ok(false);
+    }
+    let exists = |sql: &str, id: Option<&String>| {
+        store
+            .db
+            .query_row(sql, rusqlite::params_from_iter(id), |r| r.get::<_, bool>(0))
+            .map_err(ReadOnlyError::Read)
+    };
+    let Some(ids) = ids else {
+        return exists(
+            "SELECT EXISTS (SELECT 1 FROM workflow_runs WHERE status IN ('running', 'waiting'))",
+            None,
+        );
+    };
+    for id in ids {
+        if exists(
+            "SELECT EXISTS (SELECT 1 FROM workflow_steps WHERE task_id = ?1)
+                 OR EXISTS (SELECT 1 FROM workflow_runs WHERE instr(conflict, ?1) > 0)",
+            Some(id),
+        )? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used)]

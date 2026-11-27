@@ -100,4 +100,6 @@ test("a run's own items are listed with their actions, though no task carries th
   expect(html).toContain(">Retry step</button>");
   expect(html).toContain(">Skip step</button>");
   expect(html).toMatch(/href="#\/runs\/run_aaaaaaaaaa"[^>]*>Answer in run<\/a>/);
+  // Repeated rows make no action the primary one (UI-14).
+  expect(html).not.toContain("pc-btn--primary");
 });

@@ -5,6 +5,7 @@ import type { ActionRunner } from "../data/actions";
 import type { StoreState } from "../data/store";
 import { useDialogs } from "../ds/useDialogs";
 import { Button } from "../ds/Button";
+import { afterVerdict } from "../data/announce";
 
 /** One button for one service action, with its own pending, error and already-handled state. */
 export function ActionButton({ runner, id, action, confirmDone, strong = false, "aria-label": ariaLabel }: { runner: ActionRunner; id: string; action: Action; confirmDone?: (s: StoreState) => boolean; strong?: boolean; "aria-label"?: string }) {
@@ -25,7 +26,7 @@ export function ActionButton({ runner, id, action, confirmDone, strong = false, 
     const ask = runner.needsConfirm(action);
     if (ask && !await dialogs.confirm(ask, action.label, action.label)) return;
     pressed.current = true;
-    void runner.run(id, action, confirmDone);
+    void runner.run(id, action, confirmDone).then(outcome => { if (outcome.status === "done") afterVerdict(action); });
   };
   return <span className="pc-action">
     <Button ref={button} disabled={!!unavailable} title={unavailable} aria-label={ariaLabel} size="sm" variant={action.style === "danger" ? "danger" : strong ? "primary" : "secondary"} busy={state.status === "pending"} onClick={click}>{state.status === "pending" ? `${action.label}…` : action.label}</Button>

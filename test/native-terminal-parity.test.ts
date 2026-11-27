@@ -343,12 +343,13 @@ test.skipIf(!front)("an executor session is refused natively over stdio like for
   expect(existsSync(join(native, ".pacer", "terminals"))).toBe(false);
 }, 180_000);
 
-test.skipIf(!front)("an enforcement identity is refused natively over stdio like forced forwarding", async () => {
+test.skipIf(!front)("an enforcement identity over stdio is refused by Core like forced forwarding", async () => {
   const enforce = async (call: Call) => { const out: string[] = []; for (const ask of [(c: Call) => c("terminal.list", { x: 1 }), (c: Call) => c("terminal.create", { request_id: "e", kind: "shell" }), (c: Call) => c("terminal.rename", { id: ID, title: "T", expect_rev: 1 }), (c: Call) => c("terminal.close", { id: ID, expect_rev: 1 })]) out.push(await ask(call)); return out; };
   const identity = { PACER_ENFORCEMENT_TOKEN: "pet_x" };
   const [native, forwarded] = [realpathSync(home()), realpathSync(home())];
   const a = await overStdio(native, null, enforce, identity), b = await overStdio(forwarded, FORWARD, enforce, identity);
   expect(a.result).toEqual(b.result);
   expect(a.result[0]).toContain("Enforcement identity only reports a native child denial");
-  expect(markers(a.stderr).length).toBe(4);
+  // API-5: a stdio session holding the identity runs nothing natively.
+  expect(markers(a.stderr).length).toBe(0);
 }, 180_000);

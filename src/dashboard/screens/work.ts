@@ -1,6 +1,7 @@
 import {heading,span,wrap} from "../frame";
 import type {Row,TaskDetail,ScreenCtx} from "./types";
-import {COORDINATES,managedSkipWords,taskStatus} from "../../view-model/words";
+import {COORDINATES,managedSkipWords} from "../../view-model/words";
+import {taskStatusIn} from "../../view-model/run-gate";
 
 /** A task a person started that runs without coordinating sub-agents says why. */
 export function managedSkipRows(detail:TaskDetail|undefined,width:number):Row[]{
@@ -19,7 +20,7 @@ export function workRows(ctx:ScreenCtx,detail:TaskDetail,width:number):Row[]{
  for(const pool of tree.totals.usagePools??[])rows.push({line:[span(`${pool.account}: ${pool.observedDeltaPct===null?"usage unknown":`${pool.observedDeltaPct.toFixed(1)}% observed shared usage`}${pool.unknownAttempts?` · ${pool.unknownAttempts} unmeasured`:""}`,{fg:"muted"})]});
  for(const node of tree.nodes){
   const prefix=`${"  ".repeat(Math.min(node.depth,6))}${node.depth?"↳ ":""}`;
-  const status=`${taskStatus(node).label}${node.review?node.review.accepted?" · accepted":" · rejected":""}`;
+  const status=`${taskStatusIn(ctx.s.attention,{...node,id:node.taskId}).label}${node.review?node.review.accepted?" · accepted":" · rejected":""}`;
   const text=`${prefix}${node.title} · ${status}${node.model?` · requested ${node.model}`:" · model unknown"}${node.actualModel?` · observed ${node.actualModel}`:""}`;
   for(const line of wrap(text,width,2))rows.push({line:[span(line)]});
   if(node.dependencies.length)rows.push({line:[span(`${"  ".repeat(Math.min(node.depth+1,7))}depends on ${node.dependencies.join(", ")}`,{fg:"secondary"})]});

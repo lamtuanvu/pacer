@@ -16,32 +16,11 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - **One key can no longer approve a workflow step.** In the terminal dashboard, Enter on a workflow question in Home or Needs you opens the answer form instead of picking the first answer, and an approval or human-step form starts with nothing chosen. Every one-click answer to a human step or plan approval asks for confirmation first, in the app, tray and terminal.
 - **Needs you in the web app lists a workflow run's own items.** Questions (publishing included), a blocked planner, a failed step and planning budgets were missing there; they are now listed, counted in their tabs and answerable from the row or the run view.
 - Live validation: the guarded `pacer` lets a sandbox planner turn send a task back (`pacer review <task> --send-back`), and still refuses `--retry-on` and other delegation.
-
-### Changed
-
-- **Desktop updates no longer wait for handover-capable work.** Runners that advertise the handover protocol, their executor sessions and session hosts started by this version are marked as survivors. When the installed app and the update both support it (0.18.7 or later), an in-app update installs while they run: the update helper checks each survivor's code signature against the release signer before installing, and the new service asks older runners to hand over once the update commits (never during the rollback window). Other work, such as queue drains, launches, Orca sessions, remote runs and work started on older versions, still makes the update wait. While an update can still roll back, `service.handover` signals nothing and returns `deferred: true` ([ADR 2026-11-25](docs/decisions/2026-11-25-desktop-update-with-running-work.md)).
-- Settings › Dispatcher is now a hub with four tabs, each its own link: Overview (model choice and preview), Agents, Who can run what (guided rules) and Profiles (saved setups). The separate Agents, Accounts and Model matrix pages are gone; their links open Dispatcher › Agents and keep the selected agent.
-- Dispatcher › Agents lists the planner and executors beside one agent's page: usage, account and sign-in, where it runs, its models and its limits. Size each model, pick the default, turn models on or off, and add models from the agent's live listing (with a suggested size) or, for Claude Code, its aliases and pinned versions; any id can still be typed. Refresh re-reads an agent's models and usage. Models and limits save together from one save bar; Takes work and the planner's tier fallback apply at once.
-
-### Fixed
-
-- `pacer service restart` and `pacer update` now hand running work to the new service instead of warning "running work was not handed over: pacer core is restarting".
-- Settings › Updates no longer keeps showing a failed update after you install that release another way, such as by hand; pacer drops the installed offer and checks again.
-- After you install a newer pacer.app by hand, the app restarts its own older service onto the new version (handing running work over) instead of leaving the old service running with an "Older service" banner. It does this only on macOS, for the service it owns, with no update in progress.
-
-### Fixed
-
-- Live validation: executors, certification probes and orchestrator turns launched by a sandbox keep their own identity when they call the guarded `pacer`, so certification and orchestrator answers work without a wrapper script. Sandboxes also turn the login-shell environment off unless asked, so the login profile no longer reorders an executor's `PATH`; an unseeded sandbox still resolves agent CLIs from the inherited `PATH` behind its own `bin`.
-- Live validation: the guarded `pacer` keeps the caller's directory inside the sandbox home or repository, so relative paths from a task worktree resolve correctly. It ignores `.env` and `bunfig.toml` there, rejects identity paths with `..`, and passes the assistant server only a home inside the sandbox.
-
-### Fixed
-
-- **Workflow step workers can report.** An executor holding an attempt credential can now run `step.result`, `step.artifact` and `question.ask` (`pacer step result`, `pacer step artifact`, `pacer ask --type …`, and MCP tools) for its own step only. The identity comes from the verified credential and `PACER_TASK_ID`, which must agree; a step whose attempt was issued a credential cannot be reported on without it. No HTTP bearer gains an operation, and tasks that are not workflow steps are unchanged.
-- `pacer ask --blocks` without a value means `step`, as the workflow prompts show it.
-
-### Fixed
-
-- **Workflow orchestrator turns run only on the run's planner.** A turn queued for a busy planner is now started when the planner has a free slot instead of waiting out its deadline. When the planner is unavailable the turn stays queued with the reason, and no executor receives it or its run grant. `task.retry` refuses orchestrator tasks.
+- Workflow orchestrator turns work behind the native front door: `run publish`, `run submit-graph`, `run choose`, `run decide`, `step retry`, `step skip` and the other run-grant operations no longer answer HTTP 401. The front door forwards a `prg_` run grant on operation posts only and the core verifies it, as before. `pacer api --stdio` in an orchestrator turn now leaves every operation to the core instead of running some natively.
+- Security: `pacer api --stdio` holding an enforcement identity (`PACER_ENFORCEMENT_TOKEN`) or an assistant grant (`PACER_ASSISTANT_GRANT`) ran some operations natively, such as `repo.add`, even with an invalid token. The front door now leaves every operation to the core, which refuses them as before. Strict executors' denial reports and the assistant's MCP server are unchanged.
+- Interactive and PTY attempts that hold a scoped grant, such as workflow planner turns and delegating workers, now start instead of failing with "executor wrapper state is uncertain": the grant's command allow-list no longer refuses the session host, the session hooks or `pacer report` for the attempt.
+- The hooks `pacer install` adds to an agent's user settings no longer fail inside workflow planner turns and delegating workers. `pacer msg hook`, `pacer status --hook` and `pacer statusline` do nothing there, and `pacer guard` applies its usual policy instead of blocking every matched tool call; strict enforcement is unchanged. Cursor's `session-start` hook is not covered yet.
+- Installed builds can snooze and dismiss workflow items (run budget, stopped planner and restart wait) instead of answering "unknown attention item", and `snapshot.get` lists them while a workflow run is live.
 - **Workflow code now reaches the run branch and the pull request.** A code step waits for review when its task finishes: the run's planner is woken to review it, and the person can accept or reject it from Needs you or `pacer review`. The next step starts only after the accepted work is merged into the run branch, and every later step of that run (reviewers and research steps included) starts from that branch. Steps that already advanced before an upgrade are left as they are.
 - **Executors on workflow code steps are told to commit.** Uncommitted tracked changes are refused when the step reports its result; accepting refuses uncommitted or untracked files and commits left on another branch, so no work is silently left out. Ordinary tasks keep their instructions and review behaviour.
 - A generated sub-workflow now works on its parent run's branch, so the parent's publish approval and `pacer run publish` include its code; a retry of a step under review takes the step over and its work is merged.
@@ -65,7 +44,43 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - The review gate is usable from Needs you in the web app, the browser tray and the terminal. Code-step reviews, merge conflicts, base-update conflicts and sub-workflow branches that cannot reach the run branch are listed with the actions that can work, and a finished or partial step keeps Accept and Reject.
 - An accept or base update that conflicts says that nothing was merged, instead of reporting success or nothing. Accepting a code step says it merges, the tray asks before it does, and a run is not stopped by one key press.
 - A base-update conflict keeps one open record, shows the commands that resolve it, and its record can be accepted only once the conflict is resolved. A parked step reads "waiting for review".
+- A step under review reads "Waiting for review" on every surface, a Dispatch conflict card says "Merge conflict", review-gate titles end with the run letter, and an accept, reject or send-back is announced with focus kept on the page. Conflict records are titled by step and described in plain words, and a blocked planner's reason is no longer shown as an internal code.
+- Needs you and Dispatch show review-gate actions as secondary buttons, the terminal's detail pane agrees with its list about a step under review, and a review gate can no longer be dismissed or snoozed (dismissing it dismissed the task under review).
+- A task that a workflow review is waiting on cannot be dismissed, archived or cleaned (also on a remote host) and keeps its worktree, and "Send back to resolve" reports success only when the task actually resumed; a task already dismissed or without its worktree says so and keeps the conflict.
 - A generated run whose code cannot be added to the run branch is shown in Needs you with the reason.
+
+## [0.18.8] - 2026-11-26
+
+### Changed
+
+- Settings › Dispatcher is now a hub with four tabs, each its own link: Overview (model choice and preview), Agents, Who can run what (guided rules) and Profiles (saved setups). The separate Agents, Accounts and Model matrix pages are gone; their links open Dispatcher › Agents and keep the selected agent.
+- Dispatcher › Agents lists the planner and executors beside one agent's page: usage, account and sign-in, where it runs, its models and its limits. Size each model, pick the default, turn models on or off, and add models from the agent's live listing (with a suggested size) or, for Claude Code, its aliases and pinned versions; any id can still be typed. Refresh re-reads an agent's models and usage. Models and limits save together from one save bar; Takes work and the planner's tier fallback apply at once.
+
+## [0.18.7] - 2026-11-26
+
+### Changed
+
+- **Desktop updates no longer wait for handover-capable work.** Runners that advertise the handover protocol, their executor sessions and session hosts started by this version are marked as survivors. When the installed app and the update both support it (0.18.7 or later), an in-app update installs while they run: the update helper checks each survivor's code signature against the release signer before installing, and the new service asks older runners to hand over once the update commits (never during the rollback window). Other work, such as queue drains, launches, Orca sessions, remote runs and work started on older versions, still makes the update wait. While an update can still roll back, `service.handover` signals nothing and returns `deferred: true` ([ADR 2026-11-25](docs/decisions/2026-11-25-desktop-update-with-running-work.md)).
+
+### Fixed
+
+- `pacer service restart` and `pacer update` now hand running work to the new service instead of warning "running work was not handed over: pacer core is restarting".
+- Settings › Updates no longer keeps showing a failed update after you install that release another way, such as by hand; pacer drops the installed offer and checks again.
+- After you install a newer pacer.app by hand, the app restarts its own older service onto the new version (handing running work over) instead of leaving the old service running with an "Older service" banner. It does this only on macOS, for the service it owns, with no update in progress.
+
+### Fixed
+
+- Live validation: executors, certification probes and orchestrator turns launched by a sandbox keep their own identity when they call the guarded `pacer`, so certification and orchestrator answers work without a wrapper script. Sandboxes also turn the login-shell environment off unless asked, so the login profile no longer reorders an executor's `PATH`; an unseeded sandbox still resolves agent CLIs from the inherited `PATH` behind its own `bin`.
+- Live validation: the guarded `pacer` keeps the caller's directory inside the sandbox home or repository, so relative paths from a task worktree resolve correctly. It ignores `.env` and `bunfig.toml` there, rejects identity paths with `..`, and passes the assistant server only a home inside the sandbox.
+
+### Fixed
+
+- **Workflow step workers can report.** An executor holding an attempt credential can now run `step.result`, `step.artifact` and `question.ask` (`pacer step result`, `pacer step artifact`, `pacer ask --type …`, and MCP tools) for its own step only. The identity comes from the verified credential and `PACER_TASK_ID`, which must agree; a step whose attempt was issued a credential cannot be reported on without it. No HTTP bearer gains an operation, and tasks that are not workflow steps are unchanged.
+- `pacer ask --blocks` without a value means `step`, as the workflow prompts show it.
+
+### Fixed
+
+- **Workflow orchestrator turns run only on the run's planner.** A turn queued for a busy planner is now started when the planner has a free slot instead of waiting out its deadline. When the planner is unavailable the turn stays queued with the reason, and no executor receives it or its run grant. `task.retry` refuses orchestrator tasks.
 
 ## [0.18.6] - 2026-11-26
 

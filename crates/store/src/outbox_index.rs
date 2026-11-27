@@ -58,6 +58,7 @@ fn is_workflow_attention_id(id: &str) -> bool {
         || id.starts_with("budget_msg_warn:")
         || id.starts_with("budget_msg_spent:")
         || id.starts_with("orchestrator_failed:")
+        || id.starts_with("step_failed:")
         || id.starts_with("unresolved_wake:")
         || id.starts_with("run_review:")
 }

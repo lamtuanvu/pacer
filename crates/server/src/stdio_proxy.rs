@@ -343,6 +343,7 @@ async fn forward_input<
                     &params,
                 )
                 && !crate::native::msg_stays_forwarded(op.name, ctx)
+                && !crate::native::workflow_hold_stays_forwarded(ctx, op.name, &params)
                 && !crate::native::msg_answer_stays_forwarded(op.name, ctx, &params)
                 && !crate::native::repo_registry_stays_forwarded(&ctx.at_now(), op.name, &params)
                 && !crate::native::discovery_stays_forwarded(&ctx.at_now(), op.name, &params)
@@ -1316,7 +1317,18 @@ pub async fn run_stdio(core: Vec<String>, env: HashMap<String, String>) -> i32 {
 }
 
 async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i32> {
-    let scoped_work = env.contains_key("PACER_WORK_GRANT");
+    // A scoped session is authorized by the core alone, so nothing runs natively: a work grant,
+    // an enforcement or assistant identity (API-5), or an orchestrator turn with or without its
+    // run grant (API-5b).
+    let scoped_work = env.contains_key("PACER_WORK_GRANT")
+        || env.contains_key("PACER_RUN_GRANT")
+        || env
+            .get("PACER_ROLE")
+            .is_some_and(|role| role == "orchestrator")
+        // As in TypeScript, an empty identity is no identity.
+        || ["PACER_ENFORCEMENT_TOKEN", "PACER_ASSISTANT_GRANT"]
+            .iter()
+            .any(|name| env.get(*name).is_some_and(|value| !value.is_empty()));
     let forward = env
         .get("PACER_FORWARD_OPS")
         .map(String::as_str)

@@ -2,7 +2,7 @@
 import { useEffect, useRef } from "preact/hooks";
 import { stepMarkerFor, stepMarkerGlyph, runStatus } from "../../../../src/view-model/runs";
 import { sentenceCase } from "../../../../src/view-model/run-board";
-import { mergeConflictStatus } from "../../../../src/view-model/words";
+import { mergeConflictStatus, stepReviewStatus } from "../../../../src/view-model/words";
 import { Creature, PersonFigure, creatureHeight } from "./MascotArt";
 import { FIGURE, GAP_X, STATION_H, STATION_W, type BoardNode, type BoardZone, type LiveBoardLayout } from "./live-board-layout";
 import { graphStatusLabel, nodeLabel } from "./live-board-model";
@@ -14,7 +14,7 @@ export interface CanvasAgent { taskId: string; nodeId: string; x: number; y: num
 export function deskWords(n: { status: string; waitsOnYou: boolean; awaitsReview?: boolean; conflict?: boolean }): { glyph: string; label: string; cls: string } {
   if (n.waitsOnYou) return { glyph: stepMarkerGlyph("waits_you"), label: "Waits on you", cls: "you" };
   if (n.conflict) return { glyph: mergeConflictStatus.glyph, label: mergeConflictStatus.label, cls: "you" };
-  if (n.awaitsReview) return { glyph: stepMarkerGlyph(stepMarkerFor({ status: n.status })), label: "Waiting for review", cls: n.status };
+  if (n.awaitsReview) return { glyph: stepReviewStatus.glyph, label: stepReviewStatus.label, cls: n.status };
   if (n.status === "pending") return { glyph: stepMarkerGlyph("unknown"), label: "Not started", cls: "pending" };
   const s = runStatus(n.status);
   return { glyph: stepMarkerGlyph(stepMarkerFor({ status: n.status })), label: s.label, cls: n.status };

@@ -1,7 +1,7 @@
 /** Home: the app's Overview — Needs you, Running, Capacity, Done today, in that order. */
 import { capacity, counts, doneToday, needsYou, otherReposNeedingYou, reviewQueue, running } from "../../view-model/selectors";
 import { attentionStatus, taskOutcome } from "../../view-model/words";
-import { taskStatusIn } from "../../view-model/run-gate";
+import { taskStatusIn, holdsTask, canDismiss } from "../../view-model/run-gate";
 import { executorEligibility, executorPace, queueWait } from "../../view-model/capacity";
 import { displayTitle } from "../../view-model/titles";
 import { ago, elapsed } from "../../view-model/time";
@@ -32,7 +32,7 @@ export function homeScreen(ctx: ScreenCtx): ScreenView {
     // As the app: the task's complete title, else the attention item's own. Titles get the larger share of the row.
     const title = task?.fullTitle?.trim() || (a as { fullTitle?: string }).fullTitle?.trim() || a.title;
     const acts = defined(a.actions.map(action => serviceAct(ctx, action, title)));
-    const dismiss = opAct(ctx, "Dismiss", "attention.dismiss", { id: a.id });
+    const dismiss = !canDismiss(s.attention, a) ? undefined : opAct(ctx, "Dismiss", "attention.dismiss", { id: a.id });
     const review: Act | undefined = a.kind === "review" && a.taskId ? { label: "Review changes", effect: { type: "navigate", screen: "review", id: a.taskId } } : undefined;
     // A run question opens its form: Enter must not pick an answer for the person.
     const answer = runQuestionAnswer(a, ctx.supports);
@@ -141,7 +141,7 @@ export function taskItem(ctx: ScreenCtx, t: ClientTask): Item {
 function doneItem(ctx: ScreenCtx, t: ClientTask, waiting: boolean): Item {
   const review: Act | undefined = waiting ? { label: "Review", effect: { type: "navigate", screen: "review", id: t.id } } : undefined;
   const details: Act = { label: "Open in Tasks", effect: { type: "navigate", screen: "sessions", id: t.id } };
-  const dismiss = opAct(ctx, "Dismiss", "task.dismiss", { ids: [t.id], ...(typeof t.rev === "number" ? { expect_rev: t.rev } : {}) });
+  const dismiss = holdsTask(ctx.s.attention, t.id) ? undefined : opAct(ctx, "Dismiss", "task.dismiss", { ids: [t.id], ...(typeof t.rev === "number" ? { expect_rev: t.rev } : {}) });
   return { id: `task:${t.id}`, primary: review ?? details, actions: defined([review ? details : undefined, dismiss]), keys: dismiss ? { x: dismiss } : {} };
 }
 

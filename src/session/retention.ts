@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { listTasks } from "../tasks/store";
+import { reviewHolds } from "../workflow/review";
 import { TERMINAL_STATES, type TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
 const ARTIFACTS=["session.state","session.state.tmp","session.activity","session.log","session.log.1","session.ckpt","session.ckpt.tmp","session.sock.path","session.host","session.version","session.json"];
@@ -18,7 +19,7 @@ export function pruneSessions(ctx:Ctx,days=14):void {
   try {
     for(const task of listTasks(ctx,Number.MAX_SAFE_INTEGER)) {
       const settled=task.attempts.at(-1)?.endedAt ?? task.createdAt;
-      if(TERMINAL_STATES.includes(task.state) && ctx.now-settled > days*86400) pruneTaskSessions(ctx,task);
+      if(TERMINAL_STATES.includes(task.state) && ctx.now-settled > days*86400 && !reviewHolds(ctx,task.id)) pruneTaskSessions(ctx,task);
     }
   } catch { /* retention must not prevent launches */ }
 }
@@ -26,6 +27,6 @@ export function pruneSessions(ctx:Ctx,days=14):void {
 /** Clean-command hook for settled, reviewed/dismissed/resolved in-place tasks too. */
 export function cleanSettledSessions(ctx:Ctx):void {
   for(const task of listTasks(ctx,Number.MAX_SAFE_INTEGER)) {
-    if(task.review || task.dismissed || task.resolved) pruneTaskSessions(ctx,task);
+    if((task.review || task.dismissed || task.resolved) && !reviewHolds(ctx,task.id)) pruneTaskSessions(ctx,task);
   }
 }

@@ -109,7 +109,8 @@ async function exchange(home: string, requests: { id: number; params: unknown }[
       if (typeof reply.id === "number") replies.set(reply.id, reply);
     }
     const markers = output.stderr.split("\n").filter(line => /^native task\.send \d+$/.test(line));
-    expect(markers).toEqual(forward ? [] : requests.map(r => `native task.send ${r.id}`));
+    // API-5: a stdio session holding an enforcement identity runs nothing natively.
+    expect(markers).toEqual(forward || env.PACER_ENFORCEMENT_TOKEN ? [] : requests.map(r => `native task.send ${r.id}`));
     return replies;
   } finally {
     if (child.exitCode === null) { child.kill("SIGTERM"); await child.exited; }
@@ -227,7 +228,7 @@ test.skipIf(!front)("native task.send refuses exactly as TypeScript and delivers
   expect(typed().slice(before).split("go with plan B").length - 1).toBe(2);
 }, 60000);
 
-test.skipIf(!front)("native task.send refuses an enforcement identity exactly as TypeScript, before its params and without effects", async () => {
+test.skipIf(!front)("task.send over stdio refuses an enforcement identity exactly as TypeScript, before its params and without effects", async () => {
   const ctx = fakeCtx();
   mkdirSync(join(ctx.pacerHome, "state"), { recursive: true, mode: 0o700 });
   const live = make(ctx, "built-in run");

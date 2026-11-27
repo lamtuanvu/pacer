@@ -1,4 +1,4 @@
-import { conflictRecordFor, isConflictGate } from "../../../../src/view-model/run-gate";
+import { canDismiss, conflictRecordFor } from "../../../../src/view-model/run-gate";
 import { mergeConflictStatus } from "../../../../src/view-model/words";
 import { useWorkspaceKey, useWorkspaceState } from '../../workspace/state';
 import { LazyWorkPanels } from "../../shell/panels/LazyWorkPanels";
@@ -61,8 +61,9 @@ const taskLink = (query: RouteQuery) => (id: string) => withQuery(`#/workspace?t
 /** Card actions retain scoped result links and open questions in the Answer panel. */
 function itemActions(item: AttentionItem, runner: ActionRunner, strong: boolean, count: 1 | 2, query: RouteQuery, ops: ReadonlySet<string>) {
   return item.actions.slice(0, count).map((action, i) => {
-    // A workflow gate's actions are what can be done now: never replaced.
-    if (item.gate) return <ActionButton key={action.label} runner={runner} id={`${item.id}:${action.label}`} strong={strong && i === 0} action={action} confirmDone={gone(item)} />;
+    // A workflow gate's actions are what can be done now: never replaced. A run can
+    // hold many gates, so none is the screen's primary (UI-14).
+    if (item.gate) return <ActionButton key={action.label} runner={runner} id={`${item.id}:${action.label}`} action={action} confirmDone={gone(item)} />;
     if ((action.op === "task.answer" || action.op === "dispatch.answer")) {
       return <TextAction key={i} href={withQuery(`#/workspace?task=${encodeURIComponent(item.taskId!)}`, query)}>{action.label}</TextAction>;
     }
@@ -85,11 +86,11 @@ function AttentionCard({ card, snapshot, runner, now, query, actions, ops, narro
     label: item.kind === "question" ? "Answer" : item.kind === "failed" ? "Inspect failures" : "Review",
     href: `#/workspace?task=${encodeURIComponent(item.taskId)}`,
   } : null;
-  if (narrow && destination) return <li data-attention-id={item.id} className="pc-dispatch-card"><ListRowLink className={`pc-narrow-attention pc-narrow-attention--${bad ? "bad" : item.kind === "review" ? "review" : "warn"}`} href={withQuery(destination.href, query)}><StatusGlyph status={item.kind === "review" && !isConflictGate(item) ? { ...status, tone: "info", glyph: "●" } : status} /><span className="pc-dispatch-decision__task"><strong className="pc-ellipsis" title={title}>{title}</strong><span className="pc-attn-card__caption muted" title={caption}>{caption}</span></span><span className="pc-narrow-attention__action">{item.kind === "failed" ? "Inspect" : destination.label}</span></ListRowLink></li>;
+  if (narrow && destination) return <li data-attention-id={item.id} className="pc-dispatch-card"><ListRowLink className={`pc-narrow-attention pc-narrow-attention--${bad ? "bad" : item.kind === "review" ? "review" : "warn"}`} href={withQuery(destination.href, query)}><StatusGlyph status={item.kind === "review" && !item.gate ? { ...status, tone: "info", glyph: "●" } : status} /><span className="pc-dispatch-decision__task"><strong className="pc-ellipsis" title={title}>{title}</strong><span className="pc-attn-card__caption muted" title={caption}>{caption}</span></span><span className="pc-narrow-attention__action">{item.kind === "failed" ? "Inspect" : destination.label}</span></ListRowLink></li>;
   return <li data-attention-id={item.id} tabIndex={0} className="pc-dispatch-card">
     <ListRow layout="attention" className={`pc-attn-card${actions === 1 && item.kind === "review" ? " pc-attn-card--review" : ""}`} outlined tone={bad ? "bad" : actions === 1 && item.kind === "review" ? undefined : "warn"}
-      leading={<StatusGlyph status={actions === 1 && item.kind === "review" && !isConflictGate(item) ? { ...status, tone: "info", glyph: "●" } : status} />}
-      content={<div className={actions === 1 ? "pc-dispatch-attention-copy" : undefined}><div className="pc-attn-card__title"><span className="sr-only">{status.label}: </span>{card.kind === "task"
+      leading={<StatusGlyph status={actions === 1 && item.kind === "review" && !item.gate ? { ...status, tone: "info", glyph: "●" } : status} />}
+      content={<div className={actions === 1 ? "pc-dispatch-attention-copy" : undefined}><div className="pc-attn-card__title">{item.gate ? <Pill tone={status.tone}>{status.label}</Pill> : <span className="sr-only">{status.label}: </span>}{card.kind === "task"
         ? <TextAction className="pc-ellipsis" href={taskLink(query)(card.id)} title={title}>{title}</TextAction>
         : <span className="pc-ellipsis" title={title}>{title}</span>}</div>
         <div className="pc-attn-card__caption muted" title={caption}>{caption}{more}</div></div>}
@@ -401,6 +402,10 @@ export function DispatchView({ snapshot, query, now, runner, routing = null, per
   </Page></NarrowContext.Provider>;
 }
 
+/** What the dismiss key sends for the selected item; nothing where the service would refuse. */
+export const dismissKeyAction = (attention: readonly AttentionItem[] | undefined, item: AttentionItem) =>
+  canDismiss(attention, item) ? { label: "Dismiss", op: "attention.dismiss", params: { id: item.id } } : null;
+
 function useAttentionKeys(query: RouteQuery) {
   const { state } = useTaskContext();
   const runner = useActions();
@@ -414,7 +419,10 @@ function useAttentionKeys(query: RouteQuery) {
       j: () => move(1), k: () => move(-1),
       Enter: () => { const active = document.activeElement as HTMLElement; (["BUTTON", "A"].includes(active?.tagName) ? active : active?.closest("[data-attention-id]")?.querySelector<HTMLElement>(".pc-list-row__actions button, .pc-list-row__actions a"))?.click(); },
       v: () => { const item = selected(); location.hash = withQuery(item?.taskId ? `#/workspace?task=${encodeURIComponent(item.taskId)}` : "#/needs-you", current.current.query); },
-      x: () => { const item = selected(); if (current.current.connected && item && state.features.ops.has("attention.dismiss")) void runner.run(`${item.id}:dismiss`, { label: "Dismiss", op: "attention.dismiss", params: { id: item.id } }, gone(item)); },
+      x: () => {
+        const item = selected(), action = item && dismissKeyAction(current.current.snapshot?.attention, item);
+        if (current.current.connected && item && action && state.features.ops.has("attention.dismiss")) void runner.run(`${item.id}:dismiss`, action, gone(item));
+      },
     };
     const offs = overviewHints.flatMap(hint => hint.keys === "d" ? [] : (hint.keys === "1–4" ? ["1", "2", "3", "4"] : hint.keys.split(" ")).map(key => keys.register({ keys: key, label: hint.label, scope: "dispatch", run: actions[key] ?? (() => {
       const { snapshot, query } = current.current;

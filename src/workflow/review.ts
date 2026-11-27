@@ -4,6 +4,7 @@
 // Spec: "Accepting a run task merges, then accepts" and "Starting a task".
 // Read helpers only; the engine owns the step transitions.
 import { existsSync } from "node:fs";
+import { basename } from "node:path";
 import type { Ctx } from "../types";
 import { CoreError } from "../core/errors";
 import { gitInfo, realpathSafe } from "../core/git";
@@ -12,8 +13,8 @@ import { readTask, updateTask } from "../tasks/store";
 import { canContinue, TERMINAL_STATES, type TaskRecord } from "../tasks/types";
 import { isCodeStep, type WorkflowDef } from "./schema";
 import {
-  attachStepTask, branchOwner, fanoutAttempt, getDefinition, getRun, removeRunConflicts, replaceRunConflicts,
-  runsSharingBranch, stepByTaskIfPresent, stepsOfRun, updateStep, workflowDatabase, type RunConflict, type RunRow, type StepRow,
+  attachStepTask, branchOwner, fanoutAttempt, getDefinition, getRun, liveRuns, removeRunConflicts, replaceRunConflicts,
+  runsSharingBranch, stepByTaskIfPresent, stepsOfRun, updateStep, workflowDatabase, workflowSchemaPresent, type RunConflict, type RunRow, type StepRow,
 } from "./store";
 
 /** Whether the row's step is an agent or fan-out branch step that changes code. */
@@ -55,7 +56,42 @@ export function mergeConflictFor(ctx: Ctx, runId: string, taskId: string): strin
  *  managed work has an attempt left (a continuation is a new attempt). */
 export function canSendBack(ctx: Ctx, task: TaskRecord): boolean {
   const work = getWork(ctx, task.id);
-  return canContinue(ctx, task) && !(work && task.attempts.length >= (work.options.maxAttempts ?? 3));
+  return canContinue(ctx, task) && !task.dismissed && !removedWorktree(task)
+    && !(work && task.attempts.length >= (work.options.maxAttempts ?? 3));
+}
+
+/** The task's own worktree when it is gone from this machine. */
+export function removedWorktree(task: TaskRecord): string | undefined {
+  const path = task.worktree ?? task.result?.worktree;
+  return path && !task.run?.host && !existsSync(path) ? path : undefined;
+}
+
+/** Whether a workflow review is waiting on this task: a step's changes without a
+ *  verdict (also while sent back), or an open conflict and its record. */
+export function reviewHolds(ctx: Ctx, taskId: string): boolean {
+  if (!workflowSchemaPresent(ctx)) return false;
+  const task = readTask(ctx, taskId);
+  if (!task || task.review || task.retriedBy) return false;
+  const row = stepByTaskIfPresent(ctx, taskId);
+  if (row && !["failed", "stopped", "limit"].includes(task.state) && awaitsReview(ctx, row)) {
+    const status = getRun(ctx, row.runId)?.status;
+    if (status === "running" || status === "waiting") return true;
+  }
+  return liveRuns(ctx).some(run => run.conflict?.some(entry => entry.taskId === taskId || entry.resolutionTaskId === taskId));
+}
+
+/** A held task is neither dismissed nor cleaned up: that would leave its review nothing to act on. */
+export function assertDismissable(ctx: Ctx, taskId: string): void {
+  if (reviewHolds(ctx, taskId)) {
+    throw new CoreError("not_allowed", `${taskId} cannot be dismissed: a workflow review is waiting on it. Accept, reject or send it back first.`);
+  }
+}
+
+/** Why a held task's session cannot be resumed, with what still works; null when it can be tried. */
+export function resumeBlocked(ctx: Ctx, task: TaskRecord): string | null {
+  const why = task.dismissed ? "it was dismissed" : removedWorktree(task) ? "its worktree was removed" : null;
+  if (!why || !reviewHolds(ctx, task.id)) return null;
+  return `Not sent back: ${task.id} cannot resume because ${why}. Nothing changed. Accept it (resolve any conflict by hand first), or reject it and retry the step.`;
 }
 
 /** A conflicting merge the orchestrator cannot send back: only the person can resolve it, so no turn is woken for it. */

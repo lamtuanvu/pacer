@@ -681,6 +681,7 @@ function createConflictResolutionTask(
       ? `Resolve it on task ${task.id}: send it back (pacer review ${task.id} --send-back --note "merge ${run.branch} into your branch, resolve and commit"), or merge ${run.branch} into ${taskBranch} in its worktree and commit; then accept ${task.id}. This record closes by itself.`
       : `Resolve it by hand: git worktree add <dir> -b pacer/${own} ${run.branch}, merge ${taskBranch} there, resolve and commit, then run: pacer review ${own} --accept.`,
   ].join("\n");
+  const subject = held ? `step "${held.stepId}${held.branch ? `/${held.branch}` : ""}"` : "task changes";
   const resolution = createTask(ctx, {
     brief: { goal: goal("<this task>"), repo: run.repo, base: run.branch },
     kind: "debug",
@@ -688,7 +689,7 @@ function createConflictResolutionTask(
     timeoutS: 3600,
     title: (task.id.startsWith("base:") ? `Merge conflict: update from ${task.id.slice("base:".length)}`
       : task.id.startsWith("child:") ? "Merge conflict: sub-workflow changes"
-      : `Merge conflict: task ${task.id}`).slice(0, 60),
+      : `Merge conflict: ${subject}`).slice(0, 60),
     requestId,
   });
   // A record, not work: needs_input so the 600s never-started sweep cannot mark it

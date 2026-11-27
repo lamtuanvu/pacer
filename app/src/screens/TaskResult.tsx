@@ -6,8 +6,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/ho
 import { answerSteps, sendBackSteps, userStartedRoot, withManagedFallback } from "../../../src/view-model/managed-root";
 import type { TaskDetail } from "../../../src/core/task-detail";
 import type { ApiTask } from "../../../src/api/read-model/types";
-import { conflictRecordFor, gateFor, isConflictGate } from "../../../src/view-model/run-gate";
-import { RunGatePanel, sendBackOnly } from "./review/RunGatePanel";
+import { readableBrief } from "../../../src/view-model/brief";
 import { COORDINATES, answerDeliveryWords, executorLabel, managedSkipWords, taskOutcome, taskStatus } from "../../../src/view-model/words";
 import { scopedTaskTree, taskTree, workTasks, type WorkRow } from "../../../src/view-model/task-tree";
 import { clock } from "../../../src/view-model/time";
@@ -57,7 +56,7 @@ export function TaskResultView({ task, verdict, changes, question, onChanges, em
         {task.acceptance.tail && <Disclosure className="pc-disclosure-panel" summary="Acceptance output" open={task.acceptance.state === "failed"}><div className="pc-disclosure-panel__body"><pre className="mono pc-code-scroll">{task.acceptance.tail}</pre></div></Disclosure>}
         {!compact && <Disclosure className="pc-disclosure-panel" summary={`Changes · ${task.files.length} files`} onToggle={e => { if (e.currentTarget.open) onChanges?.(); }}><div className="pc-disclosure-panel__body">{changes ?? <p className="muted">Expand to load changes.</p>}</div></Disclosure>}
       <Disclosure className="pc-disclosure-panel" summary="Executor transcript"><div className="pc-disclosure-panel__body"><pre className="mono pc-code-scroll">{task.summary ?? "No executor output recorded."}</pre></div></Disclosure>
-      {!compact && <Disclosure className="pc-disclosure-panel" summary="Brief"><div className="pc-disclosure-panel__body"><p className="report">{task.brief.goal}</p>{task.brief.acceptance && <code className="pc-code-scroll">{task.brief.acceptance}</code>}</div></Disclosure>}
+      {!compact && <Disclosure className="pc-disclosure-panel" summary="Brief"><div className="pc-disclosure-panel__body"><p className="report">{readableBrief(task.brief.goal)}</p>{task.brief.acceptance && <code className="pc-code-scroll">{task.brief.acceptance}</code>}</div></Disclosure>}
       <Disclosure className="pc-disclosure-panel" summary="Technical routing and cost"><div className="pc-disclosure-panel__body"><pre className="mono pc-code-scroll">{JSON.stringify({ routing: task.routing, cost: task.cost }, null, 2)}</pre></div></Disclosure>
       </Stack>
       </section>
@@ -162,7 +161,6 @@ function TaskResultLoaded({ task, reload, compact = false, focusAnswer = false, 
     catch { setChangesError("Changes unavailable. The worktree may have been removed."); }
     finally { setLoadingChanges(false); }
   }
-  const gate = gateFor(state.snapshot?.attention, task.id), recorded = conflictRecordFor(state.snapshot?.attention, task.id);
   async function submit(verdict: Verdict["verdict"]) {
     if (inFlight.current) return;
     if ((verdict === "send_back" || verdict === "reject") && !note.trim()) { setMessage("Add a note before confirming.");noteRef.current?.focus();return; }
@@ -178,17 +176,16 @@ function TaskResultLoaded({ task, reload, compact = false, focusAnswer = false, 
       if (result.status === "error" || result.status === "handled") setMessage(result.message);
       else {
         const response = runner.result(key) as {retry?:{id:string}} | undefined;
-        setMessage(verdict !== "accept" ? "Verdict recorded." : gate ? "Accepted. The changes were merged into the run branch." : "Marked accepted. Integration is separate.");
+        setMessage(verdict === "accept" ? "Marked accepted. Integration is separate." : "Verdict recorded.");
         if (response?.retry?.id) location.hash = `#/tasks/${encodeURIComponent(response.retry.id)}`;
       }
       reload();
     } catch (error) { setMessage(error instanceof Error ? error.message : "Could not record the verdict."); }
     finally { inFlight.current=false;setPending(false); }
   }
-  const record = recorded?.gate?.recordId === task.id ? recorded : undefined;
-  const canReview = !record && legacyReviewAvailable(task,state.features.ops.has("task.review"));
-  const panel = record ? <RunGatePanel item={record}/> : canReview ? <>{isConflictGate(gate) && <RunGatePanel item={gate!} offer={sendBackOnly}/>}<VerdictPanel gate={gate} recovery={!gate && (task.acceptance.state === "failed" || ["partial","failed","limit"].includes(task.state))} task={task} note={note} kind={kind} executor={executor} noteFor={noteFor} pending={pending} noteRef={noteRef}
-    onNote={setNote} onKind={setKind} onExecutor={setExecutor} onOpenNote={v=>{setNoteFor(v);queueMicrotask(()=>noteRef.current?.focus());}} onCancel={()=>setNoteFor(null)} onSubmit={v=>void submit(v)} /></> : undefined;
+  const canReview = legacyReviewAvailable(task,state.features.ops.has("task.review"));
+  const panel = canReview ? <VerdictPanel recovery={task.acceptance.state === "failed" || ["partial","failed","limit"].includes(task.state)} task={task} note={note} kind={kind} executor={executor} noteFor={noteFor} pending={pending} noteRef={noteRef}
+    onNote={setNote} onKind={setKind} onExecutor={setExecutor} onOpenNote={v=>{setNoteFor(v);queueMicrotask(()=>noteRef.current?.focus());}} onCancel={()=>setNoteFor(null)} onSubmit={v=>void submit(v)} /> : undefined;
   const isQuestion = legacyQuestionPending(task), asked = messageQuestion(task);
   const question = isQuestion ? <>{!state.connected&&<p id={`${answerId}-reason`} className="muted">Reconnecting… Send when pacer reconnects.</p>}<p>{task.question!.text}</p><Field label="Your answer"><TextArea value={answer} rows={4} onInput={e=>setAnswer(e.currentTarget.value)} /></Field><Button variant="primary" busy={pending} disabled={!state.connected || !answer.trim()} aria-describedby={!state.connected ? `${answerId}-reason` : undefined} title={!state.connected ? "Reconnecting… Send when pacer reconnects." : undefined} onClick={async()=>{
     if(inFlight.current)return;inFlight.current=true;setPending(true);

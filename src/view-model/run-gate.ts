@@ -1,27 +1,39 @@
 /** Workflow review-gate items and verdict results, in the words every surface uses. Framework-free. */
 import type { AttentionItem } from "../attention/types";
-import { mergeConflictStatus, taskStatus, type Status, type TaskStatusInput } from "./words";
+import { mergeConflictStatus, stepReviewStatus, taskStatus, type Status, type TaskStatusInput } from "./words";
 
 /** What accepting does: an ordinary task, and a workflow code step. */
 export const RECORD_ONLY_WORDS = "Accept records the verdict; you merge the branch.";
 export const MERGE_ON_ACCEPT_WORDS = "Accepting merges the changes into the run branch.";
 
 type Items = readonly AttentionItem[] | undefined;
-const stepReviewStatus: Status = { label: "Waiting for review", tone: "info", glyph: "◐" };
 /** The gate item about this task: a step under review or in conflict, or a branch conflict's record. */
 export const gateFor = (attention: Items, taskId: string): AttentionItem | undefined =>
   attention?.find(item => item.gate && item.taskId === taskId);
 /** The gate item whose conflict this task records. A record is not work: nothing runs it and it asks nothing. */
 export const conflictRecordFor = (attention: Items, taskId: string): AttentionItem | undefined =>
   attention?.find(item => item.gate?.recordId === taskId);
-/** A task's status in its lists and pages: what a gate holds up beats "completed",
- *  and a conflict record asks nothing. */
-export function taskStatusIn(attention: Items, task: TaskStatusInput & { id: string }): Status {
+/** A task a gate holds, itself or as its conflict record: it cannot be dismissed. */
+export const holdsTask = (attention: Items, taskId: string): boolean =>
+  !!gateFor(attention, taskId) || !!conflictRecordFor(attention, taskId);
+/** Whether an attention item may be dismissed: not a gate, and not about a held task. */
+export const canDismiss = (attention: Items, item: { id: string; taskId?: string }): boolean =>
+  !isReviewGate(item.id) && !(item.taskId && holdsTask(attention, item.taskId));
+/** What a gate says about a task, when one holds it: a conflict record asks nothing. */
+export function gateStatus(attention: Items, task: TaskStatusInput & { id: string }): Status | undefined {
   if (conflictRecordFor(attention, task.id) && task.state === "needs_input") return mergeConflictStatus;
   const gate = task.review ? undefined : gateFor(attention, task.id)?.gate?.kind;
-  if (gate === "step_conflict") return mergeConflictStatus;
-  if (gate === "step_review") return stepReviewStatus;
-  return taskStatus(task);
+  return gate === "step_conflict" ? mergeConflictStatus : gate === "step_review" ? stepReviewStatus : undefined;
+}
+/** A task's status in its lists and pages: what a gate holds up beats "completed". */
+export const taskStatusIn = (attention: Items, task: TaskStatusInput & { id: string }): Status =>
+  gateStatus(attention, task) ?? taskStatus(task);
+const VERDICT_SAID: Record<string, string> = { accept: "Accepted.", reject: "Rejected.", send_back: "Sent back." };
+/** What to announce once a verdict is recorded; null for any other action. */
+export function verdictAnnouncement(action: { label?: string; op: string; params: Record<string, unknown> }): string | null {
+  if (action.op === "dispatch.review") return action.params.accepted === true ? VERDICT_SAID.accept! : VERDICT_SAID.reject!;
+  const verdict = action.op === "task.review" ? String(action.params.verdict) : "";
+  return Object.hasOwn(VERDICT_SAID, verdict) ? VERDICT_SAID[verdict]! : null;
 }
 /** The tasks of a run's steps whose merge conflicted. */
 export const conflictedTasks = (attention: Items): Set<string> =>
@@ -37,6 +49,14 @@ export function runGateNote(runId: string, attention: Items): string | null {
 export const acceptWords = (item: AttentionItem | undefined): string => item?.gate ? MERGE_ON_ACCEPT_WORDS : RECORD_ONLY_WORDS;
 export const isConflictGate = (item: AttentionItem | undefined): boolean =>
   item?.gate?.kind === "step_conflict" || item?.gate?.kind === "branch_conflict";
+
+/**
+ * A review gate is not dismissible and cannot be snoozed: hiding it would take away
+ * the only offer to accept, send back or resolve, and dismissing its item would
+ * dismiss the task under review. It clears when the work is decided.
+ */
+export const isReviewGate = (id: string): boolean => id.startsWith("run_review:");
+export const REVIEW_GATE_STAYS = "This item stays until the work is decided: it cannot be dismissed or snoozed.";
 
 /** A call that succeeded without doing what was asked, such as an accept that conflicts. */
 export class OutcomeError extends Error {}

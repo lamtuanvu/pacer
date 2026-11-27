@@ -323,3 +323,81 @@ async fn public_listener_forwards_to_available_core() {
     core.shutdown().await;
     server.abort();
 }
+
+#[tokio::test]
+async fn a_run_grant_reaches_no_native_operation() {
+    // API-5b: the front door holds no authority for `prg_`. Every registered native operation is
+    // answered by the core, which receives the grant in the dedicated header and verifies it.
+    let script = r#"const server = Bun.serve({hostname:'127.0.0.1',port:0,fetch(req){const h=req.headers;return new Response(`core ${new URL(req.url).pathname} ${h.get('x-pacer-auth')} ${h.get('x-pacer-work-grant')} ${h.get('authorization')===null}`,{status:403})}});console.log(JSON.stringify({internal:{port:server.port}}));"#;
+    let bun = std::env::split_paths(&std::env::var_os("PATH").unwrap())
+        .map(|dir| dir.join("bun"))
+        .find(|path| path.is_file())
+        .unwrap();
+    let core = Arc::new(core_child::CoreChild::spawn(
+        vec![
+            bun.to_string_lossy().into_owned(),
+            "-e".into(),
+            script.into(),
+        ],
+        HashMap::new(),
+        None,
+    ));
+    for _ in 0..100 {
+        if core.target().await.is_some() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    assert!(core.target().await.is_some(), "fixture core did not start");
+    let dir = tempfile::tempdir().unwrap();
+    let ctx = Ctx::with(
+        dir.path().into(),
+        dir.path().join("pacer"),
+        Default::default(),
+        1_800_000_000.0,
+    );
+    let socket = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+        .await
+        .unwrap();
+    let port = socket.local_addr().unwrap().port();
+    let state = Arc::new(Listener {
+        core: core.clone(),
+        heartbeat: Arc::new(heartbeat::Heartbeat::new()),
+        ctx,
+        port,
+        token: "token".into(),
+        registry: service_registry(""),
+        scoped_work: false,
+        plugins: crate::native::plugins::Service::default(),
+        forward_log_follow: false,
+        forward_events: false,
+    });
+    let names = state.registry.names();
+    assert!(names.contains(&"version.get"), "{names:?}");
+    let server = tokio::spawn(async move {
+        axum::serve(
+            socket,
+            Router::new().fallback(any(handle)).with_state(state),
+        )
+        .await
+        .unwrap();
+    });
+    let grant = format!("prg_{}", "a".repeat(64));
+    // A forged human session and client header change nothing.
+    let headers = format!(
+        "Authorization: Bearer {grant}\r\nX-Pacer-Session: {}\r\nX-Pacer-Auth: bearer\r\nContent-Length: 2\r\n\r\n{{}}",
+        "b".repeat(64)
+    );
+    for name in names {
+        let path = format!("/v3/ops/{name}");
+        let response = request(port, "POST", &path, &headers).await;
+        assert!(response.starts_with("HTTP/1.1 403"), "{name}: {response}");
+        // The core sees the service bearer, which the fixture reports as present.
+        assert!(
+            response.contains(&format!("core {path} task Bearer {grant} false")),
+            "{name}: {response}"
+        );
+    }
+    core.shutdown().await;
+    server.abort();
+}

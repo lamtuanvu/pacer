@@ -4,7 +4,8 @@
 //! Rust's.
 //!
 //! Stays forwarded: `discovery-network` items (raised from the radio's network
-//! in TypeScript memory), dismissing a task item (it also dismisses the task),
+//! in TypeScript memory), workflow-run items other than person questions (only
+//! TypeScript derives them), dismissing a task item (it also dismisses the task),
 //! an unloadable strategy (TypeScript raises from a reduced input), and a store
 //! file or entry the TypeScript transaction would throw on.
 #![allow(clippy::result_large_err)]
@@ -22,6 +23,15 @@ use std::path::PathBuf;
 const TASK_KINDS: &[&str] = &[
     "question", "review", "failed", "limit", "stuck", "stalled", "message",
 ];
+
+/// Items only `src/workflow/attention.ts` derives. Person questions
+/// (`question:q_`) are composed natively too.
+fn workflow_kind(kind: &str) -> bool {
+    matches!(
+        kind,
+        "run_review" | "orchestrator_failed" | "step_failed" | "unresolved_wake"
+    ) || kind.starts_with("budget_")
+}
 
 fn invalid(message: impl Into<String>) -> CoreError {
     CoreError::new(Code::InvalidInput, message)
@@ -65,6 +75,7 @@ pub fn attention_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
     let id = params.get("id").and_then(Value::as_str).unwrap_or("");
     let kind = id.split(':').next().unwrap_or("");
     kind == "discovery-network"
+        || workflow_kind(kind)
         || (op == "attention.dismiss" && TASK_KINDS.contains(&kind))
         || pacer_config::strategy::load_strategy(&ctx.pacer_home).is_err()
         || !store_native(ctx, id)
@@ -173,6 +184,12 @@ fn transaction(
     allow_dismissed: bool,
     change: impl FnOnce(&mut Map<String, Value>),
 ) -> Result<(), CoreError> {
+    if pacer_lifecycle::attention::is_review_gate(id) {
+        return Err(CoreError::new(
+            Code::NotAllowed,
+            pacer_lifecycle::attention::REVIEW_GATE_STAYS,
+        ));
+    }
     with_lock(ctx, "attention", LockOptions::default(), || {
         let unusable = || {
             CoreError::new(

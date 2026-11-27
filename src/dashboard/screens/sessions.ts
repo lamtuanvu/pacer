@@ -10,7 +10,7 @@ import { cols, flex, glyph, heading, span, statusSpans, wrap } from "../frame";
 import type { Act, Item } from "../state";
 import { blank, defined, empty, MARK, opAct, time, wrapAfter } from "./common";
 import { conflictRows, errorRows, managedAnswerAct, reviewDetail, reviewItem } from "./review";
-import { conflictRecordFor, gateFor, taskStatusIn } from "../../view-model/run-gate";
+import { conflictRecordFor, gateFor, taskStatusIn, holdsTask } from "../../view-model/run-gate";
 import {workRows} from "./work";
 import { threadActs, threadMessages, threadRows } from "./thread";
 import type { Row, ScreenCtx, ScreenView } from "./types";
@@ -65,7 +65,7 @@ export function sessionItem(ctx: ScreenCtx, t: ClientTask): Item {
   // waiting for its answer is not a result yet, so it gets an answer action instead of verdicts.
   const verdictItem = gate ? reviewItem(ctx, gate, t, detail)
     : !record && !active && !asking && !t.review && !t.resolved && !t.dismissed && !t.retriedBy ? reviewItem(ctx,{taskId:t.id,kind:waitingForReview(t)?"review":"failed",title:displayTitle(t)} as AttentionItem,t,detail) : undefined;
-  const dismiss = !active ? opAct(ctx, "Dismiss", "task.dismiss", { ids: [t.id], ...rev }) : undefined;
+  const dismiss = !active && !holdsTask(ctx.s.attention, t.id) ? opAct(ctx, "Dismiss", "task.dismiss", { ids: [t.id], ...rev }) : undefined;
   const { reply, answer: threadAnswer } = threadActs(ctx, t.id, detail);
   return {
     id: `session:${t.id}`, primary: watch ?? review ?? answer,

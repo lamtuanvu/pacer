@@ -3,6 +3,12 @@ use std::collections::HashMap;
 
 mod guard;
 
+/// The installed session hook, which the core answers silently under a work grant.
+fn is_status_hook(args: &[String]) -> bool {
+    matches!(args, [_, flag, planner] if flag == "--hook"
+        && matches!(planner.as_str(), "claude-code" | "codex" | "cursor" | "opencode"))
+}
+
 pub fn main(argv: Vec<String>) -> i32 {
     let args = argv.get(1..).unwrap_or_default();
     let version = option_env!("PACER_BUILD_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"));
@@ -10,7 +16,9 @@ pub fn main(argv: Vec<String>) -> i32 {
         println!("{}", component_descriptor(version));
         return 0;
     }
-    if std::env::var_os("PACER_WORK_GRANT").is_some() && args.first().is_some_and(|a| a == "status")
+    if std::env::var_os("PACER_WORK_GRANT").is_some()
+        && args.first().is_some_and(|a| a == "status")
+        && !is_status_hook(args)
     {
         eprintln!("pacer: work grants cannot read global status");
         return 2;

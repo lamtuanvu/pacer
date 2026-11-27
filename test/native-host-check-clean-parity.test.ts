@@ -495,12 +495,13 @@ describe("stdio front door", () => {
     const [operator, enforced, granted] = native.sessions;
     expect(operator).toContain("native host.check");
     expect(operator).toContain("native host.clean");
-    expect(enforced).toContain("native host.check");
+    // API-5: the enforcement session, like the work-grant one, runs nothing natively.
+    expect(enforced).not.toMatch(TRACED);
     expect(granted).not.toMatch(TRACED);
     for (const trace of forwarded.sessions) expect(trace).not.toMatch(TRACED);
     // Admitted requests are forwarded unchanged: check, unmapped, unreachable, two broken host checkouts, clean; then
-    // the work-grant session.
-    expect(native.calls).toEqual([...Array(5).fill("host.check"), "host.clean", "host.check", "host.clean"]);
+    // the enforcement and work-grant sessions.
+    expect(native.calls).toEqual([...Array(5).fill("host.check"), "host.clean", "host.check", "host.clean", "host.check", "host.clean"]);
     expect(forwarded.calls.filter(call => call === "host.check")).toHaveLength(REFUSALS.filter(([op]) => op === "host.check").length + 5 + 2);
 
     const r = native.out as Record<string, any>;
