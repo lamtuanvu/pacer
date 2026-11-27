@@ -270,6 +270,9 @@ code.pc-code-wrap{display:block;min-width:0;max-width:100%;white-space:pre-wrap;
 .pc-search-picker__empty{padding:var(--space-3);margin:0;color:var(--ink-secondary);font-size:var(--type-caption-size)}
 @media(max-width:559px){.pc-search-picker{width:100%}.pc-search-picker__popover,.pc-search-picker[data-align=start] .pc-search-picker__popover{left:0;right:auto;width:100%}}
 .pc-tabs{display:flex;gap:var(--space-1);border-bottom:1px solid var(--line)}
+/* Route tabs scroll sideways inside their row on narrow screens instead of widening the page. */
+.pc-tabs--nav{max-width:100%;overflow-x:auto;overflow-y:hidden;scrollbar-width:none}
+.pc-tabs--nav>*{flex:none}
 .pc-tabs .pc-btn{background:transparent;border:0;border-bottom:var(--stroke-focus) solid transparent;border-radius:0;color:var(--ink-secondary)}
 .pc-approval-card{min-width:0;border:1px solid var(--line);border-radius:var(--radius-lg);background:var(--surface-page);overflow:hidden}
 .pc-approval-card>header{padding:var(--space-3);border-bottom:1px solid var(--line);background:var(--surface-card)}
@@ -856,6 +859,8 @@ code.pc-code-wrap{display:block;min-width:0;max-width:100%;white-space:pre-wrap;
  .pc-sortable--icons .pc-sortable__actions .pc-btn{min-height:var(--control-touch);min-width:var(--control-touch)}
 }
 @container(max-width:520px){.pc-sortable--icons .pc-sortable__row{display:flex;flex-wrap:wrap}}
+/* Narrow agent rows keep their move and remove controls on the name line; the status pill wraps below the name. */
+@container(max-width:520px){.pc-sortable--executor .pc-sortable__row>.pc-sortable__content{flex:1 1 0;min-width:0}.pc-sortable--executor .pc-sortable__row>.pc-sortable__actions{order:2;width:auto;flex:none}.pc-sortable--executor .pc-sortable__row>.pc-executor-state{order:3;flex-basis:100%}}
 .pc-choice-picker--mono .pc-choice-picker__value,.pc-choice-picker--mono .pc-choice-picker__option-label{font-family:var(--font-mono)}
 /* Settings owns the full left panel; the shared collapse control stays available beside its header. */
 .pc-side-panel--left:has(.pc-settings-nav){position:relative;flex-basis:var(--size-272);width:var(--size-272)}

@@ -140,9 +140,9 @@ export function SortableList({ label, items, onReorder, onRemove, disabled, rend
         </div>
         {renderExtra?.(item, index)}
       </li>)}
-      {layout === "executor" && <li className="pc-sortable__drop-guide" aria-hidden="true">Drag an executor here to move it to the end</li>}
+      {layout === "executor" && <li className="pc-sortable__drop-guide" aria-hidden="true">Drag an agent here to move it to the end</li>}
     </ol>
-    {layout === "executor" && <p className="pc-sortable__help">Drag to reorder, or use the Move up and Move down buttons with the keyboard. Use + to add an available executor.</p>}
+    {layout === "executor" && <p className="pc-sortable__help">Drag to reorder, or use the Move up and Move down buttons with the keyboard. Use + to add an agent that is not listed.</p>}
     <p className="pc-sortable__status" role="status" aria-live="polite">{announcement}</p>
   </div>;
 }

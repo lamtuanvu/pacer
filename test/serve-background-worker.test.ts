@@ -39,8 +39,9 @@ test("periodic loops run in the background worker", async () => {
   createTask(ctx, { brief: { goal: "g", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
   const server = startServer(() => ctx, { bgStopGraceMs: 1000, port: 0, listener: false, backgroundWorker: true, pumpMs: 25 });
   try {
-    // A real worker is spawned and takes over the periodic loops.
-    await waitFor(() => readDiag(ctx)?.state === "running");
+    // A real worker is spawned and takes over the periodic loops. Its first heartbeat can arrive
+    // before the message naming the loops it manages, so wait for both.
+    await waitFor(() => readDiag(ctx)?.state === "running" && !!readDiag(ctx)?.managed?.length);
     const diag = readDiag(ctx)!;
     // All six periodic loops are managed (and run) in the worker.
     for (const name of ["pump", "broker", "sweep", "certification", "usage", "observations"]) {

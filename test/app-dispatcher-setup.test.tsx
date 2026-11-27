@@ -4,7 +4,7 @@ import { dispatchConfigSchema } from "../src/dispatch/types";
 import { SortableList } from "../app/src/ds/SortableList";
 import { SaveBar } from "../app/src/ds/SaveBar";
 import { countSetupChanges, discardSetup, ladderChanges, moveKey, orderChanges, PartialSaveError, positionAnnouncement, reconcileSetup, ruleChanges, saveSetup, type SetupDraft } from "../app/src/model/dispatcher-setup";
-import { DispatcherGuidedSetup, SetupEditor } from "../app/src/screens/settings/DispatcherSetup";
+import { DispatcherGuidedSetup, RepositoryLists, SetupEditor } from "../app/src/screens/settings/DispatcherSetup";
 import { SavedSetups } from "../app/src/screens/settings/Dispatcher";
 import { TaskContext } from "../app/src/screens/task-shared";
 import { initialState } from "../app/src/data/store";
@@ -88,29 +88,41 @@ const view = { strategy: "default", planner: "claude-code", plannerAccount: "cla
 const routing = { rules: [{ kinds: ["tests"], executors: ["codex"] }, { executors: ["claude-code", "codex"] }], available: ["claude-code", "codex", "opencode"] };
 const wrap = (node: preact.ComponentChildren) => renderToString(<TaskContext.Provider value={{ state, api: { call: async () => ({}) } } as any}>{node}</TaskContext.Provider>);
 
-test("guided setup shows who may work as sortable lists beside the executor pool", () => {
+test("Who can run what shows the default list, the task-kind lists and the choice method beside the pool", () => {
   const html = wrap(<SetupEditor view={view} eligibility={{ kind: "global", rules: routing.rules, available: routing.available }} onSaved={() => {}} onDirtyChange={() => {}} />);
-  for (const copy of ["Who may do the work", "How should Pacer choose?", "Task kinds: tests", "Everything else", "Only one executor: if Codex cannot take work", "There is no fallback.", "From saved setup default.", "Add OpenCode", "Capable model with spare capacity", "Edit choice method"]) expect(html).toContain(copy);
-  expect(html).toContain('role="tablist"');
+  for (const copy of ["Default list · every repository", "By task kind", "How Pacer chooses", "Task kinds: tests", "Only one agent: if Codex cannot take work", "There is no fallback.", "From profile default.", "Add OpenCode", "A capable model with spare capacity", "Any usable fallback", "Nobody fits", "The task waits in the queue until someone can take it", "Edit choice method", "Saved into a new profile you can switch to."]) expect(html).toContain(copy);
+  for (const heading of ["Default list · every repository", "By task kind", "How Pacer chooses"]) expect(html).toMatch(new RegExp(`<h2[^>]*>${heading}</h2>`));
+  expect(html).toContain('role="tablist" aria-label="Task kinds with their own list"');
   expect(html).toContain('role="tabpanel"');
   expect(html).toContain('aria-selected="true"');
-  expect(html).toContain('<h3 class="pc-section-heading">Available executors');
+  expect(html).toContain('<h3 class="pc-section-heading">Not listed');
   expect(html).toContain("pc-executor-rank");
   expect(html).not.toContain("pc-executor-id"); // Plain agent names need no repeated id.
   expect(html).toContain("pc-sortable--icons");
-  expect(html).toContain("+ Set up a new executor");
-  expect(html).toContain("No unsaved changes");
-  expect(html.match(/pc-btn--primary/g) ?? []).toHaveLength(1);
-  expect(html).toContain("Save choices");
+  expect(html).toContain("+ Add an agent");
+  // Kinds still on the default list each offer their own list; tests already has one.
+  expect(html).toContain('aria-label="Give docs its own list"');
+  expect(html).not.toContain('aria-label="Give tests its own list"');
+  // The idle save bar is hidden (as on the Agents tab); where lists save is said in the Default list help.
+  expect(html).toContain("pc-save-bar--clean");
+  expect(html).not.toContain("Save lists");
+  expect(html).toContain("Lists save into the active profile, <strong>default</strong>; repository lists are kept separately.");
+  expect(html.match(/pc-btn--primary/g) ?? []).toHaveLength(0);
+  // Try a task has one entry, the section below the editor; neither a save-bar button nor a pacing link.
+  expect(html).not.toContain(">Try a task</button>");
+  expect(html).not.toContain("Planner reserve and pacing");
 });
 
-test("saved setups are marked with an identicon and switch only through an explicit button", () => {
+test("saved profiles are marked with an identicon and switch only through an explicit button", () => {
   const html = wrap(<SavedSetups initialData={[{ name: "default", active: true, summary: "Built in" }, { name: "night", active: false, summary: "Cheap runs" }]} />);
   expect(html.match(/pc-identicon /g)).toHaveLength(2);
   expect(html).toContain("night");
-  expect(html).toContain("Activate night");
-  expect(html).not.toContain("Activate default");
+  // The compared profile has one Switch, in the comparison panel; the row offers none.
+  expect(html).toContain(">Switch to night</button>");
+  expect(html).not.toContain('aria-label="Switch to night"');
+  expect(html).not.toContain('aria-label="Switch to default"');
   expect(html).toContain("Active");
+  expect(html).toContain("Comparing");
 });
 
 const base = dispatchConfigSchema.parse({});
@@ -166,7 +178,7 @@ test("save sequence writes eligibility first, then validates, saves and activate
   expect(calls.map(([op]) => op)).toEqual(["dispatch.config.get", "routing.set", "strategy.preview", "strategy.save", "strategy.use"]);
   expect(calls[1]![1]).toEqual({ rules: [{ executors: ["cursor"] }] });
   expect(calls[3]![1]).toEqual({ name: "night", draft: { from: "default", set: { dispatch: reordered } }, reason: "cheaper" });
-  expect(done).toEqual(["executor rules", "setup night, now active"]);
+  expect(done).toEqual(["the agent lists", "profile night, now active"]);
   const unchanged = recorder();
   expect(await saveSetup({ call: unchanged.call, setup: globalSetup([], []), profile })).toEqual([]);
   expect(unchanged.calls).toEqual([]);
@@ -178,7 +190,7 @@ test("project orders save with their revision and an empty order removes the ove
   await saveSetup({ call: set.call, setup: project(["cursor", "codex"]), repo: { key: "local:a", label: "acme" }, profile });
   expect(set.calls).toEqual([["project.strategy.set", { repo: "local:a", executors: ["cursor", "codex"], expect_rev: 4 }]]);
   const remove = recorder();
-  expect(await saveSetup({ call: remove.call, setup: project([]), repo: { key: "local:a", label: "acme" }, profile })).toEqual(["removal of the project order; acme now uses the global rules"]);
+  expect(await saveSetup({ call: remove.call, setup: project([]), repo: { key: "local:a", label: "acme" }, profile })).toEqual(["removal of acme's own list; it now uses the default list"]);
   expect(remove.calls).toEqual([["project.strategy.remove", { repo: "local:a", expect_rev: 4 }]]);
   const conflict = recorder(op => op === "project.strategy.set" && new Error("Project strategy changed"));
   await expect(saveSetup({ call: conflict.call, setup: project(["cursor"]), repo: { key: "local:a", label: "acme" }, profile })).rejects.toThrow("Project strategy changed");
@@ -188,8 +200,8 @@ test("a ladder failure after saved rules reports what saved; stale profiles and 
   const partial = recorder(op => op === "strategy.save" && new Error("name taken"));
   const failure = await saveSetup({ call: partial.call, setup: globalSetup([{ executors: ["codex"] }], [{ executors: ["cursor"] }], reordered), profile }).catch(error => error);
   expect(failure).toBeInstanceOf(PartialSaveError);
-  expect(failure.message).toBe("Saved executor rules. name taken");
-  expect(failure.done).toEqual(["executor rules"]);
+  expect(failure.message).toBe("Saved the agent lists. name taken");
+  expect(failure.done).toEqual(["the agent lists"]);
   const activation = recorder(op => op === "strategy.use" && new Error("busy"));
   await expect(saveSetup({ call: activation.call, setup: globalSetup([], [], reordered), profile })).rejects.toThrow("Saved night, but it could not be activated: busy");
   // A stale profile stops the save before the rules are written, so nothing saves part-way.
@@ -244,7 +256,7 @@ test("executor snapshot supplies account status and unavailable pool recovery", 
 
 test("a full executor pool uses the board empty copy", () => {
   const html = wrap(<SetupEditor view={view} eligibility={{ kind: "global", rules: [{ executors: ["codex"] }], available: ["codex"] }} onSaved={() => {}} onDirtyChange={() => {}} />);
-  expect(html).toContain("Every executor is in the list.");
+  expect(html).toContain("Every agent is in the list.");
 });
 
 test("pool reasons use eligibility copy for known and unknown codes", () => {
@@ -261,15 +273,39 @@ test("pool reasons use eligibility copy for known and unknown codes", () => {
 });
 
 
-test("scope uses board pressed buttons and explains why repository scope is disabled", () => {
+test("without repository operations the lists still edit, with no repository section", () => {
   const state = { ...initialState(), connected: true, features: { readModel: true, ops: new Set(["routing.get", "routing.set"]) } };
   const html = renderToString(<TaskContext.Provider value={{state,api:{call:async()=>({})}} as any}>
     <DispatcherGuidedSetup view={{strategy:"default",planner:"codex",plannerAccount:"work",source:"built-in",config:dispatchConfigSchema.parse({})}} onSaved={()=>{}} />
   </TaskContext.Provider>);
-  expect(html).toContain('role="group" aria-label="Scope"');
-  expect(html).toContain('pc-segmented--board');
-  expect(html).toMatch(/aria-pressed="true"[^>]*>All repositories<\/button>/);
-  expect(html).toMatch(/aria-pressed="false"[^>]*disabled[^>]*>One repository<\/button>/);
-  expect(html).toContain("Add a repository to edit its own executor list.");
-  expect(html).not.toContain('role="radiogroup"');
+  expect(html).toContain("Loading agent lists");
+  expect(html).not.toContain("Repository lists");
+});
+
+test("older services explain that agent lists need an update", () => {
+  const state = { ...initialState(), connected: true, features: { readModel: true, ops: new Set<string>() } };
+  const html = renderToString(<TaskContext.Provider value={{state,api:{call:async()=>({})}} as any}>
+    <DispatcherGuidedSetup view={{strategy:"default",planner:"codex",plannerAccount:"work",source:"built-in",config:dispatchConfigSchema.parse({})}} onSaved={()=>{}} />
+  </TaskContext.Provider>);
+  expect(html).toContain("Update the service to edit agent lists here.");
+});
+
+test("S5: Repository lists say they are loading or failed instead of claiming none", () => {
+  const draw = (props: { policies?: any[]; error?: unknown }) => wrap(<RepositoryLists {...props} repos={[{ value: "a", label: "a" }]} disabled={false} onEdit={() => {}} />);
+  expect(draw({})).toContain("Loading repository lists…");
+  expect(draw({})).not.toContain("No repository has its own list");
+  expect(draw({})).not.toContain("Give a repository its own list");
+  expect(draw({ error: new Error("down") })).toContain("Repository lists could not be loaded.");
+  expect(draw({ policies: [] })).toContain("No repository has its own list. Every repository uses the default list.");
+});
+
+test("S7: a Skipped agent in the default list is explained and Right now offers Refresh readings", () => {
+  const skipped = { id: "codex", agent: "codex", account: "work", enabled: true, state: "ready", rank: 1, slots: { used: 0, max: 1 }, recentFailures: 0, stale: true };
+  const snapshot = { tasks: [], accounts: [], executors: [skipped] };
+  const html = renderToString(<TaskContext.Provider value={{ state: { ...state, snapshot, features: { readModel: true, ops: new Set(["routing.get", "routing.set", "limits.refresh"]) } }, api: { call: async () => ({}) } } as any}>
+    <SetupEditor view={view} eligibility={{ kind: "global", rules: [{ executors: ["codex"] }], available: ["codex"] }} onSaved={() => {}} onDirtyChange={() => {}} repoLists={0} />
+  </TaskContext.Provider>);
+  expect(html).toContain("No agent in the default list can take work right now.");
+  expect(html).toContain("is skipped until its usage reading is refreshed, so tasks go to Codex as an unconfirmed fallback.");
+  expect(html).toContain(">Refresh readings</button>");
 });
