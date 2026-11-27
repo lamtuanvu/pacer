@@ -1,19 +1,31 @@
-import { expect, test } from "bun:test";
+import { beforeAll, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { usageRefreshCapability } from "../src/usage";
 import type { AccountCfg } from "../src/config/accounts";
 
+// B12-5: the pure refresh rules are exercised through the shared status_probe
+// C3 driver, so there is one native parity binary for the status library.
+
 const ROOT = join(import.meta.dir, "..");
 const TARGET = join(ROOT, "target");
+let probeBin = "";
 
-function probe(args: string[]) {
-  execFileSync("cargo", ["build", "-q", "-p", "pacer-status", "--example", "usage_refresh_probe"], {
+beforeAll(() => {
+  const target = process.env.CARGO_TARGET_DIR ?? TARGET;
+  execFileSync("cargo", ["build", "-q", "-p", "pacer-status", "--example", "status_probe", "--locked"], {
     cwd: ROOT,
-    env: { ...process.env, CARGO_TARGET_DIR: TARGET },
+    env: { ...process.env, CARGO_TARGET_DIR: target },
   });
-  const bin = join(TARGET, "debug", "examples", "usage_refresh_probe");
-  return execFileSync(bin, args, { encoding: "utf8" }).trim();
+  probeBin = join(target, "debug", "examples", "status_probe");
+});
+
+function probe(fn: string, args: Record<string, unknown>): string {
+  const input = JSON.stringify({ fn, home: ROOT, now: 0, env: {}, args }) + "\n";
+  const out = execFileSync(probeBin, { input, encoding: "utf8" }).trim();
+  const reply = JSON.parse(out.split("\n").at(-1) ?? "{}") as { result?: unknown; error?: string };
+  if (reply.error) throw new Error(reply.error);
+  return String(reply.result);
 }
 
 function tsOutcome(
@@ -28,7 +40,7 @@ function tsOutcome(
   return "unchanged";
 }
 
-test("usage_refresh capability matches usageRefreshCapability", () => {
+test("refresh_capability matches usageRefreshCapability", () => {
   const cases: AccountCfg[] = [
     { name: "claude", kind: "claude", usage: "quota" } as AccountCfg,
     { name: "work", kind: "codex", usage: "quota" } as AccountCfg,
@@ -37,11 +49,11 @@ test("usage_refresh capability matches usageRefreshCapability", () => {
     { name: "x", kind: "endpoint", source: "opencode", usage: "metered" } as AccountCfg,
   ];
   for (const account of cases) {
-    expect(probe(["capability", JSON.stringify(account)])).toBe(usageRefreshCapability(account));
+    expect(probe("refresh_capability", { account })).toBe(usageRefreshCapability(account));
   }
 });
 
-test("usage_refresh outcome matches refresh coordinator rules", () => {
+test("refresh_outcome matches refresh coordinator rules", () => {
   const matrix: {
     capability: "provider-command" | "passive-log" | "unavailable";
     prior: { capturedAt: number | null; stale?: boolean };
@@ -55,18 +67,15 @@ test("usage_refresh outcome matches refresh coordinator rules", () => {
   ];
   for (const row of matrix) {
     const ts = tsOutcome(row.capability, row.prior, row.current);
-    const rust = probe([
-      "outcome",
-      row.capability,
-      JSON.stringify(row.prior),
-      JSON.stringify(row.current),
-    ]);
+    const rust = probe("refresh_outcome", row);
     expect(rust).toBe(ts);
   }
 });
 
 test("automatic_refresh_suppressed matches 15-minute throttle", () => {
-  expect(probe(["automatic", "1000", "200", "1"])).toBe("true");
-  expect(probe(["automatic", "1000", "", "1"])).toBe("false");
-  expect(probe(["automatic", "1000", "200", "0"])).toBe("false");
+  const check = (now: number, last: number | null, automatic: boolean) =>
+    probe("automatic_refresh_suppressed", { now, last, automatic });
+  expect(check(1000, 200, true)).toBe("true");
+  expect(check(1000, null, true)).toBe("false");
+  expect(check(1000, 200, false)).toBe("false");
 });

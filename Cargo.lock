@@ -2125,6 +2125,7 @@ dependencies = [
 name = "pacer-status"
 version = "0.0.0"
 dependencies = [
+ "chrono-tz",
  "futures",
  "hex",
  "pacer-config",

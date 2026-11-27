@@ -7,6 +7,7 @@
 
 #![allow(clippy::result_large_err)] // CoreError is the shared public operation ABI.
 
+pub mod compute;
 pub mod endpoint;
 pub mod evidence;
 pub mod folders;
@@ -14,6 +15,7 @@ pub mod freshness;
 pub mod refresh;
 mod freshness_generated;
 pub mod marks;
+pub mod policy;
 pub mod remote_usage;
 pub mod signin;
 pub mod trace;
