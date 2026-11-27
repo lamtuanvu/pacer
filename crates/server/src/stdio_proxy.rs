@@ -1,12 +1,13 @@
 use crate::core_secrets::{self, CoreSecrets};
 use crate::native::{call_native, service_registry};
+use crate::stdio_events::{StdioEvents, snapshot as native_snapshot};
 use crate::stdio_plugins::{self, Done, Line, Ownership, PluginLink};
 use pacer_foundation::{
     Ctx,
     api::{Code, CoreError, Registry},
 };
 use serde_json::{Value, json};
-use std::{collections::HashMap, io, process::Stdio};
+use std::{collections::HashMap, io, process::Stdio, sync::Arc};
 use tokio::{
     io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader},
     process::Command,
@@ -193,6 +194,8 @@ async fn forward_input<
     sync: (&str, &str, &mut tokio::sync::mpsc::UnboundedReceiver<Value>),
     core_build: &CoreBuild<'_>,
     plugins: &mut Plugins,
+    events: &StdioEvents,
+    scoped_work: bool,
 ) -> io::Result<()> {
     let mut line = Vec::new();
     let mut protocol = 2;
@@ -236,6 +239,8 @@ async fn forward_input<
                     else => break,
                 }
             }
+            // As in TypeScript, EOF clears the event timer before requests drain.
+            events.clear();
             return core.shutdown().await;
         }
         let request = serde_json::from_slice::<Value>(&line).ok();
@@ -258,6 +263,9 @@ async fn forward_input<
         {
             if core_build.forward_hello || !native_id {
                 if let Ok(version) = hello_version(request.get("params")) {
+                    if protocol != version {
+                        events.clear();
+                    }
                     protocol = version;
                 }
                 core.write_all(&line).await?;
@@ -273,6 +281,9 @@ async fn forward_input<
                     bytes.push(b'\n');
                     core.write_all(&bytes).await?;
                     core.flush().await?;
+                    if protocol != version {
+                        events.clear();
+                    }
                     protocol = version;
                     if let Some(id) = request.get("id") {
                         if std::env::var("PACER_DEBUG_NATIVE").as_deref() == Ok("1") {
@@ -1251,6 +1262,40 @@ async fn forward_input<
                 continue;
             }
         }
+        // `snapshot` and `subscribe` are not operations, so they never reach the
+        // registry. Answer them in the front door instead of mirroring them to
+        // Core (which would make it emit a second stream of event notifications).
+        if !scoped_work
+            && valid
+            && native_id
+            && let Some(request) = request.as_ref()
+            && let Some(method) = method
+        {
+            let id = request.get("id");
+            match method {
+                "snapshot" => {
+                    let result = native_snapshot(
+                        &mut core,
+                        &ctx.at_now(),
+                        protocol,
+                        (sync.0, sync.1, &mut *sync.2),
+                    )
+                    .await;
+                    if let Some(id) = id {
+                        write_line(out, &rpc_line(id, result)?).await?;
+                    }
+                    continue;
+                }
+                "subscribe" => {
+                    let result = events.subscribe(&ctx, protocol, request.get("params"));
+                    if let Some(id) = id {
+                        write_line(out, &rpc_line(id, result)?).await?;
+                    }
+                    continue;
+                }
+                _ => {}
+            }
+        }
         core.write_all(&line).await?;
         core.flush().await?;
     }
@@ -1389,6 +1434,9 @@ async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i3
         owner_key: host_socket.owner_key(),
         native_config_sync_key: Some(sync_key.clone()),
     };
+    // One stdout lock serializes request replies, forwarded lines and notifications.
+    let out = Arc::new(Mutex::new(tokio::io::stdout()));
+    let events = StdioEvents::start(Arc::clone(&out), ctx.clone());
     let session = async {
         let mut command = Command::new(program);
         host_socket
@@ -1408,7 +1456,6 @@ async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i3
             .stdout
             .take()
             .ok_or_else(|| io::Error::other("missing core stdout"))?;
-        let out = Mutex::new(tokio::io::stdout());
         let link = std::sync::Arc::clone(&plugins.link);
         let incoming = forward_input(
             BufReader::new(tokio::io::stdin()),
@@ -1419,6 +1466,8 @@ async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i3
             (&sync_id, &sync_key, &mut sync_rx),
             &core_build,
             &mut plugins,
+            &events,
+            scoped_work,
         );
         let outgoing = forward_output(BufReader::new(output), &out, &sync_id, sync_tx, &link);
         tokio::pin!(incoming, outgoing);
@@ -1454,6 +1503,7 @@ async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i3
     } else {
         session.await
     };
+    events.stop().await;
     ownership.finish().await;
     code
 }

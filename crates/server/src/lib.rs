@@ -3,6 +3,7 @@ pub use pacer_mcp as mcp;
 mod core_process;
 mod core_secrets;
 pub mod native;
+mod stdio_events;
 mod stdio_plugins;
 mod stdio_proxy;
 pub use pacer_read_model::v2_compat;
