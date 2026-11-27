@@ -188,27 +188,259 @@ fn parse(bytes: &[u8]) -> Option<Map<String, Value>> {
 }
 
 /// Why a present file is not usable. TypeScript reports Node and Zod details
-/// that only its reader can reproduce.
+/// (`src/messaging/project-policy.ts:31-41`); both are reproduced here so the
+/// native `msg.policy` reply stays byte-identical to the forwarded one.
 #[derive(Debug)]
 pub enum ReadError {
-    Unreadable(io::Error),
-    Invalid,
+    Unreadable { path: std::path::PathBuf, error: io::Error },
+    Invalid(String),
 }
 impl std::fmt::Display for ReadError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Unreadable(error) => write!(f, "Cannot read project messaging: {error}"),
-            Self::Invalid => f.write_str("Invalid project messaging"),
+            Self::Unreadable { path, error } => {
+                write!(f, "Cannot read project messaging: {}", node_io_error(error, path))
+            }
+            Self::Invalid(issues) => write!(f, "Invalid project messaging: {issues}"),
         }
     }
 }
 
+/// Node's `Error.message` for a failed `readFileSync`, including the `code:` prefix.
+fn node_io_error(error: &io::Error, path: &Path) -> String {
+    let (code, message) = match error.kind() {
+        io::ErrorKind::NotFound => ("ENOENT", "no such file or directory".to_owned()),
+        io::ErrorKind::PermissionDenied => ("EACCES", "permission denied".to_owned()),
+        // `read` on a directory is EISDIR on macOS and Linux; the platform wording is the same.
+        _ if error.raw_os_error() == Some(21) => (
+            "EISDIR",
+            "illegal operation on a directory, read".to_owned(),
+        ),
+        _ => (
+            "EIO",
+            error.to_string().trim_end_matches(" (os error 5)").to_owned(),
+        ),
+    };
+    if matches!(error.kind(), io::ErrorKind::PermissionDenied | io::ErrorKind::NotFound) {
+        format!("{code}: {message}, open '{}'", path.display())
+    } else {
+        format!("{code}: {message}")
+    }
+}
+
+fn kind(value: &Value) -> &'static str {
+    match value {
+        Value::Null => "null",
+        Value::Bool(_) => "boolean",
+        Value::Number(_) => "number",
+        Value::String(_) => "string",
+        Value::Array(_) => "array",
+        Value::Object(_) => "object",
+    }
+}
+
+fn unrecognized(out: &mut Vec<String>, path: &str, map: &Map<String, Value>, known: &[&str]) {
+    let unknown: Vec<String> = map
+        .keys()
+        .filter(|key| !known.contains(&key.as_str()))
+        .map(|key| format!("\"{key}\""))
+        .collect();
+    match unknown.len() {
+        0 => {}
+        1 => out.push(format!("{path}: Unrecognized key: {}", unknown[0])),
+        _ => out.push(format!("{path}: Unrecognized keys: {}", unknown.join(", "))),
+    }
+}
+
+/// The issues `schema.safeParse` reports for one rule, in `ruleSchema` field order.
+fn rule_issues(out: &mut Vec<String>, path: &str, rule: &Value) {
+    let Some(map) = rule.as_object() else {
+        out.push(format!(
+            "{path}: Invalid input: expected object, received {}",
+            kind(rule)
+        ));
+        return;
+    };
+    if !matches!(map.get("effect").and_then(Value::as_str), Some("allow" | "deny")) {
+        out.push(format!(
+            "{path}.effect: Invalid option: expected one of \"allow\"|\"deny\""
+        ));
+    }
+    for key in ["from_kind", "to_kind", "grant"] {
+        if let Some(value) = map.get(key)
+            && !value.is_string()
+        {
+            out.push(format!(
+                "{path}.{key}: Invalid input: expected string, received {}",
+                kind(value)
+            ));
+        }
+    }
+    for key in ["relation", "kinds"] {
+        if let Some(value) = map.get(key)
+            && value.as_array().is_none()
+        {
+            out.push(format!(
+                "{path}.{key}: Invalid input: expected array, received {}",
+                kind(value)
+            ));
+        }
+    }
+    if let Some(limits) = map.get("limits").and_then(Value::as_object) {
+        if let Some(max) = limits.get("max_bytes").and_then(Value::as_f64)
+            && max > (1 << 20) as f64
+        {
+            out.push(format!(
+                "{path}.limits.max_bytes: Too big: expected number to be <=1048576"
+            ));
+        }
+        unrecognized(out, &format!("{path}.limits"), limits, &["per_minute", "max_bytes", "confirm"]);
+    }
+    unrecognized(
+        out,
+        path,
+        map,
+        &[
+            "effect", "from_kind", "to_kind", "from_position", "relation", "kinds", "repo",
+            "executor", "grant", "limits",
+        ],
+    );
+}
+
+/// The issues `entrySchema.safeParse` reports for one repository entry.
+fn entry_issues(out: &mut Vec<String>, path: &str, entry: &Value) {
+    let Some(map) = entry.as_object() else {
+        out.push(format!(
+            "{path}: Invalid input: expected object, received {}",
+            kind(entry)
+        ));
+        return;
+    };
+    match map.get("rules") {
+        None => out.push(format!("{path}.rules: Invalid input: expected array, received undefined")),
+        Some(Value::Array(rules)) => {
+            if rules.len() > 50 {
+                out.push(format!("{path}.rules: Too big: expected array to have <=50 items"));
+            }
+            for (index, rule) in rules.iter().enumerate() {
+                rule_issues(out, &format!("{path}.rules.{index}"), rule);
+            }
+        }
+        Some(other) => out.push(format!(
+            "{path}.rules: Invalid input: expected array, received {}",
+            kind(other)
+        )),
+    }
+    if let Some(turns) = map.get("max_turns").and_then(Value::as_f64) {
+        if turns.fract() != 0.0 {
+            out.push(format!("{path}.max_turns: Invalid input: expected int, received number"));
+        } else if turns < 1.0 {
+            out.push(format!("{path}.max_turns: Too small: expected number to be >0"));
+        } else if turns > 10000.0 {
+            out.push(format!("{path}.max_turns: Too big: expected number to be <=10000"));
+        }
+    }
+    if let Some(liveness) = map.get("liveness").and_then(Value::as_object) {
+        for (key, min) in [
+            ("interval_s", 10.0),
+            ("backoff_max_s", 10.0),
+            ("max_nudges", 0.0),
+            ("escalate_after_s", 10.0),
+        ] {
+            if let Some(number) = liveness.get(key).and_then(Value::as_f64)
+                && number < min
+            {
+                out.push(format!(
+                    "{path}.liveness.{key}: Too small: expected number to be >={min}"
+                ));
+            }
+        }
+        unrecognized(
+            out,
+            &format!("{path}.liveness"),
+            liveness,
+            &["interval_s", "backoff_max_s", "max_nudges", "nudge_in_modes", "escalate_after_s"],
+        );
+    }
+    match map.get("rev") {
+        None => out.push(format!("{path}.rev: Invalid input: expected number, received undefined")),
+        Some(value) if value.as_f64().is_none() => out.push(format!(
+            "{path}.rev: Invalid input: expected number, received {}",
+            kind(value)
+        )),
+        Some(value) => {
+            let rev = value.as_f64().unwrap_or_default();
+            if rev.fract() != 0.0 {
+                out.push(format!("{path}.rev: Invalid input: expected int, received number"));
+            } else if rev > MAX_SAFE {
+                // Zod 4 issues both the int and safe-integer checks for this value.
+                out.push(format!("{path}.rev: Too big: expected int to be <=9007199254740991"));
+                out.push(format!("{path}.rev: Too big: expected int to be <=9007199254740991"));
+            } else if rev < 1.0 {
+                out.push(format!("{path}.rev: Too small: expected number to be >0"));
+            }
+        }
+    }
+    unrecognized(out, path, map, &["rules", "max_turns", "liveness", "rev", "max_bytes"]);
+}
+
+/// The Zod issues `schema.safeParse` reports for a file TypeScript cannot use,
+/// in schema field order and joined the way `project-policy.ts` joins them.
+/// A failed `JSON.parse` yields `undefined`, which is distinct from JSON `null`.
+fn issues(value: &Value, parse_failed: bool) -> Vec<String> {
+    let received = |value: &Value| {
+        if parse_failed && value.is_null() {
+            "undefined"
+        } else {
+            kind(value)
+        }
+    };
+    let mut out = Vec::new();
+    let Some(top) = value.as_object() else {
+        return vec![format!(
+            ": Invalid input: expected object, received {}",
+            received(value)
+        )];
+    };
+    if top.get("version").and_then(Value::as_f64) != Some(1.0) {
+        out.push("version: Invalid input: expected 1".into());
+    }
+    match top.get("projects") {
+        None => out.push("projects: Invalid input: expected record, received undefined".into()),
+        Some(Value::Object(projects)) => {
+            for (key, entry) in projects {
+                let path = format!("projects.{key}");
+                if !project_key(key) {
+                    out.push(format!("{path}: Invalid key in record"));
+                    continue;
+                }
+                entry_issues(&mut out, &path, entry);
+            }
+        }
+        Some(other) => out.push(format!(
+            "projects: Invalid input: expected record, received {}",
+            kind(other)
+        )),
+    }
+    unrecognized(&mut out, "", top, &["version", "projects"]);
+    out
+}
+
 /// A missing file is an empty policy set.
 pub fn read_projects(home: &Path) -> Result<Map<String, Value>, ReadError> {
-    match fs::read(home.join(FILE)) {
-        Ok(bytes) => parse(&bytes).ok_or(ReadError::Invalid),
+    let path = home.join(FILE);
+    match fs::read(&path) {
+        Ok(bytes) => match parse(&bytes) {
+            Some(projects) => Ok(projects),
+            None => {
+                let parsed = serde_json::from_slice::<Value>(&bytes);
+                let parse_failed = parsed.is_err();
+                let value = parsed.unwrap_or(Value::Null);
+                Err(ReadError::Invalid(issues(&value, parse_failed).join("; ")))
+            }
+        },
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(Map::new()),
-        Err(error) => Err(ReadError::Unreadable(error)),
+        Err(error) => Err(ReadError::Unreadable { path, error }),
     }
 }
 
@@ -361,6 +593,48 @@ mod tests {
     }
 
     #[test]
+    fn unusable_file_error_text_matches_typescript_zod() {
+        let cases: &[(&str, &str)] = &[
+            ("null", ": Invalid input: expected object, received null"),
+            ("{", ": Invalid input: expected object, received undefined"),
+            ("3", ": Invalid input: expected object, received number"),
+            (
+                r#"{"version":1,"projects":{"github.com/a/b":{"rev":1,"rules":[{"effect":"allow","bogus":1}]}}}"#,
+                "projects.github.com/a/b.rules.0: Unrecognized key: \"bogus\"",
+            ),
+            (
+                r#"{"version":1,"projects":{"github.com/a/b":{"rev":1,"rules":[{"effect":"allow","limits":{"max_bytes":1048577}}]}}}"#,
+                "projects.github.com/a/b.rules.0.limits.max_bytes: Too big: expected number to be <=1048576",
+            ),
+            (
+                r#"{"version":1,"projects":{"github.com/a/b":{"rev":9007199254740992,"rules":[]}}}"#,
+                "projects.github.com/a/b.rev: Too big: expected int to be <=9007199254740991; projects.github.com/a/b.rev: Too big: expected int to be <=9007199254740991",
+            ),
+            (
+                r#"{"version":1,"projects":{"github.com/a/b":{"rev":1.5,"rules":[]}}}"#,
+                "projects.github.com/a/b.rev: Invalid input: expected int, received number",
+            ),
+            (
+                r#"{"version":1,"projects":{"github.com/a/b":{"rev":1,"rules":[],"liveness":{"interval_s":9}}}}"#,
+                "projects.github.com/a/b.liveness.interval_s: Too small: expected number to be >=10",
+            ),
+            (
+                r#"{"version":2,"projects":{"github.com/a/b":{"rules":5}}}"#,
+                "version: Invalid input: expected 1; projects.github.com/a/b.rules: Invalid input: expected array, received number; projects.github.com/a/b.rev: Invalid input: expected number, received undefined",
+            ),
+        ];
+        for (raw, expected) in cases {
+            let dir = tempfile::tempdir().unwrap();
+            fs::write(dir.path().join(FILE), raw).unwrap();
+            assert_eq!(
+                get(dir.path(), "github.com/a/b").unwrap()["error"],
+                json!(format!("Invalid project messaging: {expected}")),
+                "{raw}"
+            );
+        }
+    }
+
+    #[test]
     fn write_checks_revision_and_keeps_project_positions() {
         let dir = tempfile::tempdir().unwrap();
         let ctx = ctx(dir.path());
@@ -394,7 +668,10 @@ mod tests {
         fs::write(dir.path().join(FILE), "{").unwrap();
         let read = get(dir.path(), "github.com/a/b").unwrap();
         assert_eq!(read["rev"], json!(0));
-        assert_eq!(read["error"], json!("Invalid project messaging"));
+        assert_eq!(
+            read["error"],
+            json!("Invalid project messaging: : Invalid input: expected object, received undefined")
+        );
         let error = write(&ctx(dir.path()), "github.com/a/b", 0, None).unwrap_err();
         assert_eq!(error.code, Code::InvalidInput);
         assert_eq!(

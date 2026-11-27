@@ -1,6 +1,6 @@
 import { childEnv } from "./child-env";
 import { expect, test } from "bun:test";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
@@ -10,6 +10,8 @@ import { claimPending, insertMessage, markRead } from "../src/messaging/store";
 import { getWork } from "../src/dispatch/work";
 import { dispatchDatabase } from "../src/dispatch/store";
 import { createSession } from "../src/serve/app-auth";
+import { orcaWorktreeName } from "../src/exec/orca/names";
+import { publish } from "../src/link/publish";
 
 const front = process.env.PACER_TEST_NATIVE_FRONT_DOOR;
 const core = JSON.stringify([process.execPath, join(import.meta.dir, "../src/cli.ts")]);
@@ -116,7 +118,7 @@ test.skipIf(!front)("stdio msg.inbox, msg.log and msg.read match the TypeScript 
     { name: "executor", env: { PACER_ROLE: "executor", PACER_TASK_ID: leaf.id }, cwd: ctx.home, native: true, caller: `task:${leaf.id}` },
     { name: "worktree", env: { PACER_TASK_ID: child.id }, cwd: ownWorktree, native: true, caller: `task:${child.id}` },
     { name: "anonymous executor", env: { PACER_ROLE: "executor" }, cwd: ctx.home, native: true, caller: "Executor identity is unknown" },
-    { name: "orca worktree", env: {}, cwd: orcaWorktree, native: false, caller: "external:local" },
+    { name: "orca worktree", env: {}, cwd: orcaWorktree, native: true, caller: "external:local" },
   ];
   for (const scenario of scenarios) {
     const requests = [...reads(2), ...invalid(20), ...writes(40)];
@@ -205,15 +207,116 @@ test.skipIf(!front)("HTTP msg reads resolve cookie, bearer and TUI session calle
     expect(results[0]!.bodies.map(receipts)).toEqual(results[1]!.bodies.map(receipts));
     expect(rows(runs[0]!)).toEqual(rows(runs[1]!));
     expect(results[1]!.markers).toEqual([]);
-    // Human read receipts republish task attention in TypeScript, so they stay forwarded.
+    // Every caller, including the human's read receipts, is answered natively now.
     expect(results[0]!.markers).toEqual([...Array(16).fill(0).map((_, n) => `native ${["msg.inbox", "msg.inbox", "msg.log", "msg.inbox"][n % 4]}`),
-      "native msg.read", "native msg.inbox", "native msg.log"]);
+      "native msg.read", "native msg.read", "native msg.read", "native msg.inbox", "native msg.log"]);
     const parse = (body: string) => JSON.parse(body.slice(4));
     expect(parse(results[0]!.bodies[0]!).result.participant).toBe("external:local");
     expect(parse(results[0]!.bodies[4]!).result.participant).toBe("external:local");
     expect(parse(results[0]!.bodies[8]!).result.participant).toBe("human");
     expect(parse(results[0]!.bodies[12]!).result.participant).toBe("human");
     expect(parse(results[0]!.bodies[17]!).result.read).toBe(4);
+  } finally {
+    for (const home of runs) rmSync(home, { recursive: true, force: true });
+  }
+}, 120000);
+
+/** Every caller of the message reads is native: Orca worktree providers resolve from strategy. */
+test.skipIf(!front)("every msg read caller is native", async () => {
+  const s = seed();
+  const strategy = "planner: claude-code\nproviders: {claude-code: {}, codex: {}}\n";
+  for (const dir of [s.ctx.home]) {
+    mkdirSync(join(dir, ".pacer"), { recursive: true });
+    writeFileSync(join(dir, ".pacer/strategy.yaml"), strategy);
+  }
+  const worktree = (provider: string) => join(s.ctx.home, "orca", "workspaces", "ws", `pacer-${s.child.id}-${orcaWorktreeName(provider)}`);
+  const matched = worktree("codex"), unmatched = worktree("not-in-the-strategy");
+  mkdirSync(matched, { recursive: true });
+  mkdirSync(unmatched, { recursive: true });
+  const requests = [rpc(2, "msg.inbox", {}), rpc(3, "msg.log", { task: s.child.id }), rpc(4, "msg.read", { ids: [s.ids[0]!] })];
+  const scenarios: { name: string; cwd: string; env: Record<string, string>; caller: string }[] = [
+    { name: "orca worktree with a strategy provider", cwd: matched, env: { PACER_TASK_ID: s.child.id }, caller: `task:${s.child.id}` },
+    { name: "orca worktree without a matching provider", cwd: unmatched, env: {}, caller: "external:local" },
+  ];
+  for (const scenario of scenarios) {
+    const nativeHome = clone(s.ctx.home), forwardHome = clone(s.ctx.home);
+    try {
+      const cwd = (home: string) => scenario.cwd.split(s.ctx.home).join(home);
+      const native = await stdio(nativeHome, scenario.env, cwd(nativeHome), requests, false);
+      const forwarded = await stdio(forwardHome, scenario.env, cwd(forwardHome), requests, true);
+      expect(native.lines.map(receipts), scenario.name).toEqual(forwarded.lines.map(receipts));
+      expect(rows(nativeHome), scenario.name).toEqual(rows(forwardHome));
+      expect(forwarded.markers, scenario.name).toEqual([]);
+      expect(native.markers, scenario.name).toEqual(requests.map(request => {
+        const r = JSON.parse(request);
+        return `native ${r.method} ${r.id}`;
+      }));
+      expect(JSON.parse(native.lines[0]!).result.participant, scenario.name).toBe(scenario.caller);
+    } finally {
+      rmSync(nativeHome, { recursive: true, force: true });
+      rmSync(forwardHome, { recursive: true, force: true });
+    }
+  }
+}, 120000);
+
+/** A human read republishes its task natively, with the same task event TypeScript writes. */
+test.skipIf(!front)("human msg.read publishes natively", async () => {
+  const s = seed();
+  const live = { ...s.ctx, now: Date.now() / 1000 };
+  const question = insertMessage(live, { taskId: s.child.id, rootId: `task:${s.root.id}`, from: `task:${s.child.id}`,
+    to: "human", kind: "question", body: "a question for you", replyTo: null, requestId: null }).message;
+  // A report and a running task with an unanswered question exercise two derivation rules:
+  // reports never count as unread, and an open question suppresses the `message:` item.
+  insertMessage(live, { taskId: s.child.id, rootId: `task:${s.root.id}`, from: `task:${s.child.id}`,
+    to: "human", kind: "report", body: "report to ignore", replyTo: null, requestId: null });
+  const running = createTask(live, { brief: { goal: "running", repo: s.ctx.home }, kind: null,
+    requestedExecutor: null, timeoutS: 60 });
+  updateTask(live, running.id, t => { t.state = "running"; t.question = { text: "open?", at: live.now }; t.origin = "human"; });
+  const runningQuestion = insertMessage(live, { taskId: running.id, rootId: `task:${running.id}`,
+    from: `task:${running.id}`, to: "human", kind: "question", body: "open question", replyTo: null, requestId: null }).message;
+  // Both runs publish the task row from the same latest snapshot, so the task event can be compared byte for byte.
+  await publish(live, [{ type: "task", data: { id: s.child.id, title: "child", state: "needs_input", updatedAt: Math.floor(live.now) } } as never]);
+  const cookie = createSession(live);
+  const runs = [false, true].map(() => clone(s.ctx.home));
+  try {
+    const results: { markers: string[]; task?: string; attention?: string; suppressed?: string }[] = [];
+    for (const [index, home] of runs.entries()) {
+      const server = await serve(home, index === 1);
+      const body = await server.post("msg.read", JSON.stringify({ ids: [question.id] }), { ...server.app, Cookie: `pacer_session=${cookie}` });
+      const suppressedBody = await server.post("msg.read", JSON.stringify({ ids: [runningQuestion.id] }), { ...server.app, Cookie: `pacer_session=${cookie}` });
+      const markers = await server.stop();
+      expect(suppressedBody).toContain('"read":1');
+      expect(body).toContain('"read":1');
+      const envelopes = readFileSync(join(home, ".pacer/link/outbox.jsonl"), "utf8").trim().split("\n").filter(Boolean)
+        .map(line => JSON.parse(line).envelope as { type: string; data?: { kind?: string; id?: string } });
+      const task = envelopes.find(e => e.type === "task");
+      const attention = envelopes.find(e => e.type === "entity" && e.data?.kind === "attention");
+      const suppressed = envelopes.find(e => e.type === "entity" && e.data?.id === `message:${running.id}`);
+      results.push({
+        markers,
+        task: task ? JSON.stringify(task) : undefined,
+        attention: attention ? JSON.stringify(attention) : undefined,
+        suppressed: suppressed ? JSON.stringify(suppressed) : undefined,
+      });
+    }
+    expect(results[1]!.markers).toEqual([]);
+    expect(results[0]!.markers).toEqual(["native msg.read", "native msg.read"]);
+    // Receipt times come from each run's clock; the repo key is derived from that run's path
+    // (each clone changes the fixture home), so only the attention timestamps are normalized.
+    const normalize = (text?: string) => text
+      ?.replace(/"(at|updatedAt|since|raisedAt)":\d+(?:\.\d+)?(?=[,}])/g, '"$1":"<time>"')
+      .replace(/"key":"local:[0-9a-f]{12}"/g, '"key":"local:<hash>"')
+      .replace(/"(path|label)":"[^"]*(?:pacer-test|pm-|mw-|mp-)[^"]*"/g, '"$1":"<home>"');
+    expect(normalize(results[0]!.task)).toBeDefined();
+    expect(normalize(results[0]!.task)).toBe(normalize(results[1]!.task));
+    expect(results[0]!.attention).toContain('"kind":"attention"');
+    // Other unread human messages on this task keep the item raised after the single read.
+    expect(results[0]!.attention).toContain('"value"');
+    expect(normalize(results[0]!.attention)).toBe(normalize(results[1]!.attention));
+    // The running task's open question suppresses its message item in both runtimes.
+    expect(results[0]!.suppressed).toBeDefined();
+    expect(results[0]!.suppressed).not.toContain('"value"');
+    expect(normalize(results[0]!.suppressed)).toBe(normalize(results[1]!.suppressed));
   } finally {
     for (const home of runs) rmSync(home, { recursive: true, force: true });
   }

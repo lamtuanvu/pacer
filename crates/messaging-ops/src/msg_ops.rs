@@ -51,26 +51,6 @@ pub fn is_msg_caller_op(name: &str) -> bool {
     is_msg_read_op(name) || crate::msg_writes::uses_bridge(name)
 }
 
-/// TypeScript keeps Orca worktree detection (strategy providers) and the human's read
-/// receipts on `msg.read` (task/attention publication). Work-grant callers resolve
-/// natively through `authorize_work_grant`. The message writes publish for the human
-/// through the Core bridge. `msg.policy` also stays forwarded when
-/// `project-messaging.json` is unusable, because its `projectError` carries Node and
-/// Zod details only the TypeScript reader produces.
-pub fn msg_stays_forwarded(name: &str, ctx: &Ctx) -> bool {
-    if name == "msg.policy" {
-        return pacer_config::project_messaging::read_projects(&ctx.pacer_home).is_err();
-    }
-    if !is_msg_caller_op(name) && name != "tree.status" {
-        return false;
-    }
-    match caller(ctx, current_dir().as_deref()) {
-        Ok(Caller::Forward) => true,
-        Ok(Caller::Id(id)) => name == "msg.read" && id == "human",
-        Err(_) => false,
-    }
-}
-
 /// Live interactive answer delivery and retries depend on Core-owned session state.
 /// Forward before any native writes, including validation and request-id lookup.
 pub fn msg_answer_stays_forwarded(name: &str, ctx: &Ctx, params: &Value) -> bool {
@@ -94,7 +74,6 @@ pub fn msg_answer_stays_forwarded(name: &str, ctx: &Ctx, params: &Value) -> bool
 #[derive(Debug, PartialEq)]
 enum Caller {
     Id(String),
-    Forward,
 }
 
 pub fn current_dir() -> Option<String> {
@@ -111,7 +90,8 @@ pub(crate) fn env<'a>(ctx: &'a Ctx, name: &str) -> Option<&'a str> {
 }
 
 /// `callerParticipant`: assistant grants are refused first; a live work grant resolves to
-/// its bound task; enforcement still forwards (the door refuses those ops before here).
+/// its bound task; an enforcement identity reports only native child denials. Orca worktree
+/// callers resolve from the strategy's providers, exactly as `isExecutorSession` does.
 fn caller(ctx: &Ctx, cwd: Option<&str>) -> Result<Caller, CoreError> {
     if let Some(token) = env(ctx, "PACER_ASSISTANT_GRANT") {
         pacer_work::authorize_assistant_grant(ctx, token)?;
@@ -125,13 +105,18 @@ fn caller(ctx: &Ctx, cwd: Option<&str>) -> Result<Caller, CoreError> {
         return Ok(Caller::Id(format!("task:{}", node.task_id)));
     }
     if env(ctx, "PACER_ENFORCEMENT_TOKEN").is_some() {
-        return Ok(Caller::Forward);
+        return Err(forbidden(
+            "Enforcement identity only reports a native child denial",
+            "identity",
+        ));
     }
     let role_executor = ctx.env.get("PACER_ROLE").map(String::as_str) == Some("executor");
-    let executor = role_executor || cwd.is_some_and(|cwd| own_worktree(ctx, cwd));
-    if !executor && cwd.is_some_and(orca_worktree) {
-        return Ok(Caller::Forward);
-    }
+    let own = cwd.is_some_and(|cwd| own_worktree(ctx, cwd));
+    let orca = match cwd {
+        Some(cwd) => orca_worktree_caller(ctx, cwd)?,
+        None => false,
+    };
+    let executor = role_executor || own || orca;
     if executor {
         return match env(ctx, "PACER_TASK_ID") {
             Some(id) => Ok(Caller::Id(format!("task:{id}"))),
@@ -171,22 +156,64 @@ pub fn own_worktree(ctx: &Ctx, cwd: &str) -> bool {
 
 /// `/orca/workspaces/<ws>/pacer-<taskId>-<provider>`; TypeScript confirms the provider.
 pub fn orca_worktree(cwd: &str) -> bool {
+    orca_worktree_provider(cwd).is_some()
+}
+
+fn orca_worktree_provider(cwd: &str) -> Option<&str> {
     const MARK: &str = "/orca/workspaces/";
-    cwd.match_indices(MARK).any(|(at, _)| {
+    cwd.match_indices(MARK).find_map(|(at, _)| {
         let rest = &cwd[at + MARK.len()..];
-        let Some((workspace, rest)) = rest.split_once('/') else {
-            return false;
-        };
-        let Some(rest) = rest.strip_prefix("pacer-") else {
-            return false;
-        };
-        !workspace.is_empty()
-            && rest.get(..22).is_some_and(is_task_id)
-            && rest
-                .get(22..)
-                .and_then(|r| r.strip_prefix('-'))
-                .is_some_and(|provider| !provider.is_empty() && !provider.starts_with('/'))
+        let (workspace, rest) = rest.split_once('/')?;
+        let rest = rest.strip_prefix("pacer-")?;
+        if workspace.is_empty() || !rest.get(..22).is_some_and(is_task_id) {
+            return None;
+        }
+        rest.get(22..)
+            .and_then(|r| r.strip_prefix('-'))
+            .map(|provider| provider.split('/').next().unwrap_or(provider))
+            .filter(|provider| !provider.is_empty())
     })
+}
+
+/// The directory name Orca stores for a provider: `orcaWorktreeName` in
+/// `src/exec/orca/names.ts:8`, including its collapse and trim passes.
+pub fn orca_worktree_name(id: &str) -> String {
+    let mut replaced = String::new();
+    let mut run = false;
+    for c in id.chars() {
+        if c.is_alphanumeric() || matches!(c, '.' | '_' | '-') {
+            run = false;
+            replaced.push(c);
+        } else if !run {
+            run = true;
+            replaced.push('-');
+        }
+    }
+    let mut out = String::new();
+    let mut previous = None;
+    for c in replaced.chars() {
+        if matches!(c, '.' | '-') && previous == Some(c) {
+            continue;
+        }
+        out.push(c);
+        previous = Some(c);
+    }
+    out.trim_matches(|c| c == '.' || c == '-').to_owned()
+}
+
+/// `isExecutorSession`'s Orca leg: the worktree's provider must be in the loaded strategy.
+/// `loadStrategy` throws inside `isExecutorSession`, whose `catch` treats the cwd as a
+/// non-executor path; the same fail-open behavior keeps forced-forward parity.
+fn orca_worktree_caller(ctx: &Ctx, cwd: &str) -> Result<bool, CoreError> {
+    let Some(provider) = orca_worktree_provider(cwd) else {
+        return Ok(false);
+    };
+    let Ok(strategy) = pacer_config::strategy::load_strategy(&ctx.pacer_home) else {
+        return Ok(false);
+    };
+    Ok(strategy["providers"]
+        .as_object()
+        .is_some_and(|providers| providers.keys().any(|id| orca_worktree_name(id) == provider)))
 }
 
 /// `String.replace(/[^allowed]/g, "-")` over UTF-16 code units.
@@ -498,13 +525,8 @@ pub(crate) fn open(ctx: &Ctx) -> Result<TaskStore, CoreError> {
 }
 
 pub(crate) fn participant(ctx: &Ctx) -> Result<String, CoreError> {
-    match caller(ctx, current_dir().as_deref())? {
-        Caller::Id(id) => Ok(id),
-        Caller::Forward => Err(CoreError::new(
-            Code::Unavailable,
-            "message caller requires the TypeScript core",
-        )),
-    }
+    let Caller::Id(id) = caller(ctx, current_dir().as_deref())?;
+    Ok(id)
 }
 
 pub fn msg_inbox(ctx: &Ctx, params: Value) -> OpFuture<'_> {
@@ -551,16 +573,18 @@ pub fn msg_read(ctx: &Ctx, params: Value) -> OpFuture<'_> {
         p.finish(&["ids"])?;
         let ids = ids.unwrap_or_default();
         let me = participant(ctx)?;
-        if me == "human" {
-            return Err(CoreError::new(
-                Code::Unavailable,
-                "human read receipts require the TypeScript core",
-            ));
-        }
         let mut store = open(ctx)?;
         // TypeScript stamps receipts with `Date.now() / 1000`.
         let at = (ctx.now * 1000.0).floor() / 1000.0;
         let read = messages::mark_read(&mut store, &me, &ids, at).map_err(store_error)?;
+        if read > 0 && me == "human" {
+            let tasks: Vec<String> = ids
+                .iter()
+                .filter_map(|id| messages::get(&mut store, id).ok().flatten())
+                .filter_map(|message| message["taskId"].as_str().map(str::to_owned))
+                .collect();
+            crate::publish::publish_task_messages(ctx, &mut store, &tasks)?;
+        }
         Ok(json!({"read": read}))
     })
 }
@@ -638,6 +662,24 @@ pub fn tree_status(ctx: &Ctx, params: Value) -> OpFuture<'_> {
 /// `msg.policy` reads no caller identity: the guardrail and a hypothetical send are public.
 pub fn msg_policy(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
+        // `msg.policy` reads no caller identity, but a grant or enforcement bearer still has
+        // to be valid: TypeScript refuses them before the handler even when forwarding.
+        if let Some(token) = env(ctx, "PACER_ASSISTANT_GRANT") {
+            pacer_work::authorize_assistant_grant(ctx, token)?;
+            return Err(forbidden(
+                "An assistant grant runs assistant.tool only.",
+                "identity",
+            ));
+        }
+        if let Some(token) = env(ctx, "PACER_WORK_GRANT") {
+            pacer_work::authorize_work_grant(ctx, token)?;
+        }
+        if env(ctx, "PACER_ENFORCEMENT_TOKEN").is_some() {
+            return Err(forbidden(
+                "Enforcement identity only reports a native child denial",
+                "identity",
+            ));
+        }
         let mut p = Params::new(&params)?;
         let task = p
             .map

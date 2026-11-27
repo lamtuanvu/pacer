@@ -26,9 +26,11 @@ fn caller_follows_typescript_precedence() {
     let grant_err = caller(&ctx(&[("PACER_WORK_GRANT", "pwg_x")]), Some("/tmp")).unwrap_err();
     assert_eq!(grant_err.code, Code::NotAllowed);
     assert_eq!(grant_err.message, "Invalid work grant");
+    let enforcement =
+        caller(&ctx(&[("PACER_ENFORCEMENT_TOKEN", "pet_x")]), Some("/tmp")).unwrap_err();
     assert_eq!(
-        id(&[("PACER_ENFORCEMENT_TOKEN", "pet_x")], "/tmp"),
-        Caller::Forward
+        enforcement.message,
+        "Enforcement identity only reports a native child denial"
     );
     assert_eq!(
         id(
@@ -78,9 +80,11 @@ fn executor_and_orca_worktrees_follow_cwd_rules() {
         id(&[], &format!("/home/u/.pacer/worktrees/{task}")),
         Caller::Id("external:local".into())
     );
+    // No strategy at this home: TypeScript's `loadStrategy` throws and its catch treats the
+    // cwd as an ordinary caller. A strategy whose provider matches makes it an executor.
     assert_eq!(
         id(&[], &format!("/x/orca/workspaces/ws/pacer-{task}-codex/a")),
-        Caller::Forward
+        Caller::Id("external:local".into())
     );
     assert_eq!(
         id(&[], &format!("/x/orca/workspaces/ws/pacer-{task}-")),
@@ -90,6 +94,35 @@ fn executor_and_orca_worktrees_follow_cwd_rules() {
         id(&[], "/x/orca/workspaces/pacer/pinfish"),
         Caller::Id("external:local".into())
     );
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("strategy.yaml"),
+        "planner: claude-code\nproviders: {codex: {}, claude-code: {}}\n",
+    )
+    .unwrap();
+    let home = Ctx::with(dir.path().into(), dir.path().into(), HashMap::new(), 1.0);
+    let cwd = format!("/x/orca/workspaces/ws/pacer-{task}-codex/a");
+    let match_ctx = Ctx { env: [("PACER_TASK_ID".to_owned(), task.to_owned())].into(), ..home.clone() };
+    assert_eq!(
+        caller(&match_ctx, Some(&cwd)).unwrap(),
+        Caller::Id(format!("task:{task}"))
+    );
+    let other = cwd.replace("-codex", "-someone-else");
+    assert_eq!(
+        caller(&home, Some(&other)).unwrap(),
+        Caller::Id("external:local".into())
+    );
+}
+
+#[test]
+fn orca_worktree_name_matches_typescript_regex() {
+    assert_eq!(orca_worktree_name("codex"), "codex");
+    assert_eq!(orca_worktree_name("claude-code#claude2"), "claude-code-claude2");
+    assert_eq!(orca_worktree_name("a b!!c"), "a-b-c");
+    assert_eq!(orca_worktree_name("a..b"), "a.b");
+    assert_eq!(orca_worktree_name("-._.a.-"), "_.a");
+    assert_eq!(orca_worktree_name("..😀.."), "");
+    assert_eq!(orca_worktree_name("é😀x"), "é-x");
 }
 
 #[test]
@@ -174,24 +207,20 @@ fn params_match_zod_issue_order() {
 }
 
 #[test]
-fn human_receipts_and_grants_stay_forwarded() {
-    assert!(msg_stays_forwarded(
-        "msg.read",
-        &ctx(&[(CALLER_AUTH_ENV, "app")])
-    ));
-    assert!(!msg_stays_forwarded(
-        "msg.inbox",
-        &ctx(&[(CALLER_AUTH_ENV, "app")])
-    ));
-    // Work-grant callers resolve natively; a malformed grant is refused, not forwarded.
-    assert!(!msg_stays_forwarded(
-        "msg.log",
-        &ctx(&[("PACER_WORK_GRANT", "pwg_x")])
-    ));
-    assert!(!msg_stays_forwarded(
-        "msg.send",
-        &ctx(&[(CALLER_AUTH_ENV, "app")])
-    ));
+fn human_and_grant_callers_are_answered_natively() {
+    assert_eq!(
+        id(&[(CALLER_AUTH_ENV, "app")], "/tmp"),
+        Caller::Id("human".into())
+    );
+    assert_eq!(
+        id(&[(CALLER_AUTH_ENV, "session")], "/tmp"),
+        Caller::Id("human".into())
+    );
+    // A malformed work grant is refused, never silently answered as another identity.
+    assert_eq!(
+        caller(&ctx(&[("PACER_WORK_GRANT", "pwg_x")]), Some("/tmp")).unwrap_err().message,
+        "Invalid work grant"
+    );
 }
 
 #[tokio::test]
@@ -265,10 +294,12 @@ async fn tree_status_lists_the_root_first_and_reads_turn_state() {
             .code,
         Code::NotAllowed
     );
-    assert!(msg_stays_forwarded(
-        "tree.status",
-        &ctx(&[("PACER_ENFORCEMENT_TOKEN", "x")])
-    ));
+    assert_eq!(
+        caller(&ctx(&[("PACER_ENFORCEMENT_TOKEN", "x")]), Some("/tmp"))
+            .unwrap_err()
+            .message,
+        "Enforcement identity only reports a native child denial"
+    );
 }
 
 #[test]

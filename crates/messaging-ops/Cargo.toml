@@ -8,6 +8,7 @@ rust-version.workspace = true
 
 [dependencies]
 serde_json.workspace = true
+sha2 = "0.10"
 pacer-config = { path = "../config" }
 pacer-foundation = { path = "../foundation" }
 pacer-store = { path = "../store" }
