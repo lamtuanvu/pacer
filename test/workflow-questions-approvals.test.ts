@@ -358,6 +358,83 @@ test("a person retries a rejected fan-out branch without restarting the others",
   expect(getRun(w.ctx, run.id)!.rev).toBeGreaterThan(live.rev);
 });
 
+/** A waiting fan-out run with branch `a` rejected, and a live planner turn. */
+async function rejectedBranch() {
+  const w = world();
+  const def = w.install({
+    id: "t/race", version: 1, entry: "review",
+    steps: {
+      review: { type: "fanout", branches: ["a", "b"], each: { type: "agent", kind: "research", prompt: "R" }, join: "all" },
+      done: { type: "end" },
+    },
+    edges: [{ from: "review", to: "done" }],
+  });
+  const run = await w.start(def);
+  updateStep(w.ctx, { runId: run.id, stepId: "review", attempt: 1, branch: "a" }, { status: "failed", error: "review rejected" });
+  updateRun(w.ctx, run.id, getRun(w.ctx, run.id)!.rev, { status: "waiting" });
+  enqueueWakeup(w.ctx, { runId: run.id, cause: "message", ref: "m1", byPerson: true });
+  await w.turn(run.id);
+  const planner = w.grantCtx(run.id);
+  const person = (name: "step.retry" | "step.skip") =>
+    w.person(name, { id: run.id, step: "review", expect_rev: getRun(w.ctx, run.id)!.rev });
+  const a = () => w.rows(run.id, "review").filter(s => s.branch === "a")
+    .sort((x, y) => x.attempt - y.attempt).map(s => `${s.attempt} ${s.status}`);
+  const items = () => deriveWorkflowAttention(w.ctx).filter(i => i.id.startsWith("step_failed:"));
+  return { w, run, planner, person, a, items };
+}
+
+test("a second retry while the first publishes starts nothing, and no item offers it", async () => {
+  const { person, a, items } = await rejectedBranch();
+  const first = person("step.retry");
+  await Promise.resolve();
+  expect(items()).toEqual([]);
+  const second = person("step.retry");
+  await expect(second).rejects.toMatchObject({ code: "conflict" });
+  await first;
+  expect(a()).toEqual(["1 failed", "2 running"]);
+});
+
+test("a person and the planner retrying one rejected branch start it once", async () => {
+  const { w, run, planner, person, a } = await rejectedBranch();
+  const both = await Promise.allSettled([
+    person("step.retry"), w.agent(planner, "step.retry", { id: run.id, step: "review" }),
+  ]);
+  expect(both.map(r => r.status).sort()).toEqual(["fulfilled", "rejected"]);
+  expect(a()).toEqual(["1 failed", "2 running"]);
+});
+
+test("a rejected branch is either retried or skipped, never both", async () => {
+  for (const retryFirst of [true, false]) {
+    const { w, run, planner, person, a } = await rejectedBranch();
+    const retry = () => person("step.retry");
+    const skip = () => w.agent(planner, "step.skip", { id: run.id, step: "review" });
+    const both = await Promise.allSettled(retryFirst ? [retry(), skip()] : [skip(), retry()]);
+    expect(both.map(r => r.status).sort()).toEqual(["fulfilled", "rejected"]);
+    expect([["1 failed", "2 running"], ["1 done"]]).toContainEqual(a());
+  }
+});
+
+test("a retry whose delegation throws leaves a row the tick delegates again", async () => {
+  const { w, run, a } = await rejectedBranch();
+  await expect(callOp(w.ctx, "step.retry", { id: run.id, step: "review", expect_rev: getRun(w.ctx, run.id)!.rev },
+    { spawnRunner: w.spawn, delegate: async () => { throw new Error("delegation is down"); } })).rejects.toThrow("delegation is down");
+  expect(a()).toEqual(["1 failed", "2 running"]);
+  await w.tick(120);
+  expect(w.rows(run.id, "review").find(s => s.branch === "a" && s.attempt === 2)!.taskId).toBeTruthy();
+});
+
+test("a retry that cannot start its new attempt leaves the failed step open", async () => {
+  const w = world();
+  const run = await failedStep(w);
+  const db = workflowDatabase(w.ctx);
+  db.exec("CREATE TRIGGER no_new_step BEFORE INSERT ON workflow_steps BEGIN SELECT RAISE(ABORT, 'no room'); END");
+  await expect(w.person("step.retry", { id: run.id, step: "work", expect_rev: run.rev })).rejects.toThrow("no room");
+  db.exec("DROP TRIGGER no_new_step");
+  expect(deriveWorkflowAttention(w.ctx).map(i => i.id)).toContain(`step_failed:${run.id}:work#1`);
+  await w.person("step.retry", { id: run.id, step: "work", expect_rev: getRun(w.ctx, run.id)!.rev });
+  expect(w.row(run.id, "work")).toMatchObject({ attempt: 2, status: "running" });
+});
+
 test("a one-click yes on a human step takes the edge and approves publishing in the engine's spelling", async () => {
   for (const spelling of ["Yes", "YES ", "yes"]) {
     const w = world();

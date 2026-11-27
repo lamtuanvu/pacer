@@ -2200,9 +2200,27 @@ function clearStepFailureWakeups(ctx: Ctx, row: StepRow): void {
   completeWakeupRef(ctx, row.runId, "step_invalid", ref);
 }
 
-/** The person's compare-and-set (P2): taken in the same tick as the change it guards. */
-function claimRunRev(ctx: Ctx, run: RunRow, expectRev: number | undefined): void {
-  if (expectRev !== undefined) updateRun(ctx, run.id, expectRev, {});
+/**
+ * One retry or skip takes a failed row: the person's compare-and-set on the run rev
+ * (P2), the check that the row is still open, `take`, and the run's return to running
+ * land in one transaction. The caller then starts its new row (or `take` ends this one)
+ * before its first await, so no second retry, skip or attention item finds the failed
+ * row still open.
+ */
+function claimFailedStep<T>(ctx: Ctx, row: StepRow, expectRev: number | undefined, take: () => T): T {
+  return workflowDatabase(ctx).transaction(() => {
+    const run = liveRun(ctx, row.runId);
+    if (expectRev !== undefined) updateRun(ctx, run.id, expectRev, {});
+    if (!openFailedSteps(ctx, row.runId, row.stepId)
+      .some(open => open.attempt === row.attempt && open.branch === row.branch)) {
+      throw new CoreError("conflict", `conflict: step ${row.stepId} of ${row.runId} is not failed`);
+    }
+    const taken = take();
+    clearStepFailureWakeups(ctx, row);
+    const current = getRun(ctx, run.id)!;
+    if (current.status === "waiting") updateRun(ctx, current.id, current.rev, { status: "running" });
+    return taken;
+  }).immediate();
 }
 
 /** Skip a failed step (treat as done with `{ skipped: true }`) and advance. The person
@@ -2226,18 +2244,11 @@ export async function skipFailedStep(
   if (stepDef?.type === "fanout" && joined && isHeldBranch(row)) {
     throw new CoreError("conflict", `conflict: step ${input.stepId} already joined`);
   }
-  claimRunRev(ctx, run, input.expectRev);
   const result = { skipped: true };
-  const done = updateStep(ctx, keyOf(row), { status: "done", result, endedAt: ctx.now });
-  clearStepFailureWakeups(ctx, row);
+  const done = claimFailedStep(ctx, row, input.expectRev,
+    () => updateStep(ctx, keyOf(row), { status: "done", result, endedAt: ctx.now }));
   pruneAbandonedConflicts(ctx, run.id);
-  try {
-    if (!isTerminal(getRun(ctx, run.id)) && getRun(ctx, run.id)?.status === "waiting") {
-      await patchRun(ctx, run.id, { status: "running" });
-    }
-  } catch (err) {
-    if (!(err instanceof CoreError) || err.code !== "conflict") throw err;
-  }
+  await publishRunChange(ctx, getRun(ctx, run.id));
   // Skipping a branch the review rejected lets its waiting join finish.
   if (stepDef?.type === "fanout" && !joined && isHeldBranch(row)) {
     await joinFanout(ctx, getRun(ctx, run.id)!, def, done, stepDef, withDefaults({ deps, spawn }));
@@ -2277,25 +2288,22 @@ export async function retryFailedStep(
     throw new CoreError("conflict", `conflict: step ${input.stepId} already joined`);
   }
   const branchOnly = stepDef.type === "fanout" && !joined && isHeldBranch(row);
-  claimRunRev(ctx, run, input.expectRev);
   // Mark the failed attempt advanced so the tick does not keep recreating its wake-up.
-  try { updateStep(ctx, keyOf(row), { advancedAt: ctx.now }); } catch { /* */ }
-  clearStepFailureWakeups(ctx, row);
-  try {
-    if (!isTerminal(getRun(ctx, run.id)) && getRun(ctx, run.id)?.status === "waiting") {
-      await patchRun(ctx, run.id, { status: "running" });
-    }
-  } catch (err) {
-    if (!(err instanceof CoreError) || err.code !== "conflict") throw err;
-  }
-  if (branchOnly) {
+  const retried = claimFailedStep(ctx, row, input.expectRev, () => {
+    updateStep(ctx, keyOf(row), { advancedAt: ctx.now });
     // Only this branch starts again; the rest of the fan-out stays as it is.
-    const live = getRun(ctx, run.id)!;
-    const retried = insertBranchRetry(ctx, { ...row, branch: row.branch! }, nextAttempt(ctx, run.id, input.stepId));
-    await delegateFanoutBranch(ctx, live, retried, stepDef as FanoutStep, withDefaults({ deps, spawn }));
-  } else {
-    await startStep(ctx, getRun(ctx, run.id)!, def, input.stepId, row.branch, { deps, spawn });
-  }
+    return branchOnly
+      ? insertBranchRetry(ctx, { ...row, branch: row.branch! }, nextAttempt(ctx, run.id, input.stepId))
+      : undefined;
+  });
+  // The new attempt's row exists before the first await (both starters insert it
+  // synchronously), and a delegation that throws leaves it for the tick to repeat.
+  const starting = retried
+    ? delegateFanoutBranch(ctx, getRun(ctx, run.id)!, retried, stepDef as FanoutStep, withDefaults({ deps, spawn }))
+    : startStep(ctx, getRun(ctx, run.id)!, def, input.stepId, row.branch, { deps, spawn });
+  const publishing = publishRunChange(ctx, getRun(ctx, run.id));
+  try { await starting; }
+  finally { await publishing; }
   // The failed attempt's conflicts went with it.
   pruneAbandonedConflicts(ctx, run.id);
   return getRun(ctx, run.id)!;
