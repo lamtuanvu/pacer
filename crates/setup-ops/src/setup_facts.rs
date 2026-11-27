@@ -741,9 +741,6 @@ pub async fn setup_facts(ctx: &Ctx, snapshot_probe: bool, host: &mut dyn SetupHo
     {
         connected = false;
     }
-    if let Err(error) = read_manifest(&ctx.pacer_home) {
-        errors.insert("connect".into(), json!(error));
-    }
     let signed_in = logged_in.as_ref().is_none_or(|(logged_in, _)| *logged_in);
     let login_command = logged_in
         .as_ref()
