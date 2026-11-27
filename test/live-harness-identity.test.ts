@@ -126,6 +126,40 @@ describe("live guard: a sandbox orchestrator answers questions", () => {
   }, 30000);
 });
 
+describe("live guard: a sandbox orchestrator sends a task back (API-5b)", () => {
+  const orchestrator = { PACER_ROLE: "orchestrator", PACER_TASK_ID: "t-orch", PACER_RUN_GRANT: `prg_${"a".repeat(64)}` };
+  const sendBack = ["review", "t-20261126-090911-8217", "--send-back", "--note", "commit your work"];
+  const refused = "cannot delegate onward";
+  test("only the send-back form is admitted", () => {
+    expect(executorRefusal(sendBack, orchestrator, true)).toBeUndefined();
+    expect(executorRefusal(["review", "t-1", "--send-back"], orchestrator, true)).toBeUndefined();
+    expect(executorRefusal(["review", "t-1", "--note", "fix", "--send-back", "--json"], orchestrator, true)).toBeUndefined();
+    for (const args of [
+      ["review", "t-1", "--retry-on", "codex"], ["review", "t-1", "--send-back", "--retry-on", "codex"],
+      ["review", "t-1", "--send-back", "--retry-on=codex"], ["review", "t-1", "--send-back", "--accept"],
+      ["review", "t-1", "--send-back", "--kind", "docs"], ["review", "t-1", "--send-back", "--send-back"],
+      ["review", "t-1", "--send-back", "--note"], ["review", "t-1", "--send-back", "--note", "--retry-on"],
+      ["review", "--send-back", "t-1"], ["review", "t-1", "t-2", "--send-back"], ["retry", "t-1"],
+      ["api", "call", "task.review", "--params", '{"id":"t-1","verdict":"send_back"}'], ["answer", "t-1", "yes"],
+    ]) expect([args, executorRefusal(args, orchestrator, true)]).toEqual([args, expect.stringContaining(refused)]);
+  });
+  test("it needs a sandbox launch, the orchestrator role and a run grant", () => {
+    expect(executorRefusal(sendBack, orchestrator)).toContain(refused);
+    expect(executorRefusal(sendBack, { ...orchestrator, PACER_ROLE: "executor" }, true)).toContain(refused);
+    expect(executorRefusal(sendBack, { ...orchestrator, PACER_RUN_GRANT: undefined }, true)).toContain(refused);
+    expect(executorRefusal(sendBack, { ...orchestrator, PACER_RUN_GRANT: "prg_x" }, true)).toContain(refused);
+    expect(executorRefusal(sendBack, { PACER_TASK_ID: "t-1", PACER_RUN_GRANT: orchestrator.PACER_RUN_GRANT }, true)).toContain(refused);
+  });
+  test("the executable guard admits it only from the sandbox", () => {
+    const session = fixture(), file = join(session.root, "session.json");
+    writeFileSync(file, JSON.stringify(session));
+    const guard = (env: NodeJS.ProcessEnv, ...args: string[]) => Bun.spawnSync([process.execPath, "scripts/live/guard.ts", file, ...args], { cwd: checkout, env });
+    expect(guard(sandboxChild(session, orchestrator), ...sendBack).exitCode).not.toBe(3);
+    expect(guard(sandboxChild(session, orchestrator), "review", "t-1", "--retry-on", "codex").exitCode).toBe(3);
+    expect(guard({ ...process.env, ...orchestrator }, ...sendBack).exitCode).toBe(3);
+  }, 30000);
+});
+
 describe("live sandbox: executors do not read the login shell", () => {
   test("the login environment is off unless the caller chose otherwise", () => {
     const session = fixture();

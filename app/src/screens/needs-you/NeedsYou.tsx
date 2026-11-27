@@ -15,11 +15,12 @@ import { ActionButton } from "../ActionButton";
 import { useTaskContext } from "../task-shared";
 import { AnswerPanel } from "./AnswerPanel";
 import { GateSteps } from "../review/RunGatePanel";
-import { attentionStatus } from "../../../../src/view-model/words";
+import { attentionStatus, runBlocked } from "../../../../src/view-model/words";
 import { PageHead } from "../../shell/slots";
 
 export const answerHref = (id: string) => `#/needs-you?answer=${encodeURIComponent(id)}`;
 export function attentionDestination(item: AttentionItem): string {
+  if (!item.taskId && item.run) return `#/runs/${encodeURIComponent(item.run.id)}`;
   const task = `#/tasks/${encodeURIComponent(item.taskId ?? "")}`;
   return item.kind === "question" ? answerHref(item.taskId!) : `${task}/${item.kind === "review" ? "review" : "failure"}`;
 }
@@ -30,9 +31,10 @@ export function NeedsYouPage({ query }: { query: RouteQuery }) {
   const snapshot = state.snapshot;
   if (!snapshot) return null;
   const now = Date.now() / 1000;
-  // A workflow gate is listed even without a task: its item carries what to do.
-  const items = needsYou(snapshot, { repo: query.repo || null }).filter(item => item.gate || item.taskId && ["question", "failed", "review"].includes(item.kind));
-  const inTab = (item: AttentionItem, value: string) => value === "all" || item.kind === value || value === "failed" && item.gate?.kind === "adoption";
+  // A workflow gate and a run's own item (its questions, a blocked planner, a failed step) are listed
+  // even without a task: the item carries what to do, and the run view answers it.
+  const items = needsYou(snapshot, { repo: query.repo || null }).filter(item => item.gate || runItem(item) || item.taskId && ["question", "failed", "review"].includes(item.kind));
+  const inTab = (item: AttentionItem, value: string) => value === "all" || item.kind === value || value === "failed" && (item.gate?.kind === "adoption" || item.kind === "orchestrator_failed");
   const shown = items.filter(item => inTab(item, tab));
   // An executor needs attention when it is down, blocked, its reading went historical (the record's freshness), or nothing says it can take work.
   const unavailable = capacity(snapshot).filter(row => row.rank !== "planner" && (["down", "blocked", "exhausted", "disabled", "failing"].includes(row.state)
@@ -41,13 +43,14 @@ export function NeedsYouPage({ query }: { query: RouteQuery }) {
   const answer = new URLSearchParams(typeof location === "undefined" ? "" : location.hash.split("?")[1]).get("answer");
   const oldest = items.length ? Math.min(...items.map(item => item.raisedAt)) : null;
   return <><PageHead>
-    <header className="ny-header"><div className="ny-heading"><h1>Needs you</h1><span className="ny-cap">{items.length ? `${items.length} ${items.length === 1 ? "task is" : "tasks are"} waiting on you` : "Nothing needs your attention"}{oldest !== null ? ` · the oldest for ${durationWords(now - oldest)}` : ""} · {unavailable.length ? "agents need attention below" : "nothing else is blocked"}</span></div><RepoFilter snapshot={snapshot} query={query} menu /></header>
+    <header className="ny-header"><div className="ny-heading"><h1>Needs you</h1><span className="ny-cap">{items.length ? `${items.length} ${items.every(item => item.taskId) ? items.length === 1 ? "task is" : "tasks are" : items.length === 1 ? "item is" : "items are"} waiting on you` : "Nothing needs your attention"}{oldest !== null ? ` · the oldest for ${durationWords(now - oldest)}` : ""} · {unavailable.length ? "agents need attention below" : "nothing else is blocked"}</span></div><RepoFilter snapshot={snapshot} query={query} menu /></header>
     <Tabs id="needs-kind" label="Kind" value={tab} options={tabs.map(option => ({ ...option, label: <>{option.label} <span className="ny-cap">{items.filter(item => inTab(item, option.value)).length}</span></> }))} onChange={setTab} />
   </PageHead>
   <Page width="full" className="pc-needs-you pc-needs-board">
     <section className="ny-list" aria-label="Waiting on you" role="tabpanel" id={`needs-kind-${tab}-panel`} aria-labelledby={`needs-kind-${tab}-tab`}>
       {shown.map(item => {
         if (item.gate) return <GateRow key={item.id} item={item} query={query} now={now} />;
+        if (runItem(item)) return <RunRow key={item.id} item={item} query={query} now={now} />;
         const task = snapshot.tasks.find(task => task.id === item.taskId), question = item.kind === "question", review = item.kind === "review";
         const agent = markAgent(item.executor ?? task?.executor ?? "codex", item.account), name = agentInfo(agent).name;
         const href = withQuery(attentionDestination(item), query);
@@ -69,6 +72,29 @@ export function NeedsYouPage({ query }: { query: RouteQuery }) {
     <span className="ny-cap ny-footnote">Answering, retrying or accepting here resumes the task where it stopped. Everything you do is recorded in the task's dispatch trace.</span>
     {answer && <AnswerPanel key={answer} id={answer} close={() => { location.hash = withQuery("#/needs-you", query); }} />}
   </Page></>;
+}
+
+/** A workflow run's item that belongs to no task. */
+const runItem = (item: AttentionItem) => !item.taskId && !!item.run && ["question", "orchestrator_failed"].includes(item.kind);
+
+/** A run item with the actions it offers; the run view answers what a button cannot. */
+function RunRow({ item, query, now }: { item: AttentionItem; query: RouteQuery; now: number }) {
+  const runner = useActions();
+  const status = item.kind === "question" ? attentionStatus(item) : runBlocked;
+  const href = withQuery(attentionDestination(item), query);
+  const actions = item.actions.filter(action => action.op !== "ui.open");
+  return <div className="ny-item" data-attention-id={item.id}>
+    <span aria-hidden="true" className={`ny-glyph ny-glyph--${status.tone === "neutral" ? "info" : status.tone}`}>{status.glyph}</span>
+    <div className="ny-gate">
+      <TextAction href={href}><span className="ny-title-line"><span className="ny-title" title={item.title}>{item.title}</span><Pill tone={status.tone}>{status.label}</Pill></span></TextAction>
+      <span className="ny-reason">{item.detail}</span>
+      <span className="ny-meta ny-cap">{item.run!.title} · waiting {durationWords(now - item.raisedAt)}</span>
+    </div>
+    <span className="ny-actions">
+      <ButtonLink typography="board" size="sm" href={href}>{item.question ? "Answer in run" : "Open run"}</ButtonLink>
+      {actions.map(action => <ActionButton key={action.label} runner={runner} id={`${item.id}:${action.label}`} action={action} />)}
+    </span>
+  </div>;
 }
 
 /** A workflow gate in its own words, with the actions its item offers. */

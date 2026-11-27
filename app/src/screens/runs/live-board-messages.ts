@@ -39,7 +39,7 @@ export function messageTargets(channel: MessageChannel, ctx: MessageContext): Ta
 }
 
 /** One recipient's result: the service's `delivery`, or the plain refusal when the send was refused or failed. */
-export interface RecipientResult { to: string; delivery?: string; refusal?: string }
+export interface RecipientResult { to: string; delivery?: string; hold?: { reason?: string }; refusal?: string }
 export interface SendOutcome { results: RecipientResult[] }
 
 /** Send one body to each target in turn. A failure for one recipient does not stop the others. */
@@ -49,7 +49,9 @@ export async function sendToTargets(send: (to: string, body: string) => Promise<
     try {
       const r = await send(target, body);
       const delivery = r && typeof r === "object" && typeof (r as { delivery?: unknown }).delivery === "string" ? (r as { delivery: string }).delivery : undefined;
-      out.results.push({ to: target, ...(delivery ? { delivery } : {}) });
+      const hold = r && typeof r === "object" && (r as { hold?: unknown }).hold && typeof (r as { hold: { reason?: unknown } }).hold === "object"
+        ? (r as { hold: { reason?: string } }).hold : undefined;
+      out.results.push({ to: target, ...(delivery ? { delivery } : {}), ...(hold ? { hold } : {}) });
     } catch (e) {
       // The raw error stays in the console; the page shows plain words (UI-12).
       console.warn("runs: message send failed", e);
@@ -61,7 +63,8 @@ export async function sendToTargets(send: (to: string, body: string) => Promise<
 
 /** A delivery that reached, or will reach, the task. Everything else is stored but not delivered (held, closed, capped, no session, ...). */
 const REACHED = new Set(["turn_started", "queued", "live", "pull"]);
-const wordsFor = (delivery: string | undefined): string => delivery === "pending" ? "Message recorded; delivery is not confirmed yet." : messageDeliveryWords(delivery);
+const wordsFor = (r: Pick<RecipientResult, "delivery" | "hold">): string =>
+  r.delivery === "pending" ? "Message recorded; delivery is not confirmed yet." : messageDeliveryWords(r.delivery, r.hold);
 const reached = (r: RecipientResult): boolean => !r.refusal && (r.delivery === undefined || REACHED.has(r.delivery));
 
 export interface SendSummary {
@@ -78,13 +81,13 @@ export function summarizeSend(results: RecipientResult[]): SendSummary {
   if (results.length === 1) {
     const r = results[0]!;
     if (r.refusal) return { text: r.refusal, problem: true, stored };
-    return { text: wordsFor(r.delivery), problem: !reached(r), stored };
+    return { text: wordsFor(r), problem: !reached(r), stored };
   }
   const ok = results.filter(reached).length;
   const held = results.filter(r => !r.refusal && !reached(r));
   const refused = results.filter(r => r.refusal);
   const parts = [`Delivered to ${ok} of ${results.length} recipients.`];
-  if (held.length) parts.push(`${held.length} saved but not delivered: ${[...new Set(held.map(r => wordsFor(r.delivery)))].join(" ")}`);
+  if (held.length) parts.push(`${held.length} saved but not delivered: ${[...new Set(held.map(r => wordsFor(r)))].join(" ")}`);
   if (refused.length) parts.push(`${refused.length} not sent: ${[...new Set(refused.map(r => r.refusal))].join(" ")}`);
   return { text: parts.join(" "), problem: ok < results.length, stored };
 }

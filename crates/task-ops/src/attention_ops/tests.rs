@@ -88,6 +88,7 @@ fn forwards_workflow_items_to_typescript() {
         "budget_msg_spent:run_1",
         "budget_msg_warn:run_1",
         "orchestrator_failed:run_1",
+        "step_failed:run_1:build#1",
         "unresolved_wake:run_1",
     ] {
         assert!(forwarded("attention.snooze", id), "{id}");

@@ -1,4 +1,5 @@
 /** Review: the queue on the left, the selected task's evidence and verdict on the right. */
+import { runQuestionAnswer } from "./runs";
 import type { AttentionItem } from "../../attention/types";
 import { reviewQueue, needsYou } from "../../view-model/selectors";
 import { costCopy, reasonCopy } from "../../view-model/copy";
@@ -115,9 +116,10 @@ export function reviewScreen(ctx: ScreenCtx): ScreenView {
   const items: Item[] = [];
   for (const a of queue) {
     const task = s.tasks.find(t=>t.id===a.taskId);
+    const form = runQuestionAnswer(a, ctx.supports);
     const item = a.kind === "review" && a.taskId ? reviewItem(ctx,a,task,ctx.data.details.get(a.taskId)?.value) : {
-      id:`attention:${a.id}`, primary:a.actions[0]?serviceAct(ctx,a.actions[0],a.title):undefined,
-      actions:defined(a.actions.slice(1).map(action=>serviceAct(ctx,action,a.title))), keys:{},
+      id:`attention:${a.id}`, primary:form ?? (a.actions[0]?serviceAct(ctx,a.actions[0],a.title):undefined),
+      actions:defined(a.actions.slice(form ? 0 : 1).map(action=>serviceAct(ctx,action,a.title))), keys:{},
     };
     items.push(item);
     const w=flex(listWidth-MARK,[{fixed:20},{weight:1,min:8}],1);

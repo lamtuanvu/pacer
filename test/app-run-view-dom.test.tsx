@@ -141,7 +141,7 @@ test("a stale answer shows the conflict, and Reload refetches the run", async ()
 });
 
 test("messages to the planner go to the orchestrator task; the form is absent without msg.send", async () => {
-  const { dom, calls } = await open(plain);
+  const { dom, calls } = await open(plain, ALL_OPS, { "msg.send": () => ({ delivery: "held", hold: { reason: "this task is a workflow planner, which takes no messages; only the person's answers to its own questions reach it" } }) });
   try {
     expect(domText(dom.container)).toContain("Message the planner");
     expect(isDisabled(dom.container, "Send to planner")).toBe(true);
@@ -152,7 +152,7 @@ test("messages to the planner go to the orchestrator task; the form is absent wi
     formOf(box).submit();
     await until(() => calls.ops.some(c => c.op === "msg.send"), 2000);
     expect(calls.ops.find(c => c.op === "msg.send")!.params).toEqual({ to: "task:t_orch", body: "Please skip the docs." });
-    await until(() => domText(dom.container).includes("Message sent to the planner"), 2000);
+    await until(() => domText(dom.container).includes("Sent. Held:"), 2000);
   } finally { await done(dom); }
   const second = await open(plain, ALL_OPS.filter(o => o !== "msg.send"));
   try {
@@ -539,12 +539,12 @@ test("a failed send shows plain words, logs the raw error and keeps focus in the
 });
 
 test("a sent message is announced once and focus stays in the message box", async () => {
-  const { dom } = await open(plain, ALL_OPS, { "msg.send": () => ({}) });
+  const { dom } = await open(plain, ALL_OPS, { "msg.send": () => ({ delivery: "held", hold: { reason: "this task is a workflow planner, which takes no messages; only the person's answers to its own questions reach it" } }) });
   try {
     const box = await sendMessage(dom.container, "hi");
-    await until(() => domText(dom.container).includes("Message sent to the planner"), 2000);
+    await until(() => domText(dom.container).includes("Sent. Held:"), 2000);
     await act(async () => { await tick(); });
-    expect(occurrences(domText(dom.container), "Message sent to the planner")).toBe(1);
+    expect(occurrences(domText(dom.container), "Sent. Held:")).toBe(1);
     expect(focused(dom)).toBe(box);
   } finally { await done(dom); }
 });

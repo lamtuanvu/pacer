@@ -351,6 +351,27 @@ fn option_choice_actions(
     Value::Array(actions)
 }
 
+/// A human step decides what the run does next (publishing included): every one-click
+/// answer to it asks first. Mirrors the TS `runQuestionActions` confirm.
+fn confirm_human_answers(actions: &mut Value, text_body: &str) {
+    let asked = collapsed_question_text(text_body);
+    for action in actions.as_array_mut().into_iter().flatten() {
+        let Some(action) = action.as_object_mut() else {
+            continue;
+        };
+        let answer = action
+            .get("params")
+            .and_then(|p| p.get("answer"))
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        action.insert(
+            "confirm".into(),
+            json!(format!("Answer \"{answer}\" to: {asked}")),
+        );
+    }
+}
+
 /// Mirror of TS `runQuestionActions` — first action must succeed via direct op call.
 fn run_question_actions(
     id: &str,
@@ -450,21 +471,10 @@ fn run_question_detail(
     answer_type: &str,
     options: Option<&[Value]>,
     recommended: Option<&str>,
-    id: &str,
     run_subject: &str,
-    actions: &Value,
     question_text: &str,
 ) -> String {
-    let action_count = actions.as_array().map_or(0, Vec::len);
-    let first_label = actions
-        .as_array()
-        .and_then(|arr| arr.first())
-        .and_then(|a| a.get("label"))
-        .and_then(|v| v.as_str());
     let mut parts: Vec<String> = Vec::new();
-    if let Some(label) = first_label {
-        parts.push(format!("The first button answers \"{label}\"."));
-    }
     parts.push(format!("{run_subject}."));
     parts.push(format!("{}.", asker_cue(asker_kind)));
     let collapsed = collapsed_question_text(question_text);
@@ -501,14 +511,6 @@ fn run_question_detail(
             "Recommended: {}.",
             clip_code_points(&collapse_newlines(rec), OPTION_DETAIL_CLIP, true)
         ));
-    }
-    // m1: CLI hint when no buttons, or when listed options exceed the buttons shown.
-    if action_count == 0
-        || opt_words
-            .as_ref()
-            .is_some_and(|opts| opts.len() > action_count)
-    {
-        parts.push(format!("Answer with: pacer answer {id} \"<your answer>\""));
     }
     parts.join(" ")
 }
@@ -686,22 +688,23 @@ pub fn run_question_items(ctx: &Ctx) -> Vec<Value> {
             .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
             .and_then(|v| v.as_array().cloned());
         let recommended_val = recommended.filter(|s| !s.is_empty());
-        let actions = run_question_actions(
+        let mut actions = run_question_actions(
             &id,
             rev,
             &answer_type,
             parsed_options.as_deref(),
             recommended_val.as_deref(),
         );
+        if asker_kind == "human_step" {
+            confirm_human_answers(&mut actions, &text_body);
+        }
         let item_title = run_question_title(&text_body);
         let detail = run_question_detail(
             &asker_kind,
             &answer_type,
             parsed_options.as_deref(),
             recommended_val.as_deref(),
-            &id,
             &detail_subject,
-            &actions,
             &text_body,
         );
         let mut question = Map::new();

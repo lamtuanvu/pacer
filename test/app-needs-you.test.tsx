@@ -76,3 +76,30 @@ test("a long question stays in its own reason column, keeps the meta readable an
   expect(html).toContain(">Answer</a>");
   expect(html).toContain(">Open in workspace</a>");
 });
+
+test("a run's own items are listed with their actions, though no task carries them", () => {
+  const now = Math.floor(Date.now() / 1000);
+  const snap = structuredClone(fixture) as unknown as ClientSnapshot;
+  const run = { id: "run_aaaaaaaaaa", letter: "A", title: "Ship it", priority: "normal" as const };
+  const base = { repo: null, raisedAt: now - 60, since: now - 60, notify: "important" as const, run };
+  snap.attention = [
+    { ...base, id: "question:q_pub", kind: "question", severity: "blocked", title: "Publish?", detail: "Needs your approval.",
+      question: { id: "q_pub", text: "Publish?", answerType: "approve_revise", rev: 1 },
+      actions: [{ label: "Approve", op: "question.answer", params: { id: "q_pub", expect_rev: 1, answer: "approve" }, confirm: "Answer?" }] },
+    { ...base, id: "question:q_text", kind: "question", severity: "blocked", title: "Which name?", detail: "Asked by the workflow planner.",
+      question: { id: "q_text", text: "Which name?", answerType: "text", rev: 1 }, actions: [] },
+    { ...base, id: "step_failed:run_aaaaaaaaaa:work#1", kind: "orchestrator_failed", severity: "blocked", title: "Step \"work\" failed", detail: "Retry it, or skip it to continue.",
+      actions: [{ label: "Retry step", op: "step.retry", params: { id: run.id, step: "work", expect_rev: 4 } }, { label: "Skip step", op: "step.skip", params: { id: run.id, step: "work", expect_rev: 4 }, confirm: "Skip?" }] },
+  ] as never;
+  const html = renderToString(<ActionContext.Provider value={runner}><TaskContext.Provider value={{ state: { ...initialState(), snapshot: snap }, api: {} as never }}><NeedsYouPage query={{ repo: null, scope: null }} /></TaskContext.Provider></ActionContext.Provider>);
+  for (const item of snap.attention as unknown as { id: string }[]) expect(html).toContain(`data-attention-id="${item.id.replaceAll('"', "&quot;")}"`);
+  expect(html).toContain("3 items are waiting on you");
+  expect(html).toMatch(/Questions <span class="ny-cap">2</);
+  expect(html).toMatch(/Failed <span class="ny-cap">1</);
+  expect(html).toContain(">Approve</button>");
+  expect(html).toContain(">Retry step</button>");
+  expect(html).toContain(">Skip step</button>");
+  expect(html).toMatch(/href="#\/runs\/run_aaaaaaaaaa"[^>]*>Answer in run<\/a>/);
+  // Repeated rows make no action the primary one (UI-14).
+  expect(html).not.toContain("pc-btn--primary");
+});

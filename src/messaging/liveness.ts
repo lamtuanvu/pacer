@@ -6,6 +6,7 @@ import { listTasksWhere } from "../tasks/store";
 import type { TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
 import { heldOpenForHuman, parentOf, participantKind, taskOf } from "./participants";
+import { awaitingRunAnswer, isPlannerTask, pendingLiveAnswers } from "../workflow/live-answer";
 import { effectivePolicy } from "./policy";
 import { getMessage, messagesDatabase } from "./store";
 import { isClosed } from "./turns";
@@ -22,9 +23,12 @@ export interface Stall { node: string; reason: StallReason; waitingOn?: string; 
  * latest file change or commit, attempt start or outgoing message other than a nudge; terminal output is not progress.
  * `silentSince` is when the session entered needs-input (session-status / report `at`), not lastOutputAt — redraws must not reset the timer.
  */
-export interface SnapshotTask { task: TaskRecord; work: boolean; parent: string | null; depth: number; lastProgressAt: number; heldOpenForHuman: boolean; silentSince?: number }
-/** `noProgressS` is `execution.no_progress_min` in seconds; `idleAfterS` is `execution.idle_after_min` in seconds. */
-export interface LivenessSnapshot { tasks: SnapshotTask[]; unread: Message[]; questions: Message[]; retryDelivery: boolean; noProgressS: number; idleAfterS: number }
+export interface SnapshotTask { task: TaskRecord; work: boolean; parent: string | null; depth: number; lastProgressAt: number; heldOpenForHuman: boolean; silentSince?: number; planner?: boolean }
+/**
+ * `pendingLiveAnswers` are engine-created answer rows for open planner turns: they wait to be typed on purpose
+ * and must not raise an undelivered stall while the planner finishes its response or a viewer holds the terminal.
+ */
+export interface LivenessSnapshot { tasks: SnapshotTask[]; unread: Message[]; questions: Message[]; retryDelivery: boolean; noProgressS: number; idleAfterS: number; pendingLiveAnswers: Set<string> }
 
 const WINDOW_S = 7 * 86400;
 const OPEN_STATES = ["queued", "running", "done", "partial", "failed", "limit", "needs_input"] as const;
@@ -94,14 +98,17 @@ export function buildSnapshot(ctx: Ctx): LivenessSnapshot {
     const lastProgressAt = Math.max(task.progress?.lastChangeAt ?? 0, started, lastSent.get(self)?.at ?? 0);
     const silentSince = silentAtPrompt(task) ? silentPromptSince(task) : undefined;
     return { task, work: !!getWork(ctx, task.id), parent, depth, lastProgressAt,
-      heldOpenForHuman: heldOpenForHuman(ctx, task, parent), ...(silentSince !== undefined ? { silentSince } : {}) };
+      // A planner waiting for an answer to its own question is quiet on purpose, like a session its user owns.
+      heldOpenForHuman: heldOpenForHuman(ctx, task, parent) || task.kind === "orchestrate" && awaitingRunAnswer(ctx, task.id), ...(isPlannerTask(ctx, task) ? { planner: true } : {}), ...(silentSince !== undefined ? { silentSince } : {}) };
   });
   const ids = (sql: string, ...args: number[]) => db.query<{ id: string }, number[]>(sql).all(...args).map(r => getMessage(ctx, r.id)!).filter(Boolean);
   const unread = ids("SELECT id FROM messages WHERE status IN ('pending','delivered') ORDER BY id");
   const questions = ids(`SELECT id FROM messages q WHERE kind='question' AND status<>'held' AND created_at>=?
     AND NOT EXISTS (SELECT 1 FROM messages a WHERE a.reply_to=q.id AND a.kind='answer') ORDER BY id`, ctx.now - WINDOW_S);
   const windows = executionWindows(ctx);
-  return { tasks, unread, questions, retryDelivery: effectivePolicy(ctx).config.liveness.retry_delivery, ...windows };
+  const pendingLive = new Set<string>();
+  for (const n of tasks) if (n.planner) for (const id of pendingLiveAnswers(ctx, n.task.id)) pendingLive.add(id);
+  return { tasks, unread, questions, retryDelivery: effectivePolicy(ctx).config.liveness.retry_delivery, pendingLiveAnswers: pendingLive, ...windows };
 }
 
 /** Pure: who holds the next move in each open conversation that is not moving. Nodes without a stall are absent. */
@@ -143,7 +150,9 @@ export function analyzeLiveness(snapshot: LivenessSnapshot, now: number): Stall[
       && t.conversation?.activity !== "idle" && t.conversation?.activity !== "waiting" && now - n.lastProgressAt >= snapshot.noProgressS) {
       stalls.set(p, { node: p, reason: "no_progress", blocking: blocking(p) });
     }
-    else if (!active(p) && (!n.work || snapshot.retryDelivery) && unread.some(m => m.to === p && m.status === "pending")) {
+    // Nothing carries a message to a planner, running or not — except open-turn live answers waiting to be typed.
+    else if ((n.planner || !active(p) && (!n.work || snapshot.retryDelivery))
+      && unread.some(m => m.to === p && m.status === "pending" && !snapshot.pendingLiveAnswers.has(m.id))) {
       stalls.set(p, { node: p, reason: "undelivered", blocking: blocking(p) });
     }
   }

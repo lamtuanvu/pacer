@@ -3,6 +3,7 @@ import type { ApiClient } from "../api/client-types";
 import type { TaskDetail } from "../core/task-detail";
 import type { Ctx } from "../types";
 import type { Result } from "./types";
+import { terminalJson, terminalText } from "./terminal-text";
 
 export const WATCH_USAGE = "watch <task-id> [--timeout <seconds>] [--json]   stream output until settled (default 600, max 3000)";
 type LogPage = { stdout: string; stderr: string; next: { stdout: number; stderr: number }; done: boolean; source?: string };
@@ -26,7 +27,7 @@ export async function watchCommand(args: string[], ctx: Ctx, options: Options = 
   const taskId = id;
   const write = options.write ?? (text => { process.stdout.write(text); });
   const emit = (type: string, fields: Record<string, unknown>, text: string) => {
-    write(json ? JSON.stringify({ type, task_id: taskId, ...fields }) + "\n" : text);
+    write(json ? terminalJson({ type, task_id: taskId, ...fields }) + "\n" : text);
   };
   const controller = new AbortController();
   let timedOut = false, client: ApiClient | undefined;
@@ -81,7 +82,7 @@ export async function watchCommand(args: string[], ctx: Ctx, options: Options = 
           : reviewable ? `pacer review ${taskId} --accept --json`
           : `pacer tasks ${taskId} --json`;
         emit("settled", { state: task.state, summary: task.summary, question: task.question ?? null, next },
-          `\n${taskId} ${task.state}${task.summary ? `: ${task.summary}` : ""}\n${task.question ? task.question.text + "\n" : ""}Next: ${reviewable ? "Review the diff and run acceptance, then " : ""}${next}${reviewable ? " (or use --reject)" : ""}\n`);
+          `\n${taskId} ${task.state}${task.summary ? `: ${terminalText(task.summary)}` : ""}\n${task.question ? terminalText(task.question.text) + "\n" : ""}Next: ${reviewable ? "Review the diff and run acceptance, then " : ""}${next}${reviewable ? " (or use --reject)" : ""}\n`);
         return { code: 0, out: "", err: "" };
       }
       await new Promise<void>(resolve => {

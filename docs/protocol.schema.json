@@ -6378,6 +6378,11 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128
+        },
+        "expect_rev": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
         }
       },
       "required": [
@@ -6397,6 +6402,11 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128
+        },
+        "expect_rev": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
         }
       },
       "required": [

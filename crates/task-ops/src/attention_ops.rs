@@ -29,7 +29,7 @@ const TASK_KINDS: &[&str] = &[
 fn workflow_kind(kind: &str) -> bool {
     matches!(
         kind,
-        "run_review" | "orchestrator_failed" | "unresolved_wake"
+        "run_review" | "orchestrator_failed" | "step_failed" | "unresolved_wake"
     ) || kind.starts_with("budget_")
 }
 

@@ -39,7 +39,7 @@ import {
   runEntityValue, setGraphStatus, setPublishOptIn,
   startRunDelayMs, stepByTask, stepsOfRun,
   taskByRequestId, updateRun, updateStep,
-  withdrawOpenQuestionsForRun, workflowDatabase, type RunPatch,
+  withdrawOpenQuestionsForRun, withdrawOpenQuestionsForStep, workflowDatabase, type RunPatch,
   type RunRow, type StepKey, type StepRow,
   getDefinitionRow, isDefinitionDisabled, isDefinitionInvalid,
   resolveWorkflowPrompt, setPluginDefinitionsDisabled,
@@ -51,7 +51,7 @@ import { runPriorityOf, stepDispatchOptions, taskPriorityFor, type RunPriority }
 import { isPersonPaused, isRunStepPaused, readPacingMode, syncRunPacingPause } from "./pacing";
 import { chooseStepChildRunId, completeWakeupRef, enqueueWakeup, liveTurnForTask, stepWakeRef } from "./wakeups";
 import { budgetForDefinition, serializeBudget, serializeSpent } from "./budget";
-import { canAutoApproveGenerate, canAutoDecide } from "./auto";
+import { canAutoDecide, orchestratorMayApprove } from "./auto";
 import { sanitizeAnswerNote } from "./question-schema";
 import { questionEntityValue, raiseHumanStepQuestion, resolveHumanStepQuestion } from "./questions";
 import { settleOrchestratorTaskForEndedRun, settleTurn, stopLiveTurnsForRun } from "./orchestrator";
@@ -66,7 +66,8 @@ import { branchReportFor, settleRunGitOnTerminal } from "./cleanup";
 import { isCodeStep, isPlainObject, type AgentStep, type ChooseWorkflowStep, type FanoutStep, type GenerateStep, type HumanStep, type JsonSchemaLite, type StepResultSchema, type WorkflowDef } from "./schema";
 import { loadStrategy, StrategyError, workflowRouterId } from "../config/strategy";
 import { missingNeedsPrompt, validateEvidenceResult, type EvidenceNeed } from "./evidence";
-import { liveTurn } from "./wakeups";
+import { heldByQuestion, liveTurn } from "./wakeups";
+import { MAX_STEP_RETRIES, stepRetriesSpent } from "./retries";
 
 /** Wake the root orchestrator for an auto-effective waiting human step. */
 function wakeAutoHumanStep(ctx: Ctx, run: RunRow, stepId: string, attempt: number, stepDef: HumanStep): void {
@@ -332,6 +333,12 @@ function liveRun(ctx: Ctx, runId: string): RunRow {
   return run;
 }
 
+/** Publishes a withdrawn question without waiting for it. */
+function publishQuestionWithdrawn(ctx: Ctx, q: ReturnType<typeof withdrawOpenQuestionsForRun>[number]): void {
+  void publish(ctx, [{ type: "entity", data: { kind: "question", id: q.id, value: questionEntityValue(q) } }])
+    .catch(() => {});
+}
+
 /** Applies a run patch against the current rev and publishes the change. Terminal
  *  runs stay terminal: patching one is a conflict (an end edge never overwrites a
  *  stopped run). */
@@ -365,12 +372,7 @@ async function patchRun(ctx: Ctx, runId: string, patch: RunPatch, o?: EngineOpti
     }
   }
   if (patch.status && RUN_TERMINAL.includes(patch.status)) {
-    for (const q of withdrawn) {
-      void publish(ctx, [{
-        type: "entity",
-        data: { kind: "question", id: q.id, value: questionEntityValue(q) },
-      }]).catch(() => {});
-    }
+    for (const q of withdrawn) publishQuestionWithdrawn(ctx, q);
     settleRootWorkNode(ctx, updated, patch.status === "failed" ? "failed" : patch.status === "stopped" ? "stopped" : "done");
     // Terminal status is already committed. Git settle takes the merge lock (up to
     // ~150 s) and must not block stop/fail/done; run it in the background with
@@ -1672,6 +1674,14 @@ export async function onTaskSettled(ctx: Ctx, taskId: string, spawn?: SpawnRunne
   // settlement exclusive and the run advanced exactly once (Review Focus 6).
   await Promise.resolve();
   const done = task.state === "done" && step.result !== undefined;
+  // A turn that ends on a blocking question holds the step until the answer arrives.
+  if (!done && task.state === "done" && isOrchestratorStep(def, step) && heldByQuestion(ctx, step)) {
+    if (claimStepSettlement(ctx, keyOf(step), { status: "waiting" })) {
+      await markRunWaiting(ctx, run.id);
+      await publishRunChange(ctx, getRun(ctx, run.id) ?? run);
+    }
+    return;
+  }
   // choose_workflow may start a child whose first step is role:orchestrator and attaches
   // the shared orch task mid-turn. The choosing turn then settles done without a result for
   // that new step. If an unclaimed orchestrator_step wakeup still exists for it, requeue
@@ -1729,6 +1739,11 @@ export async function onTaskSettled(ctx: Ctx, taskId: string, spawn?: SpawnRunne
     return;
   }
   await advanceFrom(ctx, run.id, def, row, row.result, { deps, spawn, settleLiveOrchTurn: true });
+}
+
+function isOrchestratorStep(def: WorkflowDef, row: StepRow): boolean {
+  const step = def.steps[row.stepId];
+  return step?.type === "agent" && step.role === "orchestrator";
 }
 
 /** A failed agent step is a decision point: replan a generated child, else wake the
@@ -2186,10 +2201,38 @@ function clearStepFailureWakeups(ctx: Ctx, row: StepRow): void {
   completeWakeupRef(ctx, row.runId, "step_invalid", ref);
 }
 
-/** Grant op: skip a failed step (treat as done with `{ skipped: true }`) and advance. */
+/**
+ * One retry or skip takes a failed row: the person's compare-and-set on the run rev
+ * (P2), the check that the row is still open, `take`, and the run's return to running
+ * land in one transaction. The caller then starts its new row (or `take` ends this one)
+ * before its first await, so no second retry, skip or attention item finds the failed
+ * row still open.
+ */
+function claimFailedStep<T>(ctx: Ctx, row: StepRow, expectRev: number | undefined, take: () => T): T {
+  let withdrawn: ReturnType<typeof withdrawOpenQuestionsForStep> = [];
+  const claimed = workflowDatabase(ctx).transaction(() => {
+    const run = liveRun(ctx, row.runId);
+    if (expectRev !== undefined) updateRun(ctx, run.id, expectRev, {});
+    if (!openFailedSteps(ctx, row.runId, row.stepId)
+      .some(open => open.attempt === row.attempt && open.branch === row.branch)) {
+      throw new CoreError("conflict", `conflict: step ${row.stepId} of ${row.runId} is not failed`);
+    }
+    const taken = take();
+    clearStepFailureWakeups(ctx, row);
+    withdrawn = withdrawOpenQuestionsForStep(ctx, keyOf(row));
+    const current = getRun(ctx, run.id)!;
+    if (current.status === "waiting") updateRun(ctx, current.id, current.rev, { status: "running" });
+    return taken;
+  }).immediate();
+  for (const question of withdrawn) publishQuestionWithdrawn(ctx, question);
+  return claimed;
+}
+
+/** Skip a failed step (treat as done with `{ skipped: true }`) and advance. The person
+ *  passes the run's rev; a run grant does not. */
 export async function skipFailedStep(
   ctx: Ctx,
-  input: { runId: string; stepId: string },
+  input: { runId: string; stepId: string; expectRev?: number },
   spawn?: SpawnRunner,
   deps: EngineDeps = defaultEngineDeps,
 ): Promise<RunRow> {
@@ -2207,16 +2250,10 @@ export async function skipFailedStep(
     throw new CoreError("conflict", `conflict: step ${input.stepId} already joined`);
   }
   const result = { skipped: true };
-  const done = updateStep(ctx, keyOf(row), { status: "done", result, endedAt: ctx.now });
-  clearStepFailureWakeups(ctx, row);
+  const done = claimFailedStep(ctx, row, input.expectRev,
+    () => updateStep(ctx, keyOf(row), { status: "done", result, endedAt: ctx.now }));
   pruneAbandonedConflicts(ctx, run.id);
-  try {
-    if (!isTerminal(getRun(ctx, run.id)) && getRun(ctx, run.id)?.status === "waiting") {
-      await patchRun(ctx, run.id, { status: "running" });
-    }
-  } catch (err) {
-    if (!(err instanceof CoreError) || err.code !== "conflict") throw err;
-  }
+  await publishRunChange(ctx, getRun(ctx, run.id));
   // Skipping a branch the review rejected lets its waiting join finish.
   if (stepDef?.type === "fanout" && !joined && isHeldBranch(row)) {
     await joinFanout(ctx, getRun(ctx, run.id)!, def, done, stepDef, withDefaults({ deps, spawn }));
@@ -2226,10 +2263,11 @@ export async function skipFailedStep(
   return getRun(ctx, run.id)!;
 }
 
-/** Grant op: retry a failed step by starting a new attempt. */
+/** Retry a failed step by starting a new attempt. The person passes the run's rev;
+ *  a run grant does not. */
 export async function retryFailedStep(
   ctx: Ctx,
-  input: { runId: string; stepId: string },
+  input: { runId: string; stepId: string; expectRev?: number },
   spawn?: SpawnRunner,
   deps: EngineDeps = defaultEngineDeps,
 ): Promise<RunRow> {
@@ -2240,46 +2278,45 @@ export async function retryFailedStep(
   if (open.length === 0) throw new CoreError("conflict", `conflict: step ${input.stepId} of ${input.runId} is not failed`);
   // Cap retries per step and branch — count prior retried failures (advancedAt),
   // not loop attempt numbers (S N5). A branch at its cap does not block the others.
-  const MAX_STEP_RETRIES = 3;
-  const row = open.find(failed => stepsOfRun(ctx, input.runId).filter(s =>
-    s.stepId === input.stepId
-    && s.branch === failed.branch
-    && s.status === "failed"
-    && s.advancedAt !== undefined,
-  ).length < MAX_STEP_RETRIES);
+  const rows = stepsOfRun(ctx, input.runId);
+  const row = open.find(failed => !stepRetriesSpent(rows, failed));
   if (!row) {
     throw new CoreError("not_allowed", `step ${input.stepId} has reached the retry limit (${MAX_STEP_RETRIES})`);
   }
   const def = loadDefinition(ctx, run);
   const stepDef = def?.steps[input.stepId];
   if (!def || !stepDef) throw new CoreError("not_found", `unknown step ${input.stepId}`);
+  // A paused run starts nothing: refuse before the failed attempt is touched.
+  if (isRunStepPaused(run)) throw new CoreError("not_allowed", `run ${run.id} is paused (${run.pausedReason})`);
   const joined = row.branch !== undefined && fanoutJoined(stepsOfRun(ctx, input.runId), row);
   if (joined && isHeldBranch(row)) {
     throw new CoreError("conflict", `conflict: step ${input.stepId} already joined`);
   }
   const branchOnly = stepDef.type === "fanout" && !joined && isHeldBranch(row);
   // Mark the failed attempt advanced so the tick does not keep recreating its wake-up.
-  try { updateStep(ctx, keyOf(row), { advancedAt: ctx.now }); } catch { /* */ }
-  clearStepFailureWakeups(ctx, row);
-  try {
-    if (!isTerminal(getRun(ctx, run.id)) && getRun(ctx, run.id)?.status === "waiting") {
-      await patchRun(ctx, run.id, { status: "running" });
-    }
-  } catch (err) {
-    if (!(err instanceof CoreError) || err.code !== "conflict") throw err;
-  }
-  if (branchOnly) {
+  const retried = claimFailedStep(ctx, row, input.expectRev, () => {
+    updateStep(ctx, keyOf(row), { advancedAt: ctx.now });
     // Only this branch starts again; the rest of the fan-out stays as it is.
-    const live = getRun(ctx, run.id)!;
-    if (isRunStepPaused(live)) throw new CoreError("not_allowed", `run ${live.id} is paused (${live.pausedReason})`);
-    const retried = insertBranchRetry(ctx, { ...row, branch: row.branch! }, nextAttempt(ctx, run.id, input.stepId));
-    await delegateFanoutBranch(ctx, live, retried, stepDef as FanoutStep, withDefaults({ deps, spawn }));
-  } else {
-    await startStep(ctx, getRun(ctx, run.id)!, def, input.stepId, row.branch, { deps, spawn });
-  }
+    return branchOnly
+      ? insertBranchRetry(ctx, { ...row, branch: row.branch! }, nextAttempt(ctx, run.id, input.stepId))
+      : undefined;
+  });
+  // The new attempt's row exists before the first await (both starters insert it
+  // synchronously), and a delegation that throws leaves it for the tick to repeat.
+  const starting = retried
+    ? delegateFanoutBranch(ctx, getRun(ctx, run.id)!, retried, stepDef as FanoutStep, withDefaults({ deps, spawn }))
+    : startStep(ctx, getRun(ctx, run.id)!, def, input.stepId, row.branch, { deps, spawn });
+  const publishing = publishRunChange(ctx, getRun(ctx, run.id));
+  try { await starting; }
+  finally { await publishing; }
   // The failed attempt's conflicts went with it.
   pruneAbandonedConflicts(ctx, run.id);
   return getRun(ctx, run.id)!;
+}
+
+function yesNoSpelling(answer: string): string {
+  const word = answer.trim().toLowerCase();
+  return word === "yes" || word === "no" ? word : answer;
 }
 
 /** Answers a waiting human step: the answer becomes the step's result
@@ -2288,13 +2325,13 @@ export async function answerHumanStep(
   ctx: Ctx,
   runId: string,
   stepId: string,
-  answer: string,
+  given: string,
   expectRev: number,
   deps: EngineDeps = defaultEngineDeps,
   spawn?: SpawnRunner,
   note?: string,
 ): Promise<RunRow> {
-  if (typeof answer !== "string" || answer.length < 1) throw new CoreError("invalid_input", "answer must be a non-empty string");
+  if (typeof given !== "string" || given.length < 1) throw new CoreError("invalid_input", "answer must be a non-empty string");
   const run = getRun(ctx, runId);
   if (!run) throw new CoreError("not_found", `unknown run ${runId}`);
   if (RUN_TERMINAL.includes(run.status)) throw new CoreError("conflict", `conflict: run ${runId} is ${run.status}`);
@@ -2303,7 +2340,11 @@ export async function answerHumanStep(
   const row = waiting[waiting.length - 1];
   if (!row) throw new CoreError("conflict", `conflict: step ${stepId} of ${runId} is not waiting for an answer`);
   const def = loadDefinition(ctx, run);
-  if (def?.steps[stepId]?.type !== "human") throw new CoreError("conflict", `conflict: step ${stepId} is not a human step`);
+  const answered = def?.steps[stepId];
+  if (!def || answered?.type !== "human") throw new CoreError("conflict", `conflict: step ${stepId} is not a human step`);
+  // Edge conditions and the publish gate compare the engine's spelling; buttons and
+  // people may send "Yes".
+  const answer = answered.question.kind === "yes_no" ? yesNoSpelling(given) : given;
   // Defence: a run-grant caller may only answer auto-effective steps (run.decide path).
   // must / strict / auto-off steps stay person-only via run.answer.
   // Escalated (or sync-flipped) human_step questions stay person-owned even when canAutoDecide (I-2).
@@ -2417,7 +2458,7 @@ export async function answerHumanStep(
 /** Start a child run from an approved (or auto-approved) graph version. */
 export async function startGeneratedChild(
   ctx: Ctx,
-  input: { runId: string; stepId: string; version: number },
+  input: { runId: string; stepId: string; version: number; onClaim?: () => void },
   spawn?: SpawnRunner,
   deps: EngineDeps = defaultEngineDeps,
 ): Promise<RunRow> {
@@ -2462,6 +2503,7 @@ export async function startGeneratedChild(
     setGraphStatus(ctx, {
       runId: run.id, stepId: input.stepId, attempt: row.attempt, version: input.version,
     }, "approved");
+    input.onClaim?.();
     return { latest: row, prior: prev };
   }).immediate();
 
@@ -2626,10 +2668,19 @@ export async function answerGenerateApproval(
   }
   const root = getRun(ctx, rootRunId(ctx, input.runId)) ?? run;
   if (ctx.env.PACER_RUN_GRANT) {
-    if (!canAutoApproveGenerate(root, input.stepId, stepDef)) {
+    // An escalated approval stays the person's, like an escalated human step.
+    const escalated = listQuestions(ctx, input.runId, "open").some(q => q.askerKind === "human_step"
+      && q.stepId === input.stepId && q.attempt === row.attempt
+      && q.answerer === "person" && q.chain.includes("orchestrator"));
+    if (escalated) throw new CoreError("not_allowed", "Only the person can answer this question");
+    if (!orchestratorMayApprove(root, input.stepId, stepDef, prior)) {
       throw new CoreError("not_allowed", "Orchestrator cannot answer this step (must, strict, or auto off)");
     }
   }
+  const answeredBy = ctx.env.PACER_RUN_GRANT ? "orchestrator" : "person";
+  const resolveApproval = (answer: string, note?: string) => {
+    resolveHumanStepQuestion(ctx, run.id, input.stepId, row.attempt, answer, answeredBy, undefined, note);
+  };
   const answer = input.answer.trim().toLowerCase();
   const isApprove = answer === "approve";
   // Exact "revise", or "revise:" / "revise " with a note — not prefixes like "reviser".
@@ -2642,6 +2693,8 @@ export async function answerGenerateApproval(
       runId: input.runId,
       stepId: input.stepId,
       version: prior.graphVersion as number,
+      // Resolved with the claim: a failed start restores the approval, and the tick asks again.
+      onClaim: () => resolveApproval("approve"),
     }, spawn, deps);
     return getRun(ctx, input.runId)!;
   }
@@ -2656,6 +2709,7 @@ export async function answerGenerateApproval(
   setGraphStatus(ctx, {
     runId: run.id, stepId: input.stepId, attempt: row.attempt, version: prior.graphVersion as number,
   }, "rejected", note);
+  resolveApproval("revise", note);
   if (reviseCount > retries) {
     updateStep(ctx, keyOf(row), {
       status: "failed",
@@ -2685,6 +2739,7 @@ export async function answerGenerateApproval(
     cause: "orchestrator_step",
     ref: stepWakeRef(run.id, input.stepId, row.attempt),
     createdAt: ctx.now,
+    byPerson: answeredBy === "person",
   });
   completeWakeupRef(ctx, run.id, "question", stepWakeRef(run.id, input.stepId, row.attempt));
   try {

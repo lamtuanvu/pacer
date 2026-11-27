@@ -39,7 +39,9 @@ export interface Act {
   subject?: string;
 }
 /** A consent question. `alt` offers a second answer, such as "Change only" beside "Change and connect". */
-export interface Confirm { title: string; body?: string[]; yes?: string; alt?: { key: string; label: string; act: Act } }
+export interface Confirm { title: string; body?: string[]; yes?: string; alt?: { key: string; label: string; act: Act };
+  /** Enter cancels; only `y` goes ahead. */
+  defaultNo?: boolean }
 /** A selectable row. `primary` is the region's one primary action (UI-14); `keys` are screen keys such as x, b, a. */
 export interface Item { id: string; primary?: Act; actions: Act[]; keys: Record<string, Act> }
 
@@ -61,13 +63,15 @@ export interface AnswerFormSpec {
   recommended?: string;
   /** Shown when options are empty (malformed single/multi); Esc closes. */
   emptyHint?: string;
+  /** Nothing is chosen when the form opens: Enter alone never answers. */
+  explicit?: boolean;
   submit(answer: string, note?: string): Effect;
 }
 export type Overlay =
   /** `scroll` is the first help row shown when the help is taller than the screen. */
   | { kind: "help"; scroll?: number }
   | { kind: "menu"; title: string; actions: Act[]; index: number }
-  | { kind: "confirm"; title: string; body: string[]; yes: string; act: Act; alt?: Confirm["alt"] }
+  | { kind: "confirm"; title: string; body: string[]; yes: string; act: Act; alt?: Confirm["alt"]; defaultNo?: boolean }
   | { kind: "prompt"; spec: PromptSpec; value: string; error?: string; submitting?: boolean }
   | {
     kind: "answer";
@@ -153,7 +157,7 @@ export function trigger(state: UiState, act: Act | undefined, confirmed = false)
   if (!act) return { state };
   if (!confirmed) {
     const confirm = guardConfirm(act);
-    if (confirm) return { state: { ...state, overlay: { kind: "confirm", title: confirm.title, body: confirm.body ?? [], yes: confirm.yes ?? act.label, act: { ...act, confirm }, ...(confirm.alt ? { alt: confirm.alt } : {}) } } };
+    if (confirm) return { state: { ...state, overlay: { kind: "confirm", title: confirm.title, body: confirm.body ?? [], yes: confirm.yes ?? act.label, act: { ...act, confirm }, ...(confirm.alt ? { alt: confirm.alt } : {}), ...(confirm.defaultNo ? { defaultNo: true } : {}) } } };
   }
   if (act.effect.type === "prompt") return { state: { ...state, overlay: { kind: "prompt", spec: act.effect.prompt, value: act.effect.prompt.value ?? "" } } };
   if (act.effect.type === "choose") return { state: { ...state, overlay: { kind: "menu", title: act.effect.title, actions: act.effect.options, index: 0 } } };
@@ -172,7 +176,7 @@ export function trigger(state: UiState, act: Act | undefined, confirmed = false)
           ...(form.emptyHint ? { emptyHint: form.emptyHint } : {}),
           selected: [],
           note: "",
-          index: 0,
+          index: form.explicit ? -1 : 0,
           phase,
           submit: form.submit,
         },
@@ -192,6 +196,7 @@ function overlayKey(state: UiState, overlay: Overlay, key: string, page: number)
       return { state: key === "?" || key === "escape" || key === "q" || key === "enter" ? close : state };
     }
     case "confirm":
+      if (key === "enter" && overlay.defaultNo) return { state: close };
       if (key === "y" || key === "Y" || key === "enter") {
         const { confirm: _, ...act } = overlay.act;
         return trigger(close, act, true);
@@ -296,7 +301,15 @@ function answerOverlayKey(
   }
   const move = key === "up" || key === "k" ? -1 : key === "down" || key === "j" ? 1 : 0;
   if (move) {
-    return { state: { ...state, overlay: { ...overlay, index: Math.max(0, Math.min(overlay.options.length - 1, overlay.index + move)) } } };
+    // In yes_no mode the form starts with nothing chosen (explicit). Map the first
+    // move predictably (Down -> Yes, Up -> No) instead of clamping -1 to 0, so a
+    // choice is always visible before Enter can answer. Other explicit modes keep
+    // their first-option default, but never inherit a stale error.
+    if (overlay.mode === "yes_no" && overlay.index < 0) {
+      const next = move > 0 ? 0 : Math.max(0, overlay.options.length - 1);
+      return { state: { ...state, overlay: { ...overlay, index: next, error: undefined } } };
+    }
+    return { state: { ...state, overlay: { ...overlay, index: Math.max(0, Math.min(overlay.options.length - 1, overlay.index + move)), error: undefined } } };
   }
   if (key === " " && overlay.mode === "multi") {
     const value = overlay.options[overlay.index]?.value;
@@ -313,10 +326,9 @@ function answerOverlayKey(
   if (key === "enter") {
     const current = overlay.options[overlay.index];
     if (!current) {
-      if (!overlay.options.length) {
-        return { state: { ...state, overlay: { ...overlay, error: "No options to choose. Esc to close." } } };
-      }
-      return { state };
+      return { state: { ...state, overlay: { ...overlay, error: overlay.options.length
+        ? "Choose first: move with the arrow keys, or press the option's key."
+        : "No options to choose. Esc to close." } } };
     }
     if (overlay.mode === "multi") {
       if (!overlay.selected.length) {
@@ -337,7 +349,7 @@ function answerOverlayKey(
     }
     return finish(current.value);
   }
-  if (/^[1-9]$/.test(key) && overlay.mode !== "multi") {
+  if (/^[1-9]$/.test(key) && overlay.mode !== "multi" && overlay.mode !== "yes_no") {
     const option = overlay.options[Number(key) - 1];
     if (!option) return { state };
     const rejected = optionValueRejected(option.value);

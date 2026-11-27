@@ -213,9 +213,15 @@ test("task.answer under a veto falls back to the legacy retry, which policy refu
 test("message events stay v3-only, and the app names a policy hold's reason", async () => {
   const { toV2Event } = await import("../src/api/v2-compat");
   expect(toV2Event({ seq: 1, at: 1, type: "message", data: { kind: "message", id: "m-1", value: {} } })).toBeNull();
-  const { answerDeliveryWords } = await import("../src/view-model/words");
+  const { answerDeliveryWords, messageDeliveryWords } = await import("../src/view-model/words");
+  const { PLANNER_HOLD } = await import("../src/messaging/turns");
   expect(answerDeliveryWords("held", { reason: "repository frozen" })).toBe("Answer held, not delivered yet: project policy holds this task (repository frozen). The question stays open.");
   expect(answerDeliveryWords("held")).toContain("a messaging rule needs your confirmation first");
+  expect(answerDeliveryWords("held", { reason: PLANNER_HOLD })).toBe(`Answer held, not delivered yet: ${PLANNER_HOLD}. The question stays open.`);
+  expect(answerDeliveryWords("held", { reason: PLANNER_HOLD })).not.toContain("project policy");
+  expect(messageDeliveryWords("held", { reason: PLANNER_HOLD })).toBe(`Sent. Held: ${PLANNER_HOLD}`);
+  expect(messageDeliveryWords("held", { reason: PLANNER_HOLD })).not.toContain("confirm");
+  expect(messageDeliveryWords("held")).toContain("messaging rule holds it until you confirm");
 });
 
 test("an answer that policy holds leaves the question unread and the task's question open", async () => {

@@ -27,7 +27,12 @@ import { rootRunId } from "../workflow/store";
 import { budgetAllowsMessage, countMessageTurn } from "../workflow/budget";
 import { runIdForParticipant } from "./run-route";
 import { turnPlanner } from "../workflow/turn-planner";
+import { isPlannerTask } from "../workflow/live-answer";
+import { randomBytes } from "node:crypto";
+import { dataPreamble } from "../workflow/template";
 
+export { PLANNER_HOLD } from "./planner-hold";
+import { PLANNER_HOLD } from "./planner-hold";
 export type Delivery = "turn_started" | "queued" | "pull" | "held" | "closed" | "cap" | "live_unavailable" | "no_session" | "live";
 const REPORT_BYTES = 64 * 1024;
 
@@ -68,6 +73,8 @@ export const turnWorktree = (t: TaskRecord): string | null => t.worktree ?? t.re
 function turnBlocked(ctx: Ctx, t: TaskRecord | null): Delivery | null {
   if (!t || isClosed(t)) return "closed";
   if (t.state === "running" && liveRun(t)) return "live";
+  // A planner task runs only as an engine turn, which issues its run grant: no message starts one.
+  if (isPlannerTask(ctx, t)) return "queued";
   if (t.interactionMode === "conversation") return t.state === "running" && t.run ? "live" : "live_unavailable";
   if (getWork(ctx, t.id) && ["queued", "running"].includes(t.state)) return "pull";
   if (t.state === "queued" || t.state === "running") return "queued";
@@ -281,6 +288,7 @@ export function deliver(ctx: Ctx, to: string, spawn?: SpawnRunner): Promise<Turn
   if (!id) return Promise.resolve({ delivery: "pull" });
   const t = readTask(ctx, id);
   const blocked = turnBlocked(ctx, t);
+  if (t && blocked !== "closed" && isPlannerTask(ctx, t)) return Promise.resolve({ delivery: "held", hold: { reason: PLANNER_HOLD } });
   if (blocked && blocked !== "live") return Promise.resolve({ delivery: blocked });
   return beginTurn(ctx, id, spawn);
 }
@@ -288,6 +296,16 @@ export function deliver(ctx: Ctx, to: string, spawn?: SpawnRunner): Promise<Turn
 const label = (p: string) => p === "human" ? "the user" : p === "broker" ? "pacer" : p.startsWith("external:") ? `planner ${p.slice(9)}` : `task ${p.slice(5)}`;
 
 export function renderTurnPrompt(ctx: Ctx, task: TaskRecord, messages: Message[], o: { live?: boolean } = {}): string {
+  // A planner is typed only its engine-created answers (`liveTick`), fenced as data.
+  if (o.live && isPlannerTask(ctx, task)) {
+    const nonce = randomBytes(8).toString("hex");
+    return [
+      dataPreamble(nonce),
+      `The person answered questions you asked in this orchestrator turn of pacer task ${task.id}:`,
+      ...messages.map(m => `--- data ${nonce} answer ---\n${m.body}\n--- end data ${nonce} ---`),
+      "Continue the turn with the operations in your prompt.",
+    ].join("\n\n");
+  }
   const parent = parentOf(ctx, `task:${task.id}`) ?? "human";
   const blocks = messages.map(m => `--- ${m.kind} ${m.id} from ${label(m.from)} (${m.from}) ---\n${m.body}`);
   return [

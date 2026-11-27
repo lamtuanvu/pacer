@@ -9,28 +9,34 @@ import { insertMessage } from "../messaging/store";
 import { rootOf } from "../messaging/participants";
 import { readTask, updateTask } from "../tasks/store";
 import type { SpawnRunner } from "../tasks/api";
-import { canAutoDecide } from "./auto";
+import { canAutoDecide, orchestratorMayApprove } from "./auto";
+import { resumeHeldSteps } from "./hold";
+import { clipCodePoints } from "./attention";
 import {
   NOTE_TOO_LONG, questionAnswerInputSchema, questionInputSchema, sanitizeAnswerNote,
   validateQuestionAnswer, type QuestionInput,
 } from "./question-schema";
 import { directInputAvailable } from "../session/send";
-import type { HumanStep } from "./schema";
+import type { GenerateStep, HumanStep } from "./schema";
 import type { EngineDeps } from "./engine";
 import {
   answerQuestionRecord,
   escalateQuestionRecord,
   getDefinition,
+  getGraph,
   getQuestion,
   getRun,
   insertQuestion,
   listQuestions,
+  liveRuns,
   rootRunId,
   stepByTask,
+  stepsOfRun,
   workflowDatabase,
   type QuestionAnswerType,
   type QuestionRow,
   type RunRow,
+  type StepRow,
 } from "./store";
 
 /** Soft caps so unbounded blocks:nothing asks cannot flood wakes/attention. */
@@ -64,10 +70,17 @@ export function syncHumanStepAnswerers(ctx: Ctx, runId: string): void {
   for (const id of ids) {
     const open = listQuestions(ctx, id, "open").filter(q => q.askerKind === "human_step");
     for (const q of open) {
-      const stepDef = def.steps[q.stepId];
-      if (!stepDef || stepDef.type !== "human") continue;
+      // A generated child run has its own definition.
+      const owner = getRun(ctx, id)!;
+      const ownerDef = getDefinition(ctx, `${owner.workflow}@${owner.version}`) ?? def;
+      const stepDef = ownerDef.steps[q.stepId] ?? def.steps[q.stepId];
+      if (!stepDef || (stepDef.type !== "human" && stepDef.type !== "generate")) continue;
       if (q.chain.includes("orchestrator") && q.answerer === "person") continue; // escalated
-      const next = canAutoDecide(root, q.stepId, stepDef) ? "orchestrator" : "person";
+      const auto = stepDef.type === "human"
+        ? canAutoDecide(root, q.stepId, stepDef)
+        : orchestratorMayApprove(root, q.stepId, stepDef,
+          stepsOfRun(ctx, id).find(s => s.stepId === q.stepId && s.attempt === q.attempt)?.result);
+      const next = auto ? "orchestrator" : "person";
       if (next === q.answerer) continue;
       const prev = q.answerer;
       workflowDatabase(ctx).query(
@@ -96,7 +109,7 @@ export function assertOpenQuestionCaps(ctx: Ctx, runId: string, askerTaskId?: st
     throw new CoreError("conflict", `conflict: asker ${askerTaskId} already has ${MAX_OPEN_QUESTIONS_PER_ASKER} open questions`);
   }
 }
-import { completeWakeupRef, enqueueWakeup, stepWakeRef } from "./wakeups";
+import { completeWakeupRef, enqueueWakeup, stepsOfRootTree, stepWakeRef } from "./wakeups";
 import { orchestratorTaskIdForGrant, verifyRunGrant } from "./run-grant";
 import { publish } from "../link/publish";
 
@@ -176,6 +189,22 @@ function requireRunGrant(ctx: Ctx) {
   return grant;
 }
 
+/** The run of the step the orchestrator asks about when it names none: the one whose
+ *  step holds the turn's task, else the only run where that step is open or failed. */
+function askingRunId(ctx: Ctx, rootId: string, stepId: string | undefined, orchTask: string | undefined): string {
+  const rows = stepsOfRootTree(ctx, rootId).filter(s => s.stepId === stepId);
+  const open = rows.filter(s => s.status === "running" || s.status === "waiting");
+  const own = open.find(s => s.taskId === orchTask);
+  if (own) return own.runId;
+  // The planner asks about what is open, else what failed, else what ran: the first of
+  // these held by exactly one run names it.
+  for (const among of [open, rows.filter(s => s.status === "failed"), rows]) {
+    const runs = new Set(among.map(s => s.runId));
+    if (runs.size > 0) return runs.size === 1 ? [...runs][0]! : rootId;
+  }
+  return rootId;
+}
+
 /** Ask a structured question from an executor step or the orchestrator (run grant). */
 export async function askQuestion(ctx: Ctx, raw: AskQuestionInput): Promise<QuestionRow> {
   // Parse only QuestionInput fields — stepId/attempt/branch/runId are AskQuestionInput extras.
@@ -189,7 +218,8 @@ export async function askQuestion(ctx: Ctx, raw: AskQuestionInput): Promise<Ques
   });
   if (ctx.env.PACER_RUN_GRANT || isOrchestratorSession(ctx)) {
     const grant = requireRunGrant(ctx);
-    const runId = raw.runId ?? grant.runId;
+    const orchTask = orchestratorTaskIdForGrant(ctx, grant) ?? ctx.env.PACER_TASK_ID;
+    const runId = raw.runId ?? askingRunId(ctx, grant.runId, raw.stepId, orchTask);
     const run = getRun(ctx, runId);
     if (!run || rootRunId(ctx, runId) !== grant.runId) {
       throw new CoreError("not_allowed", "Operation is outside this run grant");
@@ -201,8 +231,13 @@ export async function askQuestion(ctx: Ctx, raw: AskQuestionInput): Promise<Ques
     if (typeof stepId !== "string" || !stepId) {
       throw new CoreError("invalid_input", "stepId is required when the orchestrator asks");
     }
-    const attempt = raw.attempt ?? 1;
-    const orchTask = orchestratorTaskIdForGrant(ctx, grant) ?? ctx.env.PACER_TASK_ID;
+    // The question holds the step instance it names; unnamed means the current one.
+    const rows = stepsOfRun(ctx, runId)
+      .filter(s => s.stepId === stepId && (raw.branch === undefined || s.branch === raw.branch));
+    const attempt = raw.attempt ?? Math.max(1, ...rows.map(s => s.attempt));
+    if (!rows.some(s => s.attempt === attempt)) {
+      throw new CoreError("not_found", `run ${runId} has no step ${stepId}${raw.branch ? `/${raw.branch}` : ""} attempt ${attempt}`);
+    }
     assertOpenQuestionCaps(ctx, runId, typeof orchTask === "string" ? orchTask : undefined);
     const q = insertQuestion(ctx, {
       runId,
@@ -305,6 +340,68 @@ export function raiseHumanStepQuestion(
   return q;
 }
 
+const APPROVAL_TEXT_CAP = 1000;
+
+/** The structured question a pending plan approval raises: it carries the graph and
+ *  is answered with approve or revise, by the person, or by the orchestrator in auto
+ *  mode. One open question per pending step instance. */
+export function raiseGenerateApprovalQuestion(
+  ctx: Ctx,
+  run: RunRow,
+  step: Pick<StepRow, "stepId" | "attempt" | "result">,
+  stepDef: GenerateStep,
+): QuestionRow | null {
+  const version = (step.result as { graphVersion?: unknown } | null | undefined)?.graphVersion;
+  if (typeof version !== "number") return null;
+  const open = listQuestions(ctx, run.id, "open").find(q =>
+    q.askerKind === "human_step" && q.stepId === step.stepId && q.attempt === step.attempt);
+  if (open) return open;
+  const graph = getGraph(ctx, { runId: run.id, stepId: step.stepId, attempt: step.attempt, version });
+  const lines = Object.entries(graph?.def.steps ?? {})
+    .filter(([, def]) => def.type !== "end")
+    .map(([id, def]) => `${id} (${def.type === "agent" ? def.role ?? def.kind ?? def.type : def.type})`);
+  const summary = (step.result as { replanSummary?: unknown }).replanSummary;
+  const text = [
+    `Approve the plan for step "${step.stepId}" (version ${version}, ${lines.length} ${lines.length === 1 ? "step" : "steps"})?`,
+    ...(typeof summary === "string" ? [summary] : []),
+    `${lines.join(", ")}.`,
+    "Revise with a note to have it rewritten",
+  ].join(" ");
+  const root = getRun(ctx, rootRunId(ctx, run.id)) ?? run;
+  const q = insertQuestion(ctx, {
+    runId: run.id,
+    stepId: step.stepId,
+    attempt: step.attempt,
+    askerKind: "human_step",
+    text: clipCodePoints(text, APPROVAL_TEXT_CAP, true),
+    answerType: "approve_revise",
+    options: [{ value: "approve" }, { value: "revise" }],
+    blocks: "step",
+    answerer: orchestratorMayApprove(root, step.stepId, stepDef, step.result) ? "orchestrator" : "person",
+  });
+  void publishQuestionEntity(ctx, q);
+  return q;
+}
+
+/** Raises the question for any plan that waits for approval without one: a service
+ *  that stopped in between, a failed child start, or a plan submitted before this. */
+export function raiseMissingApprovalQuestions(ctx: Ctx): number {
+  let raised = 0;
+  for (const run of liveRuns(ctx)) {
+    const def = getDefinition(ctx, `${run.workflow}@${run.version}`) ?? getDefinition(ctx, run.workflow);
+    if (!def) continue;
+    for (const row of stepsOfRun(ctx, run.id)) {
+      const stepDef = def.steps[row.stepId];
+      if (row.status !== "waiting" || stepDef?.type !== "generate") continue;
+      if ((row.result as { pendingApproval?: unknown } | undefined)?.pendingApproval !== true) continue;
+      const open = listQuestions(ctx, run.id, "open").some(q =>
+        q.askerKind === "human_step" && q.stepId === row.stepId && q.attempt === row.attempt);
+      if (!open && raiseGenerateApprovalQuestion(ctx, run, row, stepDef)) raised++;
+    }
+  }
+  return raised;
+}
+
 /** Mark the open human-step question answered (run.answer / run.decide path). */
 export function resolveHumanStepQuestion(
   ctx: Ctx,
@@ -363,10 +460,14 @@ export function escalateQuestion(ctx: Ctx, input: EscalateQuestionInput): Questi
     const def = root
       ? (getDefinition(ctx, `${root.workflow}@${root.version}`) ?? getDefinition(ctx, root.workflow))
       : null;
-    const stepDef = def?.steps[current.stepId];
-    if (!root || !stepDef || stepDef.type !== "human" || !canAutoDecide(root, current.stepId, stepDef)) {
-      throw new CoreError("not_allowed", "Cannot escalate a must human step question");
-    }
+    const stepDef = run
+      ? (getDefinition(ctx, `${run.workflow}@${run.version}`) ?? def)?.steps[current.stepId]
+      : undefined;
+    const auto = !!root && (stepDef?.type === "human"
+      ? canAutoDecide(root, current.stepId, stepDef)
+      : stepDef?.type === "generate" && orchestratorMayApprove(root, current.stepId, stepDef,
+        stepsOfRun(ctx, current.runId).find(s => s.stepId === current.stepId && s.attempt === current.attempt)?.result));
+    if (!auto) throw new CoreError("not_allowed", "Cannot escalate a must human step question");
   }
   if (current.answerer !== "orchestrator") {
     throw new CoreError("not_allowed", "Only the current orchestrator answerer can escalate");
@@ -443,7 +544,10 @@ export async function answerQuestion(
     if (!run) throw new CoreError("not_found", `unknown run ${current.runId}`);
     const root = getRun(ctx, rootRunId(ctx, run.id)) ?? run;
     const def = getDefinition(ctx, `${root.workflow}@${root.version}`) ?? getDefinition(ctx, root.workflow);
-    const stepDef = def?.steps[current.stepId];
+    const stepDef = (getDefinition(ctx, `${run.workflow}@${run.version}`) ?? def)?.steps[current.stepId];
+    if (stepDef?.type === "generate") {
+      return answerApprovalQuestion(ctx, current, parsed, deps);
+    }
     if (!stepDef || stepDef.type !== "human") {
       throw new CoreError("conflict", `conflict: step ${current.stepId} is not a human step`);
     }
@@ -547,10 +651,13 @@ export async function answerQuestion(
         cause: "question",
         ref: afterYield.id,
         createdAt: ctx.now,
+        byPerson: answeredBy === "person",
       });
       return row;
     })();
     await publishQuestionEntity(ctx, answered);
+    // Resume the held step at once; the tick repeats this if it does not happen now.
+    resumeHeldSteps(ctx);
     return answered;
   }
 
@@ -635,6 +742,37 @@ export async function answerQuestion(
     expectRev: parsed.expectRev,
     answeredBy,
   });
+}
+
+/** A plan approval is answered through the generate step's own approval path, which
+ *  checks who may approve and resolves the question. */
+async function answerApprovalQuestion(
+  ctx: Ctx,
+  current: QuestionRow,
+  parsed: { answer: string; note?: string; expectRev: number },
+  deps: QuestionDeps,
+): Promise<QuestionRow> {
+  if (ctx.env.PACER_RUN_GRANT || isOrchestratorSession(ctx)) {
+    const grant = requireRunGrant(ctx);
+    if (rootRunId(ctx, current.runId) !== grant.runId) {
+      throw new CoreError("not_allowed", "Operation is outside this run grant");
+    }
+    if (current.answerer === "person") throw new CoreError("not_allowed", "Only the person can answer this question");
+  } else if (!personCaller(ctx)) {
+    throw new CoreError("not_allowed", "Only the person can answer this question");
+  }
+  if (current.rev !== parsed.expectRev) {
+    throw new CoreError("conflict", `conflict: question ${current.id} changed since rev ${parsed.expectRev}`);
+  }
+  const { answerGenerateApproval } = await import("./engine");
+  await answerGenerateApproval(ctx, {
+    runId: current.runId,
+    stepId: current.stepId,
+    answer: parsed.answer,
+    ...(parsed.note !== undefined ? { note: parsed.note } : {}),
+    expectRev: getRun(ctx, current.runId)!.rev,
+  }, deps.engineDeps, deps.spawnRunner);
+  return getQuestion(ctx, current.id)!;
 }
 
 function RUN_TERMINAL(status: string): boolean {

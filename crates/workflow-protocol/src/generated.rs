@@ -3531,6 +3531,11 @@ impl
 ///    "step"
 ///  ],
 ///  "properties": {
+///    "expect_rev": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "exclusiveMinimum": 0.0
+///    },
 ///    "id": {
 ///      "type": "string",
 ///      "pattern": "^run_[a-z2-7]{10}$"
@@ -3548,6 +3553,8 @@ impl
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct StepRetryParams {
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub expect_rev: ::std::option::Option<::std::num::NonZeroU64>,
     pub id: StepRetryParamsId,
     pub step: StepRetryParamsStep,
 }
@@ -3673,6 +3680,11 @@ impl<'de> ::serde::Deserialize<'de> for StepRetryParamsStep {
 ///    "step"
 ///  ],
 ///  "properties": {
+///    "expect_rev": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "exclusiveMinimum": 0.0
+///    },
 ///    "id": {
 ///      "type": "string",
 ///      "pattern": "^run_[a-z2-7]{10}$"
@@ -3690,6 +3702,8 @@ impl<'de> ::serde::Deserialize<'de> for StepRetryParamsStep {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct StepSkipParams {
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub expect_rev: ::std::option::Option<::std::num::NonZeroU64>,
     pub id: StepSkipParamsId,
     pub step: StepSkipParamsStep,
 }

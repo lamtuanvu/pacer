@@ -8931,7 +8931,7 @@ Params JSON Schema:
 
 ### `step.retry`
 
-Retry a failed step under a live run grant: start a new attempt of the same step.
+Retry a failed step, or a rejected fan-out branch, with a new attempt. The person passes the run's current rev; a live run grant may retry a step of its own run.
 
 Params JSON Schema:
 
@@ -8948,6 +8948,11 @@ Params JSON Schema:
       "type": "string",
       "minLength": 1,
       "maxLength": 128
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
     }
   },
   "required": [
@@ -8960,7 +8965,7 @@ Params JSON Schema:
 
 ### `step.skip`
 
-Skip a failed step under a live run grant: mark it done as skipped and advance the run.
+Skip a failed step: mark it done as skipped and advance the run. The person passes the run's current rev; a live run grant may skip a step of its own run.
 
 Params JSON Schema:
 
@@ -8977,6 +8982,11 @@ Params JSON Schema:
       "type": "string",
       "minLength": 1,
       "maxLength": 128
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
     }
   },
   "required": [

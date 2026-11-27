@@ -145,6 +145,7 @@ pub fn is_workflow_attention_id(value: &Value) -> bool {
             || s.starts_with("budget_msg_warn:")
             || s.starts_with("budget_msg_spent:")
             || s.starts_with("orchestrator_failed:")
+            || s.starts_with("step_failed:")
             || s.starts_with("unresolved_wake:")
             || s.starts_with("prompt_wait:")
             || s.starts_with("run_review:")
@@ -364,6 +365,7 @@ mod workflow_attention_tests {
             "budget_msg_spent:r1",
             "orchestrator_failed:r1",
             "unresolved_wake:r1",
+            "step_failed:r1:build#1",
             "run_review:t-1",
             "question:q_abcdefghij",
         ] {

@@ -128,8 +128,10 @@ export async function brokerTick(ctx: Ctx, deps: BrokerDeps): Promise<BrokerRepo
         const nudged = stall.reason === "cycle" || stall.reason === "idle_run" || stall.reason === "no_progress" || stall.reason === "silent_prompt";
         // An exhausted/blocked executor account cannot spend on a nudge — escalate instead (local marks only).
         const canSpend = !nudged && stall.reason !== "undelivered" ? true : executorCanSpend(ctx, seen?.task);
+        // A planner's terminal never receives broker nudges; escalate without inserting rows that stay pending forever.
+        const canNudge = nudgeAllowed && !seen?.planner;
         // Nudges wait one interval after the stall is first seen; a zero cap or a mode without nudges escalates at once.
-        if (ctx.now < row.nextAt && nudged && nudgeAllowed && canSpend && config.max_nudges > 0) { upsertLiveness(ctx, row); continue; }
+        if (ctx.now < row.nextAt && nudged && canNudge && canSpend && config.max_nudges > 0) { upsertLiveness(ctx, row); continue; }
         if (ctx.now < row.nextAt && !changed) continue;
         let acted = false;
         let stallNow = false;
@@ -138,10 +140,10 @@ export async function brokerTick(ctx: Ctx, deps: BrokerDeps): Promise<BrokerRepo
           else {
             const result = (await deliver(ctx, node, deps.spawnRunner)).delivery;
             acted = true;
-            stallNow = ["cap", "no_session", "closed", "live_unavailable"].includes(result);
+            stallNow = !!seen?.planner || ["cap", "no_session", "closed", "live_unavailable"].includes(result);
           }
         } else if (stall.reason === "no_progress") {
-          if (!nudgeAllowed || !canSpend) stallNow = true;
+          if (!canNudge || !canSpend) stallNow = true;
           // Ping first; only pings that go unanswered stop the run.
           else if (row.nudges < config.max_nudges) {
             insertMessage(ctx, { taskId: taskOf(node), rootId: rootOf(ctx, node), from: "broker", to: node,
@@ -174,7 +176,7 @@ export async function brokerTick(ctx: Ctx, deps: BrokerDeps): Promise<BrokerRepo
           }
         } else if (stall.reason === "silent_prompt") {
           // Keep the live session; tell it to finish with pacer report or ask a real question.
-          if (!nudgeAllowed || !canSpend || row.nudges >= config.max_nudges) stallNow = true;
+          if (!canNudge || !canSpend || row.nudges >= config.max_nudges) stallNow = true;
           else {
             insertMessage(ctx, { taskId: taskOf(node), rootId: rootOf(ctx, node), from: "broker", to: node,
               kind: "nudge", body: "pacer: you are waiting at your prompt with no open question. Finish with `pacer report --outcome done|failed`, or ask a question via pacer.",
@@ -183,7 +185,7 @@ export async function brokerTick(ctx: Ctx, deps: BrokerDeps): Promise<BrokerRepo
             row.nudges++; acted = true;
           }
         } else if (nudged) {
-          if ((stall.reason === "cycle" && !stall.deepest) || !nudgeAllowed || !canSpend || row.nudges >= config.max_nudges) stallNow = true;
+          if ((stall.reason === "cycle" && !stall.deepest) || !canNudge || !canSpend || row.nudges >= config.max_nudges) stallNow = true;
           else if (node === stall.deepest && !cycleTargets.has(node)) {
             cycleTargets.add(node);
             const chain = `${node} → ${stall.waitingOn ?? node} → ${node}`;

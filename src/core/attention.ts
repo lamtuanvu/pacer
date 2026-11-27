@@ -44,7 +44,7 @@ async function raisedItems(ctx: Ctx) {
 }
 /** Workflow-run items. Dismissing one only hides it, even when it names a
  *  task: the run still waits on that task. A review gate is refused outright. */
-const WORKFLOW_ITEM = /^(run_review|budget_[a-z_]+|orchestrator_failed|unresolved_wake):/;
+const WORKFLOW_ITEM = /^(run_review|budget_[a-z_]+|orchestrator_failed|step_failed|unresolved_wake):/;
 
 export async function dismiss(ctx: Ctx, id: string) {
   let pending: ReturnType<typeof dismissTasks> | undefined;

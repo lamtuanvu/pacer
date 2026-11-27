@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpDir, fakeCtx } from "./helpers";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
@@ -289,4 +289,25 @@ test("MCP task_review lets a granted executor review its child over the scoped H
     await client.close();
     await svc.server.stop();
   }
+});
+test("executor sessions cannot answer a question or retry or skip a workflow step, by role or by worktree", () => {
+  const { ctx: base, parent } = work();
+  const names = ["step.retry", "step.skip", "question.answer"];
+  for (const name of names) {
+    expect(() => assertCallerCanInvoke(executor(base), name, {})).toThrow(
+      expect.objectContaining({ code: "not_allowed", message: expect.stringContaining("PACER_ROLE=executor") }),
+    );
+    expect(() => assertCallerCanInvoke(base, name, {})).not.toThrow();
+  }
+  // A shell inside a pacer task worktree is an executor session even without PACER_ROLE.
+  const cwd = join(base.pacerHome, "worktrees", "repo-1", parent.id);
+  mkdirSync(cwd, { recursive: true });
+  const before = process.cwd();
+  process.chdir(cwd);
+  try {
+    const inside = { ...base, pacerHome: realpathSync(base.pacerHome) };
+    for (const name of names) {
+      expect(() => assertCallerCanInvoke(inside, name, {})).toThrow(expect.objectContaining({ code: "not_allowed" }));
+    }
+  } finally { process.chdir(before); }
 });

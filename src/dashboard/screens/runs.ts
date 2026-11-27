@@ -13,7 +13,7 @@ import {
   awaitsVerdict,
 } from "../../view-model/runs";
 import { cols, flex, span, statusSpans } from "../frame";
-import type { Item } from "../state";
+import type { Act, Item } from "../state";
 import { blank, empty, MARK } from "./common";
 import { questionAnswerAct } from "./question-form";
 import { runViewScreen } from "./run";
@@ -64,12 +64,20 @@ export function questionFromAttention(item: AttentionItem): RunQuestion | undefi
     status: "open",
     answerer: "person",
     rev: q.rev,
+    ...(typeof q.askerKind === "string" ? { askerKind: q.askerKind } : {}),
     ...(typeof q.stepId === "string" ? { stepId: q.stepId } : {}),
     ...(typeof q.attempt === "number" && Number.isFinite(q.attempt) ? { attempt: q.attempt } : {}),
     ...(typeof q.branch === "string" && q.branch ? { branch: q.branch } : {}),
     ...(options ? { options } : {}),
     ...(typeof q.recommended === "string" ? { recommended: q.recommended } : {}),
   };
+}
+
+/** The answer form of a run question's attention item. Home and Review open it on
+ *  Enter, so no answer is ever picked for the person. */
+export function runQuestionAnswer(item: AttentionItem, supports: (op: string) => boolean): Act | undefined {
+  const question = item.run ? questionFromAttention(item) : undefined;
+  return question ? questionAnswerAct({ question, supports }) : undefined;
 }
 
 function runListItem(ctx: ScreenCtx, run: RunSummary): Item {

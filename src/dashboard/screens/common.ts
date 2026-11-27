@@ -47,7 +47,9 @@ export function serviceAct(ctx: ScreenCtx, action: Action, subject?: string): Ac
   return {
     label: action.label,
     effect: { type: "action", action },
-    ...(action.confirm ? { confirm: { title: action.confirm } } : {}),
+    // An answer that asks first is a human step's, and a skip moves a run past failed
+    // work: a stray Enter must send neither.
+    ...(action.confirm ? { confirm: { title: action.confirm, ...(action.op === "question.answer" || action.op === "step.skip" ? { body: [action.confirm], defaultNo: true } : {}) } } : {}),
     ...(action.style === "danger" ? { danger: true } : {}),
     ...(subject ? { subject } : {}),
   };

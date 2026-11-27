@@ -17,7 +17,7 @@ import type { Ctx } from "../src/types";
 const front = process.env.PACER_TEST_NATIVE_FRONT_DOOR;
 const core = JSON.stringify([process.execPath, join(import.meta.dir, "../src/cli.ts")]);
 const ALL = "snapshot.get,attention.snooze,attention.dismiss";
-const WORKFLOW = /^(question:q_|run_review:|budget_|orchestrator_failed:|unresolved_wake:)/;
+const WORKFLOW = /^(question:q_|run_review:|budget_|orchestrator_failed:|step_failed:|unresolved_wake:)/;
 
 /** Three live runs, each with a person question; one planner is blocked, one has spent its planning budget. */
 async function fixture(): Promise<{ ctx: Ctx; ids: string[]; runs: string[] }> {

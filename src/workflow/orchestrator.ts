@@ -14,17 +14,20 @@ import { loadStrategy } from "../config/strategy";
 import { withoutPlannerSession } from "../exec/process";
 import { dataPreamble, renderPrompt, STEP_RESULT_INSTRUCTION } from "./template";
 import {
-  getDefinition, getQuestion, getRun, listDecisions, liveRuns, resolveWorkflowPrompt, rootRunId, stepsOfRun, updateRun, workflowDatabase,
+  getDefinition, getQuestion, getRun, listDecisions, listQuestions, liveRuns, resolveWorkflowPrompt, rootRunId, stepsOfRun, updateRun, workflowDatabase,
   type RunRow, type StepRow,
 } from "./store";
 import {
   claimedWakeups, claimWakeups, chooseStepChildRunId, completeWakeups, enqueueWakeup, getTurn,
-  insertTurn, liveTurn, needsOrchestrator, openWakeups, parseWakeRef, reconcileStaleChooseClaims,
+  insertTurn, liveTurn, needsOrchestrator, openBlockingAsk, openWakeups, parseWakeRef, reconcileStaleChooseClaims,
   releaseWakeups, stepsOfRootTree, stepWakeRef, updateTurn, wakeCauseStillOpen,
   type TurnRow, type Wakeup,
 } from "./wakeups";
 import { reviewRef, type ReviewRef } from "./branch";
 import { speaksFor } from "./fanout";
+import { resumeHeldSteps } from "./hold";
+import { closeLiveAnswers, liveAnswerReachable, turnWasAnswered } from "./live-answer";
+import { raiseMissingApprovalQuestions } from "./questions";
 import { canSendBack, mergeConflictFor } from "./review";
 import { revokeOrphanRunGrants, revokeRunGrant, revokeRunGrantsForRun } from "./run-grant";
 import {
@@ -177,6 +180,7 @@ function settleOrchAfterLastTurn(ctx: Ctx, runId: string): void {
 /** Finish a live turn the way stopLiveTurnsForRun does when the task is already gone. */
 function finishTurnForEndedRun(ctx: Ctx, turn: TurnRow, reason: string): void {
   revokeRunGrant(ctx, turn.id);
+  closeLiveAnswers(ctx, turn, false);
   releaseWakeups(ctx, turn.id);
   updateTurn(ctx, turn.id, { status: "stopped", endedAt: ctx.now, reason });
   settleOrchAfterLastTurn(ctx, turn.runId);
@@ -321,6 +325,37 @@ function noteUnresolvedAfterDone(ctx: Ctx, runId: string, claimed: Wakeup[]): bo
   return true;
 }
 
+/** Clears an unresolved-wake block once nothing that caused it is still open: the
+ *  person (or the engine) resolved it, so no manual "Retry now" is needed. */
+function unblockResolved(ctx: Ctx): number {
+  let handled = 0;
+  for (const run of liveRuns(ctx)) {
+    if (run.parentRunId || run.orchestratorState !== "blocked" || isBudgetBlocked(run)) continue;
+    const spent = parseSpent(run.spent);
+    if (spent.blockedBy !== "unresolved") continue;
+    const stuck = Object.entries(spent.unresolvedWakes ?? {}).some(([key, count]) => {
+      const colon = key.indexOf(":");
+      return count >= MAX_UNRESOLVED_DONE
+        && wakeCauseStillOpen(ctx, run.id, key.slice(0, colon) as Wakeup["cause"], key.slice(colon + 1));
+    });
+    if (stuck) continue;
+    delete spent.unresolvedWakes;
+    delete spent.blockedBy;
+    delete spent.attentionAtByKind?.unresolved_wake;
+    if (spent.attentionAtByKind && Object.keys(spent.attentionAtByKind).length === 0) {
+      delete spent.attentionAtByKind;
+      delete spent.attentionAt;
+    }
+    try {
+      updateRun(ctx, run.id, run.rev, {
+        orchestratorState: "idle", reason: null, nextWakeAt: null, spent: serializeSpent(spent),
+      });
+      handled++;
+    } catch { /* a concurrent patch: the next tick retries */ }
+  }
+  return handled;
+}
+
 /** D1: backoff after consecutive failed turns (1 / 5 / 15 minutes), then ask.
  *  Failures 1–3 retry at 60 / 300 / 900 s; the 4th consecutive failure blocks. */
 export const RETRY_BACKOFF_S = [60, 300, 900] as const;
@@ -354,8 +389,6 @@ export interface OrchestratorDeps {
   budgetAllowsTurn?: (ctx: Ctx, run: RunRow) => boolean;
   /** Stop path for overdue turns (task.stop). */
   stopTask?: (ctx: Ctx, taskId: string) => void;
-  /** Interactive turn deadline (2h); default headless 20m. */
-  interactive?: boolean;
   /**
    * When true, skip the default usage-broker pacing check (tests that inject
    * plannerEligible already control eligibility). Production leaves this unset.
@@ -541,6 +574,8 @@ function openOrchestratorBlocks(
       && (branch ? s.branch === branch : !s.branch),
     );
     if (row && row.status !== "running" && row.status !== "waiting") return;
+    // Held for its own blocking question: nothing to perform until the answer.
+    if (row && openBlockingAsk(ctx, row)) return;
     if (stepDef.type === "choose_workflow" && row && chooseStepChildRunId(row.result)) return;
     if (stepDef.type === "generate") {
       const prior = row?.result != null && typeof row.result === "object" && !Array.isArray(row.result)
@@ -608,6 +643,14 @@ function openOrchestratorBlocks(
   );
 
   const blocks: string[] = [];
+  /** What the person answered to this step instance's own questions, as data. */
+  const answers = (c: Candidate) => {
+    const answered = listQuestions(ctx, c.owningRunId, "answered").filter(q => q.askerKind === "orchestrator"
+      && q.stepId === c.stepId && q.attempt === c.attempt && q.branch === c.branch);
+    if (answered.length === 0) return;
+    blocks.push(fenceBlock(nonce, `answers ${c.key}`,
+      JSON.stringify(answered.map(q => ({ id: q.id, question: q.text, answer: q.answer })), null, 2)));
+  };
   for (const c of candidates) {
     const owningRun = getRun(ctx, c.owningRunId)!;
     const def = getDefinition(ctx, `${owningRun.workflow}@${owningRun.version}`)
@@ -687,6 +730,7 @@ function openOrchestratorBlocks(
       };
       blocks.push(`${header}\n${fenceBlock(nonce, `generate ${c.key}`, JSON.stringify(payload, null, 2))}`);
     }
+    answers(c);
   }
   return blocks;
 }
@@ -712,6 +756,19 @@ function reviewPayload(
     canSendBack: !!task && canSendBack(ctx, task),
     ...(conflict ? { mergeConflict: conflict } : {}),
   };
+}
+
+/** What the planner does after a blocking ask. Where pacer can type into its terminal it
+ *  waits there; otherwise it ends the turn and the answer starts the next one. */
+function blockingAskInstruction(ctx: Ctx, run: RunRow, wakeups: Wakeup[]): string[] {
+  const asked = "After asking a question that blocks a step or branch (pacer ask blocks the step unless you pass --blocks nothing)";
+  if (!claimsInteractiveStep(ctx, wakeups)) {
+    return [`This turn is headless. ${asked}, do not wait or poll for the answer and do not report that step's result: finish any work that does not depend on it, then end your turn. The answer starts a new turn that carries it.`];
+  }
+  if (liveAnswerReachable(ctx, resolvePlanner(ctx, run))) {
+    return [`This turn is interactive. ${asked}, do not report that step's result and do not finish with pacer report: finish any work that does not depend on it, then end your reply and wait at your prompt. The answer is typed into this session.`];
+  }
+  return [`This turn is interactive, but an answer cannot be typed into this session. ${asked}, do not wait for the answer and do not report that step's result: finish any work that does not depend on it, then report this session done with pacer report. The answer starts a new turn that carries it.`];
 }
 
 /** Standard orchestrator turn prompt: wake-ups first, then summary; each block capped. */
@@ -751,6 +808,17 @@ export function buildTurnPrompt(
     };
     const review = reviewPayload(ctx, w, steps, reviews);
     if (review) payload.review = review;
+    // A human step or plan approval the planner may answer: name its open question.
+    if (w.cause === "question" && parsed) {
+      const open = listQuestions(ctx, payload.runId as string, "open").find(q => q.askerKind === "human_step"
+        && q.stepId === parsed.stepId && q.attempt === parsed.attempt);
+      if (open) {
+        payload.question = {
+          id: open.id, text: open.text, answerType: open.answerType,
+          ...(open.options ? { options: open.options } : {}), answerer: open.answerer, rev: open.rev,
+        };
+      }
+    }
     // Answered (or open) question wakes carry the record as DATA so the turn can act.
     if (w.cause === "question" && w.ref.startsWith("q_")) {
       const q = getQuestion(ctx, w.ref);
@@ -831,6 +899,7 @@ export function buildTurnPrompt(
     "  pacer question escalate <id> --suggested <text> --reason <text> [--expect-rev <n>]",
     "  pacer ask --type <kind> [--option ...] [--recommend] [--blocks] [--artifact] --step <id> [--attempt <n>] \"<text>\"",
     "  pacer review <taskId> --accept|--reject  /  pacer stop <taskId>",
+    ...blockingAskInstruction(ctx, run, wakeups),
   ].join("\n");
   // Wake-ups and run-state first so the UTF-8 cap never drops decision triggers
   // or error=/task=/run= lines; open/brief are lower priority and may be omitted
@@ -879,6 +948,7 @@ export function buildHandoverPrompt(
     "This is a planner handover. Prior decisions and results are below.",
     "Unfenced sections titled 'Orchestrator step', 'choose_workflow' or 'generate' are the steps to perform; end each with pacer step result, run choose/decide, or run submit-graph as applicable.",
     "Commands use <owningRunId> from each open block / step line.",
+    ...blockingAskInstruction(ctx, run, wakeups),
   ].join("\n");
   const openBlocks = openOrchestratorBlocks(ctx, nonce, run, wakeups, steps);
   // Run summary early (with wake-ups) so the UTF-8 cap cannot drop it (H3).
@@ -910,6 +980,18 @@ export function buildHandoverPrompt(
     fenceBlock(nonce, "open wake-ups", wakeLines),
   ];
   return assemblePrompt(nonce, lead, blocks);
+}
+
+/** Whether any step this turn claimed is marked `interactive: true`. */
+function claimsInteractiveStep(ctx: Ctx, wakeups: Wakeup[]): boolean {
+  return wakeups.some(w => {
+    const parsed = w.cause === "orchestrator_step" ? parseWakeRef(w.ref) : null;
+    const run = parsed ? getRun(ctx, parsed.runId ?? w.runId) : null;
+    if (!parsed || !run) return false;
+    const def = getDefinition(ctx, `${run.workflow}@${run.version}`) ?? getDefinition(ctx, run.workflow);
+    const step = def?.steps[parsed.stepId];
+    return step?.type === "agent" && step.interactive === true;
+  });
 }
 
 /** Compare-and-set start of one orchestrator turn for the run. Returns null when
@@ -957,9 +1039,8 @@ export async function startTurn(ctx: Ctx, runId: string, opts: OrchestratorDeps 
     return null;
   }
 
-  const deadlineS = opts.interactive ? INTERACTIVE_DEADLINE_S : HEADLESS_DEADLINE_S;
   const turnId = newTurnId();
-  const deadline = ctx.now + deadlineS;
+  const deadline = ctx.now + HEADLESS_DEADLINE_S;
   let turn: TurnRow;
   try {
     // Consecutive failures: the latest finished turn of any status (a done turn
@@ -1004,6 +1085,10 @@ export async function startTurn(ctx: Ctx, runId: string, opts: OrchestratorDeps 
   };
 
   try {
+    // Headless unless a claimed step asks for the person's terminal (spec "Orchestrator").
+    const interactive = claimsInteractiveStep(ctx, wakeups);
+    const deadlineS = interactive ? INTERACTIVE_DEADLINE_S : HEADLESS_DEADLINE_S;
+    if (interactive) updateTurn(ctx, turnId, { deadline: ctx.now + deadlineS });
     const def = getDefinition(ctx, `${run.workflow}@${run.version}`) ?? getDefinition(ctx, run.workflow);
     const switching = !!run.pendingPlanner && run.pendingPlanner !== run.planner;
     // Include choose_workflow child steps so the turn can name their owning runId (N4).
@@ -1030,6 +1115,7 @@ export async function startTurn(ctx: Ctx, runId: string, opts: OrchestratorDeps 
         timeoutS: deadlineS,
         title: `orchestrate ${run.id}`.slice(0, 60),
         requestId: `orch:${runId}`,
+        interactive,
       });
       taskId = task.id;
     } else {
@@ -1038,6 +1124,8 @@ export async function startTurn(ctx: Ctx, runId: string, opts: OrchestratorDeps 
         t.state = "queued";
         t.requestedExecutor = planner;
         t.kind = "orchestrate";
+        t.interactive = interactive;
+        t.timeoutS = deadlineS;
         delete t.result;
         delete t.settledAt;
         delete t.queue;
@@ -1104,6 +1192,7 @@ export async function settleTurn(ctx: Ctx, turnId: string, outcome: TurnOutcome)
   revokeRunGrant(ctx, turnId);
   const owning = getRun(ctx, turn.runId);
   const endedRun = runIsTerminal(owning?.status);
+  closeLiveAnswers(ctx, turn, outcome.outcome === "done");
 
   if (outcome.outcome === "done") {
     const claimed = claimedWakeups(ctx, turnId);
@@ -1185,6 +1274,16 @@ export async function settleTurn(ctx: Ctx, turnId: string, outcome: TurnOutcome)
     });
     settleOrchAfterLastTurn(ctx, turn.runId);
     return stopped;
+  }
+
+  // An interactive turn that reaches its deadline after the person answered it is not a
+  // planner failure: an answer still owed starts a new turn at once.
+  if (outcome.outcome === "failed" && outcome.reason === "deadline" && turn.taskId
+    && readTask(ctx, turn.taskId)?.interactive === true && turnWasAnswered(ctx, turn)) {
+    patchRunBestEffort(ctx, turn.runId, { orchestratorState: "idle", nextWakeAt: null, reason: null });
+    return updateTurn(ctx, turnId, {
+      status: "stopped", endedAt: ctx.now, reason: "deadline after an answer",
+    });
   }
 
   const countFailure = outcome.countFailure !== false;
@@ -1392,6 +1491,7 @@ export async function orchestrateRuns(ctx: Ctx, deps: OrchestratorDeps = {}): Pr
   let handled = 0;
 
   handled += reconcileStaleChooseClaims(ctx);
+  handled += raiseMissingApprovalQuestions(ctx);
 
   for (const missing of needsOrchestrator(ctx)) {
     enqueueWakeup(ctx, {
@@ -1507,6 +1607,11 @@ export async function orchestrateRuns(ctx: Ctx, deps: OrchestratorDeps = {}): Pr
       return handled;
     }
   }
+
+  // Turns are settled now: held steps whose question closed run again, and a planner
+  // blocked on something since resolved is no longer blocked.
+  handled += resumeHeldSteps(ctx);
+  handled += unblockResolved(ctx);
 
   for (const run of liveRuns(ctx)) {
     if (openWakeups(ctx, run.id).length === 0) continue;

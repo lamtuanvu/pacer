@@ -8,6 +8,7 @@ import { ago, elapsed } from "../../view-model/time";
 import type { ClientTask } from "../../view-model/snapshot";
 import { cols, flex, glyph, heading, meter, span, statusSpans, wrap, type Line } from "../frame";
 import type { Act, Item } from "../state";
+import { runQuestionAnswer } from "./runs";
 import { blank, defined, empty, executorName, GAP, MARK, opAct, serviceAct, time } from "./common";
 import type { Row, ScreenCtx, ScreenView } from "./types";
 
@@ -33,7 +34,9 @@ export function homeScreen(ctx: ScreenCtx): ScreenView {
     const acts = defined(a.actions.map(action => serviceAct(ctx, action, title)));
     const dismiss = !canDismiss(s.attention, a) ? undefined : opAct(ctx, "Dismiss", "attention.dismiss", { id: a.id });
     const review: Act | undefined = a.kind === "review" && a.taskId ? { label: "Review changes", effect: { type: "navigate", screen: "review", id: a.taskId } } : undefined;
-    const item: Item = { id: `attention:${a.id}`, primary: acts[0], actions: [...acts.slice(1), ...defined([review, dismiss])], keys: { ...(dismiss ? { x: dismiss } : {}), ...(review ? { v: review } : {}) } };
+    // A run question opens its form: Enter must not pick an answer for the person.
+    const answer = runQuestionAnswer(a, ctx.supports);
+    const item: Item = { id: `attention:${a.id}`, primary: answer ?? acts[0], actions: [...(answer ? acts : acts.slice(1)), ...defined([review, dismiss])], keys: { ...(dismiss ? { x: dismiss } : {}), ...(review ? { v: review } : {}) } };
     const w = wide ? flex(width, [{ fixed: 20 }, { weight: 3, min: 16 }, { fixed: 10 }, { weight: 2, min: 10 }, { fixed: 5 }]) : flex(width, [{ fixed: 20 }, { weight: 1, min: 12 }, { weight: 1, min: 8 }]);
     const cells = wide
       ? [{ content: statusSpans(theme, attentionStatus(a, s.tasks)), width: w[0]! }, { content: title, width: w[1]!, style: { bold: true } }, { content: a.repo?.label ?? "", width: w[2]!, style: { fg: "muted" as const } }, { content: a.detail, width: w[3]!, style: { fg: "secondary" as const } }, { content: time(ctx, a.raisedAt), width: w[4]!, align: "right" as const, style: { fg: "muted" as const } }]

@@ -232,7 +232,7 @@ function overlayLines(input: FrameInput, overlay: Overlay, view: ScreenView, wid
       ...overlay.body.flatMap(text => wrap(text, w - 4).map(line => [span(line, { fg: "secondary" })])), [],
       // Enter confirms and Esc cancels for every confirm (same as y/n); document both so the hint matches keys.
       // Use glyph() so plain/ASCII themes show "Enter", not a bare "#" from ascii transliteration.
-      [span(`y/${glyph(theme, "⏎")}`, { bold: true }), span(` ${overlay.yes}`), ...(overlay.alt ? [span(" · "), span(overlay.alt.key, { bold: true }), span(` ${overlay.alt.label}`)] : []), span(" · "), span("n/Esc", { bold: true }), span(" Cancel")],
+      [span(overlay.defaultNo ? "y" : `y/${glyph(theme, "⏎")}`, { bold: true }), span(` ${overlay.yes}`), ...(overlay.alt ? [span(" · "), span(overlay.alt.key, { bold: true }), span(` ${overlay.alt.label}`)] : []), span(" · "), span(overlay.defaultNo ? `n/${glyph(theme, "⏎")}/Esc` : "n/Esc", { bold: true }), span(" Cancel")],
     ], w);
     case "menu": return box(theme, overlay.title, [...overlay.actions.map((a, i): Line => [span(i === overlay.index ? `${glyph(theme, "›")} ` : "  ", { fg: "focus", bold: true }), span(`${i + 1}`, { bold: true }), span(` ${a.label}`, a.danger ? { fg: "bad" } : {})]), [], [span("1-9 or ⏎ choose · Esc cancel", { fg: "muted" })]], w);
     case "prompt": {
@@ -252,7 +252,7 @@ function overlayLines(input: FrameInput, overlay: Overlay, view: ScreenView, wid
     case "answer": {
       const lines: Line[] = [];
       // Question body in the box (title alone is clipped); bound wrap depth (N6).
-      const bodyLines = wrap(overlay.title, w - 4, 6).map((wline): Line => [span(wline, { fg: "secondary" })]);
+      const bodyLines = wrap(overlay.title, w - 4).map((wline): Line => [span(wline, { fg: "secondary" })]);
       if (overlay.recommended) lines.push([span(`Recommended: ${overlay.recommended}`, { fg: "good" })]);
       if (overlay.phase === "text" || overlay.phase === "note") {
         const max = overlay.phase === "note" ? QUESTION_NOTE_MAX : QUESTION_ANSWER_MAX;
@@ -266,7 +266,14 @@ function overlayLines(input: FrameInput, overlay: Overlay, view: ScreenView, wid
       }
       if (overlay.mode === "yes_no") {
         lines.push(...bodyLines, []);
-        lines.push([span("y", { bold: true }), span(" Yes   "), span("n", { bold: true }), span(" No")]);
+        const yesFocused = overlay.index === 0;
+        const noFocused = overlay.index === 1;
+        lines.push([
+          span(yesFocused ? `${glyph(theme, "›")} ` : "  ", { fg: "focus", bold: true }),
+          span("y", { bold: true }), span(" Yes   "),
+          span(noFocused ? `${glyph(theme, "›")} ` : "  ", { fg: "focus", bold: true }),
+          span("n", { bold: true }), span(" No"),
+        ]);
         if (overlay.recommended) lines.push([span(`Recommended: ${overlay.recommended}`, { fg: "muted" })]);
         if (overlay.error) lines.push(statusSpans(theme, { label: overlay.error, tone: "bad", glyph: "✕" }));
         lines.push([], [span("y / n · Esc cancel", { fg: "muted" })]);
@@ -299,7 +306,7 @@ function overlayLines(input: FrameInput, overlay: Overlay, view: ScreenView, wid
         ? "Esc cancel"
         : overlay.mode === "multi"
           ? "space toggle · ⏎ submit · Esc cancel"
-          : "1-9 or ⏎ choose · Esc cancel";
+          : overlay.index < 0 ? "↑↓ then ⏎, or 1-9, choose · Esc cancel" : "1-9 or ⏎ choose · Esc cancel";
       lines.push([], [span(hint, { fg: "muted" })]);
       return box(theme, "Answer", lines, w);
     }
@@ -356,10 +363,10 @@ function confirmKeyBar(
   const { theme } = input;
   const enter = glyph(theme, "⏎");
   const groups: Line[] = [
-    [span(`y/${enter}`, { bold: true }), span(` ${overlay.yes}`, { fg: "secondary" })],
+    [span(overlay.defaultNo ? "y" : `y/${enter}`, { bold: true }), span(` ${overlay.yes}`, { fg: "secondary" })],
   ];
   if (overlay.alt) groups.push([span(overlay.alt.key, { bold: true }), span(` ${overlay.alt.label}`, { fg: "secondary" })]);
-  groups.push([span("n/Esc", { bold: true }), span(" Cancel", { fg: "secondary" })]);
+  groups.push([span(overlay.defaultNo ? `n/${enter}/Esc` : "n/Esc", { bold: true }), span(" Cancel", { fg: "secondary" })]);
   const help: Line = [span("?", { bold: true }), span(" help", { fg: "secondary" })];
   const version = span(`pacer ${input.version}`, { fg: "muted" });
   const join = (list: Line[]) => list.flatMap((g, i) => i ? [span("  "), ...g] : g);

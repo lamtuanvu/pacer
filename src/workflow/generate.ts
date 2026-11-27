@@ -30,6 +30,7 @@ import {
 } from "./schema";
 import { backEdgeIndexes, estimateWorkUnits, validateWorkflow } from "./validate";
 import { enqueueWakeup, stepWakeRef } from "./wakeups";
+import { raiseGenerateApprovalQuestion } from "./questions";
 import type { SpawnRunner } from "../tasks/api";
 
 const KNOWN_KINDS = new Set<string>(KINDS);
@@ -491,13 +492,15 @@ export async function submitGraph(
       ...(replanSummary !== undefined ? { replanSummary } : {}),
     };
     if (replanAsk || stepDef.approval) {
-      updateStep(ctx, keyOf(freshRow), {
+      const pending = updateStep(ctx, keyOf(freshRow), {
         result: {
           ...nextResult,
           pendingApproval: true,
           approval: replanAsk ? (stepDef.approval ?? "must") : stepDef.approval,
         },
       });
+      // The question and the pending approval land together.
+      raiseGenerateApprovalQuestion(ctx, getRun(ctx, run.id)!, pending, stepDef);
     } else {
       updateStep(ctx, keyOf(freshRow), {
         result: { ...nextResult, pendingApproval: undefined },
@@ -519,18 +522,16 @@ export async function submitGraph(
 
   // Replan ask / approval: person or auto-wake before the child starts.
   if (replanAsk || stepDef.approval) {
-    if (stepDef.approval === "auto" && !replanAsk) {
-      const { canAutoApproveGenerate } = await import("./auto");
-      const { rootRunId } = await import("./store");
-      const root = getRun(ctx, rootRunId(ctx, run.id)) ?? run;
-      if (canAutoApproveGenerate(root, input.stepId, stepDef)) {
-        enqueueWakeup(ctx, {
-          runId: run.id,
-          cause: "question",
-          ref: stepWakeRef(run.id, input.stepId, row.attempt),
-          createdAt: ctx.now,
-        });
-      }
+    const { orchestratorMayApprove } = await import("./auto");
+    const { rootRunId } = await import("./store");
+    const root = getRun(ctx, rootRunId(ctx, run.id)) ?? run;
+    if (orchestratorMayApprove(root, input.stepId, stepDef, { replanMode: prior.replanMode })) {
+      enqueueWakeup(ctx, {
+        runId: run.id,
+        cause: "question",
+        ref: stepWakeRef(run.id, input.stepId, row.attempt),
+        createdAt: ctx.now,
+      });
     }
     return { ok: true, errors: [], version: stored.version };
   }

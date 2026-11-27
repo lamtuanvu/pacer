@@ -7,6 +7,7 @@ import type { ClientSnapshot, ClientTask } from "../view-model/snapshot";
 import { displayTitle } from "../view-model/titles";
 import { outcomeProblem } from "../view-model/run-gate";
 import { jobKindCopy } from "../view-model/copy";
+import { messageDeliveryWords } from "../view-model/words";
 import type { StatusTone } from "../view-model/words";
 import { renderFrame, screenView, tabs, type FrameInput } from "./screens/shell";
 import { KINDS, scopedReviewQueue } from "./screens/review";
@@ -597,6 +598,11 @@ function successCopy(action: Action, result: Record<string, unknown> | null): st
         : reading === "available" ? `Update available: ${String(r.latest)}` : reading === "current" ? "Up to date" : "Not checked";
     }
     case "task.dismiss": case "attention.dismiss": return "Dismissed";
+    case "msg.send": {
+      const delivery = typeof r.delivery === "string" ? r.delivery : undefined;
+      const hold = r.hold && typeof r.hold === "object" ? (r.hold as { reason?: unknown }) : undefined;
+      return `${action.label}: ${messageDeliveryWords(delivery, hold)}`;
+    }
     default: return `${action.label}: done`;
   }
 }

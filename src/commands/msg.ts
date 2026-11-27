@@ -10,6 +10,8 @@ import { spawnRunner } from "../tasks/api";
 import type { Ctx } from "../types";
 import { commandArgs } from "./accounts";
 import type { Command, Result } from "./types";
+import { terminalJson, terminalText } from "./terminal-text";
+import { PLANNER_HOLD } from "../messaging/planner-hold";
 
 const TASK = /^t-\d{8}-\d{6}-[0-9a-f]{4}$/;
 const target = (s: string) => TASK.test(s) ? `task:${s}` : s;
@@ -20,6 +22,7 @@ const NO_REPLY: Record<string, string> = {
   held: "the message waits for human confirmation (pacer msg confirm)",
   live_unavailable: "the conversation has ended; the message stays pending",
 };
+const holdWords = (reason: string) => reason === PLANNER_HOLD ? reason : `held by project policy: ${reason}`;
 const MSG_USAGE = "usage: pacer msg send|inbox|log|read|confirm|close|policy|hook";
 
 // In-process on purpose: the sender identity comes from this process's environment,
@@ -28,8 +31,8 @@ const MSG_USAGE = "usage: pacer msg send|inbox|log|read|confirm|close|policy|hoo
 const call = (ctx: Ctx, op: string, params: Record<string, unknown>): Promise<any> =>
   Promise.resolve(callOp(ctx, op, params, { spawnRunner, participant: localHuman(ctx) }));
 const show = (messages: Array<{ id: string; from: string; to: string; kind: string; body: string }>) =>
-  messages.map(m => `${m.id}  ${m.kind}  ${m.from} -> ${m.to}\n${m.body}\n`).join("\n") || "(no messages)";
-const out = (json: boolean, value: unknown, text: string): Result => ({ code: 0, out: json ? JSON.stringify(value, null, 2) : text, err: "" });
+  messages.map(m => `${m.id}  ${m.kind}  ${m.from} -> ${m.to}\n${terminalText(m.body)}\n`).join("\n") || "(no messages)";
+const out = (json: boolean, value: unknown, text: string): Result => ({ code: 0, out: json ? terminalJson(value, 2) : text, err: "" });
 const fail = (e: unknown): Result => {
   const reason = e instanceof CoreError && typeof e.data?.reason === "string" ? ` (${e.data.reason})` : "";
   const hint = e instanceof CoreError && e.hint ? `\n${e.hint}` : "";
@@ -58,7 +61,7 @@ async function msgCmd(args: string[], ctx: Ctx): Promise<Result> {
         const r = await call(ctx, "msg.send", { to: target(pos[0]!), body: pos[1], kind: f("answer") ? "answer" : flags.question ? "question" : "message",
           ...(f("answer") ? { reply_to: f("answer") } : {}), ...(f("request-id") ? { request_id: f("request-id") } : {}) });
         // A policy hold names its reason; a guardrail hold waits for confirmation.
-        const held = r.hold ? `held by project policy: ${r.hold.reason}; the message stays pending` : undefined;
+        const held = r.hold ? `${holdWords(r.hold.reason)}; the message stays pending` : undefined;
         if (!flags.wait) return out(json, r, `sent ${r.message.id} (${r.delivery})${held ? `: ${held}` : ""}`);
         // No turn will run for these, so no reply is coming: say why instead of waiting out the timeout.
         const why = held ?? NO_REPLY[r.delivery as string];
@@ -72,7 +75,7 @@ async function msgCmd(args: string[], ctx: Ctx): Promise<Result> {
       }
       case "log": { const r = await call(ctx, "msg.log", { task: pos[0] }); return out(json, r, show(r.messages)); }
       case "read": { const r = await call(ctx, "msg.read", { ids: pos }); return out(json, r, `marked ${r.read} read`); }
-      case "confirm": { const r = await call(ctx, "msg.confirm", { id: pos[0] }); return out(json, r, `released ${r.message.id} (${r.delivery})${r.hold ? `: held by project policy: ${r.hold.reason}` : ""}`); }
+      case "confirm": { const r = await call(ctx, "msg.confirm", { id: pos[0] }); return out(json, r, `released ${r.message.id} (${r.delivery})${r.hold ? `: ${holdWords(r.hold.reason)}` : ""}`); }
       case "close": { const r = await call(ctx, "msg.close", { task: pos[0] }); return out(json, r, `closed ${r.task}`); }
       case "policy": {
         if (f("project")) {

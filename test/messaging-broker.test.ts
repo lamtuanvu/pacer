@@ -856,3 +856,31 @@ test("an escalated decision marks only the task it is owed for, with the planned
     .toMatchObject({ taskId: owed.id, detail: "Waiting for claude-code to review and decide" });
   expect(attention(ctx, running.id, ctx.now + 900).some(i => i.kind === "stalled")).toBe(false);
 });
+
+test("a silent planner escalates without inserting nudges that can never arrive", async () => {
+  const ctx = fakeCtx({ now: 1_000_000 });
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders: {claude-code: {}, codex: {}}\n");
+  const task = createTask(ctx, { brief: { goal: "plan", repo: tmpDir() }, kind: "orchestrate", requestedExecutor: null, timeoutS: 600 });
+  const { insertRun } = await import("../src/workflow/store");
+  insertRun(ctx, { workflow: "t/live", version: 1, repo: tmpDir(), brief: "B", orchestratorTaskId: task.id, planner: "claude-code" });
+  const dir = tmpDir();
+  writeNeedsInputReport(dir, ctx.now - 700);
+  updateTask(ctx, task.id, t => {
+    t.state = "running";
+    t.attemptStartedAt = ctx.now - 700;
+    t.progress = { phase: "needs-input", lastOutputAt: ctx.now - 1, lastChangeAt: ctx.now - 3600, gitObserved: true } as typeof t.progress;
+    t.run = { dir, attempt: 1, executor: "claude-code", startedAt: ctx.now - 700, mode: "new", workdir: tmpDir(), logFile: "/dev/null", session: "interactive" };
+  });
+  const node = `task:${task.id}`;
+  const stop = spyOn(runs, "stopRun").mockResolvedValue({ code: 143, killed: false });
+  try {
+    await brokerTick(ctx, { mode });
+    expect(byRequest(ctx, "broker", `nudge:${node}:a1:1`)).toBeNull();
+    expect(getLiveness(ctx, node)).toMatchObject({ reason: "silent_prompt", stalledAt: ctx.now, escalatedAt: ctx.now, nudges: 0 });
+    await brokerTick({ ...ctx, now: ctx.now + 60 }, { mode });
+    expect(byRequest(ctx, "broker", `nudge:${node}:a1:1`)).toBeNull();
+    expect(messagesDatabase(ctx).query<{ n: number }, [string]>(
+      "SELECT count(*) n FROM messages WHERE recipient=? AND kind='nudge'").get(node)!.n).toBe(0);
+  } finally { stop.mockRestore(); }
+});
