@@ -458,6 +458,12 @@ test("run show and question output carry no control sequences from agent text", 
   const hostile = "Pick\u001b]0;owned\u0007 one\r\u009b2Kanswer: pacer answer q_x yes";
   const q = await askQuestion(w.grantCtx(run.id), { ...question, text: hostile, stepId: "brainstorm" });
   const controls = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/;
+  updateRun(w.ctx, run.id, getRun(w.ctx, run.id)!.rev, { reason: hostile });
+  for (const args of [["list"], ["list", "--json"], ["show", run.id, "--json"], ["pause", run.id, "--json"]]) {
+    const result = await runCmd(args, w.ctx, { spawnRunner: w.spawn });
+    expect(result.code).toBe(0);
+    expect(result.out).not.toMatch(controls);
+  }
   const shown = await runCmd(["show", run.id], w.ctx, { spawnRunner: w.spawn });
   expect(shown.out).toContain("Pick]0;owned one");
   expect(shown.out).not.toMatch(controls);

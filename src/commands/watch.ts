@@ -3,7 +3,7 @@ import type { ApiClient } from "../api/client-types";
 import type { TaskDetail } from "../core/task-detail";
 import type { Ctx } from "../types";
 import type { Result } from "./types";
-import { terminalText } from "./terminal-text";
+import { terminalJson, terminalText } from "./terminal-text";
 
 export const WATCH_USAGE = "watch <task-id> [--timeout <seconds>] [--json]   stream output until settled (default 600, max 3000)";
 type LogPage = { stdout: string; stderr: string; next: { stdout: number; stderr: number }; done: boolean; source?: string };
@@ -27,7 +27,7 @@ export async function watchCommand(args: string[], ctx: Ctx, options: Options = 
   const taskId = id;
   const write = options.write ?? (text => { process.stdout.write(text); });
   const emit = (type: string, fields: Record<string, unknown>, text: string) => {
-    write(json ? JSON.stringify({ type, task_id: taskId, ...fields }) + "\n" : text);
+    write(json ? terminalJson({ type, task_id: taskId, ...fields }) + "\n" : text);
   };
   const controller = new AbortController();
   let timedOut = false, client: ApiClient | undefined;

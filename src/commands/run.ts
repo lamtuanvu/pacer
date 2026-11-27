@@ -10,7 +10,7 @@ import { callOp, type OpDeps } from "../api/ops";
 import { stepAwaitsReview, WAITING_FOR_REVIEW } from "../view-model/run-tree";
 import { commandArgs } from "./accounts";
 import type { Command, Result } from "./types";
-import { terminalJson, terminalLine } from "./terminal-text";
+import { terminalJson, terminalLine, terminalText } from "./terminal-text";
 import type { Ctx } from "../types";
 
 const USAGE = "usage: pacer run start <workflow|auto> --brief <text> [--repo <path>] [--title <t>] [--priority urgent|normal|background] [--publish draft] | list [--status <s>] | show <id> | graph <id> [--version N] | submit-graph --file <path> --id <run> --step <step> | answer <id> <step> <answer> | stop <id> | retry-orchestrator <id> | sync <id> | publish <id> --title <t> --body-file <path> [--draft] | cleanup <id> [--delete-branch] [--yes] | auto <id> on|off | planner <id> <agent> | budget <id> [--turns N] [--messages N] | priority <id> urgent|normal|background | pause <id> | resume <id> | seen <id> | decide <id> <step> <choice> --reason <text> | decide --json '{\"id\",\"kind\":\"summary\",\"summary\":\"…\"}' | decide <id> --json '{\"kind\":\"summary\",\"summary\":\"…\"}' | choose <id> <step> <workflow> --reason <text> [--json]";
@@ -114,15 +114,15 @@ export async function runCmd(args: string[], ctx: Ctx, deps: OpDeps = {}): Promi
         ...(flags.publish === "draft" ? { publish: "draft" as const } : {}),
       };
       const run = await call(ctx, "run.start", params, deps) as RunLike;
-      if (json) return { code: 0, out: JSON.stringify(run, null, 2), err: "" };
+      if (json) return { code: 0, out: terminalJson(run, 2), err: "" };
       return { code: 0, out: `${run.id}  ${run.status}${run.priority && run.priority !== "normal" ? `  ${run.priority}` : ""}`, err: "" };
     }
     if (sub === "list") {
       const { pos, flags } = commandArgs(rest, ["status"], ["json"]);
       if (pos.length) throw Error(USAGE);
       const runs = await call(ctx, "run.list", flags.status ? { status: String(flags.status) } : {}, deps) as RunLike[];
-      if (json) return { code: 0, out: JSON.stringify(runs, null, 2), err: "" };
-      return { code: 0, out: runs.map(runListLine).join("\n"), err: "" };
+      if (json) return { code: 0, out: terminalJson(runs, 2), err: "" };
+      return { code: 0, out: runs.map(r => terminalLine(runListLine(r))).join("\n"), err: "" };
     }
     if (sub === "show") {
       const { pos, flags } = commandArgs(rest, [], ["json"]);
@@ -142,15 +142,15 @@ export async function runCmd(args: string[], ctx: Ctx, deps: OpDeps = {}): Promi
         ? { id: pos[0], step: pos[1], answer: pos.slice(2).join(" "), expect_rev: got.run.rev }
         : { id: pos[0], expect_rev: got.run.rev };
       const run = await call(ctx, sub === "answer" ? "run.answer" : "run.stop", params, deps) as RunLike;
-      if (json) return { code: 0, out: JSON.stringify(run, null, 2), err: "" };
-      return { code: 0, out: `${run.id}  ${run.status}${run.reason ? `  ${run.reason}` : ""}`, err: "" };
+      if (json) return { code: 0, out: terminalJson(run, 2), err: "" };
+      return { code: 0, out: terminalLine(`${run.id}  ${run.status}${run.reason ? `  ${run.reason}` : ""}`), err: "" };
     }
     if (sub === "retry-orchestrator") {
       const { pos } = commandArgs(rest, [], ["json"]);
       if (pos.length !== 1) throw Error(USAGE);
       const got = await call(ctx, "run.get", { id: pos[0] }, deps) as { run: RunLike };
       const run = await call(ctx, "run.retry_orchestrator", { id: pos[0], expect_rev: got.run.rev }, deps) as RunLike;
-      if (json) return { code: 0, out: JSON.stringify(run, null, 2), err: "" };
+      if (json) return { code: 0, out: terminalJson(run, 2), err: "" };
       return { code: 0, out: `${run.id}  planner will be retried`, err: "" };
     }
     if (sub === "sync") {
@@ -160,10 +160,10 @@ export async function runCmd(args: string[], ctx: Ctx, deps: OpDeps = {}): Promi
       const result = await call(ctx, "run.sync_base", { id: pos[0], expect_rev: got.run.rev }, deps);
       const r = result as { ok: boolean; merge?: string; resolution_task?: string; run: RunLike };
       if (!r.ok) {
-        if (flags.json || json) return { code: 1, out: JSON.stringify(result, null, 2), err: "" };
+        if (flags.json || json) return { code: 1, out: terminalJson(result, 2), err: "" };
         return { code: 1, out: `${pos[0]}  sync conflict  ${r.resolution_task}`, err: "" };
       }
-      if (flags.json || json) return { code: 0, out: JSON.stringify(result, null, 2), err: "" };
+      if (flags.json || json) return { code: 0, out: terminalJson(result, 2), err: "" };
       return { code: 0, out: `${pos[0]}  synced`, err: "" };
     }
     if (sub === "publish") {
@@ -179,7 +179,7 @@ export async function runCmd(args: string[], ctx: Ctx, deps: OpDeps = {}): Promi
         body,
         expect_rev: got.run.rev,
       }, deps) as { pr_url: string; run: RunLike };
-      if (flags.json || json) return { code: 0, out: JSON.stringify(result, null, 2), err: "" };
+      if (flags.json || json) return { code: 0, out: terminalJson(result, 2), err: "" };
       return { code: 0, out: `${pos[0]}  ${result.pr_url}`, err: "" };
     }
     if (sub === "cleanup") {
@@ -194,7 +194,7 @@ export async function runCmd(args: string[], ctx: Ctx, deps: OpDeps = {}): Promi
         delete_branch: !!flags["delete-branch"],
         expect_rev: got.run.rev,
       }, deps) as { run: RunLike; deleted_branch: string | null };
-      if (flags.json || json) return { code: 0, out: JSON.stringify(result, null, 2), err: "" };
+      if (flags.json || json) return { code: 0, out: terminalJson(result, 2), err: "" };
       return {
         code: 0,
         out: result.deleted_branch
@@ -210,7 +210,7 @@ export async function runCmd(args: string[], ctx: Ctx, deps: OpDeps = {}): Promi
       const run = await call(ctx, "run.set_auto", {
         id: pos[0], auto: pos[1] === "on", expect_rev: got.run.rev,
       }, deps) as RunLike;
-      if (json) return { code: 0, out: JSON.stringify(run, null, 2), err: "" };
+      if (json) return { code: 0, out: terminalJson(run, 2), err: "" };
       return { code: 0, out: `${run.id}  auto ${pos[1]}`, err: "" };
     }
     if (sub === "planner") {
@@ -220,7 +220,7 @@ export async function runCmd(args: string[], ctx: Ctx, deps: OpDeps = {}): Promi
       const run = await call(ctx, "run.set_planner", {
         id: pos[0], planner: pos[1], expect_rev: got.run.rev,
       }, deps) as RunLike;
-      if (json) return { code: 0, out: JSON.stringify(run, null, 2), err: "" };
+      if (json) return { code: 0, out: terminalJson(run, 2), err: "" };
       return { code: 0, out: `${run.id}  planner ${pos[1]} (next turn)`, err: "" };
     }
     if (sub === "budget") {
@@ -231,7 +231,7 @@ export async function runCmd(args: string[], ctx: Ctx, deps: OpDeps = {}): Promi
       if (flags.turns !== undefined) params.orchestrator_turns = Number(flags.turns);
       if (flags.messages !== undefined) params.message_turns = Number(flags.messages);
       const run = await call(ctx, "run.set_budget", params, deps) as RunLike;
-      if (json) return { code: 0, out: JSON.stringify(run, null, 2), err: "" };
+      if (json) return { code: 0, out: terminalJson(run, 2), err: "" };
       return { code: 0, out: `${run.id}  budget updated`, err: "" };
     }
     if (sub === "priority") {
@@ -241,7 +241,7 @@ export async function runCmd(args: string[], ctx: Ctx, deps: OpDeps = {}): Promi
       const run = await call(ctx, "run.set_priority", {
         id: pos[0], priority: pos[1], expect_rev: got.run.rev,
       }, deps) as RunLike;
-      if (json) return { code: 0, out: JSON.stringify(run, null, 2), err: "" };
+      if (json) return { code: 0, out: terminalJson(run, 2), err: "" };
       return { code: 0, out: `${run.id}  priority ${pos[1]}`, err: "" };
     }
     if (sub === "pause" || sub === "resume") {
@@ -251,7 +251,7 @@ export async function runCmd(args: string[], ctx: Ctx, deps: OpDeps = {}): Promi
       const run = await call(ctx, sub === "pause" ? "run.pause" : "run.resume", {
         id: pos[0], expect_rev: got.run.rev,
       }, deps) as RunLike;
-      if (json) return { code: 0, out: JSON.stringify(run, null, 2), err: "" };
+      if (json) return { code: 0, out: terminalJson(run, 2), err: "" };
       return {
         code: 0,
         out: `${run.id}  ${sub}${run.pausedReason ? `  ${run.pausedReason}` : ""}`,
@@ -262,7 +262,7 @@ export async function runCmd(args: string[], ctx: Ctx, deps: OpDeps = {}): Promi
       const { pos } = commandArgs(rest, [], ["json"]);
       if (pos.length !== 1) throw Error(USAGE);
       const run = await call(ctx, "run.seen", { id: pos[0] }, deps) as RunLike;
-      if (json) return { code: 0, out: JSON.stringify(run, null, 2), err: "" };
+      if (json) return { code: 0, out: terminalJson(run, 2), err: "" };
       return { code: 0, out: `${run.id}  seen`, err: "" };
     }
     if (sub === "decide") {
@@ -289,14 +289,14 @@ export async function runCmd(args: string[], ctx: Ctx, deps: OpDeps = {}): Promi
         }
         if (typeof body.id !== "string" || !body.id) throw Error(USAGE);
         const run = await call(ctx, "run.decide", body, deps) as RunLike & { summary?: string };
-        return { code: 0, out: JSON.stringify(run, null, 2), err: "" };
+        return { code: 0, out: terminalJson(run, 2), err: "" };
       }
       const { pos, flags } = commandArgs(rest, ["reason"], ["json"]);
       if (pos.length < 3 || !flags.reason) throw Error(USAGE);
       const run = await call(ctx, "run.decide", {
         id: pos[0], step: pos[1], choice: pos.slice(2).join(" "), reason: String(flags.reason),
       }, deps) as RunLike;
-      if (json) return { code: 0, out: JSON.stringify(run, null, 2), err: "" };
+      if (json) return { code: 0, out: terminalJson(run, 2), err: "" };
       return { code: 0, out: `${run.id}  decided ${pos[1]}`, err: "" };
     }
     if (sub === "choose") {
@@ -305,7 +305,7 @@ export async function runCmd(args: string[], ctx: Ctx, deps: OpDeps = {}): Promi
       const child = await call(ctx, "run.choose", {
         id: pos[0], step: pos[1], workflow: pos[2], reason: String(flags.reason),
       }, deps) as RunLike;
-      if (json) return { code: 0, out: JSON.stringify(child, null, 2), err: "" };
+      if (json) return { code: 0, out: terminalJson(child, 2), err: "" };
       return { code: 0, out: `${child.id}  chose ${pos[2]}`, err: "" };
     }
     if (sub === "graph") {
@@ -320,7 +320,7 @@ export async function runCmd(args: string[], ctx: Ctx, deps: OpDeps = {}): Promi
       const filtered = version === undefined || !Number.isFinite(version)
         ? graphs
         : graphs.filter(g => g.version === version);
-      if (json) return { code: 0, out: JSON.stringify(filtered, null, 2), err: "" };
+      if (json) return { code: 0, out: terminalJson(filtered, 2), err: "" };
       if (filtered.length === 0) return { code: 0, out: "(no graphs)", err: "" };
       return {
         code: 0,
@@ -337,14 +337,14 @@ export async function runCmd(args: string[], ctx: Ctx, deps: OpDeps = {}): Promi
       const result = await call(ctx, "run.submit_graph", {
         id: String(flags.id), step: String(flags.step), source,
       }, deps) as { ok: boolean; errors: unknown[]; version?: number };
-      if (json) return { code: 0, out: JSON.stringify(result, null, 2), err: "" };
+      if (json) return { code: 0, out: terminalJson(result, 2), err: "" };
       if (!result.ok) {
-        return { code: 2, out: "", err: `pacer: graph rejected (${JSON.stringify(result.errors)})` };
+        return { code: 2, out: "", err: `pacer: graph rejected (${terminalJson(result.errors)})` };
       }
       return { code: 0, out: `${flags.id}  graph v${result.version} submitted`, err: "" };
     }
     throw Error(USAGE);
-  } catch (e) { return { code: 2, out: "", err: `pacer: ${e instanceof Error ? e.message : String(e)}` }; }
+  } catch (e) { return { code: 2, out: "", err: terminalText(`pacer: ${e instanceof Error ? e.message : String(e)}`) }; }
 }
 
 /** `pacer step result`: the executor-facing report of its workflow step's
@@ -363,7 +363,7 @@ export async function stepCmd(args: string[], ctx: Ctx, deps: OpDeps = {}): Prom
       const run = await call(ctx, sub === "skip" ? "step.skip" : "step.retry", {
         id: pos[0], step: pos[1], ...(rev !== undefined ? { expect_rev: rev } : {}),
       }, deps) as RunLike;
-      if (flags.json) return { code: 0, out: JSON.stringify(run, null, 2), err: "" };
+      if (flags.json) return { code: 0, out: terminalJson(run, 2), err: "" };
       return { code: 0, out: `${run.id}  ${sub} ${pos[1]}`, err: "" };
     }
     if (sub === "artifact") {
@@ -373,7 +373,7 @@ export async function stepCmd(args: string[], ctx: Ctx, deps: OpDeps = {}): Prom
       const row = await callOp(ctx, "step.artifact", {
         path: resolve(pos[0]!), label: String(flags.label),
       }, deps);
-      if (flags.json) return { code: 0, out: JSON.stringify(row, null, 2), err: "" };
+      if (flags.json) return { code: 0, out: terminalJson(row, 2), err: "" };
       const art = row as { id: string; label: string };
       return { code: 0, out: `${art.id}  ${art.label}`, err: "" };
     }
@@ -391,8 +391,8 @@ export async function stepCmd(args: string[], ctx: Ctx, deps: OpDeps = {}): Prom
     if (!result || typeof result !== "object" || Array.isArray(result)) throw Error("--json must carry a JSON object");
     assertCallerCanInvoke(ctx, "step.result", { result });
     const row = await callOp(ctx, "step.result", { result }, deps);
-    return { code: 0, out: JSON.stringify(row, null, 2), err: "" };
-  } catch (e) { return { code: 2, out: "", err: `pacer: ${e instanceof Error ? e.message : String(e)}` }; }
+    return { code: 0, out: terminalJson(row, 2), err: "" };
+  } catch (e) { return { code: 2, out: "", err: terminalText(`pacer: ${e instanceof Error ? e.message : String(e)}`) }; }
 }
 
 export const COMMANDS: Command[] = [
