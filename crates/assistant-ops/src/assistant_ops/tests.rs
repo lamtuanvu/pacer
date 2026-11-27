@@ -1,5 +1,67 @@
 #![allow(clippy::unwrap_used)]
 use super::*;
+use crate::assistant_ops::admission::{self, AssistantHost};
+
+/// The door seam in unit tests: the plugin snapshot and the cached usage parts the core would supply.
+struct Fake {
+    entries: Vec<Value>,
+    parts: Value,
+}
+
+impl AssistantHost for Fake {
+    fn plugins<'a>(&'a mut self, _: &'a Ctx) -> pacer_plugin_ops::extension::EntriesFuture<'a> {
+        let entries = self.entries.clone();
+        Box::pin(async move {
+            entries
+                .into_iter()
+                .map(|value| Ok(serde_json::from_value(value).expect("entry")))
+                .collect()
+        })
+    }
+    fn cached_status_parts(&mut self) -> OpFuture<'_> {
+        let parts = self.parts.clone();
+        Box::pin(async move { Ok(parts) })
+    }
+}
+
+fn plugin(id: &str, contribution: Value) -> Value {
+    json!({
+        "id": id, "manifest": {"contributes": contribution}, "bundled": false, "grant": {},
+        "state": "ready", "error": null, "pid": null, "served": [], "protocol": null, "restarts": 0,
+    })
+}
+
+fn reply(backend: &str) -> Value {
+    plugin("assistant-reply", json!({"assistant": {"backend": backend, "reply": true}}))
+}
+
+const ADMISSION_STRATEGY: &str = STRATEGY;
+
+fn admission_ctx(dir: &tempfile::TempDir, env: &[(&str, &str)]) -> Ctx {
+    let c = ctx(dir, env);
+    std::fs::write(c.pacer_home.join("strategy.yaml"), ADMISSION_STRATEGY).unwrap();
+    c
+}
+
+fn save_for_admission(c: &Ctx, account: &str, backend: &str, turns: i64) {
+    let limits = format!("{{\"turnsPerDay\":{turns}}}");
+    with_db(c, |db| {
+        db.execute(
+            "INSERT INTO assistant_settings(id,runner,account,backend,limits,retention,rev) VALUES(1,NULL,?,?,?,'{\"conversations\":200,\"days\":30}',1) ON CONFLICT(id) DO UPDATE SET account=excluded.account,backend=excluded.backend,limits=excluded.limits",
+            [account, backend, &limits],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+}
+
+fn clear_parts() -> Value {
+    json!({"accounts":[{"name":"ep","verdict":"UNKNOWN","usedPct":null}],"mode":"normal"})
+}
+
+async fn admitted(c: &Ctx, mut fake: Fake) -> Admission {
+    admission::admit(c, &mut fake).await.unwrap()
+}
 
 const STRATEGY: &str = "accounts:\n  claude: {kind: claude, source: default}\n  cl: {kind: claude, home: \"~/cl\"}\n  ep: {kind: endpoint, usage: unmetered, connection: {api: openai-compatible, base_url: \"http://127.0.0.1:1/v1\", key: none, models: [{id: m1, name: Model One, context: 1000, output: 100, tools: true}, {id: m2, context: 1000, output: 100, tools: false}]}}\n  bare: {kind: endpoint, usage: unmetered}\nplanner: claude-code#claude\nrunners: {\"opencode#ep\": {model: pacer-ep/m2}}\nrouting: [{default: [opencode#ep]}]\n";
 
@@ -139,7 +201,7 @@ fn strategy_endpoints_and_candidates_follow_endpoint_for() {
     assert!(endpoint_ok(&c, &strategy, "claude", None, true));
     assert!(!endpoint_ok(&c, &strategy, "missing", None, true));
     assert_eq!(
-        Value::Array(candidates(&strategy)).to_string(),
+        Value::Array(admission::candidate_rows(&c, &strategy, &[])).to_string(),
         r#"[{"account":"ep","backend":"pacer","available":false,"liveTools":false,"reason":"Pacer's assistant needs an update or repair: its native binary is missing or outdated.","models":[{"id":"m1","name":"Model One"},{"id":"m2","name":"m2"}],"runners":[{"id":"opencode#ep","model":"pacer-ep/m2"}],"isPlanner":false}]"#
     );
     assert!(
@@ -205,8 +267,8 @@ async fn callers_settings_and_status_route_like_typescript() {
             .await
             .unwrap();
     assert_eq!(saved["rev"], 2);
-    // Status admission still needs the core's cached status until B4-2 lands.
-    assert!(assistant_stays_forwarded(
+    // Status is native now: admission is answered here over the host seam.
+    assert!(!assistant_stays_forwarded(
         &plain,
         "assistant.status",
         &json!({})
@@ -238,7 +300,7 @@ async fn callers_settings_and_status_route_like_typescript() {
     for op in ["assistant.settings.get", "assistant.conversations"] {
         assert!(!assistant_stays_forwarded(&plain, op, &json!({})), "{op}");
     }
-    assert!(assistant_stays_forwarded(
+    assert!(!assistant_stays_forwarded(
         &plain,
         "assistant.status",
         &json!({})
@@ -360,4 +422,124 @@ async fn unusable_settings_and_untitled_cards_are_internal() {
             "task t-20231114-010203-abcd has no title or goal".into()
         )
     );
+}
+
+// ---- B4-2: native admission in TypeScript's branch order ---------------------------------------
+
+#[tokio::test]
+async fn admission_refuses_in_typescript_order() {
+    let dir = tempfile::tempdir().unwrap();
+
+    // 1. No account.
+    let c = admission_ctx(&dir, &[]);
+    let got = admitted(&c, Fake { entries: vec![], parts: clear_parts() }).await;
+    assert_eq!(got, Admission {
+        ok: false,
+        reason: Some("The assistant is not set up.".into()),
+        hint: Some("Choose an account in Settings › Assistant.".into()),
+    });
+
+    // 2. Executor backend without a reply plugin.
+    save_for_admission(&c, "ep", "executor", 50);
+    let got = admitted(&c, Fake { entries: vec![], parts: clear_parts() }).await;
+    assert_eq!(got.reason.as_deref(), Some("No plugin answers the assistant's executor backend."));
+    assert_eq!(got.hint.as_deref(), Some("Choose pacer's agent in Settings › Assistant."));
+
+    // 3. Account no longer in the strategy (pacer reply is present, so this branch is next).
+    save_for_admission(&c, "gone", "pacer", 50);
+    let got = admitted(&c, Fake { entries: vec![reply("pacer")], parts: clear_parts() }).await;
+    assert_eq!(got.reason.as_deref(), Some("The account chosen for the assistant is no longer available."));
+    assert_eq!(got.hint.as_deref(), Some("Choose another account in Settings › Assistant."));
+
+    // 4. Native plugin host cannot carry the ask-mode config binding.
+    save_for_admission(&c, "ep", "executor", 50);
+    let host = ctx(&dir, &[("PACER_HOST_SOCKET", "/tmp/pacer-test.sock")]);
+    let got = admitted(&host, Fake { entries: vec![reply("executor")], parts: clear_parts() }).await;
+    assert_eq!(got.reason.as_deref(), Some("The executor backend is not available with the native plugin host yet."));
+
+    // 5. No recorded ask-mode check.
+    let got = admitted(&c, Fake { entries: vec![reply("executor")], parts: clear_parts() }).await;
+    assert_eq!(got.reason.as_deref(), Some("ep has not passed the ask-mode check yet."));
+    assert_eq!(got.hint.as_deref(), Some("Run the ask-mode check in Settings › Assistant."));
+
+    // 6. Daily turn limit.
+    save_for_admission(&c, "ep", "pacer", 1);
+    with_db(&c, |db| {
+        db.execute(
+            "INSERT INTO assistant_usage(turn_id,conversation_id,at,account) VALUES('turn-limit','c',?,'ep')",
+            [c.now],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    let got = admitted(&c, Fake { entries: vec![reply("pacer")], parts: clear_parts() }).await;
+    assert_eq!(got.reason.as_deref(), Some("The assistant reached its limit of 1 turns today."));
+    assert_eq!(got.hint.as_deref(), Some("The limit resets at midnight, or raise it in Settings."));
+
+    // 7. Exhausted account.
+    save_for_admission(&c, "ep", "pacer", 50);
+    let parts = json!({"accounts":[{"name":"ep","verdict":"EXHAUSTED","usedPct":100}],"mode":"normal"});
+    let got = admitted(&c, Fake { entries: vec![reply("pacer")], parts }).await;
+    assert_eq!(got.reason.as_deref(), Some("ep has no capacity left."));
+
+    // 8. Within the planner's reserve.
+    let mut reserve = ADMISSION_STRATEGY.to_owned();
+    reserve.push_str("dispatch:\n  reservePct: 10\n");
+    std::fs::write(c.pacer_home.join("strategy.yaml"), &reserve).unwrap();
+    assert!(strategy(&c).is_some(), "reserve strategy did not load");
+    let parts = json!({"accounts":[{"name":"ep","verdict":"AHEAD","usedPct":95}],"mode":"normal"});
+    let got = admitted(&c, Fake { entries: vec![reply("pacer")], parts }).await;
+    assert_eq!(got.reason.as_deref(), Some("ep is within its 10% reserve."));
+
+    // 9. Strict planner on the same account.
+    let strict = ADMISSION_STRATEGY.replace("planner: claude-code#claude", "planner: opencode#ep");
+    std::fs::write(c.pacer_home.join("strategy.yaml"), &strict).unwrap();
+    assert!(strategy(&c).is_some(), "strict strategy did not load");
+    // `computeStatus` reads the hold file, not a caller-supplied `mode` field.
+    std::fs::create_dir_all(c.pacer_home.join("state")).unwrap();
+    std::fs::write(
+        c.pacer_home.join("state/mode-hold.json"),
+        json!({"mode":"strict","until":c.now + 1000.0}).to_string(),
+    )
+    .unwrap();
+    let parts = json!({"accounts":[{"name":"ep","verdict":"AHEAD","usedPct":10}]});
+    let got = admitted(&c, Fake { entries: vec![reply("pacer")], parts }).await;
+    assert_eq!(got.reason.as_deref(), Some("OpenCode is in Strict mode. The assistant is paused to save the planner's budget."));
+    assert_eq!(got.hint, None);
+
+    // 10. All clear.
+    let c2 = admission_ctx(&dir, &[]);
+    save_for_admission(&c2, "ep", "pacer", 50);
+    let got = admitted(&c2, Fake { entries: vec![reply("pacer")], parts: clear_parts() }).await;
+    assert_eq!(got, Admission { ok: true, reason: None, hint: None });
+}
+
+#[tokio::test]
+async fn candidates_include_executor_rows_and_status_uses_the_chosen_row() {
+    let dir = tempfile::tempdir().unwrap();
+    let c = admission_ctx(&dir, &[]);
+    let entries = vec![reply("pacer"), reply("executor")];
+    let mut fake = Fake { entries: entries.clone(), parts: clear_parts() };
+    let candidates = admission::assistant_candidates_with(&c, json!({}), &mut fake).await.unwrap();
+    let rows = candidates["accounts"].as_array().unwrap();
+    let pacer = rows.iter().find(|r| r["account"] == "ep" && r["backend"] == "pacer").unwrap();
+    assert_eq!(pacer["available"], true);
+    assert_eq!(pacer["liveTools"], true);
+    let executor = rows.iter().find(|r| r["account"] == "ep" && r["backend"] == "executor").unwrap();
+    assert_eq!(executor["available"], false);
+    assert_eq!(executor["reason"], "ep has not passed the ask-mode check yet.");
+    assert_eq!(executor["cli"], "opencode");
+    // Pacer rows come first (Object.entries order within each backend).
+    assert!(rows.iter().position(|r| r == pacer).unwrap() < rows.iter().position(|r| r == executor).unwrap());
+    assert_eq!(candidates["reads"], json!(READS));
+
+    save_for_admission(&c, "ep", "executor", 50);
+    let mut fake = Fake { entries, parts: clear_parts() };
+    let status = admission::assistant_status_with(&c, json!({}), &mut fake).await.unwrap();
+    assert_eq!(status["available"], false);
+    assert_eq!(status["configured"], true);
+    assert_eq!(status["liveTools"], false);
+    assert_eq!(status["cli"], "opencode");
+    assert_eq!(status["reason"], "ep has not passed the ask-mode check yet.");
+    assert_eq!(status["hint"], "Run the ask-mode check in Settings › Assistant.");
 }

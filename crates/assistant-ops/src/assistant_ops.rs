@@ -1,9 +1,9 @@
-//! Native assistant settings and history ops (`src/api/ops-assistant.ts`) over the
-//! assistant tables in `state/tasks.db`. `assistant.ask` and `assistant.cancel`
-//! are decided here and run over the Core bridge in [`turn`]: the turn itself, its
-//! plugin call and its stream live in the TypeScript process. Work-grant callers still
-//! forward; everything else here is native, including unusable stored settings and
-//! the executor backend's account check.
+//! Native assistant settings, history, status and candidates ops (`src/api/ops-assistant.ts`).
+//! Settings and history read the assistant tables in `state/tasks.db`; status and candidates
+//! compose their replies here from the plugin snapshot and cached usage parts behind
+//! [`admission::AssistantHost`]. `assistant.ask` and `assistant.cancel` are decided here and run
+//! over the Core bridge in [`turn`]: the turn itself, its plugin call and its stream live in the
+//! TypeScript process. Work-grant callers still forward; everything else here is native.
 #![allow(clippy::result_large_err)]
 use chrono::{Duration, LocalResult, TimeZone};
 use pacer_account_ops::model::{account_folder, default_account_folder};
@@ -154,29 +154,13 @@ fn refuse(ctx: &Ctx) -> Result<(), CoreError> {
 
 /// Which assistant ops the native handler declines so the core answers them. `assistant.tool` and
 /// `assistant.selftest` are never native: they need the live turn's tool context and the agent CLI.
-/// `assistant.candidates` stays with the core: its rows depend on the executor backend's plugin and
-/// its recorded ask-mode check, which only the core knows.
-pub fn assistant_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
+/// Work-grant callers are process-wide and stay with the core (C16).
+pub fn assistant_stays_forwarded(ctx: &Ctx, op: &str, _params: &Value) -> bool {
     if !op.starts_with("assistant.") || matches!(op, "assistant.tool" | "assistant.selftest") {
         return false;
     }
-    if op == "assistant.candidates" {
-        return true;
-    }
-    match refuse(ctx) {
-        Ok(()) => {}
-        Err(error) => return error.code == Code::Unavailable,
-    }
-    // Param issues come first in TypeScript too, before any store or strategy read.
-    if parse(op, params.clone()).is_err() {
-        return false;
-    }
-    // B4-2 finishes native admission; until then a configured status still needs the core's
-    // cached usage status and plugin-based pacer backend check.
-    if op == "assistant.status" {
-        return executor_backend(ctx) || !matches!(status(ctx), Ok(Some(_)));
-    }
-    false
+    // Param issues are answered natively; only callers the core must own still forward.
+    refuse(ctx).is_err_and(|error| error.code == Code::Unavailable)
 }
 
 /// `taskTitle` (run by the card lookup) throws unless the record has a title or a goal.
@@ -313,48 +297,6 @@ fn put(out: &mut Map<String, Value>, key: &str, value: Option<&Value>) {
     }
 }
 
-/// `candidates`: endpoint accounts with their models and runners.
-fn candidates(strategy: &Value) -> Vec<Value> {
-    let empty = Map::new();
-    let accounts = strategy["accounts"].as_object().unwrap_or(&empty);
-    let runners = strategy["runners"].as_object().unwrap_or(&empty);
-    accounts
-        .iter()
-        .filter(|(_, a)| {
-            a.get("kind").and_then(Value::as_str) == Some("endpoint")
-                && a.get("connection").is_some_and(truth)
-        })
-        .map(|(name, a)| {
-            let models: Vec<Value> = a["connection"]["models"]
-                .as_array()
-                .map_or(&[][..], Vec::as_slice)
-                .iter()
-                .map(|m| {
-                    let mut out = Map::new();
-                    put(&mut out, "id", m.get("id"));
-                    let name = m.get("name").filter(|n| !n.is_null()).or(m.get("id"));
-                    put(&mut out, "name", name);
-                    Value::Object(out)
-                })
-                .collect();
-            let runners: Vec<Value> = runners
-                .values()
-                .filter(|r| r.get("account").and_then(Value::as_str) == Some(name))
-                .map(|r| {
-                    let mut out = Map::new();
-                    put(&mut out, "id", r.get("id"));
-                    put(&mut out, "model", r.get("model"));
-                    Value::Object(out)
-                })
-                .collect();
-            let planner = strategy.pointer("/planner/account").and_then(Value::as_str);
-            // Every pacer-backend row needs the native reply plugin; the core's plugin registry is
-            // the authority on whether it is present, so the native rows are only a fallback shape.
-            json!({"account":name,"backend":"pacer","available":false,"liveTools":false,"reason":NATIVE_UNAVAILABLE,"models":models,"runners":runners,"isPlanner":planner == Some(name)})
-        })
-        .collect()
-}
-
 /// The process time zone: `TZ`, else the `/etc/localtime` zone name.
 fn local_zone(ctx: &Ctx) -> Option<chrono_tz::Tz> {
     if let Some(name) = ctx.env.get("TZ") {
@@ -387,107 +329,18 @@ fn local_midnight(now: f64, zone: chrono_tz::Tz) -> Option<f64> {
     None
 }
 
-/// Whether the stored settings choose the executor backend.
-fn executor_backend(ctx: &Ctx) -> bool {
-    with_db_core(ctx, |db| {
-        Ok(assistant::read_settings(db)
-            .map_err(settings_error)?
-            .is_some_and(|s| s.backend == "executor"))
-    })
-    .unwrap_or(true)
-}
-
-fn status(ctx: &Ctx) -> Result<Option<Value>, CoreError> {
-    let Some(zone) = local_zone(ctx) else {
-        return Ok(None);
-    };
-    let Some(midnight) = local_midnight(ctx.now, zone) else {
-        return Ok(None);
-    };
-    let read = with_db_core(ctx, |db| {
-        let settings = assistant::read_settings(db).map_err(settings_error)?;
-        let Some(settings) = settings else {
-            return Ok(None);
-        };
-        let today = assistant::usage_since(db, midnight).map_err(store_error)?;
-        Ok(Some((settings, today)))
-    })?;
-    let Some((settings, today)) = read else {
-        return Ok(None);
-    };
-    let account = settings.account.as_deref().filter(|a| !a.is_empty());
-    let turns_per_day = settings.limit("turnsPerDay");
-    // Match TypeScript: liveTools follows the chosen pacer candidate (always true for endpoint rows).
-    let mut live_tools = false;
-    let refusal = match account {
-        None => (NOT_SET_UP.0.to_owned(), NOT_SET_UP.1),
-        Some(account) => {
-            let Some(strategy) = strategy(ctx) else {
-                return Ok(None);
-            };
-            let pacer_ok = endpoint_ok(ctx, &strategy, account, settings.runner.as_deref(), false);
-            live_tools = pacer_ok;
-            if !pacer_ok {
-                (
-                    "The account chosen for the assistant is no longer available.".to_owned(),
-                    "Choose another account in Settings › Assistant.",
-                )
-            } else if settings.backend != "executor" {
-                // A configured pacer account is available only when the native reply plugin serves
-                // it. Plugin state lives in the TypeScript core, so defer status to it here.
-                return Ok(None);
-            } else if today[0].as_f64().unwrap_or(0.0) >= turns_per_day as f64 {
-                (
-                    format!("The assistant reached its limit of {turns_per_day} turns today."),
-                    "The limit resets at midnight, or raise it in Settings.",
-                )
-            } else {
-                return Ok(None);
-            }
-        }
-    };
-    let mut out = Map::new();
-    out.insert("available".into(), json!(false));
-    out.insert("configured".into(), json!(account.is_some()));
-    put(
-        &mut out,
-        "account",
-        settings.account.as_ref().map(|a| json!(a)).as_ref(),
-    );
-    put(
-        &mut out,
-        "runner",
-        settings.runner.as_ref().map(|r| json!(r)).as_ref(),
-    );
-    // Match TypeScript key order: liveTools after account/runner.
-    out.insert("liveTools".into(), json!(live_tools));
-    out.insert("reason".into(), json!(refusal.0));
-    out.insert("hint".into(), json!(refusal.1));
-    out.insert("limits".into(), settings.limits_json());
-    out.insert("retention".into(), settings.retention_json());
-    out.insert("rev".into(), json!(settings.rev));
-    let [turns, input, output] = today;
-    out.insert(
-        "today".into(),
-        json!({"turns":turns,"input":input,"output":output}),
-    );
-    Ok(Some(Value::Object(out)))
-}
-
 mod params;
+mod selftest_read;
+pub mod admission;
+pub use admission::{
+    Admission, AssistantHost, admit, assistant_candidates, assistant_candidates_with,
+    assistant_status, assistant_status_with, self_test_status,
+};
 pub mod turn;
 use params::{Params, parse};
 
 fn not_found(message: &str) -> CoreError {
     CoreError::new(Code::NotFound, message)
-}
-
-pub fn assistant_status(ctx: &Ctx, params: Value) -> OpFuture<'_> {
-    Box::pin(async move {
-        refuse(ctx)?;
-        parse("assistant.status", params)?;
-        status(ctx)?.ok_or_else(|| unavailable("assistant admission requires the cached status"))
-    })
 }
 
 pub fn assistant_settings_get(ctx: &Ctx, params: Value) -> OpFuture<'_> {
@@ -550,16 +403,6 @@ pub fn assistant_settings_set(ctx: &Ctx, params: Value) -> OpFuture<'_> {
                 "stored assistant settings require the TypeScript schema",
             )),
         }
-    })
-}
-
-pub fn assistant_candidates(ctx: &Ctx, params: Value) -> OpFuture<'_> {
-    Box::pin(async move {
-        refuse(ctx)?;
-        parse("assistant.candidates", params)?;
-        let strategy = strategy(ctx)
-            .ok_or_else(|| unavailable("the strategy requires the TypeScript loader"))?;
-        Ok(json!({"accounts":candidates(&strategy),"reads":READS}))
     })
 }
 
