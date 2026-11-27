@@ -12,6 +12,7 @@ pub use outbox_index::{OutboxReplay, read_outbox_replay};
 pub mod publish;
 pub mod read_only;
 mod retention;
+pub mod role;
 mod task;
 
 pub use activity::{

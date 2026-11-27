@@ -179,9 +179,7 @@ async fn main() -> io::Result<()> {
         }
         let registry = pacer_server::native::registry("");
         let name = input["op"].as_str().unwrap_or("");
-        if pacer_server::native::discovery_stays_forwarded(&ctx, name, &input["params"])
-            || pacer_server::native::desktop_reconcile_stays_forwarded(name)
-        {
+        if pacer_server::native::discovery_stays_forwarded(&ctx, name, &input["params"]) {
             serde_json::to_writer(&mut stdout, &json!({"forwarded": true}))?;
             stdout.write_all(b"\n")?;
             continue;

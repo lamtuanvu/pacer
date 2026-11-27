@@ -1,11 +1,13 @@
 import {expect, test} from "bun:test";
 import {execFileSync} from "node:child_process";
-import {existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync} from "node:fs";
+import {existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
+import {UPGRADE_REFUSAL} from "../src/api/caller-policy";
 import {callOp} from "../src/api/ops";
 import {toApiError} from "../src/api/errors";
 import {fakeCtx} from "./helpers";
+import {closedPort, isolatedEnv} from "./isolated-port";
 
 let binary: string;
 function driver() {
@@ -153,3 +155,75 @@ test("native discovery leaves pairing and non-canonical state files to TypeScrip
   await callOp(fakeCtx({pacerHome: ts, home: ts, now: 1_700_000_000, env: {}}), "discovery.set", {enabled: true});
   expect(readFileSync(join(ts, FILE), "utf8")).toContain("\"x\": {\n    \"10\": 2.5,\n    \"b\": 1\n  }");
 });
+
+/** `PACER_TEST_NATIVE_FRONT_DOOR` is either a binary path or `1` (build the test-ops front door). */
+let frontBinary = "";
+function frontDoor() {
+  const value = process.env.PACER_TEST_NATIVE_FRONT_DOOR;
+  if (!value) return "";
+  if (value !== "1" && existsSync(value)) return value;
+  if (!frontBinary) {
+    const env = isolatedEnv({...process.env, PACER_PORT: process.env.PACER_PORT ?? String(closedPort())});
+    execFileSync("cargo", ["build", "-q", "-p", "pacer", "--locked", "--features", "test-ops"], {stdio: "inherit", env});
+    const metadata = JSON.parse(execFileSync("cargo", ["metadata", "--no-deps", "--format-version", "1", "--locked"], {env}).toString());
+    frontBinary = join(metadata.target_directory, "debug/pacer");
+  }
+  return frontBinary;
+}
+
+const ORCA_TASK = "t-20261028-100000-aaaa";
+const REQUEST = {candidateId: "c-1", expectRevision: 0, requestId: "r_1"};
+
+/** One stdio front door started from an Orca task worktree; native or forced-forward. */
+async function orcaLane(forward: boolean) {
+  const binary = frontDoor();
+  const root = mkdtempSync(join(tmpdir(), "native-r1-"));
+  const home = join(root, "home"), pacerHome = join(home, ".pacer");
+  const lane = join(root, "orca/workspaces/ws", `pacer-${ORCA_TASK}-claude-code`, "src");
+  mkdirSync(pacerHome, {recursive: true, mode: 0o700});
+  mkdirSync(lane, {recursive: true});
+  writeFileSync(join(pacerHome, "strategy.yaml"), "planner: claude-code\nproviders: {claude-code: {}}\n", {mode: 0o600});
+  const env = isolatedEnv({
+    HOME: home, PACER_HOME: pacerHome, PATH: process.env.PATH ?? "/usr/bin:/bin",
+    PACER_CORE_ARGV: JSON.stringify([process.execPath, join(import.meta.dir, "../src/cli.ts")]),
+    PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off", PACER_DEBUG_NATIVE: "1",
+    ...(forward ? {PACER_FORWARD_OPS: "desktop.reconcile.request"} : {}),
+  });
+  const child = Bun.spawn([binary, "api", "--stdio"], {cwd: lane, env, stdin: "pipe", stdout: "pipe", stderr: "pipe"});
+  const stderr = new Response(child.stderr).text();
+  const reader = child.stdout.getReader();
+  let buffered = "";
+  const line = async () => {
+    while (!buffered.includes("\n")) {
+      const {value, done} = await reader.read();
+      if (done) throw new Error(`stdio closed: ${await stderr}`);
+      buffered += new TextDecoder().decode(value);
+    }
+    const at = buffered.indexOf("\n"), out = buffered.slice(0, at);
+    buffered = buffered.slice(at + 1);
+    return out;
+  };
+  try {
+    child.stdin.write(JSON.stringify({jsonrpc: "2.0", id: 1, method: "hello", params: {protocol: 3}}) + "\n");
+    expect(JSON.parse(await line()).result?.protocol).toBe("3.0.0");
+    child.stdin.write(JSON.stringify({jsonrpc: "2.0", id: 2, method: "desktop.reconcile.request", params: REQUEST}) + "\n");
+    await child.stdin.flush();
+    const reply = await line();
+    child.stdin.end();
+    await child.exited;
+    return {reply, stderr: await stderr};
+  } finally {
+    if (child.exitCode === null) { child.kill("SIGTERM"); await child.exited; }
+    rmSync(root, {recursive: true, force: true});
+  }
+}
+
+test.skipIf(!process.env.PACER_TEST_NATIVE_FRONT_DOOR)("an Orca lane refuses desktop.reconcile.request natively and when forwarded", async () => {
+  const [native, forwarded] = await Promise.all([orcaLane(false), orcaLane(true)]);
+  expect(native.reply, `native=${native.reply} forwarded=${forwarded.reply}`).toBe(forwarded.reply);
+  expect(JSON.parse(native.reply).error).toMatchObject({
+    code: -32000, message: UPGRADE_REFUSAL, data: {code: "not_allowed"},
+  });
+  expect(native.stderr).toContain("native desktop.reconcile.request");
+  expect(forwarded.stderr).not.toContain("native desktop.reconcile.request");
+}, 240_000);
