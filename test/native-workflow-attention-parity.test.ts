@@ -11,6 +11,7 @@ import { startRun, type EngineDeps } from "../src/workflow/engine";
 import { deriveWorkflowAttention } from "../src/workflow/attention";
 import { addDefinition, getRun, updateRun } from "../src/workflow/store";
 import type { WorkflowDef } from "../src/workflow/schema";
+import { REVIEW_GATE_STAYS } from "../src/view-model/run-gate";
 import type { Ctx } from "../src/types";
 
 const front = process.env.PACER_TEST_NATIVE_FRONT_DOOR;
@@ -178,7 +179,8 @@ for (const [transport, run] of [["stdio", stdio], ["HTTP", http]] as const) {
     const snapshots = native.replies.filter(reply => reply.method === "snapshot.get") as { items: { id: string }[] }[];
     expect(snapshots.map(s => s.items.map(item => item.id))).toEqual([[...ids].sort(), [], []]);
     expect(native.replies.filter(reply => reply.method !== "snapshot.get").map(reply => reply.error)).toEqual(
-      ["snooze", "dismiss"].flatMap(() => [...ids.map(() => undefined), `unknown attention item "${unknown}"`]),
+      // An unknown review gate is refused as a gate, before the item is looked up.
+      ["snooze", "dismiss"].flatMap(() => [...ids.map(() => undefined), REVIEW_GATE_STAYS]),
     );
     expect(hidden(nativeHome)).toEqual(hidden(forwardHome));
     expect(hidden(nativeHome)).toEqual(Object.fromEntries([...ids].sort().map(id => [id, { snoozed: true, dismissed: true }])));

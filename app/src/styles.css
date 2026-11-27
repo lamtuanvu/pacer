@@ -748,6 +748,7 @@ body:has(.pc-app--narrow) .pc-toasts{bottom:calc(var(--size-56) + var(--space-5)
 .ny-meta{display:flex;align-items:center;gap:var(--space-1\.5);min-width:0}
 .ny-meta .ny-mono{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:var(--size-240)}
 .ny-actions{display:flex;gap:var(--space-1\.5);align-items:center}
+.ny-gate{display:flex;flex-direction:column;align-items:flex-start;gap:var(--space-half);min-width:0}.ny-gate>*{max-width:100%}.ny-gate>.ny-reason{white-space:normal}
 .ny-warning{display:flex;align-items:center;gap:var(--space-2\.5)}
 .ny-warning>.ny-glyph{width:var(--size-14);flex-shrink:0;line-height:inherit}
 .ny-warning-copy{min-width:0}

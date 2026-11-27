@@ -24,7 +24,7 @@ function Panel({ panel }: { panel: ReviewerPanelData }) {
           <li key={lane.branch} className="rv-box" data-reviewer={lane.branch}>
             <span className="rv-row">
               <strong className="rv-grow rv-clip">{lane.branch}</strong>
-              <StepState marker={lane.marker} status={lane.status} />
+              <StepState marker={lane.marker} status={lane.status} awaitsReview={lane.awaitsReview} />
             </span>
             {lane.verdict ? <span className="rv-row"><Verdict verdict={lane.verdict} /></span> : null}
             {lane.summary ? <p className="rv-text">{lane.summary}</p> : null}

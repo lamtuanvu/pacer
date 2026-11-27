@@ -60,6 +60,11 @@ export function insertMessage(ctx: Ctx, m: Omit<Message, "id" | "status" | "crea
   }).immediate();
 }
 
+/** Frees a request id whose message started nothing, so the same request can be made again. */
+export function releaseRequest(ctx: Ctx, id: string): void {
+  messagesDatabase(ctx).query("UPDATE messages SET request_id=NULL WHERE id=?").run(id);
+}
+
 export function thread(ctx: Ctx, taskId: string, o: { after?: string; limit?: number } = {}): Message[] {
   return messagesDatabase(ctx).query<Row, [string, string, number]>("SELECT * FROM messages WHERE task_id=? AND id>? ORDER BY id LIMIT ?")
     .all(taskId, o.after ?? "", Math.min(o.limit ?? 200, 1000)).map(toMessage);

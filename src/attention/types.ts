@@ -23,4 +23,18 @@ export interface AttentionItem {
   unblocks?: AttentionUnblocks;
   run?: AttentionRunRef;
   question?: Record<string, unknown>;
+  /** Present only on workflow review-gate items. */
+  gate?: AttentionGate;
+}
+/** What a review-gate item holds up: a code step's verdict (or its merge
+ *  conflict), a conflict on the run branch itself, or a generated run whose code
+ *  cannot reach the run branch. */
+export interface AttentionGate {
+  kind: "step_review" | "step_conflict" | "branch_conflict" | "adoption";
+  /** The conflict record task, when there is one. */
+  recordId?: string;
+  /** Commands that resolve a conflict by hand, in order. */
+  commands?: string[];
+  /** Raw detail for a collapsed technical disclosure. */
+  technical?: string;
 }

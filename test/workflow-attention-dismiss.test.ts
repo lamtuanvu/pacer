@@ -18,7 +18,7 @@ function fixture() {
   return { ctx, id: task.id };
 }
 
-for (const prefix of ["run_review:", "budget_spent:", "orchestrator_failed:", "unresolved_wake:"]) {
+for (const prefix of ["budget_spent:", "orchestrator_failed:", "unresolved_wake:"]) {
   test(`dismissing a ${prefix} item hides it and leaves its task alone`, async () => {
     const { ctx, id } = fixture();
     const item: AttentionItem = {

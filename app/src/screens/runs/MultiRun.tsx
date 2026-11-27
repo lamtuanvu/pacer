@@ -7,14 +7,14 @@ import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { buildRunsListState, initialRunsStore, mergeDetailRefresh, mergeListRefresh, mergeSnapshotRuns, refreshRunDetail, refreshRunsList, RUNS_UNAVAILABLE, type RunsStoreState } from "../../data/runs";
 import { runAge, runStatus } from "../../../../src/view-model/runs";
 import { Alert } from "../../ds/Alert";
-import { Button, ButtonLink } from "../../ds/Button";
+import { Button, ButtonLink, TextAction } from "../../ds/Button";
 import { Switch } from "../../ds/Controls";
 import { Page } from "../../ds/Page";
 import { EmptyState } from "../../ds/Patterns";
 import { Pill } from "../../ds/Pill";
 import { SectionHeading } from "../../ds/SectionHeading";
 import { PageHead } from "../../shell/slots";
-import type { RouteQuery } from "../../router";
+import { withQuery, type RouteQuery } from "../../router";
 import { useTaskContext } from "../task-shared";
 import { useMounted, useRetryFocus } from "./run-data";
 import { RunQuestionCard } from "./run-shared";
@@ -116,6 +116,9 @@ export function MultiRun({ query }: { query: RouteQuery }) {
     runs, queue: listState.queue, snapshotRuns: state.snapshot?.runs, details: store.details,
     executors: state.snapshot?.executors, focusId: focus, quiet,
   }), [runs, listState.queue, state.snapshot?.runs, state.snapshot?.executors, store.details, focus, quiet]);
+  // Review gates are acted on in Needs you: this board names them, so it never reads as clear.
+  const shownRuns = new Set(model.lines.map(line => line.id));
+  const gated = (state.snapshot?.attention ?? []).filter(item => item.gate && item.run && shownRuns.has(item.run.id)).length;
   const answering = answerId ? model.queue.find(q => q.id === answerId) ?? null : null;
   const canAnswer = ops.has("question.answer");
   const unavailable = listState.unavailable;
@@ -156,7 +159,8 @@ export function MultiRun({ query }: { query: RouteQuery }) {
 
         <section className="lb-section" aria-labelledby="mr-queue">
           <h2 className="pc-section-heading" id="mr-queue" ref={queueHeading} tabIndex={-1}>Needs you</h2>
-          {model.queue.length === 0 ? <p className="lb-cap">Nothing needs you{quiet || focus ? " in this view" : ""}.</p> : (
+          {gated > 0 && <p className="lb-cap">{gated} {gated === 1 ? "review or conflict waits" : "reviews or conflicts wait"} in <TextAction className="pc-inline-link" href={withQuery("#/needs-you", query)}>Needs you</TextAction>.</p>}
+          {model.queue.length === 0 ? <p className="lb-cap">{gated ? "No questions are open" : "Nothing needs you"}{quiet || focus ? " in this view" : ""}.</p> : (
             <ol className="lb-list" aria-label="Questions across runs, most blocking first">
               {model.queue.map(q => (
                 <li key={q.id} className={`mr-row mr-tone-${q.tone}`} data-queue={q.id}>

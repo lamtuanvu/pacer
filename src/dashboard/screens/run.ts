@@ -9,14 +9,15 @@ import {
   stepMarkerGlyph,
 } from "../../view-model/runs";
 import { elapsed } from "../../view-model/time";
-import { cols, flex, heading, span, statusSpans, wrap } from "../frame";
+import { cols, flex, glyph, heading, span, statusSpans, wrap } from "../frame";
+import { stepReviewStatus } from "../../view-model/words";
 import type { Act, Item } from "../state";
 import { blank, empty, MARK, opAct } from "./common";
 import { MSG_BODY_MAX } from "./answer-encoding";
 import { questionAnswerAct } from "./question-form";
 import type { Row, RunDetail, RunQuestion, RunStepRow, ScreenCtx, ScreenView } from "./types";
 
-import { buildRunTree, questionMatchesStep, stepTypeOf, type TreeLine } from "../../view-model/run-tree";
+import { buildRunTree, questionMatchesStep, stepTypeOf, WAITING_FOR_REVIEW, type TreeLine } from "../../view-model/run-tree";
 export { buildRunTree, questionMatchesStep, type TreeLine };
 
 function resultSummary(result: unknown, maxLines = 20): string[] {
@@ -42,7 +43,7 @@ function stepDetailRows(ctx: ScreenCtx, detail: RunDetail, line: TreeLine | unde
   const rows: Row[] = [];
   rows.push({ line: heading(ctx.theme, line.label) });
   rows.push({
-    line: statusSpans(ctx.theme, {
+    line: statusSpans(ctx.theme, line.awaitsReview && !line.waitsOnYou ? stepReviewStatus : {
       label: line.waitsOnYou ? "Waits on you" : line.status,
       tone: line.waitsOnYou ? "warn" : line.status === "failed" ? "bad" : line.status === "done" ? "good" : "info",
       glyph: stepMarkerGlyph(stepMarkerFor({ status: line.status, waitsOnYou: line.waitsOnYou }), ctx.theme.unicode),
@@ -190,6 +191,7 @@ export function runViewScreen(ctx: ScreenCtx, runId: string): ScreenView {
   const detail = resource.value;
   const openQs = (Array.isArray(detail.questions) ? detail.questions : []).filter(q => q.status === "open" && q.answerer === "person");
   const tree = buildRunTree(detail, openQs);
+  const reviewing = tree.some(line => line.awaitsReview);
 
   const orchLine = orchestratorBlock(detail.run.orchestrator, ctx.now, ctx.timeZone);
   const orchIdle = orchLine === "Orchestrator idle";
@@ -227,15 +229,19 @@ export function runViewScreen(ctx: ScreenCtx, runId: string): ScreenView {
     };
     items.push(item);
 
-    const marker = stepMarkerGlyph(stepMarkerFor({ status: line.status, waitsOnYou: line.waitsOnYou }), ctx.theme.unicode);
+    const marker = line.awaitsReview && !line.waitsOnYou ? glyph(ctx.theme, stepReviewStatus.glyph) : stepMarkerGlyph(stepMarkerFor({ status: line.status, waitsOnYou: line.waitsOnYou }), ctx.theme.unicode);
     const indent = "  ".repeat(line.depth);
     const elapsedFor = elapsed(Math.max(0, ctx.now - (detail.steps.find(s => s.stepId === line.stepId && s.attempt === line.attempt && (s.branch ?? "") === (line.branch ?? ""))?.startedAt ?? ctx.now)));
     // Qualifier + duration so truncated cells still show running/waiting (N4).
-    const timing = line.status === "running" ? `running ${elapsedFor}`
+    const timing = line.awaitsReview ? "" : line.status === "running" ? `running ${elapsedFor}`
       : line.status === "waiting" ? `waiting ${elapsedFor}`
       : "";
-    const statusWord = line.waitsOnYou ? "waits on you" : line.status;
-    const w = flex(ctx.wide ? 52 : ctx.width - MARK, [{ weight: 1, min: 8 }, { fixed: 12 }, { fixed: 14 }]);
+    const statusWord = line.waitsOnYou ? "waits on you" : line.awaitsReview ? WAITING_FOR_REVIEW : line.status;
+    // The longer review words take room from the timing column, never from themselves.
+    const room = ctx.wide ? 52 : ctx.width - MARK;
+    const w = reviewing
+      ? flex(room - 4, [{ weight: 1, min: 8 }, { fixed: 18 }, { fixed: 4 }])
+      : flex(room, [{ weight: 1, min: 8 }, { fixed: 12 }, { fixed: 14 }]);
     list.push({
       item: item.id,
       line: cols([

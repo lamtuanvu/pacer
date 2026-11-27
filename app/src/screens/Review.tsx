@@ -1,3 +1,6 @@
+import { readableBrief } from "../../../src/view-model/brief";
+import { gateFor, isConflictGate } from "../../../src/view-model/run-gate";
+import { RunGatePanel, sendBackOnly } from "./review/RunGatePanel";
 import { SelectableRow, ApprovalCard, Skeleton, EmptyState } from "../ds/Patterns";
 
 import { Disclosure } from "../ds/Controls";
@@ -71,7 +74,7 @@ export function ReviewView({ snapshot, view, task, now, filePath, diff, loading,
           <section><SectionHeading>Why {executorLabel(task.executor)}</SectionHeading><p>{reasonCopy(task.routing?.why)}</p>{task.routing?.skipped.map((s, i) => <p className="muted" key={i}><code>{executorLabel(s.executor)}</code> · {reasonCopy(s.reason)}</p>)}{task.routing && <Disclosure className="pc-disclosure" summary={<>Technical routing details</>}><pre className="mono pc-code-scroll" tabIndex={0}>{JSON.stringify(task.routing, null, 2)}</pre></Disclosure>}</section>
           <CostCard cost={task.cost} /></div>
           <Disclosure className="pc-disclosure" summary={<>Brief</>}><dl className="facts pc-review-brief">
-            {([["Goal", task.brief.goal], ["Repository", task.repo.label], ["Scope", task.brief.scope], ["Done when", task.brief.acceptance], ["Constraints", task.brief.constraints], ["Context", task.brief.context], ["Feedback", task.brief.feedback], ["Base", task.brief.base]] as const).filter(([, value]) => value).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{label === "Done when" || label === "Base" ? <code className="pc-code-scroll" tabIndex={0}>{value}</code> : value}</dd></div>)}
+            {([["Goal", readableBrief(task.brief.goal)], ["Repository", task.repo.label], ["Scope", task.brief.scope], ["Done when", task.brief.acceptance], ["Constraints", task.brief.constraints], ["Context", task.brief.context], ["Feedback", task.brief.feedback], ["Base", task.brief.base]] as const).filter(([, value]) => value).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{label === "Done when" || label === "Base" ? <code className="pc-code-scroll" tabIndex={0}>{value}</code> : value}</dd></div>)}
             {task.brief.qa?.map((entry, i) => <div key={i}><dt>{entry.q}</dt><dd>{entry.a}</dd></div>)}
           </dl></Disclosure>
           <section><SectionHeading>Executor summary</SectionHeading><p className="report">{task.summary ?? "No summary provided"}</p></section>
@@ -133,11 +136,13 @@ function ReviewLoaded({ id, snapshot, view, dispatch, getView, announce, announc
   useEffect(() => { if (view.noteFor) noteRef.current?.focus(); }, [view.noteFor]);
   const openNote = (v: "reject" | "send_back") => { if (!view.pending&&!(detail.work&&v==="send_back")) dispatch({ type: "open-note", for: v }); };
   const submit = async (verdict: Verdict["verdict"]) => {
-    if (view.pending || inFlight.current || (detail.work&&(verdict==="retry"||verdict==="send_back"))) return;
+    if (record || view.pending || inFlight.current || (detail.work&&(verdict==="retry"||verdict==="send_back"))) return;
     inFlight.current = true;
     try { await submitVerdict(detail, { verdict, note, kind, ...(verdict === "retry" ? { executor } : {}) }, runner, dispatch, announce, getView); }
     finally { inFlight.current = false; }
   };
+  const gate = gateFor(snapshot.attention, id);
+  const record = gate?.gate?.kind === "branch_conflict" ? gate : undefined;
   const open = () => copyWorktreePath(diff.data?.worktree ?? detail.worktree, announce, path => navigator.clipboard.writeText(path));
   const handlers = useRef<ReviewKeyActions>(null!);
   handlers.current = { move: by => { if (!view.pending) dispatch({ type: "move", by }); }, accept: () => { void submit("accept"); }, openNote, retry: () => retryRef.current?.focus(), open: () => { void open(); } };
@@ -149,10 +154,10 @@ function ReviewLoaded({ id, snapshot, view, dispatch, getView, announce, announc
     filePath={path} diff={diff.data} loading={diff.loading || taskUpdating} updating={taskUpdating || diff.updating}
     error={taskError ?? diff.error} onSelect={selected => { if (!view.pending) dispatch({ type: "select", id: selected }); }}
     onFile={setFile} onOpen={() => { void open(); }} announcement={announcement}
-    verdictPanel={<VerdictPanel task={detail} note={note} kind={kind} executor={executor}
+    verdictPanel={record ? <RunGatePanel item={record} /> : <>{isConflictGate(gate) && <RunGatePanel item={gate!} offer={sendBackOnly} />}<VerdictPanel gate={gate} task={detail} note={note} kind={kind} executor={executor}
       noteFor={view.noteFor} pending={view.pending} noteRef={noteRef} retryRef={retryRef}
       onNote={setNote} onKind={setKind} onExecutor={value => { setExecutor(value); dispatch({ type: "close-note" }); }}
-      onOpenNote={openNote} onCancel={() => dispatch({ type: "close-note" })} onSubmit={v => { void submit(v); }} />} />;
+      onOpenNote={openNote} onCancel={() => dispatch({ type: "close-note" })} onSubmit={v => { void submit(v); }} /></>} />;
 }
 function ReviewItem(props: {
   id: string; snapshot: ClientSnapshot; view: ReviewState; dispatch: (a: ReviewAction) => void;

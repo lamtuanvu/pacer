@@ -1,3 +1,4 @@
+import type { Ctx } from "../types";
 import type { RepoRef } from "../api/read-model/types";
 import { realpathSafe } from "../core/git";
 import type { Progress } from "../supervisor/progress";
@@ -37,6 +38,8 @@ export interface Brief {
   qa?: { q: string; a: string }[];
   base?: string;
   worktreeBase?: "default" | "head";
+  /** Set only by the workflow engine for a code step: the executor must commit. */
+  commitWork?: boolean;
   /** Run the acceptance command with `set -o pipefail`. Off by default: the command runs exactly as written. */
   pipefail?: boolean;
 }
@@ -388,4 +391,9 @@ export function awaitsAnswer(task: {
   dismissed?: boolean;
 }): boolean {
   return task.state === "needs_input" && !!task.question && task.question.answer === undefined && !task.retriedBy && !task.dismissed;
+}
+
+/** Whether a follow-up message can resume this task's own session. */
+export function canContinue(_ctx: Ctx, t: TaskRecord): boolean {
+  return t.interactionMode !== "conversation" && !!t.run && (!!t.run.agentSession || /opencode/.test(t.run.executor));
 }

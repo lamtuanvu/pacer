@@ -12,7 +12,7 @@ test("TUI work explanation follows the selected candidate",()=>{
   nodes:[{taskId:"root",depth:0,title:"Check work",state:"done",model:null,actualModel:null,dependencies:[],review:null,attempts:[{model:"model-a",actualModel:null},{model:"model-b",actualModel:"model-b"}],
    decisions:[{attempt:1,engine:{id:"ladder"},selectedCandidateId:"b",proposal:{state:"ranked",choices:[{id:"a",reason:"First option"},{id:"b",reason:"Selected second option"}]}},{attempt:2,engine:{id:"ladder"},selectedCandidateId:"c",proposal:{state:"ranked",choices:[{id:"c",reason:"Second attempt option"}]}}]}],
  }};
- const lines=workRows({theme:PLAIN_THEME} as ScreenCtx,detail,100).flatMap(row=>row.line.map(span=>span.text)).join(" ");
+ const lines=workRows({theme:PLAIN_THEME,s:{}} as ScreenCtx,detail,100).flatMap(row=>row.line.map(span=>span.text)).join(" ");
  expect(lines).toContain("Selected second option");
  expect(lines).toContain("Second attempt option");
  expect(lines).toContain("observed model-b");
@@ -21,7 +21,7 @@ test("TUI work explanation follows the selected candidate",()=>{
 });
 test("TUI work section says when the task can coordinate sub-agents",()=>{
  const detail={id:"root",state:"running",work:{rootId:"root",parentId:null,depth:0,allowDelegation:true}} as TaskDetail;
- const text=(d:TaskDetail)=>workRows({theme:PLAIN_THEME} as ScreenCtx,d,100).flatMap(row=>row.line.map(span=>span.text)).join(" ");
+ const text=(d:TaskDetail)=>workRows({theme:PLAIN_THEME,s:{}} as ScreenCtx,d,100).flatMap(row=>row.line.map(span=>span.text)).join(" ");
  expect(text(detail)).toContain("This task can coordinate sub-agents.");
  expect(text({...detail,work:{...detail.work!,allowDelegation:false}})).not.toContain("coordinate");
 });

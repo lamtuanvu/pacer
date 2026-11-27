@@ -59,6 +59,7 @@ fn is_workflow_attention_id(id: &str) -> bool {
         || id.starts_with("budget_msg_spent:")
         || id.starts_with("orchestrator_failed:")
         || id.starts_with("unresolved_wake:")
+        || id.starts_with("run_review:")
 }
 
 fn workflow_problem_count(open: &HashMap<String, String>) -> usize {

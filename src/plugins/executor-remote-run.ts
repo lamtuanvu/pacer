@@ -5,7 +5,7 @@ import { loadStrategy } from "../config/strategy";
 import { resolveRunner } from "../config/runner-id";
 import { validateExecution } from "../config/execution";
 import { remoteLaunch } from "../exec/launch";
-import { buildPrompt } from "../exec/prompt";
+import { buildPrompt, gitContractRule } from "../exec/prompt";
 import { RemoteRunIO } from "../remote/run-io";
 import { hasCommittedWork, hasNoCommittedWork } from "../remote/committed-work";
 import { pluginRegistry } from "./index";
@@ -68,7 +68,7 @@ export async function answerOwnedRemoteStart(authority: CallAuthority,
   built = built.slice(0, askAt) +
     "write your one question (1–1000 characters) verbatim to .pacer-question in the worktree, leave that file uncommitted, then stop" +
     built.slice(askAt + askRule.length);
-  const localRule = "- Do not commit, push, or change git branches.";
+  const localRule = gitContractRule(before.task.brief);
   const contractAt = built.lastIndexOf(localRule);
   if (contractAt < 0) return deny();
   const prompt = built.slice(0, contractAt) +

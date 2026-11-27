@@ -1,6 +1,7 @@
 /** Home: the app's Overview — Needs you, Running, Capacity, Done today, in that order. */
 import { capacity, counts, doneToday, needsYou, otherReposNeedingYou, reviewQueue, running } from "../../view-model/selectors";
-import { attentionStatus, taskStatus, taskOutcome } from "../../view-model/words";
+import { attentionStatus, taskOutcome } from "../../view-model/words";
+import { taskStatusIn, holdsTask, canDismiss } from "../../view-model/run-gate";
 import { executorEligibility, executorPace, queueWait } from "../../view-model/capacity";
 import { displayTitle } from "../../view-model/titles";
 import { ago, elapsed } from "../../view-model/time";
@@ -30,7 +31,7 @@ export function homeScreen(ctx: ScreenCtx): ScreenView {
     // As the app: the task's complete title, else the attention item's own. Titles get the larger share of the row.
     const title = task?.fullTitle?.trim() || (a as { fullTitle?: string }).fullTitle?.trim() || a.title;
     const acts = defined(a.actions.map(action => serviceAct(ctx, action, title)));
-    const dismiss = opAct(ctx, "Dismiss", "attention.dismiss", { id: a.id });
+    const dismiss = !canDismiss(s.attention, a) ? undefined : opAct(ctx, "Dismiss", "attention.dismiss", { id: a.id });
     const review: Act | undefined = a.kind === "review" && a.taskId ? { label: "Review changes", effect: { type: "navigate", screen: "review", id: a.taskId } } : undefined;
     const item: Item = { id: `attention:${a.id}`, primary: acts[0], actions: [...acts.slice(1), ...defined([review, dismiss])], keys: { ...(dismiss ? { x: dismiss } : {}), ...(review ? { v: review } : {}) } };
     const w = wide ? flex(width, [{ fixed: 20 }, { weight: 3, min: 16 }, { fixed: 10 }, { weight: 2, min: 10 }, { fixed: 5 }]) : flex(width, [{ fixed: 20 }, { weight: 1, min: 12 }, { weight: 1, min: 8 }]);
@@ -137,7 +138,7 @@ export function taskItem(ctx: ScreenCtx, t: ClientTask): Item {
 function doneItem(ctx: ScreenCtx, t: ClientTask, waiting: boolean): Item {
   const review: Act | undefined = waiting ? { label: "Review", effect: { type: "navigate", screen: "review", id: t.id } } : undefined;
   const details: Act = { label: "Open in Tasks", effect: { type: "navigate", screen: "sessions", id: t.id } };
-  const dismiss = opAct(ctx, "Dismiss", "task.dismiss", { ids: [t.id], ...(typeof t.rev === "number" ? { expect_rev: t.rev } : {}) });
+  const dismiss = holdsTask(ctx.s.attention, t.id) ? undefined : opAct(ctx, "Dismiss", "task.dismiss", { ids: [t.id], ...(typeof t.rev === "number" ? { expect_rev: t.rev } : {}) });
   return { id: `task:${t.id}`, primary: review ?? details, actions: defined([review ? details : undefined, dismiss]), keys: dismiss ? { x: dismiss } : {} };
 }
 
@@ -147,7 +148,7 @@ export function runningLines(ctx: ScreenCtx, t: ClientTask, width: number, wide:
   const last = t.progress?.lastOutputAt;
   const idle = t.progress?.phase === "idle" && last != null;
   const started = t.attemptStartedAt ?? t.updatedAt;
-  const status = statusSpans(theme, taskStatus(t));
+  const status = statusSpans(theme, taskStatusIn(ctx.s.attention, t));
   const w = wide ? flex(width, [{ fixed: 16 }, { weight: 1, min: 14 }, { fixed: 12 }, { fixed: 24 }]) : flex(width, [{ fixed: 16 }, { weight: 1, min: 10 }, { fixed: 18 }]);
   const name = executorName(theme, t.executor, s.accounts?.map(a => ({ name: a.name, runners: a.executors, source: a.source })));
   const first = cols(wide
@@ -166,7 +167,7 @@ export function runningLines(ctx: ScreenCtx, t: ClientTask, width: number, wide:
 }
 function doneLine(ctx: ScreenCtx, t: ClientTask, width: number, wide: boolean): Line {
   const { theme, s } = ctx;
-  const status = statusSpans(theme, taskStatus(t));
+  const status = statusSpans(theme, taskStatusIn(ctx.s.attention, t));
   const ran = t.attemptStartedAt == null ? "" : `ran ${elapsed(t.updatedAt - t.attemptStartedAt)}`;
   if (!wide) {
     const w = flex(width, [{ fixed: 5 }, { fixed: 20 }, { weight: 1, min: 10 }]);

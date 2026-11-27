@@ -380,7 +380,7 @@ pacer never deletes a remote branch.
 
 Publishing is outward-facing, so `run.publish` checks a gate itself; holding the grant is not enough. It runs only when one of these holds:
 
-- **An approval step.** A `human` step may declare `approves: publish`. The validator requires such a step to be `decision: must`, and the engine records its approving answer as a `publish_approved` decision on the run. `run.publish` requires that decision, newer than the run branch's last change, so a later merge needs a new approval.
+- **An approval step.** A `human` step may declare `approves: publish`. The validator requires such a step to be `decision: must`, and the engine records its approving answer as a `publish_approved` decision on the run. `run.publish` requires that decision, newer than the run branch's last change, so a later merge needs a new approval. A generated graph may not declare `approves: publish`: the validator refuses it, and answering such a step in a generated run stored earlier records no publishing approval.
 - **A draft opt-in.** The person passed `publish: draft` to `run.start`, which allows draft PRs only.
 
 A workflow cannot loosen this. The PR step therefore comes *after* its approval step. The maintainer chose this gate (D5).

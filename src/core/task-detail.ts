@@ -110,7 +110,9 @@ function timelineFor(ctx: Ctx, task: TaskRecord): TaskDetail["timeline"] {
   if (task.worktree || task.run?.mode === "new") timeline.push({ at: attempts[0].startedAt, text: `Worktree created from ${task.baseBranch ?? "HEAD"}` });
   if (task.progress?.commits) timeline.push({ at: task.progress.lastChangeAt ?? task.progress.updatedAt, text: `${task.progress.commits} commit${task.progress.commits === 1 ? "" : "s"}` });
   if (task.progress?.phase === "testing") timeline.push({ at: task.progress.updatedAt, text: "Testing" });
-  if (TERMINAL_STATES.includes(task.state)) timeline.push({ at: Math.max(task.attempts.at(-1)?.endedAt ?? task.createdAt, task.progress?.updatedAt ?? 0), text: task.state });
+  // A workflow conflict record waits in needs_input but asks nothing.
+  const recordText = task.state === "needs_input" && task.requestId?.startsWith("wfconflict:") ? "Merge conflict recorded" : task.state;
+  if (TERMINAL_STATES.includes(task.state)) timeline.push({ at: Math.max(task.attempts.at(-1)?.endedAt ?? task.createdAt, task.progress?.updatedAt ?? 0), text: recordText });
   // The review timeline is recent evidence. Full history remains available via activity.list.
   const page = readActivity(ctx, { taskId: task.id, limit: 500, maxBytes: 256 * 1024 });
   timeline.push(...page.entries.map(e => ({ at: e.at, text: e.text })));

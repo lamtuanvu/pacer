@@ -25,6 +25,8 @@ function actionableItems(s: SnapshotV2): AttentionItem[] {
   const task = s.tasks.find(t => t.id === item.taskId);
   if (!task) return [item]; // Never hide a decision whose result is outside the snapshot.
   if (task.review || task.resolved || task.dismissed || task.retriedBy) return [];
+  // The service raises a workflow review gate only while a verdict is owed, for a finished or partial step too.
+  if (item.id.startsWith("run_review:")) return [item];
   if (task.state === "partial" || task.acceptanceState === "failed") {
    return [{...item,kind:"failed" as const,severity:"problem" as const,
     detail:task.acceptanceState === "failed" ? "Acceptance checks failed" : "Execution is incomplete",

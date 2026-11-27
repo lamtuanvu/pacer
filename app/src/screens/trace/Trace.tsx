@@ -10,6 +10,7 @@ import { clock, durationWords } from "../../../../src/view-model/time";
 import { kindCopy } from "../../../../src/view-model/copy";
 import { agentSlot } from "../insights/model";
 import { taskPageStatus as taskStatus } from "../../../../src/view-model/words";
+import { gateStatus } from "../../../../src/view-model/run-gate";
 import { ButtonLink, IconButton, TextAction } from "../../ds/Button";
 import { AgentMark } from "../../ds/AgentMark";
 import { Pill } from "../../ds/Pill";
@@ -47,7 +48,7 @@ export function Trace({id,query}:{id:string;query:RouteQuery}) {
   const decisionNode=root?.decisions.length ? root : children.find(n=>n.decisions.length);
   const decision=decisionNode?.decisions.at(-1), candidates=traceCandidates(decision,t);
   const subtask=decisionNode && decisionNode.taskId!==id ? children.indexOf(decisionNode)+1 : undefined;
-  const status=taskStatus(t), now=Date.now()/1000;
+  const held=gateStatus(state.snapshot?.attention,t), status=held??taskStatus(t), now=Date.now()/1000;
   const started=t.startedAt==null?null:clock(t.startedAt,now);
   const ran=t.startedAt==null || t.endedAt==null && !["running","queued"].includes(t.state)?null:durationWords((t.endedAt??now)-t.startedAt);
   const day=clock(t.startedAt??t.timeline[0]?.at??t.updatedAt,now), today=!day.includes(" ");
@@ -70,7 +71,7 @@ export function Trace({id,query}:{id:string;query:RouteQuery}) {
   const tokenBars=tokenRows.map(row=>{const width=measuredTotal?row.total/measuredTotal*100:0,x=barOffset;barOffset+=width;return {agent:row.agent,x,width};});
   const title=t.fullTitle?.trim()||t.goal?.trim()||t.brief.goal;
   const header=<>
-    <nav aria-label="Breadcrumb" className="pc-trace__breadcrumb pc-trace__cap"><TextAction href={hrefFor(routes.tasks(query))}>Tasks</TextAction><span aria-hidden="true">/</span><span>{t.acceptance.state==="failed"?"Needs attention":["running","queued"].includes(t.state)?"Running":reviewable?"Needs your review":today?"Earlier today":day.replace(/ \d\d:\d\d$/,"")}</span><IconButton icon="notes" size="xs" variant="quiet" aria-label="Copy task ID" title={copied?"Task ID copied":"Copy task ID"} onClick={()=>void navigator.clipboard.writeText(t.id).then(()=>setCopied(true)).catch(()=>setCopied(false))}/></nav>
+    <nav aria-label="Breadcrumb" className="pc-trace__breadcrumb pc-trace__cap"><TextAction href={hrefFor(routes.tasks(query))}>Tasks</TextAction><span aria-hidden="true">/</span><span>{t.acceptance.state==="failed"?"Needs attention":["running","queued"].includes(t.state)?"Running":held?held.label:reviewable?"Needs your review":today?"Earlier today":day.replace(/ \d\d:\d\d$/,"")}</span><IconButton icon="notes" size="xs" variant="quiet" aria-label="Copy task ID" title={copied?"Task ID copied":"Copy task ID"} onClick={()=>void navigator.clipboard.writeText(t.id).then(()=>setCopied(true)).catch(()=>setCopied(false))}/></nav>
     <header className="pc-trace__header">
       <div className="pc-trace__identity"><h1>{title}</h1>
         <div className="pc-trace__meta"><Pill tone={status.tone}>{status.label}</Pill>{status.label!=="Checks failed"&&<Pill tone={t.acceptance.state==="passed"?"good":t.acceptance.state==="failed"?"bad":"neutral"}>{t.acceptance.state==="passed"?"Checks passed":t.acceptance.state==="failed"?"Checks failed":"Not recorded"}</Pill>}{t.kind && <Pill>{kindCopy(t.kind)}</Pill>}<span className="pc-trace__cap">{t.repo.label}</span>{t.branch&&<span className="pc-trace__cap pc-trace__mono">{t.branch}</span>}<span className="pc-trace__cap">{started ? `Started ${started}${ran ? ` · ${ran}` : ""}` : "Not recorded"}</span></div>
@@ -102,7 +103,7 @@ export function Trace({id,query}:{id:string;query:RouteQuery}) {
     </ActionPanel>}
     {answered && <p role="status" aria-live="polite">{answered}</p>}
     {(notice || unread>0) && <Alert tone={notice?"warning":"info"} compact announce={false} title={notice ?? `${unread} unread ${unread===1?"message":"messages"}`}><TextAction href={hrefFor(routes.workspace(id,"messages"))}>Open messages</TextAction></Alert>}
-    <NowCard task={t}/>
+    <NowCard task={t} attention={state.snapshot?.attention}/>
     <CostTiles task={t} tokens={totals} agentsUsed={agents.length} attempts={attempts} subtasks={children.length} retries={retries}/>
     <div className="pc-trace__columns">
       <section aria-labelledby={`${viewId}-trace-h`} className="pc-trace__timeline">

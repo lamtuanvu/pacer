@@ -21,7 +21,7 @@ pub fn skipped(d: &V, w: usize) -> Vec<Row> {
         .map(|s| Row::new(line(s)))
         .collect()
 }
-pub fn rows(d: &V, w: usize) -> Vec<Row> {
+pub fn rows(s: &V, d: &V, w: usize) -> Vec<Row> {
     if d["work"].is_null() {
         return vec![];
     }
@@ -85,7 +85,9 @@ pub fn rows(d: &V, w: usize) -> Vec<Row> {
             "  ".repeat(depth.min(6)),
             if depth > 0 { "↳ " } else { "" }
         );
-        let status = status(node).concat();
+        let mut task = node.clone();
+        task["id"] = node["taskId"].clone();
+        let status = held_status(s, &task).concat();
         let status = status.split_once(' ').map(|(_, s)| s).unwrap_or(&status);
         let review = if node["review"].is_null() {
             ""

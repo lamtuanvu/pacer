@@ -17,7 +17,7 @@ import { loadStrategy,KINDS,MissingStrategyError } from "../config/strategy";
 import { boundedGitRead } from "./git";
 import { restoreTaskWorktree } from "../supervisor/worktree";
 import { readRun } from "../supervisor/run";
-import { TERMINAL_STATES } from "../tasks/types";
+import { TERMINAL_STATES, canContinue } from "../tasks/types";
 
 import type { Strategy } from "../config/strategy";
 import {
@@ -27,21 +27,19 @@ import {
 import { isTaskId, legacyTaskRepoPaths, listTasksWhere, readTask, updateTask, withTaskLock, withTaskLockAsync } from "../tasks/store";
 import type { TaskRecord, TaskState } from "../tasks/types";
 import type { Ctx } from "../types";
-import { isExecutorSession } from "../install/role";
+import { isExecutorSession, isOrchestratorSession } from "../install/role";
 import { CoreError, toCoreError } from "./errors";
 import { withLock, withLockSync } from "./lock";
 import { callerParticipant, parentOf, rootOf } from "../messaging/participants";
 import * as msgStore from "../messaging/store";
 import { beginTurn, notifyMessage, readMessages } from "../messaging/turns";
 
-/** True when the next turn can resume the task's own native session; managed work restarts through its managed path. */
-export function canContinue(_ctx: Ctx, t: TaskRecord): boolean {
-  return t.interactionMode !== "conversation" && !!t.run && (!!t.run.agentSession || /opencode/.test(t.run.executor));
-}
+export { canContinue };
 
 export { taskActivity } from "../tasks/activity";
 import { taskActivity } from "../tasks/activity";
 import { autoCleanTask } from "../tasks/cleanup";
+import { assertDismissable, resumeBlocked } from "../workflow/review";
 
 /** A work root a person started. It keeps the usual task controls; managed children and planner roots use dispatch.*. */
 export function userStartedRoot(ctx: Ctx, t: TaskRecord): boolean {
@@ -204,7 +202,12 @@ async function continueWithMessage(ctx: Ctx, task: TaskRecord, m: { kind: "answe
   const id = task.id, to = `task:${id}`;
   const from = callerParticipant(ctx, { appAuthenticated: deps.appAuthenticated, participant: deps.participant }).id;
   const r = msgStore.insertMessage(ctx, { taskId: id, rootId: rootOf(ctx, to), from, to, kind: m.kind, body: m.body, replyTo: m.replyTo, requestId: m.requestId });
-  if (r.duplicate) return apiTask(ctx, readTask(ctx, id)!); // A retried request: the first one already acted.
+  if (r.duplicate) {
+    // Read without a turn: that attempt started nothing, so this one is made again.
+    if (r.message.status !== "read" || r.message.turnId) return apiTask(ctx, readTask(ctx, id)!); // The first one acted.
+    msgStore.releaseRequest(ctx, r.message.id);
+    return continueWithMessage(ctx, task, m, deps, before, undo);
+  }
   void notifyMessage(ctx, r.message);
   before?.();
   // A policy hold falls back to the legacy retry, which project policy admits as a new attempt (a veto refuses it there).
@@ -212,6 +215,26 @@ async function continueWithMessage(ctx: Ctx, task: TaskRecord, m: { kind: "answe
   undo?.();
   msgStore.markRead(ctx, to, [r.message.id]);
   return null;
+}
+
+/** The holder refreshes the lock every 30 s. One silent for 90 s whose process is
+ *  gone is taken over; a waiter outlasts that, and gives up with an ordinary error
+ *  behind a living holder. */
+export const REVIEW_LOCK = { timeoutMs: 120_000, staleMs: 90_000 };
+
+async function withReviewLock<T>(ctx: Ctx, id: string, fn: () => Promise<T>): Promise<T> {
+  const name = `review-${id}`;
+  try {
+    return await withLock(ctx, name, fn, { ...REVIEW_LOCK, keepWhileHolderAlive: true });
+  } catch (error) {
+    if (error instanceof Error && !(error instanceof CoreError) && error.message.startsWith("timed out waiting for ")
+      && error.message.endsWith(`${name}.lock`)) {
+      // The lock names its process by pid, which another process can later reuse.
+      const file = error.message.slice("timed out waiting for ".length);
+      throw new CoreError("unavailable", `another review of ${id} is still in progress; try again shortly. If no review of it is running, delete the lock file ${file}`);
+    }
+    throw error;
+  }
 }
 
 export async function review(
@@ -239,7 +262,12 @@ export async function review(
   };
   const { verdict, executor, task:initialTask } = withTaskLock(ctx,id,check);
   const reviewLease=beginWorkSync(ctx,{kind:"operation",id,label:"Reviewing task"});
-  try {
+  // A run task's merge and verdict are one step: every verdict on it takes this
+  // lock, so none can land between them.
+  const {stepTaskNeedsRunBranchMerge}=await import("../workflow/store");
+  const serialized=<T>(fn:()=>Promise<T>)=>stepTaskNeedsRunBranchMerge(ctx,id)
+    ?withReviewLock(ctx,id,fn):fn();
+  try { return await serialized(async()=>{
   const strategy=()=>{try{return loadStrategy(ctx);}catch(error){if(error instanceof MissingStrategyError)return null;throw error;}};
   const {applyPolicy}=await import("../plugins/policy");
   const authorization=await applyPolicy(admissionCtx(ctx),"review",{
@@ -259,6 +287,10 @@ export async function review(
       if(!current)throw unknown(id);
       checkRev(ctx,current,expected);
       taskReview(ctx, id, verdict === "accept", v.kind, v.note);
+      // A conflict record never ran: its verdict settles it, so no list reads it as a question.
+      if (current.requestId?.startsWith("wfconflict:") && current.state === "needs_input") {
+        updateTask(ctx, id, t => { t.state = verdict === "accept" ? "done" : "stopped"; });
+      }
       const reviewed = readTask(ctx, id)!, goal = taskTitle(reviewed);
       const resumed = ctx.env.PACER_CALLER_RESUME === id;
       const verdictText = (verdict === "accept" ? `Accepted “${goal}”` : verdict === "send_back" ? `Sent “${goal}” back to ${executorName(executor)}` : `Rejected “${goal}”`) + (resumed ? " (resumed caller session)" : "");
@@ -270,15 +302,30 @@ export async function review(
   });
   if (verdict === "send_back" || verdict === "retry") {
     const current = readTask(ctx, id);
+    const blocked = verdict === "send_back" && current ? resumeBlocked(ctx, current) : null;
+    if (blocked) throw new CoreError("conflict", blocked);
     if (verdict === "send_back" && current && canContinue(ctx, current)) {
       // The same checks as the legacy path: revision, policy admission, and no active retry.
       validateReview();
       const prior = current.retriedBy ? readTask(ctx, current.retriedBy) : null;
       if (prior && ["queued", "running"].includes(prior.state)) throw new CoreError("conflict", `${id} already has an active retry ${prior.id}`);
-      const task = await continueWithMessage(ctx, current, { kind: "message", body: `Review feedback: ${v.note}`, replyTo: null, requestId: `sendback:${id}:${current.rev}` }, deps);
-      if (task) return { task, retry: task };
+      // An orchestrator turn's identity must not reach the runner it resumes.
+      const orchestrating=isOrchestratorSession(ctx)||!!ctx.env.PACER_RUN_GRANT;
+      const spawn=deps.spawnRunner??spawnRunner;
+      const continued:RetryDeps=orchestrating?{...deps,spawnRunner:(c,taskId)=>spawn({...c,env:{...c.env,PACER_RUN_GRANT:undefined,PACER_ROLE:undefined,PACER_TASK_ID:undefined,PACER_RUN_ID:undefined,PACER_TURN_ID:undefined}},taskId)}:deps;
+      const task = await continueWithMessage(ctx, current, { kind: "message", body: `Review feedback: ${v.note}`, replyTo: null, requestId: `sendback:${id}:${current.rev}` }, continued);
+      if (task) {
+        // The resumed work supersedes an attempt that did not merge.
+        (await import("../workflow/review")).clearTaskConflict(ctx,id);
+        return { task, retry: task };
+      }
+      if (orchestrating) throw new CoreError("conflict", "send_back could not continue this task's session, and the orchestrator never delegates: reject it and retry the step, or leave it to the person");
       // Managed work never falls back to a legacy retry, which would drop its delegation policy.
       if (getWork(ctx, id)) throw new CoreError("conflict", "The work could not continue its session; use dispatch.retry with feedback");
+    }
+    // API-5b: send_back from a run grant continues the same task and worktree only.
+    if (isOrchestratorSession(ctx)||ctx.env.PACER_RUN_GRANT) {
+      throw new CoreError("not_allowed", "PACER_ROLE=orchestrator: never delegate; send_back only continues a task whose session can resume, and retry is a delegation");
     }
     // Both policy decisions finish before the single guarded retry+verdict commit.
     let reviewed:TaskRecord|undefined;
@@ -292,12 +339,13 @@ export async function review(
   }
   // Phase 5: for a run task whose run has a branch, merge into the run branch before the verdict.
   // Cheap read-only gate first so ordinary accepts never open workflow DDL / write txns.
+  let merged=false;
   if (verdict === "accept") {
     validateReview();
-    const { stepTaskNeedsRunBranchMerge } = await import("../workflow/store");
     if (stepTaskNeedsRunBranchMerge(ctx, id)) {
       const { mergeTaskOnAccept } = await import("../workflow/branch");
       const merge = await mergeTaskOnAccept(ctx, id);
+      merged=!!merge?.merged;
       if (merge && !merge.merged) {
         return {
           task: apiTask(ctx, readTask(ctx, id)!),
@@ -308,10 +356,18 @@ export async function review(
       }
     }
   }
-  const task=withTaskLock(ctx,id,()=>{validateReview();return record(verdict,executor);});
+  const task=withTaskLock(ctx,id,()=>{
+    if(!merged){validateReview();return record(verdict,executor);}
+    // The merge landed: only another verdict or a retry may still refuse it, and
+    // none can while this review holds the task's review lock.
+    const current=readTask(ctx,id);
+    if(!current)throw unknown(id);
+    if(current.review||current.retriedBy!==initialTask.retriedBy||current.state!==initialTask.state)checkRev(ctx,current,initialTask.rev);
+    return record(verdict,executor,current.rev);
+  });
   await autoCleanTask(ctx, id);
   return { task: apiTask(ctx, task) };
-  } catch(error) {
+  }); } catch(error) {
     // Policy fingerprints also cover task state. Preserve the public revision
     // conflict projection when that task changed, including during the call.
     if(error instanceof CoreError&&error.code==="conflict"){
@@ -323,6 +379,7 @@ export async function review(
 
 /** Dismisses every known id; unknown ids are returned, never thrown, so one bad id can't stop the rest. */
 export async function dismiss(ctx: Ctx, ids: string[]): Promise<{ dismissed: TaskRecord[]; unknown: string[] }> {
+  for (const id of ids) assertDismissable(ctx, id);
   const dismissed: TaskRecord[] = [], missing: string[] = [];
   for (const id of ids) {
     const t = taskDismiss(ctx, id);
@@ -385,6 +442,8 @@ async function retryTask(
   deps: RetryDeps = {},
 ): Promise<{ retry: TaskRecord; of: TaskRecord }> {
   if (!isTaskId(id)) throw unknown(id);
+  // Loaded up front: the retry's commit is synchronous.
+  const {adoptRetriedStep}=await import("../workflow/review");
   // Resolve repo identity before taking the synchronous task lock (it runs git).
   const before = readTask(ctx, id);
   // A retry copies the brief outside its turn and could name an executor (P3, API-5b).
@@ -486,6 +545,9 @@ async function retryTask(
         });
         const parent=updateTask(ctx,task.id,t=>{t.retriedBy=next.id;if(answering){t.question!.answer=o.answerText;t.question!.answeredAt=ctx.now;}});
         linked=true;
+        // A workflow step follows its retry before the new task can report.
+        // A failure here must not undo the retry: the engine tick adopts it too.
+        try{adoptRetriedStep(ctx,task.id,next.id);}catch(error){console.warn(`pacer: ${next.id} did not take over its workflow step yet: ${String(error)}`);}
         const retried=readTask(ctx,next.id)??next;
         taskActivity(ctx,retried,"retry",`Delegated “${taskTitle(retried)}” to ${executorName(retried.executor??retried.requestedExecutor)}`);
         if(answerFromBase)taskActivity(ctx,retried,"message",`The asking worktree was removed; the answer starts from the recorded base ${answerBase!.slice(0,12)}`);

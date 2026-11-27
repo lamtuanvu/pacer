@@ -21,12 +21,17 @@ import type { TaskState } from "../tasks/types";
 import { readTask } from "../tasks/store";
 import { taskChangesSince } from "../tasks/changes";
 import {
-  attachStepTask, getCursor, getDefinition, getRun, liveRuns, orphanSteps, setCursor, stepByTask, stepsOfRun,
+  attachStepTask, fanoutAttempt, getCursor, getDefinition, getRun, liveRuns, orphanSteps, setCursor, stepByTask, stepsOfRun,
   taskByRequestId, unadvancedDoneSteps, updateRun, updateStep, type StepRow,
 } from "./store";
-import { defaultEngineDeps, failRun, joinFanout, onTaskSettled, readvanceStep, reconcileOrphanStep, stepRequestId, type EngineDeps } from "./engine";
+import {
+  defaultEngineDeps, failRun, joinFanout, onTaskSettled, readvanceStep, reconcileOrphanStep, settleParentChooseStep,
+  stepRequestId, type EngineDeps,
+} from "./engine";
 import { orchestrateRuns, type OrchestratorDeps } from "./orchestrator";
 import { enqueueWakeup, stepWakeRef } from "./wakeups";
+import { awaitsReview } from "./review";
+import { chooseStepChildRunId } from "./wakeups";
 import { isTransientError } from "./transient";
 
 export { isTransientError };
@@ -149,6 +154,52 @@ async function readvanceStalled(ctx: Ctx, spawn: SpawnRunner | undefined, deps: 
       // failRun leaves the row for the next tick.
       try { await failRun(ctx, row.runId, `re-advance failed: ${err instanceof Error ? err.message : String(err)}`, undefined, deps); }
       catch { /* the next tick retries the row */ }
+    }
+  }
+  return handled;
+}
+
+/** Steps that wait for review move as soon as their task carries a verdict, a
+ *  retry or a failure, whether or not the change log still holds that write. A
+ *  transient or git error leaves the row for the next tick. */
+async function settleReviewedSteps(ctx: Ctx, spawn: SpawnRunner | undefined, deps: EngineDeps): Promise<number> {
+  let handled = 0;
+  for (const run of liveRuns(ctx)) {
+    for (const row of stepsOfRun(ctx, run.id)) {
+      if (!awaitsReview(ctx, row)) continue;
+      const task = readTask(ctx, row.taskId!);
+      if (!task || !(task.review || task.retriedBy || (task.state !== "done" && SETTLE_STATES.includes(task.state)))) continue;
+      try {
+        await onTaskSettled(ctx, task.id, spawn, deps);
+        handled++;
+      } catch (err) {
+        if (isTransientError(err)) continue;
+        try { await failRun(ctx, run.id, `engine error: ${err instanceof Error ? err.message : String(err)}`, undefined, deps); }
+        catch { /* the next tick retries */ }
+        break;
+      }
+    }
+  }
+  return handled;
+}
+
+/** A generate step whose child already ended but never settled it: the child's
+ *  branch did not merge yet, or the service stopped in between. */
+async function settleEndedChildren(ctx: Ctx, spawn: SpawnRunner | undefined, deps: EngineDeps): Promise<number> {
+  let handled = 0;
+  for (const run of liveRuns(ctx)) {
+    for (const row of stepsOfRun(ctx, run.id)) {
+      if (row.status !== "waiting") continue;
+      const childId = chooseStepChildRunId(row.result);
+      const child = childId ? getRun(ctx, childId) : null;
+      if (!child || (child.status !== "done" && child.status !== "failed" && child.status !== "stopped")) continue;
+      try {
+        await settleParentChooseStep(ctx, child, deps, spawn);
+        handled++;
+      } catch (err) {
+        if (isTransientError(err)) continue;
+        console.warn(`pacer: workflow tick could not settle child run ${child.id}: ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
   }
   return handled;
@@ -297,8 +348,9 @@ async function recoverLostSettlements(ctx: Ctx, spawn: SpawnRunner | undefined, 
       if (!def) continue;
       const attempts = new Map<string, { stepId: string; attempt: number; joined: boolean; branches: StepRow[] }>();
       for (const row of fresh) {
-        const key = `${row.stepId}#${row.attempt}`;
-        const attempt = attempts.get(key) ?? { stepId: row.stepId, attempt: row.attempt, joined: false, branches: [] };
+        const number = fanoutAttempt(row);
+        const key = `${row.stepId}#${number}`;
+        const attempt = attempts.get(key) ?? { stepId: row.stepId, attempt: number, joined: false, branches: [] };
         if (row.branch === undefined) attempt.joined = true;
         else attempt.branches.push(row);
         attempts.set(key, attempt);
@@ -354,6 +406,8 @@ export async function advanceRuns(
   handled += await readvanceStalled(ctx, spawn, deps);
   const walk = await processChanges(ctx, getCursor(ctx), spawn, deps);
   handled += walk.handled;
+  handled += await settleReviewedSteps(ctx, spawn, deps);
+  handled += await settleEndedChildren(ctx, spawn, deps);
   // Recovery last: the change loop settles what the log still holds; the recovery
   // then repairs what a lock error took out of it (Review Focus: run correctness 10).
   // It is skipped when the walk stopped early (a transient or an aborted rescan):

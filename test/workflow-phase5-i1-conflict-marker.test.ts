@@ -62,6 +62,7 @@ test("conflict sets a durable run marker; publish reads the marker not task stat
     taskId: task.id,
     branch: `pacer/${task.id}`,
     resolutionTaskId: result.resolution_task!,
+    live: false, // no running step held the task
   }]);
   expect(hasUnresolvedConflictTask(ctx, run.id)).toBe(true);
 

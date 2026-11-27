@@ -250,3 +250,31 @@ fn workflow_aggregates_pin_open_problem_at_counts_seq_seven() {
     assert_eq!(replay.workflow_problems_at_counts.get(&7), Some(&1));
     assert_eq!(replay.discovery_at_counts.get(&7), Some(&0));
 }
+
+/// A code step's review item is a workflow item by its id alone: its kind is `review`.
+#[test]
+fn workflow_aggregates_count_review_gate_items() {
+    let dir = tempfile::tempdir().unwrap();
+    let ctx = Ctx::with(
+        dir.path().to_path_buf(),
+        dir.path().to_path_buf(),
+        Default::default(),
+        1.0,
+    );
+    let path = ctx.pacer_home.join("link/outbox.jsonl");
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(
+        &path,
+        attention_line(1, "run_review:t-1", "decide", false)
+            + &attention_line(2, "run_review:t-2", "blocked", false)
+            + &line(3, "counts", "counts")
+            + &attention_line(4, "run_review:t-2", "blocked", true)
+            + &line(5, "counts", "counts"),
+    )
+    .unwrap();
+    let replay = read_outbox_replay(&ctx, 0.0).unwrap();
+    assert_eq!(replay.workflow_at_counts.get(&3), Some(&2));
+    assert_eq!(replay.workflow_problems_at_counts.get(&3), Some(&1));
+    assert_eq!(replay.workflow_at_counts.get(&5), Some(&1));
+    assert_eq!(replay.workflow_problems_at_counts.get(&5), Some(&0));
+}

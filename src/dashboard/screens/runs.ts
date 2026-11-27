@@ -10,6 +10,7 @@ import {
   RUNS_EMPTY,
   RUNS_UNAVAILABLE,
   waitsOnLabel,
+  awaitsVerdict,
 } from "../../view-model/runs";
 import { cols, flex, span, statusSpans } from "../frame";
 import type { Item } from "../state";
@@ -28,6 +29,7 @@ export function runAttentionQueue(s: { attention?: AttentionItem[] }): Attention
 function waitsOnFor(run: RunSummary, attention: AttentionItem[]): string {
   const hit = attention.find(a => a.run?.id === run.id && a.kind === "question");
   if (hit) return "you";
+  if (awaitsVerdict(run.id, attention)) return "review";
   if (run.status === "waiting") return "orchestrator";
   return "—";
 }

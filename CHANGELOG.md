@@ -8,6 +8,36 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 - Workflow orchestrator turns work behind the native front door: `run publish`, `run submit-graph`, `run choose`, `run decide`, `step retry`, `step skip` and the other run-grant operations no longer answer HTTP 401. The front door forwards a `prg_` run grant on operation posts only and the core verifies it, as before. `pacer api --stdio` in an orchestrator turn now leaves every operation to the core instead of running some natively.
 - Security: `pacer api --stdio` holding an enforcement identity (`PACER_ENFORCEMENT_TOKEN`) or an assistant grant (`PACER_ASSISTANT_GRANT`) ran some operations natively, such as `repo.add`, even with an invalid token. The front door now leaves every operation to the core, which refuses them as before. Strict executors' denial reports and the assistant's MCP server are unchanged.
+- Interactive and PTY attempts that hold a scoped grant, such as workflow planner turns and delegating workers, now start instead of failing with "executor wrapper state is uncertain": the grant's command allow-list no longer refuses the session host, the session hooks or `pacer report` for the attempt.
+- The hooks `pacer install` adds to an agent's user settings no longer fail inside workflow planner turns and delegating workers. `pacer msg hook`, `pacer status --hook` and `pacer statusline` do nothing there, and `pacer guard` applies its usual policy instead of blocking every matched tool call; strict enforcement is unchanged. Cursor's `session-start` hook is not covered yet.
+- Installed builds can snooze and dismiss workflow items (run budget, stopped planner and restart wait) instead of answering "unknown attention item", and `snapshot.get` lists them while a workflow run is live.
+- **Workflow code now reaches the run branch and the pull request.** A code step waits for review when its task finishes: the run's planner is woken to review it, and the person can accept or reject it from Needs you or `pacer review`. The next step starts only after the accepted work is merged into the run branch, and every later step of that run (reviewers and research steps included) starts from that branch. Steps that already advanced before an upgrade are left as they are.
+- **Executors on workflow code steps are told to commit.** Uncommitted tracked changes are refused when the step reports its result; accepting refuses uncommitted or untracked files and commits left on another branch, so no work is silently left out. Ordinary tasks keep their instructions and review behaviour.
+- A generated sub-workflow now works on its parent run's branch, so the parent's publish approval and `pacer run publish` include its code; a retry of a step under review takes the step over and its work is merged.
+- A `generate` or `choose_workflow` step result now carries the child's `status`, so edges such as `result.status == 'done'` match and runs of the bundled feature workflow continue past planning.
+- A workflow chosen by the router keeps the `publish: draft` choice made at `run.start`.
+- `pacer run publish` refuses a run branch with no commits beyond its base.
+- A step delegation that races another task change (the planner's turn is live while a review advances the run) is made again instead of failing the run.
+- Rejecting one branch of a fan-out no longer fails the run: the branch is a decision like any failed step (retry only that branch, skip it, or re-plan a generated sub-workflow), and `join: any` or a quorum still finishes when enough branches are accepted.
+- The planner may send a step task under review back to commit or fix its work. It continues the same task and worktree and never starts a new one. Reporting a step result now also refuses untracked files, as accepting does.
+- A merge conflict can be resolved in the product: send the task back to merge the run branch, or commit the merge in its worktree, then accept. The conflict record closes by itself and no longer raises a question nothing can answer.
+- A verdict can no longer land between an accept's merge and its record, and a retry takes its workflow step over before the new task can report.
+- Generated runs that already had a branch of their own before this update hand it to the parent run with its merged work, and publishing a generated run publishes the parent's branch under the parent's gate.
+- Ending a run or resolving a join stops a task that was sent back and is running again, and leaves finished tasks reviewable.
+- A merge conflict no longer blocks publishing after its work is given up: rejecting, skipping, stopping or retrying the step, or moving it to a new task, drops the marker and closes its record.
+- Work accepted after a run's pull request was opened is pushed to it under a new approval, or publishing says why it was not; it is no longer skipped.
+- The `publish: draft` opt-in updates a pull request only while GitHub confirms it is still a draft that was published as one. A ready pull request needs an approval of the new commit, nothing is pushed when the state cannot be read, and a closed or merged pull request is refused with the command to push the branch yourself. After that push, publishing reports success.
+- A conflict marker stays while its work can still be wanted: a retry the failed step did not take over, or an accept of a failed step's task, keeps publishing closed until the work is merged or the task is rejected or retried.
+- A generated sub-workflow can no longer declare `approves: publish`, and an answer in one stored earlier approves nothing.
+- A review whose process died is taken over after 90 seconds; a live process keeps its lock, and waiting behind it ends with an ordinary error that names the lock file.
+- After one fan-out branch is retried, the run view and later steps still see the whole fan-out, and a branch at its retry limit no longer blocks retrying the others.
+- The review gate is usable from Needs you in the web app, the browser tray and the terminal. Code-step reviews, merge conflicts, base-update conflicts and sub-workflow branches that cannot reach the run branch are listed with the actions that can work, and a finished or partial step keeps Accept and Reject.
+- An accept or base update that conflicts says that nothing was merged, instead of reporting success or nothing. Accepting a code step says it merges, the tray asks before it does, and a run is not stopped by one key press.
+- A base-update conflict keeps one open record, shows the commands that resolve it, and its record can be accepted only once the conflict is resolved. A parked step reads "waiting for review".
+- A step under review reads "Waiting for review" on every surface, a Dispatch conflict card says "Merge conflict", review-gate titles end with the run letter, and an accept, reject or send-back is announced with focus kept on the page. Conflict records are titled by step and described in plain words, and a blocked planner's reason is no longer shown as an internal code.
+- Needs you and Dispatch show review-gate actions as secondary buttons, the terminal's detail pane agrees with its list about a step under review, and a review gate can no longer be dismissed or snoozed (dismissing it dismissed the task under review).
+- A task that a workflow review is waiting on cannot be dismissed, archived or cleaned (also on a remote host) and keeps its worktree, and "Send back to resolve" reports success only when the task actually resumed; a task already dismissed or without its worktree says so and keeps the conflict.
+- A generated run whose code cannot be added to the run branch is shown in Needs you with the reason.
 
 ## [0.18.8] - 2026-11-26
 
@@ -27,10 +57,6 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - `pacer service restart` and `pacer update` now hand running work to the new service instead of warning "running work was not handed over: pacer core is restarting".
 - Settings › Updates no longer keeps showing a failed update after you install that release another way, such as by hand; pacer drops the installed offer and checks again.
 - After you install a newer pacer.app by hand, the app restarts its own older service onto the new version (handing running work over) instead of leaving the old service running with an "Older service" banner. It does this only on macOS, for the service it owns, with no update in progress.
-- Interactive and PTY attempts that hold a scoped grant, such as workflow planner turns and delegating workers, now start instead of failing with "executor wrapper state is uncertain": the grant's command allow-list no longer refuses the session host, the session hooks or `pacer report` for the attempt.
-- The hooks `pacer install` adds to an agent's user settings no longer fail inside workflow planner turns and delegating workers. `pacer msg hook`, `pacer status --hook` and `pacer statusline` do nothing there, and `pacer guard` applies its usual policy instead of blocking every matched tool call; strict enforcement is unchanged. Cursor's `session-start` hook is not covered yet.
-- Installed builds can snooze and dismiss workflow items (run budget, stopped planner and restart wait) instead of answering "unknown attention item", and `snapshot.get` lists them while a workflow run is live.
-
 
 ### Fixed
 

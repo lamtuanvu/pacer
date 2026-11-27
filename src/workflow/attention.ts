@@ -3,24 +3,29 @@
 // concrete run.set_budget / run.set_planner params. since/raisedAt are stable via
 // spent.attention_at (no orchestrator-attention.json / budget-attention.json).
 // Phase 4 also raises /v3-only items for open person-answerer structured questions (D10).
+import { basename } from "node:path";
 import type { Ctx } from "../types";
 import type { Action, AttentionItem, AttentionUnblocks } from "../attention/types";
 import { notifyLevelForRun, runExternalCaller, sortItems } from "../attention/rules";
 import { PLANNERS } from "../config/strategy";
 import { agentInfo } from "../view-model/agents";
 import {
+  branchOwner,
   getRun,
+  rootRunId,
   listOpenPersonQuestions,
   liveRuns,
+  stepsOfRun,
   workflowSchemaPresent,
   type QuestionAskerKind,
   type QuestionBlocks,
   type QuestionRow,
   type RunRow,
 } from "./store";
-import { taskDatabase } from "../tasks/store";
+import { readTask, taskDatabase } from "../tasks/store";
 import { isBudgetBlocked, parseBudget, parseSpent } from "./budget";
 import { resolveRunLetters } from "./letters";
+import { canSendBack, mergeConflictFor, removedWorktree, reviewDueTask } from "./review";
 
 /** Person-facing cue so human-step / planner / executor questions differ on Dispatch. */
 function askerCue(kind: QuestionAskerKind): string {
@@ -429,6 +434,147 @@ function blockedFailureActions(run: RunRow): Action[] {
   return actions;
 }
 
+/** A gate item's title, ending with its run's letter: runs of one workflow word their steps alike. */
+function gateTitle(words: string, run: RunRow, letters: Map<string, string>): string {
+  const suffix = ` · run ${attentionLetterForRun(run, letters)}`;
+  return `${clipCodePoints(words, QUESTION_TITLE_CLIP - suffix.length, true)}${suffix}`;
+}
+
+/** One item per code step waiting for its verdict: the person can accept (merge
+ *  into the run branch) or reject here; the planner is woken for the same. */
+function reviewItems(ctx: Ctx, run: RunRow, letters: Map<string, string>): AttentionItem[] {
+  const items: AttentionItem[] = [];
+  for (const step of stepsOfRun(ctx, run.id)) {
+    const task = reviewDueTask(ctx, step);
+    if (!task) continue;
+    const conflict = mergeConflictFor(ctx, run.id, task.id);
+    const at = task.settledAt ?? step.startedAt;
+    const name = step.branch ? `${step.stepId}/${step.branch}` : step.stepId;
+    const root = run.parentRunId ? getRun(ctx, rootRunId(ctx, run.id)) ?? run : run;
+    const stuck = !!conflict || root.orchestratorState === "blocked";
+    const waitingOn = runExternalCaller(root);
+    const verdict = (label: string, value: "accept" | "reject" | "send_back", extra: Partial<Action> & { note?: string } = {}): Action => ({
+      label, op: "task.review",
+      params: { id: task.id, verdict: value, expect_rev: task.rev, ...(extra.note ? { note: extra.note } : {}) },
+      ...(extra.confirm ? { confirm: extra.confirm } : {}),
+    });
+    const sendable = !!conflict && canSendBack(ctx, task);
+    const branch = branchOwner(ctx, run).branch;
+    const gone = removedWorktree(task);
+    const own = gone ? `pacer/${basename(gone)}` : "", dir = `../resolve-${task.id}`;
+    const byHand = gone
+      ? "The task's worktree was removed: add one for its branch, merge the run branch there and commit"
+      : "Merge the run branch in the task's worktree and commit";
+    items.push({
+      id: `run_review:${task.id}`,
+      kind: "review",
+      severity: stuck ? "blocked" : "decide",
+      repo: null,
+      taskId: task.id,
+      title: gateTitle(conflict ? `Merge conflict in step "${name}"` : `Review the changes from step "${name}"`, root, letters),
+      detail: conflict
+        ? `${runDetailSubject(root)}. Accepting hit a merge conflict, so nothing was merged. ${sendable ? "Send it back to resolve it, or merge the run branch in the task's worktree and commit" : byHand}, then accept.`
+        : `${runDetailSubject(root)}. Accepting merges the changes into the run branch and the run continues. Uncommitted work is refused.`,
+      gate: conflict
+        ? { kind: "step_conflict", recordId: conflict, commands: [
+          ...(gone ? ["git worktree prune", `git worktree add ${dir} ${own}`, `git -C ${dir} merge ${branch}`, `git -C ${dir} commit`] : [`git merge ${branch}`, "git commit"]),
+          `pacer review ${task.id} --accept`,
+        ] }
+        : { kind: "step_review" },
+      raisedAt: at,
+      since: at,
+      notify: notifyLevelForRun("question", root, ctx.now, { since: at, unblocks: stuck ? "run" : "nothing" }),
+      ...(waitingOn ? { waitingOn } : {}),
+      actions: [
+        ...(sendable
+          ? [{ ...verdict("Send back to resolve", "send_back", { note: `Merge ${branch} into your branch, resolve the conflicts and commit.` }), style: "primary" as const }]
+          : []),
+        {
+          ...verdict("Accept", "accept", {
+            confirm: conflict ? "Accept now? This merges the task's branch into the run branch." : "Accept and merge these changes into the run branch?",
+          }),
+          ...(sendable ? {} : { style: "primary" as const }),
+        },
+        { ...verdict("Reject", "reject", { confirm: "Reject these changes? They are not merged and the step fails." }), style: "danger" },
+      ],
+      unblocks: "run",
+      run: attentionRunRef(root, letters),
+    });
+  }
+  return items;
+}
+
+/** A conflict with no step task behind it (base update, adopted branch): the
+ *  record names the way to resolve it. */
+function branchConflictItems(ctx: Ctx, run: RunRow, letters: Map<string, string>): AttentionItem[] {
+  return (run.conflict ?? []).filter(entry => /^(base|child):/.test(entry.taskId)).map(entry => {
+    const record = entry.resolutionTaskId;
+    const base = entry.taskId.startsWith("base:") ? entry.taskId.slice("base:".length) : null;
+    const rev = readTask(ctx, record)?.rev;
+    const accept: Action[] = rev === undefined ? [] : [{
+      label: "Accept the resolution", op: "task.review", params: { id: record, verdict: "accept", expect_rev: rev },
+      confirm: `Accept the merge you committed on pacer/${record}? This merges it into the run branch.`,
+    }];
+    return {
+      id: `run_review:${record}`,
+      kind: "review" as const,
+      severity: "blocked" as const,
+      repo: null,
+      taskId: record,
+      title: gateTitle(base ? `Merge conflict: update from ${base}` : "Merge conflict: sub-workflow changes", run, letters),
+      detail: `${runDetailSubject(run)}. ${base ? `Updating the run branch from ${base} conflicts` : "A sub-workflow's changes conflict with the run branch"}, and publishing waits. ${base ? "Try the update again after the branches change, or resolve" : "Resolve"} it by hand with the commands, run in the repository, then accept.`,
+      raisedAt: run.updatedAt,
+      since: run.updatedAt,
+      notify: notifyLevelForRun("question", run, ctx.now, { since: run.updatedAt, unblocks: "run" }),
+      gate: {
+        kind: "branch_conflict" as const,
+        recordId: record,
+        commands: [
+          `git worktree add ../resolve-${record} -b pacer/${record} ${run.branch}`,
+          `git -C ../resolve-${record} merge ${entry.branch}`,
+          `git -C ../resolve-${record} commit`,
+          `pacer review ${record} --accept`,
+        ],
+      },
+      actions: base
+        ? [{ label: "Try the update again", op: "run.sync_base", params: { id: run.id, expect_rev: run.rev }, style: "primary" as const }, ...accept]
+        : accept.map(action => ({ ...action, style: "primary" as const })),
+      unblocks: "run" as const,
+      run: attentionRunRef(run, letters),
+    };
+  });
+}
+
+/** A generated run whose own branch could not be moved to the run branch. */
+function adoptionItems(ctx: Ctx, run: RunRow, letters: Map<string, string>): AttentionItem[] {
+  return stepsOfRun(ctx, run.id).flatMap(step => {
+    const result = step.result as { childRunId?: unknown; adoptError?: unknown } | undefined;
+    if (step.status !== "waiting" || typeof result?.adoptError !== "string") return [];
+    const root = run.parentRunId ? getRun(ctx, rootRunId(ctx, run.id)) ?? run : run;
+    return [{
+      id: `run_review:adopt:${String(result.childRunId)}`,
+      kind: "orchestrator_failed" as const,
+      severity: "blocked" as const,
+      repo: null,
+      title: gateTitle("Code from a sub-workflow cannot reach the run branch", root, letters),
+      detail: `${runDetailSubject(root)}. pacer keeps trying, and the run waits until it works. Open the run to see where it stopped.`,
+      raisedAt: step.startedAt,
+      since: step.startedAt,
+      notify: notifyLevelForRun("question", run, ctx.now, { since: step.startedAt, unblocks: "run" }),
+      gate: {
+        kind: "adoption" as const,
+        technical: `Step ${step.stepId}: ${clipCodePoints(collapseNewlines(result.adoptError), FULL_QUESTION_CLIP, true)}`,
+      },
+      actions: [
+        { label: "Open run", op: "ui.open", params: { view: "run", id: root.id }, style: "primary" as const },
+        stopRunAction(run),
+      ],
+      unblocks: "run" as const,
+      run: attentionRunRef(root, letters),
+    }];
+  });
+}
+
 /** Attention items for live runs: blocked orchestrator, budget thresholds, and person questions. */
 export function deriveWorkflowAttention(ctx: Ctx): AttentionItem[] {
   const items: AttentionItem[] = [];
@@ -441,6 +587,9 @@ export function deriveWorkflowAttention(ctx: Ctx): AttentionItem[] {
     items.push(runQuestionItem(ctx, q, run, letters));
   }
   for (const run of live) {
+    items.push(
+      ...reviewItems(ctx, run, letters), ...branchConflictItems(ctx, run, letters), ...adoptionItems(ctx, run, letters),
+    );
     // Child runs share the root's orchestrator/budget attention.
     if (run.parentRunId) continue;
     const budget = parseBudget(run.budget);

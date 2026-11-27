@@ -20,13 +20,15 @@ fn actionable_attention_replaces_the_legacy_count() {
             {"kind": "review", "taskId": "partial"},
             {"kind": "review", "taskId": "failed"},
             {"kind": "review", "taskId": "outside-snapshot"},
+            {"id": "run_review:done", "kind": "review", "taskId": "done"},
+            {"id": "run_review:reviewed", "kind": "review", "taskId": "reviewed"},
             {"kind": "failed", "snoozedUntil": 101}
         ]
     });
     assert_eq!(counts(&snapshot)["running"], 2);
-    assert_eq!(counts(&snapshot)["attention"], 5);
-    snapshot["at"] = json!(101);
     assert_eq!(counts(&snapshot)["attention"], 6);
+    snapshot["at"] = json!(101);
+    assert_eq!(counts(&snapshot)["attention"], 7);
 }
 
 #[test]

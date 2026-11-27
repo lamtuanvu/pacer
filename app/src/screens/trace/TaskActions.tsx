@@ -11,9 +11,14 @@ import { ErrorMessage, useQuery, useTaskContext } from '../task-shared';
 import { sessionRuntime } from '../../term/runtime';
 import { offersTakeover } from '../session/takeover';
 import { sendBackSteps, userStartedRoot, withManagedFallback } from '../../../../src/view-model/managed-root';
+import { conflictRecordFor, gateFor, isConflictGate, MERGE_ON_ACCEPT_WORDS } from '../../../../src/view-model/run-gate';
+import { sendBackOnly } from '../review/RunGatePanel';
+import { ActionButton } from '../ActionButton';
+import { afterVerdict } from '../../data/announce';
+import { useActions } from '../../data/action-context';
 
 export function TaskActions({task:t,query,reload,embedded=false}:{task:TaskDetail;query:RouteQuery;reload:()=>void;embedded?:boolean}) {
- const {state,api}=useTaskContext(),action=useResultAction();
+ const {state,api}=useTaskContext(),action=useResultAction(),runner=useActions();
  const [reject,setReject]=useState(false),[sendBack,setSendBack]=useState(false),[retry,setRetry]=useState(false),[note,setNote]=useState('');
  const [sending,setSending]=useState(false),[sendError,setSendError]=useState<unknown>();
  // A work root a person started keeps the usual task.* verdicts; managed children and planner roots use dispatch.*.
@@ -25,11 +30,13 @@ export function TaskActions({task:t,query,reload,embedded=false}:{task:TaskDetai
  try{shared=sessionRuntime(t.id,session.data?.attach.ws,false,true)?.state.shared;}catch{/* No runtime yet. */}
  const failed=t.acceptance.state==='failed'||['failed','partial','limit'].includes(t.state);
  const active=['running','queued','needs_input'].includes(t.state);
- const reviewable=t.state==='done'&&!active&&!failed&&!t.review&&!t.resolved&&!t.dismissed&&!t.retriedBy&&state.features.ops.has(managed?'dispatch.review':'task.review');
+ // A workflow gate keeps its verdicts for a partial step too; a conflict record is not work.
+ const gate=gateFor(state.snapshot?.attention,t.id),recorded=conflictRecordFor(state.snapshot?.attention,t.id),record=recorded?.gate?.recordId===t.id?recorded:undefined;
+ const reviewable=!record&&(!!gate||t.state==='done'&&!active&&!failed)&&!t.review&&!t.resolved&&!t.dismissed&&!t.retriedBy&&state.features.ops.has(managed?'dispatch.review':'task.review');
  const node=tree.data?.nodes.find(n=>n.taskId===t.id);
  const ready=!t.work||!!node&&tree.data!.nodes.filter(n=>n.parentId===t.id).every(n=>n.review?.accepted||node.waivedChildren.includes(n.taskId));
  const stop=state.snapshot?.attention?.filter(i=>i.taskId===t.id).flatMap(i=>i.actions).find(a=>a.op==='task.stop'||a.op==='dispatch.stop');
- const submit=(accept:boolean)=>void action.run(managed?'dispatch.review':'task.review',managed?{id:t.id,expect_rev:t.rev,accepted:accept,...(!accept?{note:note.trim()}:{})}:verdictParams(t,{verdict:accept?'accept':'reject',note}),()=>{setReject(false);reload();});
+ const submit=(accept:boolean)=>{const op=managed?'dispatch.review':'task.review',params=managed?{id:t.id,expect_rev:t.rev,accepted:accept,...(!accept?{note:note.trim()}:{})}:verdictParams(t,{verdict:accept?'accept':'reject',note});void action.run(op,params,()=>{setReject(false);reload();afterVerdict({label:'',op,params});});};
  // Send back continues the session with the note; without one, the service names dispatch.* and the managed steps run.
  const sendBackNow=async()=>{
   if(sending||!note.trim())return;setSending(true);setSendError(undefined);
@@ -37,9 +44,12 @@ export function TaskActions({task:t,query,reload,embedded=false}:{task:TaskDetai
   catch(e){setSendError(e);}finally{setSending(false);}
  };
  return <>{!embedded&&<ButtonLink href={hrefFor(routes.workspace(t.id))}>Open workspace</ButtonLink>}
- {active&&<><Button disabled={!!action.unavailable} title={action.unavailable} busy={action.busy} onClick={()=>void action.run(t.work?'dispatch.stop':'task.stop',{id:t.id,expect_rev:t.rev},reload)}>Stop</Button>{offersTakeover(session.data,shared)&&<ButtonLink variant="primary" href={`${hrefFor(routes.workspace(t.id,'session'))}&takeover=1`}>Take over</ButtonLink>}</>}
- {reviewable&&<><Button onClick={()=>setReject(true)}>Reject</Button>{userRoot&&(t.executor||t.attempts.at(-1)?.executor)&&<Button onClick={()=>setSendBack(true)}>Send back</Button>}{ready?<Button variant="primary" disabled={!!action.unavailable} title={action.unavailable} busy={action.busy} onClick={()=>submit(true)}>Accept result</Button>:<span className="pc-trace__cap">Review required child work before accepting.</span>}</>}
- {failed&&<>{stop&&<Button disabled={!!action.unavailable} title={action.unavailable} busy={action.busy} onClick={()=>void action.run(stop.op,{...stop.params,expect_rev:t.rev},reload)}>Stop task</Button>}<Button variant="primary" onClick={()=>setRetry(true)}>Retry</Button></>}
+{/* A task dismissed by an earlier version still owes its verdict. */}
+ {gate&&t.dismissed&&gate.actions.map(a=><ActionButton key={a.label} runner={runner} id={`gate:${gate.id}:${a.label}`} action={a}/>)}
+ {gate&&reviewable&&(isConflictGate(gate)?gate.actions.filter(a=>sendBackOnly(a.op,a.params.verdict)).map(a=><ActionButton key={a.label} runner={runner} id={`gate:${gate.id}:${a.label}`} action={a} strong/>):<span className="pc-trace__cap">{MERGE_ON_ACCEPT_WORDS}</span>)}
+ {active&&!record&&<><Button disabled={!!action.unavailable} title={action.unavailable} busy={action.busy} onClick={()=>void action.run(t.work?'dispatch.stop':'task.stop',{id:t.id,expect_rev:t.rev},reload)}>Stop</Button>{offersTakeover(session.data,shared)&&<ButtonLink variant="primary" href={`${hrefFor(routes.workspace(t.id,'session'))}&takeover=1`}>Take over</ButtonLink>}</>}
+ {reviewable&&<><Button onClick={()=>setReject(true)}>Reject</Button>{userRoot&&(t.executor||t.attempts.at(-1)?.executor)&&<Button onClick={()=>setSendBack(true)}>Send back</Button>}{ready?<Button variant={isConflictGate(gate)?'secondary':'primary'} disabled={!!action.unavailable} title={action.unavailable} busy={action.busy} onClick={()=>submit(true)}>Accept result</Button>:<span className="pc-trace__cap">Review required child work before accepting.</span>}</>}
+ {failed&&!gate&&<>{stop&&<Button disabled={!!action.unavailable} title={action.unavailable} busy={action.busy} onClick={()=>void action.run(stop.op,{...stop.params,expect_rev:t.rev},reload)}>Stop task</Button>}<Button variant="primary" onClick={()=>setRetry(true)}>Retry</Button></>}
  {action.unavailable&&<p className="muted">{action.unavailable}</p>}<ErrorMessage error={action.error}/>
  {reject&&<Dialog title="Why reject this result?" close={()=>setReject(false)}><Field label="Rejection note"><TextArea autoFocus rows={3} value={note} onInput={e=>setNote(e.currentTarget.value)}/></Field><Button onClick={()=>setReject(false)}>Cancel</Button><Button variant="primary" disabled={!note.trim() || !!action.unavailable} title={action.unavailable} busy={action.busy} onClick={()=>submit(false)}>Reject result</Button></Dialog>}
  {sendBack&&<Dialog title="What should change?" close={()=>setSendBack(false)}><Field label="Send-back note"><TextArea autoFocus rows={3} value={note} onInput={e=>setNote(e.currentTarget.value)}/></Field><ErrorMessage error={sendError}/><Button onClick={()=>setSendBack(false)}>Cancel</Button><Button variant="primary" disabled={!note.trim() || !state.connected} title={action.unavailable} busy={sending} onClick={()=>void sendBackNow()}>Send back</Button></Dialog>}
