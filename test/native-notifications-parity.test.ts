@@ -26,7 +26,8 @@ const homes: string[] = [];
 beforeAll(() => {
   if (binary) return;
   const env = pinnedPort({ ...process.env, PACER_PORT: String(closedPort()) });
-  execFileSync("cargo", ["build", "-q", "-p", "pacer", "--locked", "--features", "test-ops"], { stdio: "inherit", env });
+  // These five ops ship in the normal binary; no test-ops feature is needed.
+  execFileSync("cargo", ["build", "-q", "-p", "pacer", "--locked"], { stdio: "inherit", env });
   const metadata = JSON.parse(execFileSync("cargo", ["metadata", "--no-deps", "--format-version", "1", "--locked"], { env }).toString());
   binary = join(metadata.target_directory, "debug/pacer");
 });
