@@ -29,6 +29,7 @@ mod bridge_call;
 mod bridge_listener;
 mod capability;
 mod connection_dir;
+pub mod door_call;
 pub mod crash;
 mod executor_attach;
 mod host_attach;

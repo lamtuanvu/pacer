@@ -380,6 +380,10 @@ fn status(ctx: &Ctx) -> Result<Option<Value>, CoreError> {
 }
 
 mod params;
+pub mod cards;
+pub mod digest;
+pub mod redact;
+pub mod tools;
 pub mod turn;
 use params::{Params, parse};
 

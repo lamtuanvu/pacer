@@ -1431,7 +1431,10 @@ dependencies = [
  "pacer-messaging-ops",
  "pacer-read-model",
  "pacer-store",
+ "rand 0.9.5",
+ "regex",
  "serde_json",
+ "sha2",
  "tempfile",
  "tokio",
 ]

@@ -13,6 +13,7 @@ pub mod publish;
 pub mod read_only;
 mod retention;
 mod task;
+pub mod work_grants;
 
 pub use activity::{
     ActivityOptions, ActivityPage, append_activity, read_activity, rotate_activity,

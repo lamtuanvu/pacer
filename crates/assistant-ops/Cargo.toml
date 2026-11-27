@@ -15,6 +15,9 @@ pacer-config = { path = "../config" }
 pacer-read-model = { path = "../read-model" }
 pacer-store = { path = "../store" }
 pacer-messaging-ops = { path = "../messaging-ops" }
+regex = "1"
+rand = "0.9"
+sha2 = "0.10"
 
 [dev-dependencies]
 tempfile = "3"
