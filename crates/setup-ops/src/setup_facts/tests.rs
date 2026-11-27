@@ -147,6 +147,55 @@ async fn a_driver_facts_override_is_returned_verbatim() {
 }
 
 #[test]
+fn claude_hook_check_requires_the_exact_matcher_and_command() {
+    let root = tempfile::tempdir().unwrap();
+    let claude = root.path().join(".claude");
+    std::fs::create_dir_all(&claude).unwrap();
+    bin(&root, "pacer");
+    let path = format!("{}:/usr/bin:/bin", root.path().join("bin").display());
+    let ctx = ctx(&root, &path);
+    let settings = |matcher: &str, command: &str| {
+        json!({"hooks": {
+            "SessionStart": [{"hooks": [{"type": "command", "command": command}]}],
+            "PreToolUse": [{"matcher": matcher, "hooks": [{"type": "command", "command": "pacer guard --planner claude-code"}]}],
+        }})
+    };
+    std::fs::write(
+        claude.join("settings.json"),
+        settings("Agent|Task|Bash", "pacer status --hook claude-code").to_string(),
+    )
+    .unwrap();
+    assert!(!claude_hooks_warn(&ctx, None));
+    // A different PreToolUse matcher is not the certified guard.
+    std::fs::write(
+        claude.join("settings.json"),
+        settings("Bash", "pacer status --hook claude-code").to_string(),
+    )
+    .unwrap();
+    assert!(claude_hooks_warn(&ctx, None));
+    // A command that merely ends with the suffix is not an exact match.
+    std::fs::write(
+        claude.join("settings.json"),
+        settings("Agent|Task|Bash", "pacer foo status --hook claude-code").to_string(),
+    )
+    .unwrap();
+    assert!(claude_hooks_warn(&ctx, None));
+}
+
+#[test]
+fn pieces_present_reads_json_members_hooks_and_toml_tables() {
+    let json = r#"{"mcpServers":{"pacer":{"command":"pacer"}},"hooks":{"SessionStart":[{"hooks":[{"command":"pacer status --hook claude-code"}]}]}}"#;
+    assert!(pieces_present(json, &[json!({"kind": "json-member", "path": ["mcpServers", "pacer"]})]));
+    assert!(!pieces_present(json, &[json!({"kind": "json-member", "path": ["mcpServers", "missing"]})]));
+    assert!(pieces_present(json, &[json!({"kind": "json-key", "key": "mcpServers"})]));
+    assert!(pieces_present(json, &[json!({
+        "kind": "hooks", "format": "claude", "commands": ["pacer status --hook claude-code"]
+    })]));
+    let toml = "[tool.pacer]\nenabled = true\n";
+    assert!(pieces_present(toml, &[json!({"kind": "toml-table", "table": "tool.pacer"})]));
+}
+
+#[test]
 fn integration_hashes_follow_the_manifest_and_use_javascript_stringify() {
     let root = tempfile::tempdir().unwrap();
     let home = root.path();
@@ -158,5 +207,7 @@ fn integration_hashes_follow_the_manifest_and_use_javascript_stringify() {
     let hashes = integration_hashes(home);
     let map = hashes.as_object().unwrap();
     assert_eq!(map.len(), 2);
+    // sha256(JSON.stringify({planner:"codex",files:[]})), pinning the JS key order.
+    assert_eq!(map["z"], json!("6d403f63fd29dbaeb9b48666f33d18160d608d6d79e0e879172e01e3739564dd"));
     assert!(map.values().all(|value| value.as_str().is_some_and(|s| s.len() == 64)));
 }

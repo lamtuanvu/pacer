@@ -68,6 +68,8 @@ export interface Status {
 /** The computeStatus parts native status ops compose with (`_internal.status-broker.parts`). */
 export const statusBrokerParts = (status: Status) => ({
   accounts: status.accounts, providers: status.providers, policy: status.policy, calendarPace: status.calendarPace,
+  // Additive: setup facts need the same ranked/excluded view statusFacts reads.
+  executors: status.executors, planner: status.planner,
   ...(status.warnings ? { warnings: status.warnings } : {}),
 });
 

@@ -236,16 +236,23 @@ function seededDoorEnv(dir: string, forward: boolean) {
 const normalizeDoor = (value: unknown, dir: string) => JSON.parse(
   JSON.stringify(value).replaceAll(dir, "$HOME")
     .replace(/"checkedAt":\d+(\.\d+)?/g, '"checkedAt":"<now>"')
-    .replace(/"durationSeconds":\d+(\.\d+)?(e-?\d+)?/g, '"durationSeconds":"<elapsed>"')
-    // Each side seeds its own home, so `installedAt` can differ by a second.
-    .replace(/"[0-9a-f]{64}"/g, '"<hash>"'),
+    .replace(/"durationSeconds":\d+(\.\d+)?(e-?\d+)?/g, '"durationSeconds":"<elapsed>"'),
 );
 
-async function seededStdio(forward: boolean) {
+/** Both doors get the same installedAt so their integration hashes must match exactly. */
+function pinSeedTimestamps(dir: string) {
+  const path = join(dir, "home", "install-manifest.json");
+  const manifest = JSON.parse(readFileSync(path, "utf8"));
+  for (const record of Object.values(manifest.planners) as Record<string, unknown>[]) {
+    record.installedAt = 1_700_000_000;
+  }
+  writeFileSync(path, JSON.stringify(manifest));
+}
+
+async function seededStdio(forward: boolean, dir: string, seeded: boolean) {
   const { seedUi } = await import("../scripts/live/seed");
-  const dir = mkdtempSync(join(tmpdir(), "m3-b64-stdio-"));
-  try {
-    seedUi(dir);
+  if (!seeded) { seedUi(dir); pinSeedTimestamps(dir); }
+  {
     const child = spawnPinned([frontBinary!, "api", "--stdio"], {
       cwd: join(dir, "home"), env: seededDoorEnv(dir, forward), stdin: "pipe", stdout: "pipe", stderr: "pipe",
     });
@@ -263,16 +270,13 @@ async function seededStdio(forward: boolean) {
     } finally {
       if (child.exitCode === null) { child.kill("SIGTERM"); await child.exited; }
     }
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
   }
 }
 
-async function seededHttp(forward: boolean) {
+async function seededHttp(forward: boolean, dir: string, seeded: boolean) {
   const { seedUi } = await import("../scripts/live/seed");
-  const dir = mkdtempSync(join(tmpdir(), "m3-b64-http-"));
-  try {
-    seedUi(dir);
+  if (!seeded) { seedUi(dir); pinSeedTimestamps(dir); }
+  {
     const port = closedPort();
     const child = spawnPinned([frontBinary!, "serve", "--port", String(port)], {
       cwd: join(dir, "home"), env: seededDoorEnv(dir, forward), stdin: "ignore", stdout: "ignore", stderr: "pipe",
@@ -301,9 +305,14 @@ async function seededHttp(forward: boolean) {
       child.kill("SIGTERM");
       await child.exited;
     }
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
   }
+}
+
+/** Both doors use one home, so path-derived integration hashes must match exactly. */
+function resetGate(dir: string) {
+  const home = join(dir, "home");
+  rmSync(join(home, "setup-health.json"), { force: true });
+  rmSync(join(home, "diagnostics"), { recursive: true, force: true });
 }
 
 test.skipIf(!front)("seeded setup facts match forced forwarding over stdio and HTTP", async () => {
@@ -313,7 +322,14 @@ test.skipIf(!front)("seeded setup facts match forced forwarding over stdio and H
     const metadata = JSON.parse(execFileSync("cargo", ["metadata", "--no-deps", "--locked", "--format-version", "1"], { cwd: root, env }).toString());
     frontBinary = join(metadata.target_directory, "debug/pacer");
   }
-  for (const door of [seededStdio, seededHttp]) {
-    expect(await door(false)).toEqual(await door(true));
+  for (const [kind, door] of [["stdio", seededStdio], ["http", seededHttp]] as const) {
+    const dir = mkdtempSync(join(tmpdir(), `m3-b64-${kind}-`));
+    try {
+      const native = await door(false, dir, false);
+      resetGate(dir);
+      expect(await door(true, dir, true)).toEqual(native);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   }
 }, 300000);

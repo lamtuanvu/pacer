@@ -640,11 +640,6 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             let core_bridge_sync = if crate::native::needs_core_bridge(op.name) {
                 match crate::native::p8_bridge_ops::bridge_params(op.name, &params) {
                     Ok(mut bridge_params) => {
-                        if op.name == "setup.check"
-                            && let serde_json::Value::Object(map) = &mut bridge_params
-                        {
-                            map.insert("snapshotProbe".into(), serde_json::json!(false));
-                        }
                         if crate::native::setup_doctor_sync::routes(op.name) {
                             bridge_params =
                                 crate::native::setup_doctor_sync::serve_body(bridge_params);

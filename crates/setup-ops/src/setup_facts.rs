@@ -233,20 +233,129 @@ pub fn integration_hashes(pacer_home: &Path) -> Value {
     Value::Object(hashes)
 }
 
-/// `piecesPresent` (`src/install/manifest.ts:170-185`), the hash-free integrity
-/// fallback. A block marker, a TOML table header or a JSON member/key is enough;
-/// hook-command sets are not re-derived here (Diagnostics owns those probes).
+/// The TOML-table removal of `src/install/manifest.ts:58-67`: a dotted key may
+/// quote its segments, and the table is present only when removing it changes
+/// the text.
+fn remove_toml_table(raw: &str, table: &str) -> String {
+    let lines: Vec<&str> = raw.split_inclusive('\n').collect();
+    let mut names: Vec<String> = Vec::new();
+    for segment in table.split('.') {
+        names = if names.is_empty() {
+            vec![segment.to_owned(), format!("\"{segment}\"")]
+        } else {
+            names
+                .iter()
+                .flat_map(|prefix| {
+                    vec![
+                        format!("{prefix}.{segment}"),
+                        format!("{prefix}.\"{segment}\""),
+                    ]
+                })
+                .collect()
+        };
+    }
+    let headers: Vec<String> = names.into_iter().map(|name| format!("[{name}]")).collect();
+    let mut start = None;
+    for name in &headers {
+        if let Some(index) = lines.iter().position(|line| {
+            line.starts_with(name)
+                && line[name.len()..]
+                    .trim_start_matches(['\t', ' '])
+                    .trim_start_matches('#')
+                    .trim()
+                    .is_empty()
+        }) && (start.is_none() || index < start.unwrap())
+        {
+            start = Some(index);
+        }
+    }
+    let Some(start) = start else {
+        return raw.to_owned();
+    };
+    let mut end = start + 1;
+    while end < lines.len() && !lines[end].starts_with('[') {
+        end += 1;
+    }
+    lines[..start]
+        .iter()
+        .chain(lines[end..].iter())
+        .copied()
+        .collect()
+}
+
+/// `piecesPresent` (`src/install/manifest.ts:170-185`): the hash-free integrity
+/// fallback after an agent edits a managed file. Each undo op must still be
+/// visible in the file's text; the JSONC/TOML/hook readers are the same shapes
+/// the installer writes.
 fn pieces_present(raw: &str, ops: &[Value]) -> bool {
     ops.iter().all(|op| match op["kind"].as_str().unwrap_or("") {
-        "block" => raw.contains("# >>> pacer >>>") || raw.contains("# >>> pacer"),
-        "toml-table" => op["table"].as_str().is_some_and(|table| {
-            raw.lines().any(|line| line.trim_start().starts_with(&format!("[{table}]")))
-        }),
-        "json-member" | "json-key" => op["key"]
+        "block" => {
+            let marks = match op["style"].as_str().unwrap_or("") {
+                "md" => ["<!-- >>> pacer >>> -->", "<!-- <<< pacer <<< -->"],
+                _ => ["# >>> pacer >>>", "# <<< pacer <<<"],
+            };
+            raw.find(marks[0])
+                .and_then(|start| raw[start..].find(marks[1]).map(|end| start + end))
+                .is_some()
+        }
+        "toml-table" => op["table"]
             .as_str()
-            .map(|key| raw.contains(&format!("\"{key}\"")))
-            .unwrap_or(false),
-        // Undo ops without a self-contained marker cannot be proven from text.
+            .is_some_and(|table| remove_toml_table(raw, table) != raw),
+        "json-member" => {
+            let Ok(doc) = pacer_config::doc::parse_value(raw) else {
+                return false;
+            };
+            let mut node = &doc;
+            for key in op["path"].as_array().into_iter().flatten() {
+                let Some(key) = key.as_str() else {
+                    return false;
+                };
+                let Some(next) = node.get(key) else {
+                    return false;
+                };
+                node = next;
+            }
+            true
+        }
+        "json-key" => {
+            let Ok(doc) = pacer_config::doc::parse_value(raw) else {
+                return false;
+            };
+            op["key"]
+                .as_str()
+                .and_then(|key| doc.get(key))
+                .is_some()
+        }
+        "hooks" => {
+            let Ok(doc) = pacer_config::doc::parse_value(raw) else {
+                return false;
+            };
+            let commands: Vec<&str> = op["commands"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .collect();
+            op["format"].as_str().is_some_and(|format| {
+                commands.iter().all(|command| {
+                    doc["hooks"].as_object().is_some_and(|events| {
+                        events.values().any(|entries| entries.as_array().is_some_and(|entries| {
+                            entries.iter().any(|entry| {
+                                if format == "cursor" {
+                                    entry["command"].as_str() == Some(*command)
+                                } else {
+                                    entry["hooks"].as_array().is_some_and(|hooks| {
+                                        hooks
+                                            .iter()
+                                            .any(|hook| hook["command"].as_str() == Some(*command))
+                                    })
+                                }
+                            })
+                        }))
+                    })
+                })
+            })
+        }
         _ => false,
     })
 }
@@ -327,8 +436,8 @@ fn format_planner(strategy: &Value) -> Option<String> {
                 .iter()
                 .filter(|(_, value)| {
                     account_kind(candidate).is_some_and(|kind| value["kind"].as_str() == Some(kind))
-                        && value["home"].is_null()
-                        && value["orcaAccount"].is_null()
+                        && text(value.get("home")).is_none()
+                        && text(value.get("orcaAccount")).is_none()
                 })
                 .map(|(name, _)| name)
                 .collect();
@@ -435,85 +544,23 @@ fn agent_plans(ctx: &Ctx, manifest: &Value) -> Vec<Value> {
         .collect()
 }
 
-/// `statusFacts` (`src/setup/check.ts:40-42`). The status bridge carries parts,
-/// not the full status: the executor rows are rebuilt from the strategy's
-/// runners and the provider states, and the planner id comes from the strategy
-/// when the parts omit it (as `statusBrokerParts` does).
-fn status_facts(status: &Value, strategy: Option<&Value>) -> (Option<Value>, Option<Value>) {
-    let planner = status["planner"]
+/// `statusFacts` (`src/setup/check.ts:40-42`): consume the same ranked/excluded
+/// status view TypeScript reads. `statusBrokerParts` carries `executors` and
+/// `planner` additively, so Rust never re-derives `rankExecutors` (which would
+/// drift on disabled runners, aliases, eligibility and multiple routing rules).
+fn status_facts(status: &Value) -> (Option<Value>, Option<Value>) {
+    let executors = status.get("executors").filter(|value| !value.is_null()).cloned();
+    let verdict = status["planner"]
         .as_str()
-        .map(str::to_owned)
-        .or_else(|| strategy.and_then(format_planner));
-    let providers = status["providers"].as_array().cloned().unwrap_or_default();
-    let provider = |id: &str| {
-        providers
-            .iter()
-            .find(|provider| provider["id"].as_str() == Some(id))
-    };
-    let verdict = planner
-        .as_deref()
-        .and_then(provider)
-        .and_then(|provider| provider["verdict"].as_str())
-        .map(Value::from);
-    let Some(strategy) = strategy else {
-        return (None, verdict);
-    };
-    let planner_agent = strategy["planner"]["agent"].as_str().unwrap_or("");
-    let planner_account = strategy["planner"]["account"].as_str().unwrap_or("");
-    let mut ranked = Vec::new();
-    let mut excluded = Vec::new();
-    let mut ids: Vec<String> = strategy["routing"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|rule| rule["executors"].as_array())
-        .flatten()
-        .filter_map(|id| id.as_str().map(str::to_owned))
-        .collect();
-    if ids.is_empty() {
-        ids = strategy["runners"]
-            .as_object()
-            .into_iter()
-            .flat_map(|runners| runners.keys().cloned())
-            .collect();
-    }
-    for id in ids {
-        let runner = strategy["runners"].get(&id);
-        let is_planner = runner.is_some_and(|runner| {
-            runner["agent"].as_str() == Some(planner_agent)
-                && runner["account"].as_str() == Some(planner_account)
-        }) || (runner.is_none() && planner.as_deref() == Some(id.as_str()));
-        let reason = match provider(&id) {
-            None => Some("not configured".to_owned()),
-            Some(state) if is_planner => {
-                // `rankExecutors` excludes the planner runner with this reason
-                // when a routing rule names it.
-                let _ = state;
-                Some("planner".to_owned())
-            }
-            Some(state) => state["signedOutReason"]
-                .as_str()
-                .or_else(|| state["unavailableReason"].as_str())
-                .or_else(|| state["blockedReason"].as_str())
-                .map(str::to_owned)
-                .or_else(|| {
-                    state["brokenReason"]
-                        .as_str()
-                        .map(|reason| format!("Not working · {reason}"))
-                })
-                .or_else(|| {
-                    (state["installed"] == json!(false)).then(|| "not installed".to_owned())
-                }),
-        };
-        match reason {
-            Some(reason) => excluded.push(json!({"id": id, "reason": reason})),
-            None => ranked.push(json!({"id": id})),
-        }
-    }
-    (
-        Some(json!({"ranked": ranked, "excluded": excluded})),
-        verdict,
-    )
+        .and_then(|planner| {
+            status["providers"]
+                .as_array()?
+                .iter()
+                .find(|provider| provider["id"].as_str() == Some(planner))
+                .and_then(|provider| provider["verdict"].as_str())
+                .map(Value::from)
+        });
+    (executors, verdict)
 }
 
 /// `policySummary` (`src/plugins/policy.ts:78-81`): the config mode and the
@@ -566,12 +613,27 @@ async fn http_ok(port: u16, path: &str, token: Option<&str>) -> Result<bool, Str
         .await
         .map_err(error_message)?
         .map_err(error_message)?;
-    let mut bytes = Vec::new();
-    tokio::time::timeout(Duration::from_secs(2), stream.read_to_end(&mut bytes))
-        .await
-        .map_err(error_message)?
-        .map_err(error_message)?;
-    let head = String::from_utf8_lossy(&bytes);
+    // Stop at the header terminator: a keep-alive or slow body must not delay
+    // the probe (TypeScript cancels the body after the response headers).
+    let mut head_bytes = Vec::new();
+    let mut chunk = [0u8; 1024];
+    loop {
+        let count = tokio::time::timeout(Duration::from_secs(2), stream.read(&mut chunk))
+            .await
+            .map_err(error_message)?
+            .map_err(error_message)?;
+        if count == 0 {
+            break;
+        }
+        head_bytes.extend_from_slice(&chunk[..count]);
+        if head_bytes.windows(4).any(|window| window == b"\r\n\r\n") {
+            break;
+        }
+        if head_bytes.len() > 64 * 1024 {
+            break;
+        }
+    }
+    let head = String::from_utf8_lossy(&head_bytes);
     let head = head.split("\r\n\r\n").next().unwrap_or(&head);
     let mut lines = head.lines();
     let ok = lines
@@ -747,22 +809,46 @@ pub async fn setup_facts(ctx: &Ctx, snapshot_probe: bool, host: &mut dyn SetupHo
         .and_then(|(_, fix)| (!fix.is_empty()).then(|| fix.clone()));
 
     // Cached status (G2). A missing Core reply leaves the status-derived rows pending.
-    let status = host.cached_status_parts().await.unwrap_or(Value::Null);
-    let (executors, verdict) = status_facts(&status, strategy.as_ref());
+    let status = match host.cached_status_parts().await {
+        Ok(status) => status,
+        Err(error) => {
+            errors.insert("status".into(), json!(error.message));
+            Value::Null
+        }
+    };
+    let (executors, verdict) = status_facts(&status);
 
     let skipped = ctx.pacer_home.join("onboarding/skipped").exists();
-    let entries = host.plugins(ctx).await.unwrap_or_default();
-    let config = pacer_plugin_ops::config::read_config(ctx).unwrap_or_else(|_| {
-        json!({"policy":{"mode":"open"},"disabled":[],"installed":{},"config":{}})
-    });
+    let entries = match host.plugins(ctx).await {
+        Ok(entries) => entries,
+        Err(error) => {
+            errors.insert("policy".into(), json!(error.message));
+            Vec::new()
+        }
+    };
+    let config = match pacer_plugin_ops::config::read_config(ctx) {
+        Ok(config) => config,
+        Err(error) => {
+            errors.insert("policy".into(), json!(error.message));
+            json!({"policy":{"mode":"open"},"disabled":[],"installed":{},"config":{}})
+        }
+    };
 
     let mut facts = Map::new();
     facts.insert("version".into(), json!(current_version()));
+    // TS formats with `host: null`: a configured remote host is not part of the
+    // planner fact (`src/setup/check.ts:105`).
     facts.insert(
         "planner".into(),
         strategy
             .as_ref()
-            .and_then(format_planner)
+            .and_then(|strategy| {
+                let mut local = strategy.clone();
+                if let Some(planner) = local.get_mut("planner") {
+                    planner["host"] = Value::Null;
+                }
+                format_planner(&local)
+            })
             .map(Value::from)
             .or_else(|| planner.as_deref().map(Value::from))
             .unwrap_or(Value::Null),
@@ -805,16 +891,50 @@ fn recorder_key(strategy: Option<&Value>, planner: Option<&str>) -> Option<Strin
     }
 }
 
+/// `executablePresent` of `src/install/doctor-hooks.ts:29-33`.
+fn executable_present(ctx: &Ctx, command: &str) -> bool {
+    if command.contains('/') {
+        let path = Path::new(command);
+        let meta = fs::metadata(path);
+        let file = meta.as_ref().is_ok_and(|meta| meta.is_file());
+        let executable = {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                meta.as_ref().is_ok_and(|meta| meta.permissions().mode() & 0o111 != 0)
+            }
+            #[cfg(not(unix))]
+            {
+                true
+            }
+        };
+        file && executable
+    } else {
+        which(ctx, command)
+    }
+}
+
+/// `resolve` of the TS hook check: both sides of the CLAUDE_CONFIG_DIR
+/// comparison are absolute paths in the service environment.
+fn resolve_like(ctx: &Ctx, value: &str) -> PathBuf {
+    let path = Path::new(value);
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        ctx.home.join(path)
+    }
+}
+
 /// Only the "Claude hook configuration" check matters to `setupCheckFacts`:
-/// a warn level invalidates the integration. Missing/malformed settings are a
-/// warn; a synchronous SessionStart status hook plus an Agent|Task|Bash guard
-/// with the right prefix is ok. Custom commands are not certified.
+/// a warn level invalidates the integration. This mirrors
+/// `claudeHookChecks` (`src/install/doctor-hooks.ts:36-100`) exactly: the guard
+/// group's matcher, exact command equality and executable availability all
+/// participate in the verdict.
 fn claude_hooks_warn(ctx: &Ctx, strategy: Option<&Value>) -> bool {
-    let account = strategy
-        .and_then(|strategy| {
-            let name = strategy["planner"]["account"].as_str()?;
-            strategy["accounts"].get(name)
-        });
+    let account = strategy.and_then(|strategy| {
+        let name = strategy["planner"]["account"].as_str()?;
+        strategy["accounts"].get(name)
+    });
     if account.is_some_and(|account| {
         account["source"].as_str() != Some("default") && account_folder(ctx, account).is_none()
     }) {
@@ -823,8 +943,10 @@ fn claude_hooks_warn(ctx: &Ctx, strategy: Option<&Value>) -> bool {
     let folder = account
         .and_then(|account| account_folder(ctx, account))
         .unwrap_or_else(|| ctx.home.join(".claude"));
-    let override_dir = ctx.env.get("CLAUDE_CONFIG_DIR");
-    let mismatch = override_dir.is_some_and(|dir| Path::new(dir) != folder);
+    let mismatch = ctx
+        .env
+        .get("CLAUDE_CONFIG_DIR")
+        .is_some_and(|dir| resolve_like(ctx, dir) != folder);
     if mismatch {
         return true;
     }
@@ -840,50 +962,69 @@ fn claude_hooks_warn(ctx: &Ctx, strategy: Option<&Value>) -> bool {
     if settings["disableAllHooks"] == json!(true) {
         return true;
     }
-    let has = |event: &str, command_suffix: &str| -> bool {
+
+    // `prefixes` starts with pacer itself, then the pacerArgv of each installed
+    // Claude integration. A registered command whose executable is missing
+    // invalidates the check even when another prefix matches.
+    let mut prefixes: Vec<(String, bool)> =
+        vec![("pacer".to_owned(), executable_present(ctx, "pacer"))];
+    if let Ok(manifest) = read_manifest(&ctx.pacer_home)
+        && let Some(planners) = manifest["planners"].as_object()
+    {
+        for record in planners.values() {
+            if record["planner"].as_str().is_some_and(|id| id.starts_with("claude-code")) {
+                let argv = record["pacerArgv"].as_array().cloned().unwrap_or_default();
+                let prefix = argv
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                let available = executable_present(ctx, argv.first().and_then(Value::as_str).unwrap_or("pacer"));
+                if let Some(entry) = prefixes.iter_mut().find(|entry| entry.0 == prefix) {
+                    entry.1 = available;
+                } else {
+                    prefixes.push((prefix, available));
+                }
+            }
+        }
+    }
+
+    let missing = std::cell::Cell::new(false);
+    let has = |event: &str, suffix: &str, matcher: Option<&str>| -> bool {
         settings["hooks"][event].as_array().is_some_and(|groups| {
             groups.iter().any(|group| {
-                group["hooks"].as_array().is_some_and(|hooks| {
-                    hooks.iter().any(|hook| {
-                        hook["type"].as_str() == Some("command")
-                            && hook["async"] != json!(true)
-                            && hook["command"].as_str().is_some_and(|command| {
-                                command.ends_with(command_suffix)
-                                    && (command.starts_with("pacer ")
-                                        || is_executable_prefix(ctx, command))
-                            })
+                let group_matches = match matcher {
+                    Some(expected) => group["matcher"].as_str() == Some(expected),
+                    None => group["matcher"]
+                        .as_str()
+                        .is_none_or(|value| value.is_empty() || value == "*"),
+                };
+                group_matches
+                    && group["hooks"].as_array().is_some_and(|hooks| {
+                        hooks.iter().any(|hook| {
+                            hook["type"].as_str() == Some("command")
+                                && hook["async"] != json!(true)
+                                && hook["command"].as_str().is_some_and(|command| {
+                                    prefixes.iter().any(|(prefix, available)| {
+                                        if command == format!("{prefix} {suffix}") {
+                                            if !available {
+                                                missing.set(true);
+                                            }
+                                            *available
+                                        } else {
+                                            false
+                                        }
+                                    })
+                                })
+                        })
                     })
-                })
             })
         })
     };
-    let session = has("SessionStart", "status --hook claude-code")
-        || has("SessionStart", "msg hook session --planner claude-code");
-    let guard = has("PreToolUse", "guard --planner claude-code");
-    !(session && guard)
-}
-
-/// A manifest-recorded `pacerArgv[0]` prefix, when that executable is present.
-fn is_executable_prefix(ctx: &Ctx, command: &str) -> bool {
-    let prefix = command.split_whitespace().next().unwrap_or("");
-    if prefix.is_empty() {
-        return false;
-    }
-    if which(ctx, prefix) {
-        return true;
-    }
-    let Ok(manifest) = read_manifest(&ctx.pacer_home) else {
-        return false;
-    };
-    manifest["planners"]
-        .as_object()
-        .is_some_and(|planners| {
-            planners.values().any(|record| {
-                record["planner"].as_str() == Some("claude-code")
-                    && record["pacerArgv"][0].as_str() == Some(prefix)
-                    && which(ctx, prefix)
-            })
-        })
+    let session = has("SessionStart", "status --hook claude-code", None)
+        || has("SessionStart", "msg hook session --planner claude-code", None);
+    let guard = has("PreToolUse", "guard --planner claude-code", Some("Agent|Task|Bash"));
+    !(session && guard && !missing.get())
 }
 
 #[cfg(test)]
