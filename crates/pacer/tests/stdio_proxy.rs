@@ -1,9 +1,13 @@
 #![allow(clippy::unwrap_used)]
+use serde_json::{Value, json};
 use std::{
     fs,
     io::{BufRead, BufReader, Read, Write},
     os::unix::fs::PermissionsExt,
-    process::{Command, Output, Stdio},
+    process::{Child, ChildStdin, Command, Output, Stdio},
+    sync::mpsc,
+    thread,
+    time::{Duration, Instant},
 };
 #[path = "support/keychain_stub.rs"]
 mod keychain_stub;
@@ -157,17 +161,23 @@ fn forwards_hello_ops_and_events_unchanged() {
         let mut lines: Vec<serde_json::Value> = bytes
             .split(|b| *b == b'\n')
             .filter(|line| !line.is_empty())
-            .map(|line| serde_json::from_slice(line).unwrap())
+            .map(|line| serde_json::from_slice::<serde_json::Value>(line).unwrap())
+            // Event notifications have no id, so their arrival order against
+            // id:null replies is not significant; compare the five replies.
+            .filter(|line| line["method"] != "event")
             .collect();
         lines.sort_by_key(|line| line["id"].to_string());
         lines
     };
     assert_eq!(parse(&actual.stdout), parse(&expected.stdout));
-    assert_eq!(parse(&actual.stdout).len(), 6);
+    assert_eq!(parse(&actual.stdout).len(), 5);
     assert!(String::from_utf8_lossy(&actual.stderr).contains("native hello 1"));
     assert!(
-        parse(&actual.stdout)
-            .iter()
+        actual
+            .stdout
+            .split(|byte| *byte == b'\n')
+            .filter(|line| !line.is_empty())
+            .map(|line| serde_json::from_slice::<serde_json::Value>(line).unwrap())
             .any(|line| line["method"] == "event")
     );
 }
@@ -438,4 +448,277 @@ fn enforcement_and_assistant_identities_are_authorized_by_the_core_alone() {
             assert!(stderr.contains("an assistant grant only allows the MCP server"));
         }
     }
+}
+
+/// A Core double: it consumes the secrets frame, records every request line and
+/// answers only the snapshot probe bridge. It stays alive briefly after EOF so
+/// a subscription whose timer was not cleared would emit another event.
+fn recording_core(home: &std::path::Path, parts: &Value) -> (Vec<String>, std::path::PathBuf) {
+    let script = home.join("core-double");
+    let parts_file = home.join("snapshot-parts.json");
+    let record = home.join("core-input.jsonl");
+    fs::write(&parts_file, serde_json::to_string(parts).unwrap()).unwrap();
+    fs::write(
+        &script,
+        r#"#!/bin/sh
+PARTS="$1"
+RECORD="$2"
+IFS= read -r header || exit 11
+dd bs=1 count="${header#pacer-core-secrets/1 }" of=/dev/null 2>/dev/null || exit 13
+while IFS= read -r line; do
+  printf '%s\n' "$line" >> "$RECORD"
+  case "$line" in
+    *'"_internal.snapshot-probe.parts"'*)
+      id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+      printf '{"jsonrpc":"2.0","id":"%s","result":%s}\n' "$id" "$(cat "$PARTS")"
+      ;;
+  esac
+done
+sleep 2
+"#,
+    )
+    .unwrap();
+    fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+    (
+        vec![
+            script.to_string_lossy().into_owned(),
+            parts_file.to_string_lossy().into_owned(),
+            record.to_string_lossy().into_owned(),
+        ],
+        record,
+    )
+}
+
+fn snapshot_parts() -> Value {
+    json!({
+        "revision": "abc",
+        "active": [],
+        "alivePids": [],
+        "setup": {"open": 0, "items": []},
+        "policy": {},
+        "machine": {"os": "darwin", "arch": "arm64"},
+        "service": {"version": "0.0.0", "protocol": "3.0.0", "pid": 1, "startedAt": 0, "notifier": null},
+        "desktopUpdates": [],
+        "serviceInstalled": false,
+        "canPair": true,
+        "status": {"generatedAt": 1.0, "strategy": "s", "planner": "p", "mode": "normal", "disabled": false, "calendarPace": false, "providers": [], "executors": {"ranked": [], "excluded": []}},
+    })
+}
+
+fn seed_event(home: &std::path::Path) {
+    fs::create_dir_all(home.join("link")).unwrap();
+    fs::write(
+        home.join("link/outbox.jsonl"),
+        "{\"seq\":1,\"at\":123,\"envelope\":{\"type\":\"mode\",\"data\":{\"mode\":\"normal\",\"previous\":null,\"strategy\":\"test\",\"at\":123}}}\n",
+    )
+    .unwrap();
+}
+
+/// A door whose stdout lines are collected so requests can be interleaved with reads.
+struct Interactive {
+    child: Child,
+    stdin: ChildStdin,
+    lines: mpsc::Receiver<Value>,
+    stderr: thread::JoinHandle<String>,
+    collected: Vec<Value>,
+}
+
+impl Interactive {
+    fn start(mut command: Command) -> Self {
+        let mut child = command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let stdin = child.stdin.take().unwrap();
+        let stdout = child.stdout.take().unwrap();
+        let mut stderr = child.stderr.take().unwrap();
+        let (tx, lines) = mpsc::channel();
+        thread::spawn(move || {
+            for line in BufReader::new(stdout).lines() {
+                let line = line.unwrap();
+                if let Ok(value) = serde_json::from_str::<Value>(&line) {
+                    if tx.send(value).is_err() {
+                        break;
+                    }
+                }
+            }
+        });
+        let stderr = thread::spawn(move || {
+            let mut bytes = Vec::new();
+            let _ = stderr.read_to_end(&mut bytes);
+            String::from_utf8_lossy(&bytes).into_owned()
+        });
+        Self {
+            child,
+            stdin,
+            lines,
+            stderr,
+            collected: Vec::new(),
+        }
+    }
+
+    fn send(&mut self, value: Value) {
+        writeln!(self.stdin, "{}", serde_json::to_string(&value).unwrap()).unwrap();
+        self.stdin.flush().unwrap();
+    }
+
+    fn wait_for<F: Fn(&Value) -> bool>(&self, accept: F, timeout: Duration) -> Option<Value> {
+        let deadline = Instant::now() + timeout;
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return None;
+            }
+            match self.lines.recv_timeout(remaining) {
+                Ok(value) => {
+                    if accept(&value) {
+                        return Some(value);
+                    }
+                }
+                Err(_) => return None,
+            }
+        }
+    }
+
+    fn drain(mut self) -> (Vec<Value>, String, i32) {
+        drop(self.stdin);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while Instant::now() < deadline {
+            match self.lines.recv_timeout(Duration::from_millis(100)) {
+                Ok(value) => self.collected.push(value),
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    if self.child.try_wait().unwrap().is_some() {
+                        break;
+                    }
+                }
+            }
+        }
+        let status = match self.child.try_wait().unwrap() {
+            Some(status) => status,
+            None => {
+                self.child.kill().unwrap();
+                self.child.wait().unwrap()
+            }
+        };
+        let stderr = self.stderr.join().unwrap();
+        (self.collected, stderr, status.code().unwrap_or(1))
+    }
+}
+
+#[test]
+fn subscribe_streams_events_without_core_and_stops_at_eof() {
+    let home = tempfile::tempdir().unwrap();
+    seed_event(home.path());
+    let (core, record) = recording_core(home.path(), &snapshot_parts());
+    let mut session = Interactive::start(proxy(&core, home.path()));
+    session.send(json!({"jsonrpc":"2.0","id":1,"method":"hello","params":{"protocol":3}}));
+    session.send(json!({"jsonrpc":"2.0","id":2,"method":"subscribe","params":{"since":0}}));
+    let first = session.wait_for(|line| line["method"] == "event", Duration::from_secs(3));
+    assert!(first.is_some(), "no event notification arrived");
+    assert_eq!(first.unwrap()["params"]["type"], "mode");
+    // Keep stdin open: a timer that was not cleared would replay the event at 500 ms.
+    assert!(
+        session
+            .wait_for(|line| line["method"] == "event", Duration::from_millis(1200))
+            .is_none(),
+        "a duplicate event arrived while the subscription was live"
+    );
+    let (lines, stderr, code) = session.drain();
+    assert_eq!(code, 0, "{stderr}");
+    assert_eq!(
+        lines.iter().filter(|line| line["method"] == "event").count(),
+        0,
+        "an event arrived after EOF cleared the timer"
+    );
+    let recorded = fs::read_to_string(&record).unwrap_or_default();
+    assert!(!recorded.contains("\"subscribe\""), "subscribe reached Core: {recorded}");
+    assert!(!recorded.contains("\"snapshot\""), "snapshot reached Core: {recorded}");
+}
+
+#[test]
+fn subscribe_rejects_a_negative_since_like_typescript() {
+    let home = tempfile::tempdir().unwrap();
+    let (core, record) = recording_core(home.path(), &snapshot_parts());
+    let input = b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"hello\",\"params\":{\"protocol\":3}}\n{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"subscribe\",\"params\":{\"since\":-1}}\n{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"subscribe\",\"params\":{\"since\":1.5}}\n".to_vec();
+    let output = exchange(proxy(&core, home.path()), input);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let lines: Vec<Value> = output
+        .stdout
+        .split(|byte| *byte == b'\n')
+        .filter(|line| !line.is_empty())
+        .map(|line| serde_json::from_slice(line).unwrap())
+        .collect();
+    for id in [2, 3] {
+        let reply = lines.iter().find(|line| line["id"] == id).unwrap();
+        assert_eq!(reply["error"]["code"], -32602, "{reply}");
+        assert_eq!(reply["error"]["data"]["code"], "invalid_input", "{reply}");
+        assert_eq!(reply["error"]["message"], "since must be a non-negative integer", "{reply}");
+    }
+    let recorded = fs::read_to_string(&record).unwrap_or_default();
+    assert!(!recorded.contains("\"subscribe\""), "subscribe reached Core: {recorded}");
+}
+
+#[test]
+fn hello_resets_the_subscription() {
+    let home = tempfile::tempdir().unwrap();
+    seed_event(home.path());
+    let (core, _record) = recording_core(home.path(), &snapshot_parts());
+    let mut session = Interactive::start(proxy(&core, home.path()));
+    session.send(json!({"jsonrpc":"2.0","id":1,"method":"hello","params":{"protocol":3}}));
+    session.send(json!({"jsonrpc":"2.0","id":2,"method":"subscribe","params":{"since":0}}));
+    assert!(
+        session
+            .wait_for(|line| line["method"] == "event", Duration::from_secs(3))
+            .is_some(),
+        "the first subscription did not stream"
+    );
+    // A changed protocol clears the timer, as in stdio.ts:336.
+    session.send(json!({"jsonrpc":"2.0","id":3,"method":"hello","params":{"protocol":2}}));
+    assert!(
+        session
+            .wait_for(|line| line["method"] == "event", Duration::from_millis(1200))
+            .is_none(),
+        "hello did not stop the event timer"
+    );
+    session.send(json!({"jsonrpc":"2.0","id":4,"method":"subscribe","params":{"since":0}}));
+    assert!(
+        session
+            .wait_for(|line| line["method"] == "event", Duration::from_secs(3))
+            .is_some(),
+        "a fresh subscribe after hello did not stream"
+    );
+    let (_, stderr, code) = session.drain();
+    assert_eq!(code, 0, "{stderr}");
+}
+
+#[test]
+fn snapshot_v2_and_v3_shapes() {
+    let home = tempfile::tempdir().unwrap();
+    let (core, record) = recording_core(home.path(), &snapshot_parts());
+    let input = b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"hello\",\"params\":{\"protocol\":3}}\n{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"snapshot\"}\n{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"hello\",\"params\":{\"protocol\":2}}\n{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"snapshot\"}\n".to_vec();
+    let output = exchange(proxy(&core, home.path()), input);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let lines: Vec<Value> = output
+        .stdout
+        .split(|byte| *byte == b'\n')
+        .filter(|line| !line.is_empty())
+        .map(|line| serde_json::from_slice(line).unwrap())
+        .collect();
+    let v3 = lines.iter().find(|line| line["id"] == 2).unwrap();
+    assert_eq!(v3["result"]["protocol"], "3.0.0", "{v3}");
+    assert!(v3["result"]["snapshot"]["runs"].is_array(), "{v3}");
+    assert!(v3["result"]["snapshot"]["desktopUpdates"].is_array(), "{v3}");
+    let v2 = lines.iter().find(|line| line["id"] == 4).unwrap();
+    assert_eq!(v2["result"]["protocol"], "2.8.0", "{v2}");
+    assert!(v2["result"]["snapshot"].get("runs").is_none(), "{v2}");
+    let recorded = fs::read_to_string(&record).unwrap_or_default();
+    assert!(!recorded.contains("\"snapshot\""), "snapshot reached Core: {recorded}");
+    assert_eq!(
+        recorded.matches("_internal.snapshot-probe.parts").count(),
+        2,
+        "{recorded}"
+    );
 }
