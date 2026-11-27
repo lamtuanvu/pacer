@@ -89,7 +89,7 @@ fn without_marker(name: &str) -> &str {
     let Some(open) = name.rfind('(') else {
         return name;
     };
-    if !name.ends_with(')') || open + 1 > name.len() - 1 {
+    if !name.ends_with(')') {
         return name;
     }
     let inner = &name[open + 1..name.len() - 1];

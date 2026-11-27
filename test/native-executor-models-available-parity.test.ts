@@ -21,6 +21,7 @@ const STRATEGY = `planner: claude-code
 accounts:
   claude: {kind: claude}
   codex: {kind: codex}
+  work: {kind: codex, home: ~/codex-work}
   cursor: {kind: cursor}
   agy: {kind: agy}
   acme:
@@ -38,6 +39,7 @@ ${["fresh", "odd", "stale", "fail", "empty", "lone", "miss", "hang"].map(n => ` 
 runners:
   claude-code: {}
   codex: {}
+  codex#work: {}
   cursor: {}
   agy: {}
   opencode#acme: {model: pacer-acme/a}
@@ -53,7 +55,7 @@ const CATALOG = JSON.stringify({ fetchedAt: 1, providers: {
 } });
 const SEEDED = Math.floor(Date.now() / 1000) - 5;
 
-interface Setup { mode?: "list" | "empty" | "fail" | "hang"; models?: string; agent?: "cursor-agent" | "agy"; codex?: string | null }
+interface Setup { mode?: "list" | "empty" | "fail" | "hang"; models?: string; agent?: "cursor-agent" | "agy"; codex?: string | null; codexDir?: string }
 type Step = [op: string, params: unknown, native: boolean, setup?: Setup, contains?: string];
 
 function cachePath(home: string, runner: string) {
@@ -80,7 +82,7 @@ function makeHome(): string {
 
 function configure(home: string, setup: Setup) {
   if (setup.codex !== undefined) {
-    const dir = join(home, ".codex");
+    const dir = join(home, setup.codexDir ?? ".codex");
     if (setup.codex === null) rmSync(dir, { recursive: true, force: true });
     else { mkdirSync(dir, { recursive: true }); writeFileSync(join(dir, "models_cache.json"), setup.codex); }
     return;
@@ -218,6 +220,9 @@ const STEPS: Step[] = [
   ["executor.models.available", available("codex", { refresh: true }), true, { codex: "{garbage" }],
   ["executor.models.available", available("codex"), true, { codex: '{"models":[{"slug":"h","visibility":"hide"}]}' }],
   ["executor.models.available", available("codex"), true, { codex: null }],
+  // A named account reads its own folder, not ~/.codex.
+  ["executor.models.available", available("codex#work"), true],
+  ["executor.models.available", available("codex#work"), true, { codex: CODEX_CACHE, codexDir: "codex-work" }],
   // Cursor and Antigravity run their CLI once, then serve the cache until a refresh.
   ["executor.models.available", available("cursor"), true],
   ["executor.models.available", available("cursor"), true],
