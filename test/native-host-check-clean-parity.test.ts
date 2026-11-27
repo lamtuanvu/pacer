@@ -108,7 +108,7 @@ function world() {
     planner: "claude-code", hosts: {box: {ssh: "box-ssh", repos: {"github.com/o/r": checkout}, accounts: {team: {home: "~/.codex-team"}}}},
     routing: [{default: ["codex@box", "codex#team@box", "codex"]}],
     // Serve's start-up clean sweep removes host worktrees over SSH, with pauses that can outlast `quiet`.
-    execution: {autoClean: false},
+    execution: {auto_clean: false},
   }));
   const ctx = fakeCtx({home, pacerHome});
   const remoteTask = (taskRepo: string, state: "done" | "running", received: boolean) => {
@@ -406,6 +406,10 @@ describe("HTTP front door", () => {
 
     const native = await scenarios(w);
     const forwarded = await scenarios(w, FORWARD);
+    // A sweep that crashes also runs no SSH, so the start-up check below needs it switched off, not broken.
+    for (const run of [enforcement.native, enforcement.forwarded, native, forwarded]) {
+      expect(run.trace).not.toContain("automatic cleanup failed");
+    }
     expect(native.out).toEqual(forwarded.out);
 
     expect(native.trace).toContain("native host.check");

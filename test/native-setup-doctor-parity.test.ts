@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { callOp } from "../src/api/ops";
 import { toApiError } from "../src/api/errors";
 import { setupDoctorBridge } from "../src/api/setup-doctor-bridge";
@@ -80,9 +81,10 @@ async function exchange(dir: string, cases: [string, unknown][], forward: boolea
 }
 
 /** The repair a gate report adds when serve's own measured link latency misses its target. */
-function isLinkRepair(item: any) {
-  return item?.kind === "remedy" && item.check === "Link latency" && item.remedy?.kind === "agent" && item.remedy.op === "doctor.fix.delegate";
-}
+const LINK_REPAIR = {
+  kind: "remedy", label: "Fix with agent", check: "Link latency",
+  remedy: { kind: "agent", label: "Fix with agent", op: "doctor.fix.delegate", params: { check: "Link latency", scope: "fix" } },
+};
 
 /**
  * Replies with this home, wall-clock times, the gate's run time, the serve owner's pid and the measured link
@@ -95,15 +97,14 @@ function normalize(value: unknown, dir: string, served = false) {
     .replace(/"checkedAt":\d+(\.\d+)?/g, '"checkedAt":"<now>"')
     .replace(/"durationSeconds":\d+(\.\d+)?(e-?\d+)?/g, '"durationSeconds":"<elapsed>"')
     .replace(/owner pid \d+/g, "owner pid <pid>"), (_key, item) => {
-    if (served && Array.isArray(item)) return item.filter(entry => !isLinkRepair(entry));
+    if (served && Array.isArray(item)) return item.filter(entry => !isDeepStrictEqual(entry, LINK_REPAIR));
     if (!(item && typeof item === "object" && item.name === "Link latency" && /^\/v2\/snapshot max [\d.]+ ms /.test(item.detail))) return item;
     const { remedy: _remedy, ...check } = item;
     return { ...check, level: "<measured>", detail: item.detail.replace(/max [\d.]+ ms/, "max <ms> ms") };
   });
 }
 
-const stored = (dir: string, served = false) =>
-  normalize(JSON.parse(readFileSync(join(dir, ".pacer", "setup-health.json"), "utf8")), dir, served);
+const stored = (dir: string) => normalize(JSON.parse(readFileSync(join(dir, ".pacer", "setup-health.json"), "utf8")), dir);
 
 const ERRORS: [string, unknown][] = [
   ["setup.check", 5], ["setup.check", "s"], ["setup.check", []],
@@ -227,7 +228,7 @@ test.skipIf(!front)("HTTP doctor and health reports, errors and refusals match f
       await server.post("setup.check", {}, server.bearer),
       await server.post("setup.check", { extra: 1 }, server.bearer),
     ];
-    results.push({ bodies: normalize(bodies, dir, true), markers: await server.stop(), stored: stored(dir, true) });
+    results.push({ bodies: normalize(bodies, dir, true), markers: await server.stop(), stored: stored(dir) });
   }
   expect(results[0]!.bodies).toEqual(results[1]!.bodies);
   expect(results[0]!.stored).toEqual(results[1]!.stored);
