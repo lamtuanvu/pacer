@@ -349,7 +349,7 @@ function answerOverlayKey(
     }
     return finish(current.value);
   }
-  if (/^[1-9]$/.test(key) && overlay.mode !== "multi") {
+  if (/^[1-9]$/.test(key) && overlay.mode !== "multi" && overlay.mode !== "yes_no") {
     const option = overlay.options[Number(key) - 1];
     if (!option) return { state };
     const rejected = optionValueRejected(option.value);

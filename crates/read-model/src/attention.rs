@@ -354,11 +354,7 @@ fn option_choice_actions(
 /// A human step decides what the run does next (publishing included): every one-click
 /// answer to it asks first. Mirrors the TS `runQuestionActions` confirm.
 fn confirm_human_answers(actions: &mut Value, text_body: &str) {
-    let asked = clip_code_points(
-        &collapsed_question_text(text_body),
-        FULL_QUESTION_CLIP,
-        true,
-    );
+    let asked = collapsed_question_text(text_body);
     for action in actions.as_array_mut().into_iter().flatten() {
         let Some(action) = action.as_object_mut() else {
             continue;
@@ -475,17 +471,9 @@ fn run_question_detail(
     answer_type: &str,
     options: Option<&[Value]>,
     recommended: Option<&str>,
-    id: &str,
     run_subject: &str,
-    actions: &Value,
     question_text: &str,
 ) -> String {
-    let action_count = actions.as_array().map_or(0, Vec::len);
-    let first_label = actions
-        .as_array()
-        .and_then(|arr| arr.first())
-        .and_then(|a| a.get("label"))
-        .and_then(|v| v.as_str());
     let mut parts: Vec<String> = Vec::new();
     parts.push(format!("{run_subject}."));
     parts.push(format!("{}.", asker_cue(asker_kind)));
@@ -716,9 +704,7 @@ pub fn run_question_items(ctx: &Ctx) -> Vec<Value> {
             &answer_type,
             parsed_options.as_deref(),
             recommended_val.as_deref(),
-            &id,
             &detail_subject,
-            &actions,
             &text_body,
         );
         let mut question = Map::new();

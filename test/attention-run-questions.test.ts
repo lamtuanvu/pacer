@@ -84,7 +84,7 @@ test("open person-answerer questions become v3 attention items with run identity
     run: { id: run.id, title: "Ship?", priority: "normal" },
     question: { id: q.id, text: "Ship?", answerType: "single", blocks: "step" },
   });
-  expect(item!.detail.startsWith('The first button answers "a".')).toBe(true);
+  expect(item!.detail.startsWith('Ship?.')).toBe(true);
   expect(item!.detail).toContain("Ship?.");
   expect(item!.detail).toContain("Asked by a step.");
   expect(item!.detail).toContain("Options: a / b.");

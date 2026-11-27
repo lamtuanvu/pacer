@@ -22,7 +22,7 @@ const NO_REPLY: Record<string, string> = {
   held: "the message waits for human confirmation (pacer msg confirm)",
   live_unavailable: "the conversation has ended; the message stays pending",
 };
-const holdWords = (reason: string) => reason === PLANNER_HOLD ? `held: ${reason}` : `held by project policy: ${reason}`;
+const holdWords = (reason: string) => reason === PLANNER_HOLD ? reason : `held by project policy: ${reason}`;
 const MSG_USAGE = "usage: pacer msg send|inbox|log|read|confirm|close|policy|hook";
 
 // In-process on purpose: the sender identity comes from this process's environment,

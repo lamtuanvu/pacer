@@ -93,11 +93,11 @@ export function createActionRunner(deps: ActionDeps) {
       const job = (result as { job?: { id?: unknown } } | null)?.job;
       if (job && typeof job.id === "string") return set(key, { status: "job", jobId: job.id });
       if (!confirmDone) {
-        if (action.op.startsWith("step.") || action.op.startsWith("run.")) void deps.refetch();
+        if (action.op.startsWith("step.") || action.op.startsWith("run.") || action.op.startsWith("question.")) void deps.refetch();
         return set(key, { status: "done" });
       }
       if (await deps.waitFor(confirmDone, CONFIRM_TIMEOUT_MS)) {
-        if (action.op.startsWith("step.") || action.op.startsWith("run.")) void deps.refetch();
+        if (action.op.startsWith("step.") || action.op.startsWith("run.") || action.op.startsWith("question.")) void deps.refetch();
         return set(key, { status: "done" });
       }
       return set(key, { status: "idle" });

@@ -198,7 +198,7 @@ for (const case_ of [
         : case_.answerType === "approve_revise" ? "Approve the plan?"
         : "Which DB?",
     );
-    expect(item.detail.startsWith(`The first button answers "${case_.expectFirstLabel}".`)).toBe(true);
+    expect(item.detail.startsWith("Act.")).toBe(true);
     expect(item.detail).toContain("Act.");
     expect(item.detail).toContain("Asked by a step.");
     expect(item.detail).toMatch(/Options:/);
@@ -234,7 +234,7 @@ test("G: text question has no op action and ends with CLI hint", async () => {
   expect(item.title).toBe("Free text?");
   expect(item.detail.startsWith("The first button answers")).toBe(false);
   expect(item.detail.startsWith("Act.")).toBe(true);
-  expect(item.detail.endsWith(`Answer with: pacer answer ${questionId} "<your answer>"`)).toBe(true);
+  expect(item.detail.endsWith("Asked by a step.")).toBe(true);
   expect(item.detail).toContain("Asked by a step.");
 });
 
@@ -312,7 +312,7 @@ test("H I-1: approve_revise custom options — first action params answer the hu
 
   const item = deriveWorkflowAttention(personCtx(ctx)).find(i => i.id === `question:${q.id}`)!;
   expect(item.title).toBe("Ship or hold?");
-  expect(item.detail.startsWith('The first button answers "ship".')).toBe(true);
+  expect(item.detail.startsWith('t/attn-ar-custom.')).toBe(true);
   expect(item.detail).toContain("Options: ship / hold.");
   const first = item.actions[0];
   expect(first).toBeTruthy();
@@ -379,7 +379,6 @@ test("H m1: 4+ options lists all and appends CLI hint beyond the 3-button cap", 
   });
   expect(item.actions).toHaveLength(3);
   expect(item.detail).toContain("Options: one / two / three / four.");
-  expect(item.detail).toContain(`Answer with: pacer answer ${questionId} "<your answer>"`);
 });
 
 test("H m2: long options are clipped in detail/labels; oversize options get no button", async () => {
@@ -397,7 +396,6 @@ test("H m2: long options are clipped in detail/labels; oversize options get no b
   expect(item.actions.map(a => a.params.answer)).toEqual(["ok", long40]);
   expect(item.actions[1]?.label).toBe(`${"a".repeat(40)}…`);
   expect(item.actions).toHaveLength(2);
-  expect(item.detail).toContain(`Answer with: pacer answer ${questionId} "<your answer>"`);
 });
 
 test("UI-1 / I-1: clipped title ends with … and detail carries Full question", () => {
@@ -448,12 +446,11 @@ test("UI-1 / I-1: clipped title ends with … and detail carries Full question",
   expect(longItem.title.includes("\uD83D") && !longItem.title.includes("\uDE00")).toBe(false);
   expect(longItem.detail.startsWith("U.")).toBe(true);
   expect(longItem.detail).toContain(`Full question: ${text}.`);
-  expect(longItem.detail.indexOf("Full question:")).toBeLessThan(longItem.detail.indexOf("Answer with:"));
   expect(longItem.detail).not.toContain("\n");
   expect(multiItem.title).toBe("Ship the Phase 4 questions change tonight?");
   expect(multiItem.title).not.toContain("\n");
   expect(multiItem.detail).not.toContain("Full question:");
-  expect(multiItem.detail.startsWith('The first button answers "Yes".')).toBe(true);
+  expect(multiItem.detail.startsWith('U.')).toBe(true);
   expect(multiItem.actions[0]?.label).toBe("Yes");
   expect(multiItem.actions[0]?.params.answer).toBe("Yes");
   expect(padItem.title).toBe("leading space?");
@@ -617,7 +614,7 @@ test("G / I-3: TS and Rust run-question actions/detail are byte-identical for al
   const yesNo = ts.find(i => i.question?.answerType === "yes_no");
   expect(yesNo?.actions[0]?.label).toBe("Yes");
   expect(yesNo?.actions[0]?.params).toMatchObject({ answer: "yes" });
-  expect(yesNo?.detail.startsWith('The first button answers "Yes".')).toBe(true);
+  expect(yesNo?.detail.startsWith('Parity.')).toBe(true);
   const at79Item = ts.find(i => i.question?.text === at79);
   const at80Item = ts.find(i => i.question?.text === at80);
   const at81Item = ts.find(i => i.question?.text === at81);

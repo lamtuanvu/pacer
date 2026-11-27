@@ -252,7 +252,7 @@ function overlayLines(input: FrameInput, overlay: Overlay, view: ScreenView, wid
     case "answer": {
       const lines: Line[] = [];
       // Question body in the box (title alone is clipped); bound wrap depth (N6).
-      const bodyLines = wrap(overlay.title, w - 4, 6).map((wline): Line => [span(wline, { fg: "secondary" })]);
+      const bodyLines = wrap(overlay.title, w - 4).map((wline): Line => [span(wline, { fg: "secondary" })]);
       if (overlay.recommended) lines.push([span(`Recommended: ${overlay.recommended}`, { fg: "good" })]);
       if (overlay.phase === "text" || overlay.phase === "note") {
         const max = overlay.phase === "note" ? QUESTION_NOTE_MAX : QUESTION_ANSWER_MAX;

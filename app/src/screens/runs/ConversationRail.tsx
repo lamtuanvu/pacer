@@ -5,6 +5,7 @@ import { Field, TextArea } from "../../ds/Controls";
 import { Pill } from "../../ds/Pill";
 import { clock } from "../../../../src/view-model/time";
 import { questionStatusLabel, RUN_MESSAGES_ERROR, RUN_MESSAGE_SEND_ERROR } from "../../../../src/view-model/runs";
+import { messageDeliveryWords } from "../../../../src/view-model/words";
 import type { RailEntry } from "../../../../src/view-model/run-board";
 
 const QUESTION_TONE: Record<string, "warn" | "good" | "neutral"> = { open: "warn", answered: "good" };
@@ -18,7 +19,7 @@ export function ConversationRail({ entries, now, canMessage, onSend, messagesErr
   now: number;
   /** The planner can take a message: the run has an orchestrator task and the service offers msg.send. */
   canMessage: boolean;
-  onSend: (body: string) => Promise<void>;
+  onSend: (body: string) => Promise<unknown>;
   /** The message log could not be read, so entries may miss messages. */
   messagesError?: boolean;
 }) {
@@ -34,7 +35,11 @@ export function ConversationRail({ entries, now, canMessage, onSend, messagesErr
     // The button disables while sending; keep keyboard focus in the message box instead of dropping it.
     box.current?.focus({ preventScroll: true });
     setBusy(true); setError(""); setSent("");
-    try { await onSend(text); setBody(""); setSent("Message sent to the planner."); }
+    try {
+      const result = await onSend(text) as { delivery?: string; hold?: { reason?: unknown } } | null | undefined;
+      setBody("");
+      setSent(messageDeliveryWords(result?.delivery, result?.hold));
+    }
     catch (e) {
       console.warn("runs: message send failed", e);
       setError(RUN_MESSAGE_SEND_ERROR);
