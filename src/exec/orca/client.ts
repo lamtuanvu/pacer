@@ -1,6 +1,7 @@
 import type { RunFn } from "../../types";
 import { isObj } from "../../util";
 import { sanitizedOrcaEnv } from "../attestation-env";
+import { typedText } from "../../session/typed-text";
 export { sanitizedOrcaEnv } from "../attestation-env";
 
 export interface OrcaError { code: string; message: string }
@@ -146,7 +147,7 @@ export class OrcaClient {
     return this.call<{ terminal?: { source?: string; tail?: string[] } }>(["terminal", "read", "--terminal", handle, "--screen", "--limit", String(limit)]);
   }
   terminalClose(handle: string) { return this.call<Record<string, unknown>>(["terminal", "close", "--terminal", handle]); }
-  terminalSend(handle: string, text: string) { return this.call<Record<string, unknown>>(["terminal", "send", "--terminal", handle, "--text", text, "--enter"]); }
+  terminalSend(handle: string, text: string) { return this.call<Record<string, unknown>>(["terminal", "send", "--terminal", handle, "--text", typedText(text), "--enter"]); }
   terminalEnter(handle: string) { return this.call<Record<string, unknown>>(["terminal", "send", "--terminal", handle, "--enter"]); }
   runCreate(objective: string, from: string) {
     return this.call<{ run: RunRow }>(["orchestration", "run-create", "--objective", objective, "--from", from]);

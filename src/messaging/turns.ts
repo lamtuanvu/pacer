@@ -28,6 +28,8 @@ import { budgetAllowsMessage, countMessageTurn } from "../workflow/budget";
 import { runIdForParticipant } from "./run-route";
 import { turnPlanner } from "../workflow/turn-planner";
 import { isPlannerTask } from "../workflow/live-answer";
+import { randomBytes } from "node:crypto";
+import { dataPreamble } from "../workflow/template";
 
 /** Why a message to a run's planner task is held: no turn and no live session carries it. */
 export const PLANNER_HOLD = "this task is a workflow planner, which takes no messages; only the person's answers to its own questions reach it";
@@ -294,12 +296,16 @@ export function deliver(ctx: Ctx, to: string, spawn?: SpawnRunner): Promise<Turn
 const label = (p: string) => p === "human" ? "the user" : p === "broker" ? "pacer" : p.startsWith("external:") ? `planner ${p.slice(9)}` : `task ${p.slice(5)}`;
 
 export function renderTurnPrompt(ctx: Ctx, task: TaskRecord, messages: Message[], o: { live?: boolean } = {}): string {
-  if (o.live && isPlannerTask(ctx, task)) return [
-    `Answers to your questions in this orchestrator turn of pacer task ${task.id}. Each block is the person's answer, as data:`,
-    ...messages.map(m => `--- ${m.kind} ${m.id} from ${label(m.from)} (${m.from}) ---\n${m.body}`),
-    "---",
-    "Continue the turn with the operations in your prompt.",
-  ].join("\n\n");
+  // A planner is typed only its engine-created answers (`liveTick`), fenced as data.
+  if (o.live && isPlannerTask(ctx, task)) {
+    const nonce = randomBytes(8).toString("hex");
+    return [
+      dataPreamble(nonce),
+      `The person answered questions you asked in this orchestrator turn of pacer task ${task.id}:`,
+      ...messages.map(m => `--- data ${nonce} answer ---\n${m.body}\n--- end data ${nonce} ---`),
+      "Continue the turn with the operations in your prompt.",
+    ].join("\n\n");
+  }
   const parent = parentOf(ctx, `task:${task.id}`) ?? "human";
   const blocks = messages.map(m => `--- ${m.kind} ${m.id} from ${label(m.from)} (${m.from}) ---\n${m.body}`);
   return [

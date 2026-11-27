@@ -103,6 +103,17 @@ export function claimPending(ctx: Ctx, to: string, turnId: string): Message[] {
     return db.query<Row, [string, string]>("SELECT * FROM messages WHERE turn_id=? AND recipient=? ORDER BY id").all(turnId, to).map(toMessage);
   }).immediate();
 }
+/** Claims exactly these messages while pending, and returns only the ones this call claimed:
+ *  nothing claimed earlier comes back to be sent again. */
+export function claimByIds(ctx: Ctx, to: string, ids: string[], turnId: string): Message[] {
+  const db = messagesDatabase(ctx);
+  return db.transaction(() => ids.flatMap(id => {
+    const claimed = db.query("UPDATE messages SET status='delivered', delivered_at=?, turn_id=? WHERE id=? AND recipient=? AND status='pending'")
+      .run(ctx.now, turnId, id, to).changes > 0;
+    const message = claimed ? getMessage(ctx, id) : null;
+    return message ? [message] : [];
+  })).immediate();
+}
 export function claimedMessages(ctx: Ctx, turnId: string): Message[] {
   return messagesDatabase(ctx).query<Row, [string]>("SELECT * FROM messages WHERE turn_id=? ORDER BY id").all(turnId).map(toMessage);
 }

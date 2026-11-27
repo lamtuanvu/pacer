@@ -10,6 +10,7 @@ import { sessionSocket } from "../session/service";
 import { DELIVERY_TIMING } from "../session/viewers";
 import { viewerLabel } from "../session/viewers";
 import { transcriptReport } from "../session/reports";
+import { typedText } from "../session/typed-text";
 import { readRun, type RunState } from "../supervisor/run";
 import type { SpawnRunner } from "../tasks/api";
 import { readTask, updateTask } from "../tasks/store";
@@ -20,13 +21,12 @@ import { effectivePolicy } from "./policy";
 import * as store from "./store";
 import type { Message } from "./types";
 import { agentReport, beginTurn, isClosed, notifyMessage, renderTurnPrompt, report, reportHold, reportReader } from "./turns";
+import { claimLiveAnswers, confirmLiveAnswers, isPlannerTask, liveAnswerTurn, pendingLiveAnswers, queueLiveAnswers } from "../workflow/live-answer";
 
 const PASTE_START = "\x1b[200~", PASTE_END = "\x1b[201~";
 /** pacer's own viewer: its hello, and the controller label the session host records for it. */
 const PACER_VIEWER = { client: "cli", label: "pacer" } as const;
 export const PACER_CONTROLLER = viewerLabel(PACER_VIEWER);
-import { confirmLiveAnswers, isPlannerTask, queueLiveAnswers } from "../workflow/live-answer";
-import { liveTurnForTask } from "../workflow/wakeups";
 
 /** Larger bodies go to a run-dir file and only a short prompt is typed, as a conversation's first request does. */
 const INLINE_BYTES = 32 * 1024;
@@ -56,7 +56,7 @@ export async function liveTick(ctx: Ctx, task: TaskRecord, run: RunRef, s: RunSt
 function stillBetweenTurns(ctx: Ctx, id: string, run: RunRef, deps: LiveDeps): boolean {
   const t = readTask(ctx, id), s = deps.readState?.(run.dir) ?? readRun(run.dir);
   // A planner's terminal takes input only while its engine turn is live.
-  if (t && isPlannerTask(ctx, t) && !liveTurnForTask(ctx, id)) return false;
+  if (t && isPlannerTask(ctx, t) && !liveAnswerTurn(ctx, id)) return false;
   return !!t && t.run?.dir === run.dir && !t.liveTurn && !t.run.takeover && t.takeover?.state !== "driving" &&
     s.alive && !!s.interactive && (!s.controller || s.controller === PACER_CONTROLLER) && betweenTurns(t, s);
 }
@@ -74,7 +74,10 @@ async function liveTickLocked(ctx: Ctx, task: TaskRecord, run: RunRef, s: RunSta
   const to = `task:${t.id}`;
   const planner = isPlannerTask(ctx, t);
   if (planner) queueLiveAnswers(now, t);
-  if (isClosed(t) || !store.pendingFor(ctx, to).length) return setBlocked(ctx, t, false);
+  // A planner's terminal holds its run grant: it is typed this turn's own answers and
+  // nothing any sender queued, which stays pending.
+  const waiting = planner ? pendingLiveAnswers(now, t.id) : store.pendingFor(ctx, to);
+  if (isClosed(t) || !waiting.length) return setBlocked(ctx, t, false);
   if (!betweenTurns(t, s)) return;
   if (s.controller) return setBlocked(ctx, t, true);
   // Admission is fresh at the point the live driver claims the next turn, including broker nudges.
@@ -85,9 +88,10 @@ async function liveTickLocked(ctx: Ctx, task: TaskRecord, run: RunRef, s: RunSta
   // Admission may have awaited a plugin while the agent started another turn or a viewer took over.
   if (!stillBetweenTurns(ctx, t.id, run, deps)) return;
   const root = rootOf(ctx, to);
-  if (store.turnsForRoot(ctx, root) >= effectivePolicy(ctx, { root }).config.tree.max_turns) return;
-  const turnId = `${t.id}#live.${store.turnsForTask(ctx, t.id) + 1}`;
-  const messages = store.claimPending(now, to, turnId);
+  // The person's answers are not agent message turns: the turn cap does not count them.
+  if (!planner && store.turnsForRoot(ctx, root) >= effectivePolicy(ctx, { root }).config.tree.max_turns) return;
+  const turnId = planner ? `${t.id}#answer.${randomUUID()}` : `${t.id}#live.${store.turnsForTask(ctx, t.id) + 1}`;
+  const messages = planner ? claimLiveAnswers(now, t.id, turnId) : store.claimPending(now, to, turnId);
   if (!messages.length) return;
   for (const m of messages) notifyMessage(ctx, m);
   const statusAt = statusMtime(run.dir);
@@ -117,8 +121,10 @@ async function liveTickLocked(ctx: Ctx, task: TaskRecord, run: RunRef, s: RunSta
     const message = (e as Error).message || String(e);
     if (e instanceof SessionInputError && e.inputAttempted) {
       // The input may already be in the agent: never silently resend it. The turn ends so its id is not claimed again.
-      store.recordTurn(ctx, { id: turnId, taskId: t.id, rootId: root, at: now.now });
-      store.endTurn(ctx, turnId, "input-failed", now.now);
+      if (!planner) {
+        store.recordTurn(ctx, { id: turnId, taskId: t.id, rootId: root, at: now.now });
+        store.endTurn(ctx, turnId, "input-failed", now.now);
+      }
       updateTask(ctx, t.id, x => { x.liveError = { at: now.now, message: `Delivery may have reached the agent and was not resent: ${message}` }; delete x.liveBlocked; });
       return;
     }
@@ -127,7 +133,7 @@ async function liveTickLocked(ctx: Ctx, task: TaskRecord, run: RunRef, s: RunSta
     return;
   }
   if (planner) confirmLiveAnswers(now, t.id, messages);
-  store.recordTurn(ctx, { id: turnId, taskId: t.id, rootId: root, at: now.now });
+  else store.recordTurn(ctx, { id: turnId, taskId: t.id, rootId: root, at: now.now });
   updateTask(ctx, t.id, x => { x.liveTurn = { id: turnId, at: now.now, statusAt }; delete x.liveBlocked; delete x.liveError; });
 }
 
@@ -183,7 +189,8 @@ const EXPIRED_UNUSED = "expired-unused";
  * Connect as viewer `pacer`, paste the body and submit it while `stillIdle` holds. A host that negotiated session protocol
  * 1.2 grants a delivery window; a 1.1 host is driven with take and release.
  */
-export async function typeIntoSession(path: string, body: string, deps: LiveDeps, stillIdle: () => boolean): Promise<TypeResult> {
+export async function typeIntoSession(path: string, text: string, deps: LiveDeps, stillIdle: () => boolean): Promise<TypeResult> {
+  const body = typedText(text);
   let inputAttempted = false;
   const timeoutMs = deps.timeoutMs ?? 3000;
   const socket: Socket = createConnection(path);

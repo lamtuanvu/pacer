@@ -34,6 +34,8 @@ export function workflowDatabase(ctx: Ctx): Database {
       CREATE TABLE IF NOT EXISTS workflow_runs(id TEXT PRIMARY KEY, workflow TEXT, version INTEGER, repo TEXT, brief TEXT, title TEXT, status TEXT, reason TEXT, loops TEXT, rev INTEGER, created_at REAL, updated_at REAL);
       CREATE TABLE IF NOT EXISTS workflow_steps(run_id TEXT, step_id TEXT, attempt INTEGER, branch TEXT, task_id TEXT UNIQUE, status TEXT, result TEXT, error TEXT, started_at REAL, ended_at REAL, PRIMARY KEY(run_id, step_id, attempt, branch));
       CREATE TABLE IF NOT EXISTS workflow_cursor(id INTEGER PRIMARY KEY CHECK(id=1), seq INTEGER);
+      CREATE TABLE IF NOT EXISTS workflow_live_answers(message_id TEXT PRIMARY KEY, turn_id TEXT NOT NULL, question_id TEXT NOT NULL, UNIQUE(turn_id, question_id));
+      CREATE TABLE IF NOT EXISTS workflow_live_closed(turn_id TEXT PRIMARY KEY);
     `);
     // Added after the first schema; existing databases gain the columns in place
     // (pattern: src/messaging/store.ts). advanced_at records when a done step's

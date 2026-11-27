@@ -2,7 +2,8 @@
 // (spec "Structured questions"). The answer's `question` wake-up is the one record
 // of who still owes it: typing it into the session completes the wake-up, anything
 // else leaves it open and the next turn carries it. The message is created only by
-// the live session's poll and never outlives its turn.
+// the live session's poll, which records it in `workflow_live_answers`: a planner's
+// terminal takes those messages and no other, whatever a sender writes.
 import { resolveRunner } from "../config/runner-id";
 import { loadStrategy } from "../config/strategy";
 import { rootOf } from "../messaging/participants";
@@ -13,9 +14,6 @@ import type { TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
 import { getQuestion, rootRunId, stepsOfRun, workflowDatabase, type QuestionRow } from "./store";
 import { completeWakeupRef, liveTurnForTask, type TurnRow } from "./wakeups";
-
-const REQUEST = "question.live:";
-const requestId = (questionId: string, turnId: string) => `${REQUEST}${questionId}:${turnId}`;
 
 /** Whether pacer can type into this planner's interactive session: it must supervise
  *  the terminal itself and get the agent's turn-ended report. */
@@ -72,62 +70,99 @@ export function isPlannerTask(ctx: Ctx, task: Pick<TaskRecord, "id" | "kind">): 
   ).get(task.id);
 }
 
-/** Puts each answer the live turn is owed on the task's message lane, once per turn. */
-export function queueLiveAnswers(ctx: Ctx, task: TaskRecord): void {
-  const turn = liveTurnForTask(ctx, task.id);
-  if (!turn) return;
-  for (const q of answeredInTurn(ctx, turn)) {
-    const status = stepOf(ctx, q)?.status;
-    if (!owed(ctx, q) || status !== "running" && status !== "waiting") continue;
-    messages.insertMessage(ctx, {
-      taskId: task.id, rootId: rootOf(ctx, `task:${task.id}`), from: "human", to: `task:${task.id}`, kind: "answer",
-      body: JSON.stringify({ id: q.id, question: q.text, answer: q.answer }, null, 2),
-      replyTo: null, requestId: requestId(q.id, turn.id),
-    });
-  }
+const immediately = <T>(ctx: Ctx, write: () => T): T => workflowDatabase(ctx).transaction(write).immediate();
+
+const closed = (ctx: Ctx, turnId: string): boolean =>
+  !!workflowDatabase(ctx).query("SELECT 1 FROM workflow_live_closed WHERE turn_id = ?").get(turnId);
+
+/** The planner task's live turn while its terminal may still take answers. */
+export function liveAnswerTurn(ctx: Ctx, taskId: string): TurnRow | null {
+  const turn = liveTurnForTask(ctx, taskId);
+  return turn && !closed(ctx, turn.id) ? turn : null;
 }
 
-/** This turn's live answers with their message status. `sendMessage` cannot make an
- *  answer without a `reply_to`, so only this module writes these rows. */
-function liveAnswers(ctx: Ctx, taskId: string, turnId: string): { id: string; questionId: string; status: string }[] {
-  return messages.messagesDatabase(ctx).query<{ id: string; request_id: string; status: string }, [string]>(
-    `SELECT id, request_id, status FROM messages WHERE recipient = ? AND sender = 'human' AND kind = 'answer'
-     AND reply_to IS NULL AND request_id LIKE 'question.live:%'`,
-  ).all(`task:${taskId}`).flatMap(row => {
-    const [questionId, turn] = row.request_id.slice(REQUEST.length).split(":");
-    return questionId && turn === turnId ? [{ id: row.id, questionId, status: row.status }] : [];
+/** This turn's engine-created answer messages with their status. */
+function liveAnswers(ctx: Ctx, turnId: string): { id: string; questionId: string; status: string }[] {
+  messages.messagesDatabase(ctx);
+  return workflowDatabase(ctx).query<{ id: string; question_id: string; status: string }, [string]>(
+    `SELECT m.id, a.question_id, m.status FROM workflow_live_answers a
+     JOIN messages m ON m.id = a.message_id WHERE a.turn_id = ? ORDER BY m.id`,
+  ).all(turnId).map(row => ({ id: row.id, questionId: row.question_id, status: row.status }));
+}
+
+/**
+ * Puts each answer the live turn is owed on the task's message lane, once per turn.
+ * One transaction with the check that the turn is still open, so nothing is queued
+ * after the turn closed.
+ */
+export function queueLiveAnswers(ctx: Ctx, task: TaskRecord): void {
+  messages.messagesDatabase(ctx);
+  immediately(ctx, () => {
+    const turn = liveAnswerTurn(ctx, task.id);
+    if (!turn) return;
+    const queued = new Set(liveAnswers(ctx, turn.id).map(answer => answer.questionId));
+    for (const q of answeredInTurn(ctx, turn)) {
+      const status = stepOf(ctx, q)?.status;
+      if (queued.has(q.id) || !owed(ctx, q) || status !== "running" && status !== "waiting") continue;
+      const { message } = messages.insertMessage(ctx, {
+        taskId: task.id, rootId: rootOf(ctx, `task:${task.id}`), from: "human", to: `task:${task.id}`, kind: "answer",
+        body: JSON.stringify({ id: q.id, question: q.text, answer: q.answer }, null, 2),
+        replyTo: null, requestId: null,
+      });
+      workflowDatabase(ctx).query("INSERT INTO workflow_live_answers(message_id, turn_id, question_id) VALUES (?, ?, ?)")
+        .run(message.id, turn.id, q.id);
+    }
   });
+}
+
+/** The messages a planner's terminal may be typed now: this turn's own pending answers. */
+export function pendingLiveAnswers(ctx: Ctx, taskId: string): string[] {
+  const turn = liveAnswerTurn(ctx, taskId);
+  return turn ? liveAnswers(ctx, turn.id).filter(answer => answer.status === "pending").map(answer => answer.id) : [];
+}
+
+/** Claims this turn's pending answers for one delivery. */
+export function claimLiveAnswers(ctx: Ctx, taskId: string, deliveryId: string): Message[] {
+  return immediately(ctx, () =>
+    messages.claimByIds(ctx, `task:${taskId}`, pendingLiveAnswers(ctx, taskId), deliveryId));
 }
 
 /** The messages just typed into the session: their answers are delivered, so no later turn owes them. */
 export function confirmLiveAnswers(ctx: Ctx, taskId: string, typed: Message[]): void {
-  const turn = liveTurnForTask(ctx, taskId);
-  if (!turn) return;
-  const ids = new Set(typed.map(m => m.id));
-  for (const answer of liveAnswers(ctx, taskId, turn.id).filter(a => ids.has(a.id))) {
-    const question = getQuestion(ctx, answer.questionId);
-    if (question && owed(ctx, question)) completeWakeupRef(ctx, question.runId, "question", question.id);
-    messages.markRead(ctx, `task:${taskId}`, [answer.id]);
-  }
+  immediately(ctx, () => {
+    const turn = liveAnswerTurn(ctx, taskId);
+    if (!turn) return;
+    const ids = new Set(typed.map(m => m.id));
+    for (const answer of liveAnswers(ctx, turn.id).filter(a => ids.has(a.id))) {
+      const question = getQuestion(ctx, answer.questionId);
+      if (question && owed(ctx, question)) completeWakeupRef(ctx, question.runId, "question", question.id);
+      messages.markRead(ctx, `task:${taskId}`, [answer.id]);
+    }
+  });
 }
 
 /**
- * Ends the turn's use of the message lane: nothing of it stays pending or in flight. An
- * answer that was typed but not confirmed (a failure part-way) counts as delivered only
- * when the planner went on to finish its step; otherwise the next turn carries it.
+ * Ends the turn's use of the message lane: nothing of it stays pending or in flight, and
+ * nothing more is queued for it. An answer that was typed but not confirmed (a failure
+ * part-way) counts as delivered only when the planner went on to finish its step;
+ * otherwise the next turn carries it.
  */
 export function closeLiveAnswers(ctx: Ctx, turn: TurnRow, finished: boolean): void {
   const taskId = turn.taskId;
   if (!taskId) return;
-  for (const answer of liveAnswers(ctx, taskId, turn.id)) {
-    if (answer.status === "read") continue;
-    const question = getQuestion(ctx, answer.questionId);
-    if (finished && answer.status === "delivered" && question && owed(ctx, question)
-      && stepOf(ctx, question)?.status === "done") {
-      completeWakeupRef(ctx, question.runId, "question", question.id);
+  messages.messagesDatabase(ctx);
+  immediately(ctx, () => {
+    workflowDatabase(ctx).query("INSERT OR IGNORE INTO workflow_live_closed(turn_id) VALUES (?)").run(turn.id);
+    for (const answer of liveAnswers(ctx, turn.id)) {
+      if (answer.status === "read") continue;
+      const question = getQuestion(ctx, answer.questionId);
+      if (finished && answer.status === "delivered" && question && owed(ctx, question)
+        && stepOf(ctx, question)?.status === "done") {
+        completeWakeupRef(ctx, question.runId, "question", question.id);
+      }
+      messages.markRead(ctx, `task:${taskId}`, [answer.id]);
     }
-    messages.markRead(ctx, `task:${taskId}`, [answer.id]);
-  }
+  });
   const live = readTask(ctx, taskId)?.liveTurn;
   if (!live) return;
   messages.endTurn(ctx, live.id, "turn-ended", ctx.now);
