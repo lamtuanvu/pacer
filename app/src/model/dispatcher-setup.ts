@@ -119,20 +119,20 @@ export async function saveSetup({ call, setup, repo, profile }: SaveSetupInput):
     // Check the profile before writing anything, so a stale ladder never leaves a partial save.
     if (ladderDirty) {
       const latest = await call<{ strategy: string; config: DispatchConfig }>("dispatch.config.get", {});
-      if (latest.strategy !== setup.strategy || !same(latest.config, setup.savedLadder)) throw new Error("The active saved setup changed in another client. Discard to load it.");
+      if (latest.strategy !== setup.strategy || !same(latest.config, setup.savedLadder)) throw new Error("The active profile changed in another client. Discard to load it.");
     }
     const { eligibility } = setup;
     if (eligibility.kind === "global" && eligibilityChanges(eligibility)) {
       await call("routing.set", { rules: eligibility.draft });
-      done.push("executor rules");
+      done.push("the agent lists");
     }
     if (eligibility.kind === "project" && repo && eligibilityChanges(eligibility)) {
       if (eligibility.draft.length) {
         await call("project.strategy.set", { repo: repo.key, executors: eligibility.draft, expect_rev: eligibility.rev ?? 0 });
-        done.push("project order");
+        done.push("the repository list");
       } else {
         await call("project.strategy.remove", { repo: repo.key, expect_rev: eligibility.rev ?? 0 });
-        done.push(`removal of the project order; ${repo.label} now uses the global rules`);
+        done.push(`removal of ${repo.label}'s own list; it now uses the default list`);
       }
     }
     const draft = strategyDraft(setup);
@@ -142,7 +142,7 @@ export async function saveSetup({ call, setup, repo, profile }: SaveSetupInput):
       await call("strategy.save", { name: profile.name, draft, reason: profile.reason.trim() });
       try { await call("strategy.use", { name: profile.name }); }
       catch (failure) { throw new Error(`Saved ${profile.name}, but it could not be activated: ${message(failure)}`); }
-      done.push(`setup ${profile.name}, now active`);
+      done.push(`profile ${profile.name}, now active`);
     }
   } catch (failure) {
     if (done.length) throw new PartialSaveError(done, failure);

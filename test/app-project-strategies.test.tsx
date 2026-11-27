@@ -13,12 +13,12 @@ const config = {strategy:"default",planner:"codex",plannerAccount:"work",source:
 const render = (s=state,initial=view) => renderToString(<TaskContext.Provider value={{state:s,api}}><SetupEditor view={config} eligibility={{kind:"project",repo:initial.repo.key,repoLabel:initial.repo.label,view:initial}} onSaved={()=>{}} onDirtyChange={()=>{}}/></TaskContext.Provider>);
 test("editor names keyboard reorder controls and distinguishes saved project order", () => {
   const html=render();
-  for(const copy of ["Executor order for acme/repo","Move down: Cursor · team · local","Move up: Codex · personal · local","Use global rules","Allowed executors for acme/repo, in priority order"]) expect(html).toContain(copy);
+  for(const copy of ["acme/repo list","Agents for tasks in acme/repo, in order.","Move down: Cursor · team · local","Move up: Codex · personal · local","Use the default instead","Agents for acme/repo, in priority order","This list saves for acme/repo and stays when you switch profiles."]) expect(html).toContain(copy);
   expect(html).toContain("No unsaved changes");
   const inherited=render(state,{...view,rev:0,executors:null as any});
-  expect(inherited).toContain("Add executors to give this repository its own order");
+  expect(inherited).toContain("Add agents to give this repository its own list");
   expect(inherited).toContain("Add Cursor · team · local");
-  expect(inherited).not.toContain(">Use global rules<");
+  expect(inherited).not.toContain(">Use the default instead<");
 });
 test("disconnected editors explain why saving is unavailable", () => {
   const html=render({...state,connected:false});
@@ -79,7 +79,7 @@ test("project rows resolve snapshot status by executor ID and preserve unavailab
   expect(html).toContain("Blocked by you");
   expect(html).toContain("Cursor · team");
   expect(html).not.toContain('class="pc-executor-id">cursor#team');
-  expect(html).toContain("Unavailable in the active setup");
+  expect(html).toContain("Unavailable in the active profile");
   expect(html).toContain("pc-sortable--icons");
-  expect(html).toContain('<h3 class="pc-section-heading">Available executors');
+  expect(html).toContain('<h3 class="pc-section-heading">Not listed');
 });

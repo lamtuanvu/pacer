@@ -268,6 +268,9 @@ code.pc-code-wrap{display:block;min-width:0;max-width:100%;white-space:pre-wrap;
 .pc-search-picker__empty{padding:var(--space-3);margin:0;color:var(--ink-secondary);font-size:var(--type-caption-size)}
 @media(max-width:559px){.pc-search-picker{width:100%}.pc-search-picker__popover,.pc-search-picker[data-align=start] .pc-search-picker__popover{left:0;right:auto;width:100%}}
 .pc-tabs{display:flex;gap:var(--space-1);border-bottom:1px solid var(--line)}
+/* Route tabs scroll sideways inside their row on narrow screens instead of widening the page. */
+.pc-tabs--nav{max-width:100%;overflow-x:auto;overflow-y:hidden;scrollbar-width:none}
+.pc-tabs--nav>*{flex:none}
 .pc-tabs .pc-btn{background:transparent;border:0;border-bottom:var(--stroke-focus) solid transparent;border-radius:0;color:var(--ink-secondary)}
 .pc-approval-card{min-width:0;border:1px solid var(--line);border-radius:var(--radius-lg);background:var(--surface-page);overflow:hidden}
 .pc-approval-card>header{padding:var(--space-3);border-bottom:1px solid var(--line);background:var(--surface-card)}

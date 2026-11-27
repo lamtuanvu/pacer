@@ -158,12 +158,22 @@ test("route results group choice and matched step in a band and distinguish excl
   expect(queued).not.toContain('Would go to');
 });
 
-test("saved setup rows retain explicit Activate actions and mark the active row", () => {
-  const rows=[{name:"daily",summary:"Everyday work",active:true},{name:"other",summary:"Other work",active:false}];
+test("saved profile rows keep an explicit Switch action and mark the active and compared rows", () => {
+  const rows=[{name:"daily",summary:"Codex first, Claude Code keeps 15%; cheapest-first policy",active:true},{name:"other",summary:"Other work",description:"Night runs",active:false}];
   const html=renderToString(<TaskContext.Provider value={{state:initialState(),api:{call:async()=>rows}} as any}><SavedSetups initialData={rows as any}/></TaskContext.Provider>);
-  expect(html).toContain('pc-saved-setups__row--active');
-  expect(html).toContain('aria-label="Activate other"');
+  expect(html).toContain('pc-hub-profile--active');
+  expect(html).toContain('pc-hub-profile--selected');
+  expect(html).toContain('aria-label="Switch to other"');
+  expect(html).not.toContain('aria-label="Switch to daily"');
   expect(html).toContain('pc-setup-icon');
+  // The raw policy name becomes plain words; a description leads and the summary follows it.
+  expect(html).toContain("Codex first, Claude Code keeps 15% · Cheapest first");
+  expect(html).toContain("Night runs");
+  expect(html).toContain("What switching to other changes");
+  expect(html).toContain("Running tasks keep their agent.");
+  // Without strategy.preview the comparison says how to get it instead of a dead control.
+  expect(html).toContain("Update the service to compare profiles before switching.");
+  expect(html).toMatch(/<h2[^>]*>Saved profiles · 2<\/h2>/);
 });
 
 test("shows the next scheduled probe and the measured cost",()=>{

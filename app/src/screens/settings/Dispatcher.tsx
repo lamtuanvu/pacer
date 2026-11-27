@@ -11,18 +11,16 @@ import type { BrowserApi } from "../../data/api";
 import { useEffect, useLayoutEffect, useRef, useState, useId } from "preact/hooks";
 import { SortableList, useStableKeys } from "../../ds/SortableList";
 import { DispatcherGuidedSetup } from "./DispatcherSetup";
+import { DispatcherProfiles } from "./DispatcherProfiles";
+import { useDispatcherStyles } from "./dispatcher-styles";
 import { Button, TextAction } from "../../ds/Button";
-import { Checkbox, Disclosure, Field, TextInput, TextArea } from "../../ds/Controls";
+import { Checkbox, Disclosure, Field, TextInput } from "../../ds/Controls";
 import { ChoicePicker } from "../../ds/ChoicePicker";
 import { AgentMark } from "../../ds/AgentMark";
-import { Identicon } from "../../ds/Identicon";
-import { Pill } from "../../ds/Pill";
 import { SettingRow } from "../../ds/SettingRow";
-import type { StrategyRow } from "../../model/strategy";
-import type { ProjectStrategyView } from "../../model/project-strategies";
 import { SectionHeading } from "../../ds/SectionHeading";
 import { ErrorMessage, useTaskContext } from "../task-shared";
-import { Section, useResource, useOperation, ResourceState, Feedback } from "./shared";
+import { Section, useResource } from "./shared";
 
 const now = () => Date.now() / 1000;
 const formatTime = (seconds: number | null): string => seconds === null ? "Never" : clock(seconds, now());
@@ -188,7 +186,7 @@ function excludedCopy(reason:string):string {
   return "This executor is not eligible for this task";
 }
 /** A `dispatch.explain` answer: the choice, why, who else was considered and what could change it. */
-export function RouteExplanationResult({result}:{result:RouteExplanation}) {
+export function RouteExplanationResult({result,draftNote="Uses your unsaved choice ladder."}:{result:RouteExplanation;draftNote?:string}) {
   const labels:ExplainLabels={executor:executorLabel,step:stepTitle,now:Date.now()/1000,outcome:result.outcome};
   const copyReason=(item:RouteExplanation["reasons"][number])=>reasonCopy(item,labels,item.subject&&(item.subject!==result.chosen?.runner||item.code==="capacity_unmeasured"||item.code==="default_model_unresolved")?executorLabel(item.subject):undefined);
   const fallbacks=result.fallbacks.filter(item=>item.executor!==result.chosen?.executor||item.runner!==result.chosen?.runner);
@@ -196,7 +194,7 @@ export function RouteExplanationResult({result}:{result:RouteExplanation}) {
     <div className="pc-route-result__header">{result.chosen?<div className="pc-route-result__choice"><span className="pc-current-setup__label">Would go to</span><strong className="pc-route-result__name">{executorLabel(result.chosen.runner)}</strong><span className="u3-muted">{result.chosen.account} · {modelCopy(result.chosen)} · {result.chosen.host?`Host ${result.chosen.host}`:"This machine"}</span></div>:<p><strong>{explainHeadline(result,labels)}</strong></p>}
     {result.step&&<p>Matched: Step {result.step.index+1} · {stepTitle(result.step.id)}</p>}</div>
     <div className="pc-route-result__body pc-stack pc-stack--compact">
-    {result.strategy.draft&&<p className="u3-muted">Uses your unsaved choice ladder.</p>}
+    {result.strategy.draft&&<p className="u3-muted">{draftNote}</p>}
     {!!result.reasons.length&&<ul>{result.reasons.map((item,index)=><li key={`${item.code}:${index}`}>{copyReason(item)}</li>)}</ul>}
     {!!fallbacks.length&&<div><strong>Also considered</strong><ul className="pc-route-result__candidates">{fallbacks.map((item,index)=>{
       const severity=item.state==="eligible"?"good":reasonSeverity(item.reason?.code);
@@ -275,44 +273,23 @@ export function DispatcherLadderFields({config,onChange,disabled}:{config:Dispat
   </div>;
 }
 
-export function RepositoryChoices() {
-  const query=useResource<ProjectStrategyView[]>("project.strategy.list");
-  const count=query.data?.filter(item=>!!item.executors).length;
-  return <>
-    {query.error&&(query.data?<DispatcherReadError error={query.error} reload={query.reload} subject="repository choices"/>:<div><p role="alert">Repository choices could not be loaded.</p><Button onClick={query.reload}>Try again</Button></div>)}
-    {count!==undefined&&<p className="u3-muted">Repository choices · <strong>{count?`${count} ${count===1?"repository":"repositories"}`:"No repository lists"}</strong> · Kept when setup changes</p>}
-  </>;
-}
-export function DispatcherOverview({view,repositoryChoices=false}:{view:DispatcherConfigView;repositoryChoices?:boolean}) {
-  return <Section id="dispatcher" title="Dispatcher" detail="Pacer asks a planner to organize work, then chooses an eligible executor and model for each delegated task.">{null}</Section>;
+/** The Overview tab's intro line and its one header action, Preview a task. */
+export function DispatcherOverview({previewOpen=false,onPreview}:{view?:DispatcherConfigView;repositoryChoices?:boolean;previewOpen?:boolean;onPreview?:()=>void}) {
+  useDispatcherStyles();
+  return <div className="pc-hub-intro" id="dispatcher">
+    <p>The planner organizes the work. Pacer picks an agent and a model for each task it hands out.</p>
+    {onPreview&&<Button size="sm" variant="secondary" aria-expanded={previewOpen} aria-controls="dispatch-preview" onClick={onPreview}>Preview a task</Button>}
+  </div>;
 }
 
-/** Same saved-profile operations as the guided setup, composed as the board's bordered list. */
-export function SavedSetups({onActivated,initialData}:{onActivated?:()=>void;initialData?:StrategyRow[]}) {
-  const query=useResource<StrategyRow[]>("strategy.list",{},initialData),action=useOperation(query.reload);
-  const [building,setBuilding]=useState(false),[brief,setBrief]=useState("");
-  return <Section id="saved-profiles" title="Saved setups" detail="A saved setup stores the default planner, pacing, global task-type choices, and choice method. Activating one switches those global settings together. Repository choices are not changed."
-    actions={<><TextAction href="#saved-profiles" onClick={event => {event.preventDefault();const target=document.getElementById("saved-profiles");if(target){target.tabIndex=-1;target.focus();target.scrollIntoView({block:"start"});}}}>Switch setup</TextAction><Button size="sm" onClick={()=>setBuilding(value=>!value)} aria-expanded={building}>Create setup from a brief</Button></>}>
-    <ResourceState resource={query} empty="No saved setups yet.">
-      <div className="pc-saved-setups">{query.data?.map(strategy=><div key={strategy.name} className={`pc-saved-setups__row${strategy.active?" pc-saved-setups__row--active":""}`}>
-        <span className="pc-setup-icon"><Identicon seed={strategy.name}/></span><strong>{strategy.name}</strong><span>{strategy.summary}</span>
-        <div>{strategy.active?<Pill tone="good">Active</Pill>:<Button size="sm" aria-label={`Activate ${strategy.name}`} disabled={!!action.unavailable || (action.busy)} onClick={()=>void action.run("strategy.use",{name:strategy.name},onActivated)}>Activate</Button>}</div>
-      </div>)}</div>
-    </ResourceState>
-    <p className="u3-muted">Create setup from a brief opens a planning session that drafts a setup from your description. Nothing is activated until you review it here.</p>
-    {building&&<form className="pc-card" onSubmit={event=>{event.preventDefault();void action.run("strategy.build",{brief});}}>
-      <Field label="What should this setup do?"><TextArea value={brief} maxLength={2000} required onInput={event=>setBrief(event.currentTarget.value)}/></Field>
-      <div><Button type="submit" disabled={!!action.unavailable || (action.busy)}>Build setup</Button></div><p className="u3-muted">Opens a planning session or returns a command to run.</p>
-    </form>}
-    <Feedback action={action}/>
-  </Section>;
-}
+/** Dispatcher › Profiles (saved setups); kept under its old name for the screens and tests that import it. */
+export { DispatcherProfiles as SavedSetups } from "./DispatcherProfiles";
 
 type DispatcherTab = "overview" | "rules" | "profiles";
 /** One Dispatcher tab: Overview (model choice and preview), Who can run what (guided rules) or Profiles (saved setups). */
 export function DispatcherSection({query,tab="overview"}:{query:RouteQuery;tab?:DispatcherTab}) {
   const {state}=useTaskContext();
-  if(tab==="profiles")return <SavedSetups/>;
+  if(tab==="profiles")return <DispatcherProfiles query={query}/>;
   if(!state.features.ops.has("dispatch.config.get"))return <Section id="dispatcher" title="Dispatcher"><p>This service does not support dispatcher settings yet. Update the service to view the decision ladder.</p></Section>;
   return <DispatcherContent query={query} tab={tab}/>;
 }
@@ -325,13 +302,17 @@ function DispatcherContent({query,tab}:{query:RouteQuery;tab:"overview"|"rules"}
   const config=useResource<DispatcherConfigView>("dispatch.config.get");
   const models=useResource<DispatcherInventory>("dispatch.models");
   const [ladderDraft,setLadderDraft]=useState<StrategyDraft>();
-  const preview=(state.features.ops.has("dispatch.explain")||state.features.ops.has("dispatch.preview"))&&<DispatcherPreviewForm query={query} draft={tab==="rules"?ladderDraft:undefined}/>;
+  const [previewOpen,setPreviewOpen]=useState(false);
+  const canPreview=state.features.ops.has("dispatch.explain")||state.features.ops.has("dispatch.preview");
+  const preview=canPreview&&<DispatcherPreviewForm query={query} draft={tab==="rules"?ladderDraft:undefined}/>;
+  // Preview a task opens the form under the intro and puts the cursor in its Task field.
+  const openPreview=()=>{setPreviewOpen(open=>!open);if(!previewOpen)setTimeout(()=>document.querySelector<HTMLInputElement>("#dispatch-preview input[aria-label=Task]")?.focus(),0);};
   if(!config.data)return <Section id="dispatcher" title="Dispatcher"><p role={config.error?"alert":undefined}>{config.error?"Dispatcher settings could not be loaded.":"Loading dispatcher settings…"}</p></Section>;
   return <><DispatcherReadError error={config.error} reload={config.reload} subject="dispatcher settings"/>
-    {tab==="overview"?<><DispatcherOverview view={config.data} repositoryChoices={state.features.ops.has("project.strategy.list")}/>
+    {tab==="overview"?<><DispatcherOverview view={config.data} previewOpen={previewOpen} onPreview={canPreview?openPreview:undefined}/>
+      {previewOpen&&preview}
       <DispatcherModelChoice initialConfig={config.data} initialInventory={models.data} onSaved={()=>{config.reload();models.reload();}}/></>
-      :<DispatcherGuidedSetup view={config.data} onLadderDraft={setLadderDraft} onSaved={()=>{config.reload();models.reload();}}/>}
-    {preview}
+      :<><DispatcherGuidedSetup view={config.data} onLadderDraft={setLadderDraft} onSaved={()=>{config.reload();models.reload();}}/>{preview}</>}
   </>;
 }
 
@@ -386,7 +367,9 @@ function DispatcherEnforcement({query}:{query:RouteQuery}){
   </Section>;
 }
 
-export function DispatcherPreviewForm({query,draft}:{query:RouteQuery;draft?:StrategyDraft}) {
+/** A strategy draft the preview explains with: the unsaved ladder, or a saved profile (`{from}` alone). */
+export type PreviewDraft = { from?: string; set?: Record<string, unknown> };
+export function DispatcherPreviewForm({query,draft,draftNote,title="Try a task"}:{query:RouteQuery;draft?:PreviewDraft;draftNote?:string;title?:string}) {
   const {state,api}=useTaskContext();
   const repos=state.snapshot?.repos??[];
   const [repo,setRepo]=useState(query.repo??""),[goal,setGoal]=useState(""),[kind,setKind]=useState(""),[tier,setTier]=useState(""),[tools,setTools]=useState(false);
@@ -418,7 +401,7 @@ export function DispatcherPreviewForm({query,draft}:{query:RouteQuery;draft?:Str
     }catch(failure){if(id===request.current){setError(failure);setAnnouncement("Preview could not be loaded.");}}
     finally{if(id===request.current){inFlight.current=false;setBusy(false);}}
   };
-  return <Section step={4} id="dispatch-preview" title="Try a task" detail={explain?"See where a task would go, using recent readings. This does not start work or reserve capacity.":"See where a task would go, using saved settings and recent readings. This does not start work or reserve capacity."}>
+  return <Section id="dispatch-preview" title={title} detail={explain?"See where a task would go, using recent readings. This does not start work or reserve capacity.":"See where a task would go, using saved settings and recent readings. This does not start work or reserve capacity."}>
     <span className="sr-only" role="status">{announcement}</span>
     <form className="dispatcher-preview-form pc-dispatcher-preview" onSubmit={event=>void submit(event)}>
       <div className="dispatcher-preview-row">
@@ -431,6 +414,6 @@ export function DispatcherPreviewForm({query,draft}:{query:RouteQuery;draft?:Str
     </form>
     <ErrorMessage error={error}/>
     {result&&<DispatcherPreviewResult preview={result}/>}
-    {explained&&<RouteExplanationResult result={explained}/>}
+    {explained&&<RouteExplanationResult result={explained} draftNote={draftNote}/>}
   </Section>;
 }

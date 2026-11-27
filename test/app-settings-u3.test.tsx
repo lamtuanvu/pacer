@@ -20,17 +20,17 @@ import { renderAgents } from './fixtures/ui/agents';
 const state = {...initialState(),snapshot:{executors:[executor],accounts:[],hosts:[{...host,executors:[executor.id],repos:1}],planner:{agent:'codex',runner:'codex#team',advice:'Keep planning'},repos:[]} as any};
 const api = {call:async()=>({}),hello:async()=>({}),snapshot:async()=>({})} as any;
 const render = (child:any,s=state) => renderToString(<TaskContext.Provider value={{state:s,api}}>{child}</TaskContext.Provider>);
-test('the executor pool offers only executors that are not already in a rule', () => {
+test('the pool offers only agents that are not already in the list', () => {
  const view={strategy:'default',planner:'codex',plannerAccount:'work',source:'built-in' as const,config:dispatchConfigSchema.parse({})};
  const html=render(<SetupEditor view={view} eligibility={{kind:'global',rules:[{kinds:['tests'],executors:['codex']},{executors:['codex']}],available:['codex','cursor']}} onSaved={()=>{}} onDirtyChange={()=>{}}/>);
  expect(html).toContain('Add Cursor');
  expect(html).not.toContain('Add Codex');
- expect(html).toContain('Rule 1 task kinds');
+ expect(html).toContain('List 1 task kinds');
 });
 test('Dispatcher owns saved setups and executor eligibility', () => {
  expect(render(<SettingsGeneral section="dispatcher" initialData={settings}/>)).not.toContain('Loading dispatcher');
  const html=render(<SavedSetups initialData={settings.strategies}/>);
- expect(html).toContain('Saved setups');
+ expect(html).toContain('Saved profiles');
  expect(html).toContain('id="saved-profiles"');
 });
 test('rail quick access has one Dispatcher settings link',()=>{
@@ -56,7 +56,7 @@ test('all General sections provide loading and empty states',()=>{
  expect(render(<SettingsGeneral section="planner"/>)).not.toContain('Loading');
  const empty={...state,snapshot:{...state.snapshot,executors:[],hosts:[]}};
  const html=render(<SettingsGeneral section="dispatcher" initialData={{...settings,accounts:[],strategies:[],routing:{rules:[],available:[]}}}/>,empty)+renderAgents(empty,{initialAccounts:[]})+render(<SettingsGeneral section="machine" initialData={settings}/>,empty)+render(<SavedSetups initialData={[]}/>,empty);
- for(const word of ['No agents yet','No saved setups'])expect(html).toContain(word);
+ for(const word of ['No agents yet','No saved profiles'])expect(html).toContain(word);
  // Before the snapshot arrives the agent list says it is loading rather than empty.
  expect(renderAgents({...state,snapshot:{...state.snapshot,executors:undefined}})).toContain('Loading agents…');
 });
