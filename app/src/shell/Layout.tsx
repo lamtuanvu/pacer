@@ -139,7 +139,8 @@ export function Layout({ route, loadingRoute = route, state, title, onDelegate =
   // The Tasks board fills the right panel with the selected task; its own task route (with an id) renders Trace instead.
   const tasksPanels = !narrow && wide && route.name === "sessions" && !route.id;
   const tracePanels = !narrow && wide && ((route.name === "sessions" && !!route.id) || route.name === "task-review" || route.name === "task-failure");
-  const agentsPanels = !narrow && wide && route.name === "settings" && route.section === "agents";
+  // Dispatcher › Agents puts its agent list, and Profiles its comparison, in the right panel.
+  const agentsPanels = !narrow && wide && route.name === "settings" && (route.section === "agents" || route.section === "profiles");
   const setupPanels = !narrow && wide && route.name === "setup";
   const taskPanels = !narrow && wide && route.name === "terminal" && !!context && !state.sessionEnded;
   const rightInspector = workPanels || newTaskPanels || tasksPanels || tracePanels || agentsPanels;

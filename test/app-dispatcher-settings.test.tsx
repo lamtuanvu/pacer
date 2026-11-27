@@ -25,7 +25,9 @@ test("withdrawing consent is as visible as granting it", () => {
 });
 
 test("dispatcher intro omits the duplicate setup strip and keeps the built-in ladder separate", () => {
-  const html = renderToString(<DispatcherOverview view={{strategy:"default",planner:"claude-code",plannerAccount:"claude1",source:"built-in",config:dispatchConfigSchema.parse({})}} />);
+  const html = renderToString(<DispatcherOverview onPreview={()=>{}} />);
+  expect(html).toContain(">Try a task</button>");
+  expect(html).toContain('aria-expanded="false"');
   expect(SETTINGS_PAGES.some(page=>page.id==="dispatcher")).toBe(true);
   expect(SETTINGS_PAGES.some(page=>page.id==="routing"||page.id==="strategies")).toBe(false);
   expect(html).not.toContain('aria-label="Current setup"');
@@ -42,7 +44,7 @@ test("dispatcher intro omits the duplicate setup strip and keeps the built-in la
 });
 test("plugin strategy does not present inactive ladder as the active decision engine", () => {
   const config=dispatchConfigSchema.parse({engine:"plugin:custom-choice",engineFallback:"queue"});
-  const html=renderToString(<DispatcherOverview view={{strategy:"custom",planner:"codex",plannerAccount:"work",source:"strategy",config}}/>);
+  const html=renderToString(<DispatcherOverview/>);
   expect(html).not.toContain("Active saved setup");
   expect(html).not.toContain("Capable model with spare capacity");
   const setup=renderToString(<TaskContext.Provider value={{state:{...initialState(),connected:true},api:{call:async()=>({})}} as any}><SetupEditor view={{strategy:"custom",planner:"codex",plannerAccount:"work",source:"strategy",config}} eligibility={{kind:"global",rules:[{executors:["codex"]}],available:["codex"]}} onSaved={()=>{}} onDirtyChange={()=>{}}/></TaskContext.Provider>);
@@ -158,12 +160,24 @@ test("route results group choice and matched step in a band and distinguish excl
   expect(queued).not.toContain('Would go to');
 });
 
-test("saved setup rows retain explicit Activate actions and mark the active row", () => {
-  const rows=[{name:"daily",summary:"Everyday work",active:true},{name:"other",summary:"Other work",active:false}];
+test("saved profile rows keep an explicit Switch action and mark the active and compared rows", () => {
+  const rows=[{name:"daily",summary:"Codex first, Claude Code keeps 15%; cheapest-first policy",active:true},{name:"other",summary:"Other work",description:"Night runs",active:false}];
   const html=renderToString(<TaskContext.Provider value={{state:initialState(),api:{call:async()=>rows}} as any}><SavedSetups initialData={rows as any}/></TaskContext.Provider>);
-  expect(html).toContain('pc-saved-setups__row--active');
-  expect(html).toContain('aria-label="Activate other"');
+  expect(html).toContain('pc-hub-profile--active');
+  expect(html).toContain('pc-hub-profile--selected');
+  expect(html).toContain(">Switch to other</button>");
+  expect(html).not.toContain('aria-label="Switch to other"');
+  expect(html).not.toContain('aria-label="Switch to daily"');
   expect(html).toContain('pc-setup-icon');
+  // The raw policy name becomes plain words; a description leads and the summary follows it.
+  // The summary becomes First, the planner reserve and the policy, in plain words.
+  expect(html).toContain("First: Codex</span><span>Planner keeps 15% back</span><span>Cheapest first</span>");
+  expect(html).toContain("Night runs");
+  expect(html).toContain("What switching to other changes");
+  expect(html).toContain("Running tasks keep their agent.");
+  // Without strategy.preview the comparison says how to get it instead of a dead control.
+  expect(html).toContain("Update the service to compare profiles before switching.");
+  expect(html).toMatch(/<h2[^>]*>Saved profiles · 2<\/h2>/);
 });
 
 test("shows the next scheduled probe and the measured cost",()=>{
@@ -409,4 +423,13 @@ test("a routing hold takes precedence over scheduled repository probe support", 
     canProbe={false} probing={null} onProbe={()=>{}} onConsent={()=>{}}/>);
   expect(html).toContain(`not probing now: ${scheduleReason}`);
   expect(html).not.toContain("Verification is not available for this executor yet");
+});
+
+test("Profiles say so when no profile is active instead of reading forever", () => {
+  const rows=[{name:"one",summary:"Invalid or missing strategy",active:false},{name:"two",summary:"Invalid or missing strategy",active:false}];
+  const html=renderToString(<TaskContext.Provider value={{state:{...initialState(),features:{readModel:true,ops:new Set(["strategy.preview"])}},api:{call:async()=>rows}} as any}><SavedSetups initialData={rows as any}/></TaskContext.Provider>);
+  expect(html).toContain("No profile is active, so there is nothing to compare with.");
+  expect(html).not.toContain("Reading one");
+  // A summary pacer could not read is shown as it is, once.
+  expect(html.match(/Invalid or missing strategy/g)).toHaveLength(2);
 });

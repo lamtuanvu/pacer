@@ -55,20 +55,20 @@ browserTest('Dialog keyboard order includes native disclosure summaries and resp
   } finally { await browser.close(); }
 });
 
-browserTest('Saved setups keep their bordered list when operation feedback follows them', async () => {
+browserTest('Saved profiles keep their bordered list when operation feedback follows them', async () => {
   const state = { ...initialState(), snapshot: { executors: [], accounts: [], hosts: [], repos: [] } } as any;
   const api = { call: async () => ({}), hello: async () => ({}), snapshot: async () => ({}) } as any;
   const markup = renderToString(<TaskContext.Provider value={{ state, api }}>
     <SavedSetups initialData={settings.strategies} />
   </TaskContext.Provider>);
-  const styles = await Promise.all(['app/src/ds/tokens.css', 'app/src/ds/components.css', 'app/src/screens/settings/settings.css', 'app/src/styles.css']
+  const styles = await Promise.all(['app/src/ds/tokens.css', 'app/src/ds/components.css', 'app/src/screens/settings/settings.css', 'app/src/screens/settings/dispatcher.css', 'app/src/styles.css']
     .map(path => Bun.file(path).text()));
   const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
   try {
     const page = await browser.newPage({ viewport: { width: 375, height: 700 } });
     await page.setContent(`<style>${styles.join('\n')}</style><div class="u3-general-sections">${markup}</div>`);
-    const list = page.locator('#saved-profiles .pc-saved-setups');
-    expect(await list.locator('.pc-saved-setups__row').count()).toBe(2);
+    const list = page.locator('#saved-profiles .pc-hub-profiles');
+    expect(await list.locator('.pc-hub-profile').count()).toBe(2);
     const feedback = page.locator('#saved-profiles .u3-feedback');
     expect(await feedback.count()).toBe(1);
     expect(await list.evaluate(node => !!(node.compareDocumentPosition(node.closest('#saved-profiles')!.querySelector('.u3-feedback')!) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true);
