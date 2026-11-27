@@ -379,12 +379,14 @@ fn status(ctx: &Ctx) -> Result<Option<Value>, CoreError> {
     Ok(Some(Value::Object(out)))
 }
 
-mod params;
+pub mod ask_mode;
 pub mod cards;
 pub mod digest;
 pub mod live;
+mod params;
 pub mod redact;
 pub mod run_turn;
+pub mod selftest;
 pub mod tools;
 pub mod turn;
 use params::{Params, parse};

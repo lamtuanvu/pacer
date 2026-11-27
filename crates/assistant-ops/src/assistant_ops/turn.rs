@@ -12,29 +12,34 @@ use pacer_foundation::{
     api::{Code, CoreError, OpFuture},
 };
 use serde_json::Value;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex};
 
-static RUNNER: OnceLock<Arc<dyn ReplyRunner>> = OnceLock::new();
+static RUNNER: Mutex<Option<Arc<dyn ReplyRunner>>> = Mutex::new(None);
 
-/// The door installs its native-host-backed runner at start-up. Installing is
-/// idempotent so a restarted door in the same process cannot replace a live one.
+/// Lock the runner, recovering the value if a panic poisoned the mutex (never
+/// panics; the lock is only held briefly and never across an await point).
+fn runner_lock() -> std::sync::MutexGuard<'static, Option<Arc<dyn ReplyRunner>>> {
+    RUNNER
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// The door installs its native-host-backed runner at start-up. Each door sets
+/// it once; tests may reinstall their own runner per case under a serialising
+/// lock, so a test can drive `assistant.selftest` with a fake CLI.
 pub fn set_runner(runner: Arc<dyn ReplyRunner>) {
-    let _ = RUNNER.set(runner);
+    *runner_lock() = Some(runner);
 }
 
 #[cfg(test)]
 pub fn clear_runner_for_tests() {
-    // Tests that need a different runner run in their own process; this is a
-    // best-effort reset for unit tests that only exercise refusals.
+    *runner_lock() = None;
 }
 
-fn runner<'a>() -> Result<Arc<dyn ReplyRunner>, CoreError> {
-    RUNNER.get().cloned().ok_or_else(|| {
-        CoreError::new(
-            Code::Unavailable,
-            "The assistant needs the native plugin host.",
-        )
-    })
+pub(super) fn runner<'a>() -> Result<Arc<dyn ReplyRunner>, CoreError> {
+    runner_lock()
+        .clone()
+        .ok_or_else(|| CoreError::new(Code::Unavailable, "The assistant needs the native plugin host."))
 }
 
 /// An op that reaches a turn. The policy runs before the runner is needed, so
@@ -73,11 +78,7 @@ pub fn assistant_tool<'a>(
 /// Test-only seam: run a turn with an injected runner without installing a
 /// process-wide one.
 #[cfg(test)]
-pub fn ask_with<'a>(
-    ctx: &'a Ctx,
-    params: Value,
-    runner: Arc<dyn ReplyRunner>,
-) -> OpFuture<'a> {
+pub fn ask_with<'a>(ctx: &'a Ctx, params: Value, runner: Arc<dyn ReplyRunner>) -> OpFuture<'a> {
     run_turn::ask(ctx, params, runner)
 }
 
@@ -90,9 +91,16 @@ mod tests {
     #[tokio::test]
     async fn refusals_are_applied_before_the_runner_is_needed() {
         let dir = tempfile::tempdir().unwrap();
-        let ctx = Ctx::with(dir.path().to_path_buf(), dir.path().to_path_buf(), Default::default(), 0.0);
+        let ctx = Ctx::with(
+            dir.path().to_path_buf(),
+            dir.path().to_path_buf(),
+            Default::default(),
+            0.0,
+        );
         let executor = Ctx {
-            env: [("PACER_ROLE".into(), "executor".into())].into_iter().collect(),
+            env: [("PACER_ROLE".into(), "executor".into())]
+                .into_iter()
+                .collect(),
             ..ctx.clone()
         };
         let error = assistant_ask(&executor, serde_json::json!({}))

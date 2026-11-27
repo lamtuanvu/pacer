@@ -7,8 +7,9 @@
 //! turn's policy, prompt, usage accounting, final state and stream frames.
 
 use super::{
-    local_midnight, local_zone,
+    ask_mode,
     live::{self, Frame, TurnTools},
+    local_midnight, local_zone,
     params::{Params, parse},
     redact::Redactor,
     strategy,
@@ -79,8 +80,8 @@ fn endpoint_for(ctx: &Ctx, settings: &assistant::Settings) -> Result<Value, Core
             "The assistant is not set up.",
         ));
     };
-    let strategy = strategy(ctx)
-        .ok_or_else(|| unavailable("the strategy requires the TypeScript loader"))?;
+    let strategy =
+        strategy(ctx).ok_or_else(|| unavailable("the strategy requires the TypeScript loader"))?;
     let Some(entry) = strategy["accounts"].get(account) else {
         return Err(CoreError::new(
             Code::NotAllowed,
@@ -101,7 +102,9 @@ fn endpoint_for(ctx: &Ctx, settings: &assistant::Settings) -> Result<Value, Core
     let model = [
         runner.and_then(|r| r.get("model")),
         entry.get("model"),
-        entry["connection"]["models"].get(0).and_then(|m| m.get("id")),
+        entry["connection"]["models"]
+            .get(0)
+            .and_then(|m| m.get("id")),
     ]
     .into_iter()
     .flatten()
@@ -411,6 +414,7 @@ pub async fn run(
     let mut error: Option<String> = None;
     let mut tools: Option<Arc<TurnTools>> = None;
     let mut redactor: Option<Arc<Redactor>> = None;
+    let mut ask: Option<ask_mode::AskTurn> = None;
 
     let outcome: Result<(), CoreError> = async {
         let endpoint = endpoint_for(&ctx, &settings)?;
@@ -447,25 +451,102 @@ pub async fn run(
         });
         tools = Some(Arc::clone(&tools_arc));
         live::attach(&turn_id, Arc::clone(&tools_arc));
-        let params = json!({
-            "conversationId": conversation_id,
-            "turnId": turn_id,
-            "account": endpoint["name"],
-            "backend": "pacer",
-            "model": endpoint["model"],
-            "system": system,
-            "digest": super::digest::build_digest(&ctx, &scope, &red, endpoint["name"].as_str(), &mut *reads).await,
-            "tools": tool_definitions(),
-            "history": transcript,
-            "message": question,
-            "endpoint": endpoint_params(&endpoint),
-            "limits": {
-                "maxInputTokens": settings.limit("maxInputTokens"),
-                "maxOutputTokens": settings.limit("maxOutputTokens"),
-                "maxToolRounds": settings.limit("maxToolRounds"),
-                "deadlineMs": deadline_ms
+        let params = {
+            let digest_text = super::digest::build_digest(
+                &ctx,
+                &scope,
+                &red,
+                endpoint["name"].as_str(),
+                &mut *reads,
+            )
+            .await;
+            // Resume the backend's own session only on the account and backend
+            // it belongs to (spec §6).
+            let session = (|| {
+                let mut store = TaskStore::open(&ctx.pacer_home).map_err(store_error)?;
+                let db = assistant::database(&mut store).map_err(store_error)?;
+                let stored =
+                    assistant::read_backend_session(db, &conversation_id).map_err(store_error)?;
+                Ok::<_, CoreError>(
+                    stored.and_then(|value| {
+                        if value["account"].as_str() == endpoint["name"].as_str()
+                            && value["backend"].as_str() == Some(settings.backend.as_str())
+                        {
+                            value["handle"].as_str().map(ToOwned::to_owned)
+                        } else {
+                            None
+                        }
+                    }),
+                )
+            })()?;
+            let mut params = json!({
+                "conversationId": conversation_id,
+                "turnId": turn_id,
+                "account": endpoint["name"],
+                "backend": settings.backend,
+                "system": system,
+                "digest": digest_text,
+                "tools": tool_definitions(),
+                "history": transcript,
+                "message": question,
+                "limits": {
+                    "maxInputTokens": settings.limit("maxInputTokens"),
+                    "maxOutputTokens": settings.limit("maxOutputTokens"),
+                    "maxToolRounds": settings.limit("maxToolRounds"),
+                    "deadlineMs": deadline_ms
+                }
+            });
+            if let Some(model) = endpoint["model"].as_str() {
+                params["model"] = json!(model);
             }
-        });
+            if let Some(session) = session.as_deref() {
+                params["session"] = json!(session);
+            }
+            if settings.backend == "executor" {
+                // Executor turns: the host builds the restricted CLI command
+                // (opencode ACP plan + config); the grant reaches the child
+                // only as a secret-env value, never on argv or in params.
+                if let Some(grant) = live::grant(&turn_id) {
+                    let ask_turn = ask_mode::ask_turn_for(
+                        &ctx,
+                        strategy["accounts"].get(endpoint["name"].as_str().unwrap_or("")),
+                        (conversation_id.clone(), turn_id.clone()),
+                        &grant,
+                        endpoint["model"].as_str(),
+                        session.as_deref(),
+                        system,
+                        &question,
+                        transcript,
+                        deadline_ms.saturating_sub(5000).max(1000),
+                        &digest_text,
+                    )?;
+                    let cmd = &ask_turn.command;
+                    // The command env is a map (opaque to the host host) so the
+                    // spawned child receives PATH and the secret env exactly.
+                    let env: std::collections::BTreeMap<String, String> =
+                        cmd.env.iter().cloned().collect();
+                    params["executor"] = json!({
+                        "configRef": ask_mode::ASK_CONFIG_REF,
+                        "command": {
+                            "argv": cmd.argv,
+                            "cwd": cmd.cwd,
+                            "env": env,
+                            "stdin": cmd.stdin,
+                            "timeoutMs": cmd.timeout_ms,
+                            "mode": "acp",
+                            "secretEnv": {
+                                "OPENCODE_CONFIG_CONTENT": ask_mode::ASK_CONFIG_REF,
+                                "PACER_ASSISTANT_GRANT": ask_mode::ASK_GRANT_REF
+                            }
+                        }
+                    });
+                    ask = Some(ask_turn);
+                }
+            } else {
+                params["endpoint"] = endpoint_params(&endpoint);
+            }
+            params
+        };
         live::emit(&turn_id, json!({"status":"Thinking…"}));
         let raw = runner
             .reply(&ctx, params, Arc::clone(&tools_arc), cancel, deadline)
@@ -493,7 +574,7 @@ pub async fn run(
             assistant::write_backend_session(
                 db,
                 &conversation_id,
-                Some(&json!({"handle":session,"account":endpoint["name"],"backend":"pacer"})),
+                Some(&json!({"handle":session,"account":endpoint["name"],"backend":settings.backend})),
             )
             .map_err(store_error)?;
         }
@@ -506,6 +587,11 @@ pub async fn run(
     }
     .await;
 
+    // The turn's working directory is removed once the turn ends.
+    if let Some(ask) = ask {
+        ask.cleanup();
+    }
+
     if let Err(failure) = outcome {
         state = if live::cancelled(&turn_id) {
             "cancelled".into()
@@ -516,7 +602,8 @@ pub async fn run(
         error = Some(redactor.as_ref().map(|r| r.text(&raw)).unwrap_or(raw));
     }
     if state == "done" && answer.is_empty() {
-        answer = "I could not put an answer together within my limits. Try a narrower question.".into();
+        answer =
+            "I could not put an answer together within my limits. Try a narrower question.".into();
     }
     if state == "done" && usage.output >= settings.limit("maxOutputTokens") {
         answer.push_str(&format!(
@@ -566,7 +653,11 @@ pub async fn run(
             db,
             &turn_id,
             &state,
-            if answer.is_empty() { None } else { Some(&answer) },
+            if answer.is_empty() {
+                None
+            } else {
+                Some(&answer)
+            },
             error.as_deref(),
             &cards,
             &json!(citations),
@@ -595,7 +686,9 @@ pub async fn run(
     live::emit(&turn_id, json!({"done":Value::Object(done)}));
     pacer_store::publish(
         &ctx,
-        &[json!({"type":"assistant","data":{"turnId":turn_id,"conversationId":conversation_id,"state":state}})],
+        &[
+            json!({"type":"assistant","data":{"turnId":turn_id,"conversationId":conversation_id,"state":state}}),
+        ],
     );
 }
 
@@ -641,9 +734,9 @@ pub fn cancel(ctx: &Ctx, params: Value) -> Result<Value, CoreError> {
 /// door checks the `pag_` grant; in-process callers rely on the live turn map.
 pub fn tool<'a>(ctx: &'a Ctx, params: Value, reads: &'a mut dyn ReadOps) -> OpFuture<'a> {
     Box::pin(async move {
-        let map = params.as_object().ok_or_else(|| {
-            CoreError::new(Code::InvalidInput, "invalid assistant.tool params")
-        })?;
+        let map = params
+            .as_object()
+            .ok_or_else(|| CoreError::new(Code::InvalidInput, "invalid assistant.tool params"))?;
         let turn_id = map["turnId"]
             .as_str()
             .filter(|id| !id.is_empty() && id.chars().count() <= 128)
