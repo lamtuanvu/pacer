@@ -126,7 +126,8 @@ test.skipIf(!front)("executor and enforcement identities are refused as TypeScri
 
   const invalid: Case[] = [...cases, ["task.delegate", "not an object"], ["task.ask", {}]];
   const enforced = await same(ctx.home, invalid, { PACER_ENFORCEMENT_TOKEN: "pet_x" });
-  expect(enforced.native).toEqual(all(invalid));
+  // API-5: a stdio session holding the identity runs nothing natively.
+  expect(enforced.native).toEqual([]);
   for (const reply of enforced.replies) expect(errorOf(reply).message).toBe("Enforcement identity only reports a native child denial");
   expect(readTask(ctx, running)).toEqual(before);
 }, 60000);

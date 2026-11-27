@@ -76,6 +76,31 @@ fn forwards_items_and_stores_typescript_owns() {
 }
 
 #[test]
+fn forwards_workflow_items_to_typescript() {
+    let dir = tempfile::tempdir().unwrap();
+    let c = ctx(&dir);
+    let forwarded = |op: &str, id: &str| attention_stays_forwarded(&c, op, &json!({"id": id}));
+    for id in [
+        "run_review:t-1",
+        "run_review:adopt:run_1",
+        "budget_spent:run_1",
+        "budget_warn:run_1",
+        "budget_msg_spent:run_1",
+        "budget_msg_warn:run_1",
+        "orchestrator_failed:run_1",
+        "unresolved_wake:run_1",
+    ] {
+        assert!(forwarded("attention.snooze", id), "{id}");
+        assert!(forwarded("attention.dismiss", id), "{id}");
+        assert!(!forwarded("task.get", id), "{id}");
+    }
+    // Questions and prompt waits are composed natively.
+    assert!(!forwarded("attention.snooze", "question:q_abcdefghij"));
+    assert!(!forwarded("attention.snooze", "prompt_wait:t-1"));
+    assert!(!forwarded("attention.dismiss", "prompt_wait:t-1"));
+}
+
+#[test]
 fn transactions_follow_the_typescript_store() {
     let dir = tempfile::tempdir().unwrap();
     let c = ctx(&dir);

@@ -6,6 +6,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Workflow orchestrator turns work behind the native front door: `run publish`, `run submit-graph`, `run choose`, `run decide`, `step retry`, `step skip` and the other run-grant operations no longer answer HTTP 401. The front door forwards a `prg_` run grant on operation posts only and the core verifies it, as before. `pacer api --stdio` in an orchestrator turn now leaves every operation to the core instead of running some natively.
+- Security: `pacer api --stdio` holding an enforcement identity (`PACER_ENFORCEMENT_TOKEN`) or an assistant grant (`PACER_ASSISTANT_GRANT`) ran some operations natively, such as `repo.add`, even with an invalid token. The front door now leaves every operation to the core, which refuses them as before. Strict executors' denial reports and the assistant's MCP server are unchanged.
 - Settings › Dispatcher › Overview shows **Native subagent control** again: each executor's certification status, **Verify control** and the scheduled-probe consent buttons. The section had not been rendered since 0.13.0, so executors could only be certified or consent answered from the terminal. With no registered repository it now says so and reads nothing, and the "View agents" link is underlined. Each result appears beside its executor and only under the repository it came from; an in-progress line or an old error is cleared, and a "verified" message goes when a later reading says otherwise. Verify and consent buttons stay focusable and ignore repeat presses while a request runs. When the button that had focus goes away during or after its action, focus moves once to that action's status, which shows a focus ring, even if a service update removes the button before the action replies or another action was started in between. A status that holds focus is never emptied. While a check or consent answer is running, its line stays and unavailable buttons say why. The probe and consent operations are unchanged.
 
 ## [0.18.8] - 2026-11-26
@@ -26,6 +28,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - `pacer service restart` and `pacer update` now hand running work to the new service instead of warning "running work was not handed over: pacer core is restarting".
 - Settings › Updates no longer keeps showing a failed update after you install that release another way, such as by hand; pacer drops the installed offer and checks again.
 - After you install a newer pacer.app by hand, the app restarts its own older service onto the new version (handing running work over) instead of leaving the old service running with an "Older service" banner. It does this only on macOS, for the service it owns, with no update in progress.
+- Interactive and PTY attempts that hold a scoped grant, such as workflow planner turns and delegating workers, now start instead of failing with "executor wrapper state is uncertain": the grant's command allow-list no longer refuses the session host, the session hooks or `pacer report` for the attempt.
+- The hooks `pacer install` adds to an agent's user settings no longer fail inside workflow planner turns and delegating workers. `pacer msg hook`, `pacer status --hook` and `pacer statusline` do nothing there, and `pacer guard` applies its usual policy instead of blocking every matched tool call; strict enforcement is unchanged. Cursor's `session-start` hook is not covered yet.
+- Installed builds can snooze and dismiss workflow items (run budget, stopped planner and restart wait) instead of answering "unknown attention item", and `snapshot.get` lists them while a workflow run is live.
+
 
 ### Fixed
 
