@@ -6,7 +6,10 @@
 use super::extension_calls::DoorPlugins;
 use crate::{serve::core_child::CoreChild, stdio_plugins::PluginLink};
 use pacer_foundation::{Ctx, api::OpFuture};
-use pacer_status::compute::{ActivityRebuilds, LoginPaths, StatusRuntime};
+use pacer_status::{
+    cache::StatusCache,
+    compute::{ActivityRebuilds, LoginPaths, StatusRuntime},
+};
 use serde_json::Value;
 use std::{future::Future, io, pin::pin, sync::Arc};
 
@@ -48,6 +51,13 @@ fn build(door: Arc<DoorPlugins>) -> Arc<StatusRuntime> {
         login: Arc::new(LoginPaths::default()),
         activity: Arc::new(ActivityRebuilds::default()),
     })
+}
+
+/// The service-owned status cache fed by this door's runtime. `run_serve`
+/// owns the single instance; the snapshot read cache reads status from it
+/// instead of asking Core (`B12-8`).
+pub(crate) fn status_cache(rt: &Arc<StatusRuntime>) -> Arc<StatusCache> {
+    StatusCache::new(rt.clone())
 }
 
 /// The HTTP serve door's runtime, shared by every request of one serve.

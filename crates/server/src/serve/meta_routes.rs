@@ -6,7 +6,11 @@
 //! When `PACER_FORWARD_OPS` names one of the paired `http.*` escapes, or
 //! `PACER_WORK_GRANT` is set, `route` falls through with `None` so the caller
 //! forwards the request exactly as before.
-use super::{core_child::CoreChild, read_cache::ReadCache, sessions};
+use super::{
+    core_child::CoreChild,
+    read_cache::{self, ReadCache},
+    sessions,
+};
 use axum::{
     http::{Method, StatusCode, header::HeaderValue},
     response::{IntoResponse, Response},
@@ -130,28 +134,58 @@ fn default_parts() -> Value {
 
 /// The full `/v3/snapshot` wire built from the bridge parts (or, with no core,
 /// from [`default_parts`]).
-async fn build_snapshot(ctx: Ctx, target: Option<(u16, String)>) -> Result<Value, CoreError> {
-    let parts = match target {
+async fn build_snapshot(
+    ctx: Ctx,
+    target: Option<(u16, String)>,
+    status: Option<&pacer_status::cache::StatusCache>,
+) -> Result<Value, CoreError> {
+    let mut parts = match target {
         Some(target) => crate::native::snapshot_sync::http(Some(target)).await?,
         None => default_parts(),
     };
+    // B12-8: status comes from the service's own cache, never from Core.
+    if let Some(status) = status {
+        read_cache::apply_status(&mut parts, status.get().await);
+    }
     pacer_task_ops::snapshot_get_ops::snapshot_get(&ctx, json!({}), parts).await
 }
 
-fn build(core: Arc<CoreChild>, base: Ctx) -> Arc<dyn Fn() -> OpFuture<'static> + Send + Sync> {
+fn build(
+    core: Arc<CoreChild>,
+    base: Ctx,
+    status: Option<Arc<pacer_status::cache::StatusCache>>,
+) -> Arc<dyn Fn() -> OpFuture<'static> + Send + Sync> {
     Arc::new(move || -> OpFuture<'static> {
         let core = core.clone();
         let base = base.clone();
+        let status = status.clone();
         Box::pin(async move {
             let ctx = base.at_now();
-            build_snapshot(ctx, core.target().await).await
+            build_snapshot(ctx, core.target().await, status.as_deref()).await
         })
     })
 }
 
-/// The stale-while-revalidate snapshot cache the front door serves `/v3/snapshot` from.
+/// Test-only builder: keeps the pre-B12-8 behaviour where status comes from
+/// Core's probe parts, for the serve unit fixtures that do not exercise status.
+#[cfg(test)]
 pub(crate) fn snapshot_cache(core: Arc<CoreChild>, ctx: Ctx) -> Arc<ReadCache> {
-    ReadCache::new(build(core, ctx), std::time::Duration::from_millis(1000))
+    ReadCache::new(
+        build(core, ctx, None),
+        std::time::Duration::from_millis(1000),
+    )
+}
+
+/// The production builder: status is read from the native `StatusCache`.
+pub(crate) fn snapshot_cache_with_status(
+    core: Arc<CoreChild>,
+    ctx: Ctx,
+    status: Arc<pacer_status::cache::StatusCache>,
+) -> Arc<ReadCache> {
+    ReadCache::new(
+        build(core, ctx, Some(status)),
+        std::time::Duration::from_millis(1000),
+    )
 }
 
 fn x_pacer(response: &mut Response) {

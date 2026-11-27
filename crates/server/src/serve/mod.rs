@@ -1001,6 +1001,13 @@ pub async fn run_serve(
         ));
     }
     let status = crate::native::status_runtime::serve_runtime(core.clone());
+    // One service-owned status cache: its timer refreshes status every 60 s,
+    // and the snapshot read cache takes status from it rather than from Core.
+    let status_cache = crate::native::status_runtime::status_cache(&status);
+    let status_ctx = {
+        let base = ctx.clone();
+        move || base.at_now()
+    };
     let beats = Arc::new(heartbeat::Heartbeat::new());
     let probe = tokio::spawn(heartbeat::run(core.clone(), beats.clone()));
     let radio = discovery::Radio::spawn(
@@ -1010,7 +1017,8 @@ pub async fn run_serve(
             disabled: std::env::var("PACER_DISCOVERY").as_deref() == Ok("off"),
         },
     );
-    let snapshot_cache = meta_routes::snapshot_cache(core.clone(), ctx.clone());
+    let snapshot_cache =
+        meta_routes::snapshot_cache_with_status(core.clone(), ctx.clone(), status_cache.clone());
     let state = Arc::new(Listener {
         core,
         status,
@@ -1040,6 +1048,10 @@ pub async fn run_serve(
             })
             .await
     });
+    // Start the 60 s status refresher once the listener is up. The first tick
+    // is immediate, so a cold reader either waits up to 300 ms or answers
+    // "starting" rather than holding the request open.
+    let status_timer = status_cache.start(status_ctx);
     #[cfg(target_os = "macos")]
     let native_shutdown = async {
         match &native {
@@ -1055,6 +1067,7 @@ pub async fn run_serve(
     server.abort();
     let _ = server.await;
     state.snapshot_cache.stop();
+    status_timer.abort();
     probe.abort();
     // Withdraw the advert with goodbye packets before the core stops.
     radio.stop().await;

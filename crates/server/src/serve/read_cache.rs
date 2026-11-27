@@ -5,12 +5,32 @@
 //! readers share one build.
 use pacer_foundation::api::{Code, CoreError, OpFuture};
 use serde_json::Value;
+use serde_json::json;
 use std::sync::Arc;
 use tokio::{sync::Mutex, task::JoinHandle, time::Instant};
 
 /// The ready-to-wire value a snapshot build produces.
 pub type Snapshot = Value;
 pub type BuildResult = std::result::Result<Snapshot, CoreError>;
+
+/// Feed the snapshot builder the service's status cache instead of Core's
+/// `status` / `statusError` (`src/serve/http.ts:155-166`). `snapshot_get_ops`
+/// reads exactly one of these two fields from the parts map.
+pub(crate) fn apply_status(parts: &mut Value, status: BuildResult) {
+    let Some(map) = parts.as_object_mut() else {
+        return;
+    };
+    match status {
+        Ok(value) => {
+            map.insert("status".into(), value);
+            map.remove("statusError");
+        }
+        Err(error) => {
+            map.insert("statusError".into(), json!(error.message));
+            map.remove("status");
+        }
+    }
+}
 
 type Builder = Arc<dyn Fn() -> OpFuture<'static> + Send + Sync>;
 

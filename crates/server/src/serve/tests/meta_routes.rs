@@ -27,8 +27,10 @@ async fn listener(
     let ctx = Ctx::with(home.into(), home.join("pacer"), Default::default(), NOW);
     let core_build = Arc::new(meta_routes::CoreBuild::from_core(&[], &HashMap::new()));
     let snapshot_cache = meta_routes::snapshot_cache(core.clone(), ctx.clone());
+    let status = crate::native::status_runtime::serve_runtime(core.clone());
     let state = Arc::new(Listener {
         core,
+        status,
         heartbeat: Arc::new(heartbeat::Heartbeat::new()),
         ctx,
         port,
