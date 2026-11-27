@@ -233,11 +233,30 @@ function seededDoorEnv(dir: string, forward: boolean) {
   });
 }
 
-const normalizeDoor = (value: unknown, dir: string) => JSON.parse(
+/** The doctor's Link latency check warns above a 50 ms threshold; normalise it away. */
+function stableLinkLatency(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value
+      .filter(item => !(item && typeof item === "object" && (item as { check?: unknown }).check === "Link latency"))
+      .map(stableLinkLatency);
+  }
+  if (value && typeof value === "object") {
+    const check = value as { name?: unknown; detail?: unknown; remedy?: unknown };
+    if (check.name !== "Link latency" || typeof check.detail !== "string"
+      || !/^\/v2\/snapshot max [\d.]+ ms /.test(check.detail)) {
+      return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, stableLinkLatency(item)]));
+    }
+    const { remedy: _remedy, ...stable } = check;
+    return { ...stable, level: "<measured>", detail: check.detail.replace(/max [\d.]+ ms/, "max <ms> ms") };
+  }
+  return value;
+}
+
+const normalizeDoor = (value: unknown, dir: string) => stableLinkLatency(JSON.parse(
   JSON.stringify(value).replaceAll(dir, "$HOME")
     .replace(/"checkedAt":\d+(\.\d+)?/g, '"checkedAt":"<now>"')
     .replace(/"durationSeconds":\d+(\.\d+)?(e-?\d+)?/g, '"durationSeconds":"<elapsed>"'),
-);
+));
 
 /** Both doors get the same installedAt so their integration hashes must match exactly. */
 function pinSeedTimestamps(dir: string) {

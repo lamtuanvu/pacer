@@ -602,8 +602,8 @@ async fn http_ok(port: u16, path: &str, token: Option<&str>) -> Result<bool, Str
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let mut stream = tokio::time::timeout(Duration::from_secs(2), tokio::net::TcpStream::connect(("127.0.0.1", port)))
         .await
-        .map_err(error_message)?
-        .map_err(error_message)?;
+        .map_err(|_| "timeout".to_owned())?
+        .map_err(|_| "connect".to_owned())?;
     let mut request = format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n");
     if let Some(token) = token {
         request.push_str(&format!("Authorization: Bearer {token}\r\n"));
@@ -611,8 +611,8 @@ async fn http_ok(port: u16, path: &str, token: Option<&str>) -> Result<bool, Str
     request.push_str("\r\n");
     tokio::time::timeout(Duration::from_secs(2), stream.write_all(request.as_bytes()))
         .await
-        .map_err(error_message)?
-        .map_err(error_message)?;
+        .map_err(|_| "timeout".to_owned())?
+        .map_err(|_| "connect".to_owned())?;
     // Stop at the header terminator: a keep-alive or slow body must not delay
     // the probe (TypeScript cancels the body after the response headers).
     let mut head_bytes = Vec::new();
@@ -620,8 +620,8 @@ async fn http_ok(port: u16, path: &str, token: Option<&str>) -> Result<bool, Str
     loop {
         let count = tokio::time::timeout(Duration::from_secs(2), stream.read(&mut chunk))
             .await
-            .map_err(error_message)?
-            .map_err(error_message)?;
+            .map_err(|_| "timeout".to_owned())?
+            .map_err(|_| "connect".to_owned())?;
         if count == 0 {
             break;
         }
@@ -645,6 +645,15 @@ async fn http_ok(port: u16, path: &str, token: Option<&str>) -> Result<bool, Str
     Ok(ok && pacer)
 }
 
+/// `fetch` failure wording used by the TS core for the two loopback probe paths.
+fn fetch_probe_error(reason: String) -> String {
+    if reason == "timeout" {
+        "The operation was aborted due to timeout".to_owned()
+    } else {
+        "Unable to connect. Is the computer able to access the url?".to_owned()
+    }
+}
+
 /// The link probe of `src/setup/check.ts:71-81`: `/health`, then a bearer probe
 /// of `/v2/snapshot`. The token is read but never logged or returned.
 async fn link_probe(ctx: &Ctx) -> Result<bool, String> {
@@ -657,7 +666,7 @@ async fn link_probe(ctx: &Ctx) -> Result<bool, String> {
     // message; keep the checklist's error detail byte-identical.
     let healthy = http_ok(port, "/health", None)
         .await
-        .map_err(|_| "Unable to connect. Is the computer able to access the url?".to_owned())?;
+        .map_err(fetch_probe_error)?;
     if !healthy {
         return Ok(false);
     }
@@ -667,7 +676,7 @@ async fn link_probe(ctx: &Ctx) -> Result<bool, String> {
         .to_owned();
     http_ok(port, "/v2/snapshot", Some(&token))
         .await
-        .map_err(|_| "Unable to connect. Is the computer able to access the url?".to_owned())
+        .map_err(fetch_probe_error)
 }
 
 /// `anyReviewed` (`src/setup/check.ts:24-32`): reviewed is monotonic, so a
