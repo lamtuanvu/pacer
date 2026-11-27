@@ -147,6 +147,8 @@ layer = 6
 layer = 6
 [crates.pacer-config-ops]
 layer = 7
+[crates.pacer-setup-ops]
+layer = 8
 [crates.pacer-dispatch-ops]
 layer = 7
 [crates.pacer-issues]

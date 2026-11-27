@@ -432,7 +432,22 @@ async fn main() -> io::Result<()> {
         let snapshot_parts = input.get("snapshotParts").cloned();
         let snapshot_sync = snapshot_parts
             .map(|parts| Box::pin(async move { Ok(parts) }) as pacer_foundation::api::OpFuture<'_>);
-        let result = pacer_server::native::call_native(
+        // The parity driver replays the facts TypeScript gathered for this home
+        // instead of probing the machine, so both sides compare the same inputs.
+        let replay = input.get("bridgeResult").cloned();
+        let facts = replay
+            .as_ref()
+            .and_then(|value| value.get("facts"))
+            .cloned()
+            .or(replay.clone())
+            .unwrap_or(Value::Null);
+        let mut setup_host = pacer_setup_ops::setup_facts::BridgeHost::new(
+            None,
+            None,
+            Some(facts),
+            false,
+        );
+        let result = pacer_server::native::call_native_with_setup(
             &ctx,
             op,
             input["params"].clone(),
@@ -451,6 +466,7 @@ async fn main() -> io::Result<()> {
             None,
             None,
             None,
+            Some(&mut setup_host),
         )
         .await;
         let output = match result {

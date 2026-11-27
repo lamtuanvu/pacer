@@ -57,12 +57,31 @@ fn update_items(items: &mut [Map<String, Value>], facts: &Value) {
     let verdict = text(facts.get("verdict")).is_some_and(|verdict| verdict != "UNKNOWN");
     let reviewed = facts["reviewed"] == json!(true);
     let skipped = facts["skipped"] == json!(true);
+    // A failed Core reading is recorded under `errors` by `setup_facts` and must
+    // be visible rather than looking like an empty but healthy configuration.
+    let bridge_error = ["status", "policy"]
+        .into_iter()
+        .filter_map(|key| text(facts.pointer(&format!("/errors/{key}"))))
+        .collect::<Vec<_>>()
+        .join("; ");
     for row in items {
         match row["id"].as_str().unwrap_or("") {
             "executor" => {
                 let has = !ranked.is_empty();
-                row.insert("status".into(), if has { "done" } else { "pending" }.into());
-                let detail = if has {
+                row.insert(
+                    "status".into(),
+                    if !bridge_error.is_empty() {
+                        "failed"
+                    } else if has {
+                        "done"
+                    } else {
+                        "pending"
+                    }
+                    .into(),
+                );
+                let detail = if !bridge_error.is_empty() {
+                    bridge_error.clone()
+                } else if has {
                     let ids: Vec<_> = ranked.iter().map(|e| field(e, "id")).collect();
                     ids.join(", ")
                 } else if !excluded.is_empty() {
@@ -456,6 +475,19 @@ mod tests {
         assert_eq!(reply["items"][5]["detail"], json!("codex: blocked"));
         assert_eq!(reply["items"][5]["action"], json!("nav:add-executor"));
         assert_eq!(reply["integration"]["configuration"], json!("unverified"));
+    }
+
+    #[test]
+    fn a_failed_core_reading_is_visible_on_the_executor_row() {
+        let mut input = facts();
+        input["errors"] = json!({"status": "status bridge unavailable", "policy": "policy bridge unavailable"});
+        let reply = checklist(&input, json!(5));
+        let executor = reply["items"][5].clone();
+        assert_eq!(executor["status"], json!("failed"));
+        assert_eq!(
+            executor["detail"],
+            json!("status bridge unavailable; policy bridge unavailable")
+        );
     }
 
     #[test]

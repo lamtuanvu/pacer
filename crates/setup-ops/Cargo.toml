@@ -1,0 +1,32 @@
+[package]
+name = "pacer-setup-ops"
+version = "0.0.0"
+publish = false
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[features]
+test-ops = []
+
+[dependencies]
+serde_json.workspace = true
+pacer-foundation = { path = "../foundation", features = ["async"] }
+pacer-config = { path = "../config" }
+pacer-config-ops = { path = "../config-ops" }
+pacer-store = { path = "../store" }
+pacer-js-json = { path = "../js-json" }
+pacer-plugin-ops = { path = "../plugin-ops" }
+pacer-update = { path = "../update" }
+regex = "1"
+hex = "0.4"
+rand = "0.9"
+sha2 = "0.10"
+tokio.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+tokio.workspace = true
+
+[lints]
+workspace = true

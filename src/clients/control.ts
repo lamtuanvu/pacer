@@ -1,3 +1,6 @@
+// B6-1: the broker is native (`crates/machine-ops/src/client_control.rs`). This module stays
+// because `src/api/client-control-bridge.ts` still calls `clientControl` for capture until B7,
+// and `clientAction` is the schema behind the protocol docs. Do not add new callers.
 import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import { CoreError } from '../core/errors';

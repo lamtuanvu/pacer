@@ -23,6 +23,7 @@ import { authorizeEnforcementToken } from "../dispatch/enforcement-token";
 import { appendWorkEvent, dispatchDatabase, updateWorkDecision } from "../dispatch/store";
 import { enforcementExclusion } from "../dispatch/enforcement";
 import { clientControlOps } from "./ops-client-control";
+import { nativeOnly } from "./native-only";
 import pkg from "../../package.json";
 import { PROTOCOL_VERSION } from "./protocol";
 import { taskIdText } from "../plugins/ui-schema";
@@ -78,8 +79,6 @@ import * as config from "../core/config";
 import * as setup from "../core/setup";
 import * as notify from "../core/notify";
 import * as clients from "../clients/registry";
-import * as notificationHealth from "../core/notification-health";
-import { notificationsCheck } from "../install/notifications-check";
 import { publishConfigChange } from "../core/events";
 import { refreshAccountUsage, refreshAllUsage } from "../usage/refresh";
 import { KINDS, loadStrategy } from "../config/strategy";
@@ -393,15 +392,13 @@ export const OPS: Record<string, OpDef> = {
   "config.set": op({ description: "Change a setting with validation, rollback and an undo command; planner requires an integration choice.", params: z.object({ key: z.enum(config.CONFIG_KEYS), value: z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]), integrations: z.enum(["install", "skip"]).optional() }), handler: async (ctx, p, deps) => { const {notes, ...result} = await config.set(ctx, p.key, p.value, {...p, terminalPresetsOnly: deps.terminalPresetsOnly, backendReady: async (...a) => (await import("../exec/backend")).backendAvailable(...a)}); return result; } }),
   "notifications.get": op({ description: "Current notification level and sound.", params: z.object({}), handler: ctx => notify.getLevel(ctx) }),
   "notifications.set": op({ description: "Set notification level (off, important, all) and/or sound (pacer, default, off or a built-in macOS sound); only present fields are written.", params: z.object({level: level.optional(), sound: sound.optional()}).refine(p => p.level !== undefined || p.sound !== undefined, "provide level or sound"), handler: (ctx, p) => mutation(ctx, "config", () => notify.setNotifications(ctx, {level: p.level, sound: p.sound})) }),
-  "notifications.test": op({ description: "Send a test notification to the OS presenter.", params: z.object({}), handler: (ctx, _p, _deps) => notificationHealth.testNotification(ctx) }),
-  "notifications.ack": op({ description: "Acknowledge a notification delivery outcome (desktop clients only).", params: z.object({ client_id: id, key: z.string().min(1).max(512), delivered: z.boolean(), error: z.string().max(512).nullable().optional() }), handler: async (ctx, p, _deps) => {
-    const entry = clients.list(ctx).find(c => c.client_id === p.client_id);
-    if (!entry || entry.kind !== "desktop") throw new CoreError("not_allowed", "notifications.ack requires a live desktop client");
-    return notificationHealth.ackNotification(ctx, p.client_id, p.key, p.delivered, p.error);
-  } }),
-  "notifications.request": op({ description: "Request notification permission from the live desktop and wait up to wait_s seconds (default 20, max 25) for the macOS answer.", params: z.object({ wait_s: z.number().int().min(0).max(25).optional() }), handler: (ctx, p, _deps) => notificationHealth.requestAuthorization(ctx, { wait_s: p.wait_s }) }),
-  "notifications.health": op({ description: "Cheap read of the notification check without running the full doctor.", params: z.object({}), handler: (ctx, _p, _deps) => notificationsCheck(ctx) }),
-  "setup.skip": op({ description: "Skip an optional setup step.", params: z.object({ step: z.literal("notifications") }), handler: (ctx, _p, _deps) => mutation(ctx, "config", () => setup.skipNotificationSetup(ctx)) }),
+  // B6-3: the Rust front door answers these five v3-only operations. The schemas stay
+  // for protocol docs and parameter validation; TypeScript cores answer `unavailable`.
+  "notifications.test": op({ description: "Send a test notification to the OS presenter.", params: z.object({}), handler: nativeOnly("notifications.test") }),
+  "notifications.ack": op({ description: "Acknowledge a notification delivery outcome (desktop clients only).", params: z.object({ client_id: id, key: z.string().min(1).max(512), delivered: z.boolean(), error: z.string().max(512).nullable().optional() }), handler: nativeOnly("notifications.ack") }),
+  "notifications.request": op({ description: "Request notification permission from the live desktop and wait up to wait_s seconds (default 20, max 25) for the macOS answer.", params: z.object({ wait_s: z.number().int().min(0).max(25).optional() }), handler: nativeOnly("notifications.request") }),
+  "notifications.health": op({ description: "Cheap read of the notification check without running the full doctor.", params: z.object({}), handler: nativeOnly("notifications.health") }),
+  "setup.skip": op({ description: "Skip an optional setup step.", params: z.object({ step: z.literal("notifications") }), handler: nativeOnly("setup.skip") }),
   "machine.get": op({ description: "This machine's identity: id, name, revision and whether the home looks copied. After a rotation it adds rotatedFrom (the previous id) and rotationSignature (the old key's signed rotation statement, base64).", params: z.object({}),
     handler: async ctx => { const m = await import("../identity"); return m.machineView(await m.ensureIdentity(ctx), await m.cloneSuspected(ctx)); } }),
   "machine.set": op({ description: "Rename this machine against the expected revision. Names are display-only.", params: z.object({ name: z.string().min(1).max(256), expect_rev: z.number().int().positive().safe() }),

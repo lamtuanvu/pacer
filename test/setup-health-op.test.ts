@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { callOp, opNames } from "../src/api/ops";
 import { V3_ONLY_OPS } from "../src/api/v2-compat";
 import { readJson } from "../src/fsutil";
+import { skipNotificationSetup } from "../src/core/setup";
 import { markSetupHealthRequired, readSetupHealthPass, writeSetupHealthPass } from "../src/install/setup-health-store";
 import { currentVersion } from "../src/update/version";
 import type { SetupHealthFingerprint } from "../src/view-model/setup-health";
@@ -45,12 +46,13 @@ test("setup.skip is v3-only, persists the notifications skip, and rejects other 
   const ctx = fakeCtx({ which: () => null });
   expect(opNames()).toContain("setup.skip");
   expect(V3_ONLY_OPS.has("setup.skip")).toBe(true);
-  const skipped = await callOp(ctx, "setup.skip", { step: "notifications" }) as { skipped: boolean };
-  expect(skipped.skipped).toBe(true);
+  // B6-3: the Rust front door answers the op; drive the TypeScript reference directly.
+  expect(skipNotificationSetup(ctx)).toEqual({ skipped: true });
   const settings = readJson<{ setup?: { notifications_skipped?: boolean } }>(join(ctx.pacerHome, "settings.json"));
   expect(settings?.setup?.notifications_skipped).toBe(true);
   // Idempotent, and only the notifications step is a valid target.
-  expect(await callOp(ctx, "setup.skip", { step: "notifications" })).toEqual({ skipped: true });
+  expect(skipNotificationSetup(ctx)).toEqual({ skipped: true });
+  await expect(callOp(ctx, "setup.skip", { step: "notifications" })).rejects.toMatchObject({ code: "unavailable" });
   await expect(callOp(ctx, "setup.skip", { step: "usage_eligibility" })).rejects.toMatchObject({ code: "invalid_input" });
   await expect(callOp(ctx, "setup.skip", {})).rejects.toMatchObject({ code: "invalid_input" });
 });
@@ -140,7 +142,7 @@ test("after setup.skip the skipped step is stored and reads back as a valid pass
   const ctx = fakeCtx({ which: () => null });
   strategy(ctx);
 
-  await callOp(ctx, "setup.skip", { step: "notifications" });
+  skipNotificationSetup(ctx);
 
   const first = await callOp(ctx, "setup.health", { trigger: "startup" }) as {
     skipFullWindow: boolean;

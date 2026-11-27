@@ -1752,6 +1752,7 @@ dependencies = [
  "ryu-js",
  "serde_json",
  "sha2",
+ "subtle",
  "tempfile",
  "tokio",
 ]
@@ -2075,6 +2076,7 @@ dependencies = [
  "pacer-plugin-ops",
  "pacer-plugin-runtime",
  "pacer-read-model",
+ "pacer-setup-ops",
  "pacer-store",
  "pacer-task-ops",
  "pacer-update",
@@ -2109,6 +2111,26 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "pacer-setup-ops"
+version = "0.0.0"
+dependencies = [
+ "hex",
+ "pacer-config",
+ "pacer-config-ops",
+ "pacer-foundation",
+ "pacer-js-json",
+ "pacer-plugin-ops",
+ "pacer-store",
+ "pacer-update",
+ "rand 0.9.5",
+ "regex",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]
