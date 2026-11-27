@@ -27,7 +27,7 @@ pub(crate) fn received(value: Option<&Value>) -> &'static str {
 }
 
 /// The params object of a (stripping) Zod object schema; `null` reads as `{}`.
-pub(crate) fn params_object(params: &Value) -> Result<Map<String, Value>, CoreError> {
+pub fn params_object(params: &Value) -> Result<Map<String, Value>, CoreError> {
     match params {
         Value::Null => Ok(Map::new()),
         Value::Object(map) => Ok(map.clone()),

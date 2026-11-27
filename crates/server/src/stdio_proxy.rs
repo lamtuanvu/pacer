@@ -5,6 +5,7 @@ use pacer_foundation::{
     Ctx,
     api::{Code, CoreError, Registry},
 };
+use pacer_machine_ops::client_control::{SharedControl, shared as shared_control};
 use serde_json::{Value, json};
 use std::{collections::HashMap, io, process::Stdio};
 use tokio::{
@@ -193,6 +194,7 @@ async fn forward_input<
     sync: (&str, &str, &mut tokio::sync::mpsc::UnboundedReceiver<Value>),
     core_build: &CoreBuild<'_>,
     plugins: &mut Plugins,
+    control: &SharedControl,
 ) -> io::Result<()> {
     let mut line = Vec::new();
     let mut protocol = 2;
@@ -382,7 +384,6 @@ async fn forward_input<
                     op.name,
                     &params,
                 )
-                && !crate::native::client_stays_forwarded(&ctx.at_now(), op.name)
                 && !crate::native::terminal_stays_forwarded(&ctx.at_now(), op.name, &params)
             {
                 let request_ctx = ctx.at_now();
@@ -412,13 +413,8 @@ async fn forward_input<
                         key: sync.1,
                         replies: &mut *sync.2,
                     };
-                    let result = client_ops::call(&request_ctx, op.name, params, &mut bridge).await;
-                    if matches!(&result, Err(error) if error.message == client_ops::FORWARD_TO_CORE)
-                    {
-                        core.write_all(&line).await?;
-                        core.flush().await?;
-                        continue;
-                    }
+                    let result =
+                        client_ops::call(&request_ctx, op.name, params, control, &mut bridge).await;
                     if let Some(id) = request.get("id") {
                         write_line(out, &rpc_line(id, result)?).await?;
                     }
@@ -1389,6 +1385,8 @@ async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i3
         owner_key: host_socket.owner_key(),
         native_config_sync_key: Some(sync_key.clone()),
     };
+    // Each stdio connection had its own in-process Core broker; keep the same isolation.
+    let control = shared_control();
     let session = async {
         let mut command = Command::new(program);
         host_socket
@@ -1419,6 +1417,7 @@ async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i3
             (&sync_id, &sync_key, &mut sync_rx),
             &core_build,
             &mut plugins,
+            &control,
         );
         let outgoing = forward_output(BufReader::new(output), &out, &sync_id, sync_tx, &link);
         tokio::pin!(incoming, outgoing);
