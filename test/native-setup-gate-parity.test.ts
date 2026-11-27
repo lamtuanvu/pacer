@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sha256 } from "../src/install/fsx";
 import type { Check, Remedy } from "../src/install/doctor";
@@ -10,13 +11,14 @@ import type { SetupFacts } from "../src/setup/checklist";
 import { writeJsonAtomic } from "../src/fsutil";
 import { aggregateSetupHealth, fingerprintFromReport, shouldSkipFullWindow, type SetupHealthTrigger } from "../src/view-model/setup-health";
 import { tmpDir } from "./helpers";
-import { pinnedEnv } from "./pinned-port";
+import { closedPort, pinnedEnv, spawnPinned } from "./pinned-port";
 
 // The Rust checklist rules, gate and stored files against the TypeScript functions they replace,
 // over the parts Core sends across the setup bridges.
 
 const root = join(import.meta.dir, "..");
 const NOW = 1_700_000_000.25;
+const front = process.env.PACER_TEST_NATIVE_FRONT_DOOR;
 let driver: string | undefined;
 
 function native(home: string, op: string, params: unknown, parts: unknown) {
@@ -214,3 +216,104 @@ test("a last-pass path that is not a regular file refuses the gate's write", () 
   const reply = JSON.parse(native(dir, "setup.health", {}, { doctor: { checks: OK }, facts: { ...READY, policy: POLICY }, version: VERSION, integrationHashes: HASHES }));
   expect(reply.error.message).toBe(`unsafe integration file: ${join(dir, "setup-health.json")}`);
 }, 120000);
+
+// Door parity on the same `--seed ui` home: the native front door gathers the
+// facts Rust uses, forced forwarding asks the TypeScript core for them.
+const SEEDED_OPS = "setup.check,setup.health";
+let frontBinary = front;
+const CORE_ARGV = JSON.stringify([process.execPath, join(import.meta.dir, "../src/cli.ts")]);
+
+function seededDoorEnv(dir: string, forward: boolean) {
+  const home = join(dir, "home");
+  return pinnedEnv({
+    HOME: home, PACER_HOME: home, PATH: `${home}/bin:/usr/bin:/bin`,
+    PACER_CORE_ARGV: CORE_ARGV, PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1",
+    PACER_DISCOVERY: "off", PACER_DEBUG_NATIVE: "1", LANG: "C",
+    ...(forward ? { PACER_FORWARD_OPS: SEEDED_OPS } : {}),
+  });
+}
+
+const normalizeDoor = (value: unknown, dir: string) => JSON.parse(
+  JSON.stringify(value).replaceAll(dir, "$HOME")
+    .replace(/"checkedAt":\d+(\.\d+)?/g, '"checkedAt":"<now>"')
+    .replace(/"durationSeconds":\d+(\.\d+)?(e-?\d+)?/g, '"durationSeconds":"<elapsed>"')
+    // Each side seeds its own home, so `installedAt` can differ by a second.
+    .replace(/"[0-9a-f]{64}"/g, '"<hash>"'),
+);
+
+async function seededStdio(forward: boolean) {
+  const { seedUi } = await import("../scripts/live/seed");
+  const dir = mkdtempSync(join(tmpdir(), "m3-b64-stdio-"));
+  try {
+    seedUi(dir);
+    const child = spawnPinned([frontBinary!, "api", "--stdio"], {
+      cwd: join(dir, "home"), env: seededDoorEnv(dir, forward), stdin: "pipe", stdout: "pipe", stderr: "pipe",
+    });
+    const requests = [
+      { jsonrpc: "2.0", id: 1, method: "hello", params: { protocol: 3 } },
+      { jsonrpc: "2.0", id: 2, method: "setup.check", params: {} },
+      { jsonrpc: "2.0", id: 3, method: "setup.health", params: { trigger: "manual" } },
+    ];
+    try {
+      await child.stdin.write(requests.map(request => JSON.stringify(request)).join("\n") + "\n");
+      await child.stdin.end();
+      const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+      expect(code, stderr).toBe(0);
+      return normalizeDoor(stdout.trim().split("\n").slice(1).map(line => JSON.parse(line)), dir);
+    } finally {
+      if (child.exitCode === null) { child.kill("SIGTERM"); await child.exited; }
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+async function seededHttp(forward: boolean) {
+  const { seedUi } = await import("../scripts/live/seed");
+  const dir = mkdtempSync(join(tmpdir(), "m3-b64-http-"));
+  try {
+    seedUi(dir);
+    const port = closedPort();
+    const child = spawnPinned([frontBinary!, "serve", "--port", String(port)], {
+      cwd: join(dir, "home"), env: seededDoorEnv(dir, forward), stdin: "ignore", stdout: "ignore", stderr: "pipe",
+    });
+    const base = `http://127.0.0.1:${port}`;
+    let token = "", ready = false;
+    for (let n = 0; n < 1000 && !ready; n++) {
+      try {
+        token = readFileSync(join(dir, "home", "token"), "utf8").trim();
+        ready = (await fetch(`${base}/v3/hello`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(500) })).ok;
+      } catch { /* not ready */ }
+      if (!ready) await Bun.sleep(20);
+    }
+    try {
+      expect(ready).toBe(true);
+      const bodies = [];
+      for (const op of ["setup.check", "setup.health"]) {
+        const response = await fetch(`${base}/v3/ops/${op}`, {
+          method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify(op === "setup.check" ? {} : { trigger: "manual" }), signal: AbortSignal.timeout(30000),
+        });
+        bodies.push(await response.json());
+      }
+      return normalizeDoor(bodies, dir);
+    } finally {
+      child.kill("SIGTERM");
+      await child.exited;
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test.skipIf(!front)("seeded setup facts match forced forwarding over stdio and HTTP", async () => {
+  if (!frontBinary) {
+    const env = pinnedEnv(process.env);
+    execFileSync("cargo", ["build", "-q", "-p", "pacer", "--features", "test-ops", "--locked"], { cwd: root, env });
+    const metadata = JSON.parse(execFileSync("cargo", ["metadata", "--no-deps", "--locked", "--format-version", "1"], { cwd: root, env }).toString());
+    frontBinary = join(metadata.target_directory, "debug/pacer");
+  }
+  for (const door of [seededStdio, seededHttp]) {
+    expect(await door(false)).toEqual(await door(true));
+  }
+}, 300000);

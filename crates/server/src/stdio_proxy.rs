@@ -1177,7 +1177,10 @@ async fn forward_input<
                     || crate::native::needs_core_bridge(op.name)
                 {
                     let bridge_params = if op.name == "setup.check" {
-                        Ok(serde_json::json!({}))
+                        // Validate before the native call so a refused request
+                        // leaves no `native <op>` trace, as the TS bridge did.
+                        pacer_config_ops::repo_registry_ops::params_object(&params)
+                            .map(|_| serde_json::json!({}))
                     } else {
                         crate::native::p8_bridge_ops::bridge_params(op.name, &params)
                     };

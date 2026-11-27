@@ -435,21 +435,85 @@ fn agent_plans(ctx: &Ctx, manifest: &Value) -> Vec<Value> {
         .collect()
 }
 
-/// `statusFacts` (`src/setup/check.ts:40-42`): the verdict comes from the
-/// status' own planner id, not from the strategy (a stale cache may name another).
-fn status_facts(status: &Value) -> (Option<Value>, Option<Value>) {
-    let executors = status.get("executors").filter(|v| !v.is_null()).cloned();
-    let verdict = status["providers"]
+/// `statusFacts` (`src/setup/check.ts:40-42`). The status bridge carries parts,
+/// not the full status: the executor rows are rebuilt from the strategy's
+/// runners and the provider states, and the planner id comes from the strategy
+/// when the parts omit it (as `statusBrokerParts` does).
+fn status_facts(status: &Value, strategy: Option<&Value>) -> (Option<Value>, Option<Value>) {
+    let planner = status["planner"]
+        .as_str()
+        .map(str::to_owned)
+        .or_else(|| strategy.and_then(format_planner));
+    let providers = status["providers"].as_array().cloned().unwrap_or_default();
+    let provider = |id: &str| {
+        providers
+            .iter()
+            .find(|provider| provider["id"].as_str() == Some(id))
+    };
+    let verdict = planner
+        .as_deref()
+        .and_then(provider)
+        .and_then(|provider| provider["verdict"].as_str())
+        .map(Value::from);
+    let Some(strategy) = strategy else {
+        return (None, verdict);
+    };
+    let planner_agent = strategy["planner"]["agent"].as_str().unwrap_or("");
+    let planner_account = strategy["planner"]["account"].as_str().unwrap_or("");
+    let mut ranked = Vec::new();
+    let mut excluded = Vec::new();
+    let mut ids: Vec<String> = strategy["routing"]
         .as_array()
-        .and_then(|providers| {
-            let planner = status["planner"].as_str()?;
-            providers
-                .iter()
-                .find(|provider| provider["id"].as_str() == Some(planner))
-                .and_then(|provider| provider["verdict"].as_str())
-                .map(Value::from)
-        });
-    (executors, verdict)
+        .into_iter()
+        .flatten()
+        .filter_map(|rule| rule["executors"].as_array())
+        .flatten()
+        .filter_map(|id| id.as_str().map(str::to_owned))
+        .collect();
+    if ids.is_empty() {
+        ids = strategy["runners"]
+            .as_object()
+            .into_iter()
+            .flat_map(|runners| runners.keys().cloned())
+            .collect();
+    }
+    for id in ids {
+        let runner = strategy["runners"].get(&id);
+        let is_planner = runner.is_some_and(|runner| {
+            runner["agent"].as_str() == Some(planner_agent)
+                && runner["account"].as_str() == Some(planner_account)
+        }) || (runner.is_none() && planner.as_deref() == Some(id.as_str()));
+        let reason = match provider(&id) {
+            None => Some("not configured".to_owned()),
+            Some(state) if is_planner => {
+                // `rankExecutors` excludes the planner runner with this reason
+                // when a routing rule names it.
+                let _ = state;
+                Some("planner".to_owned())
+            }
+            Some(state) => state["signedOutReason"]
+                .as_str()
+                .or_else(|| state["unavailableReason"].as_str())
+                .or_else(|| state["blockedReason"].as_str())
+                .map(str::to_owned)
+                .or_else(|| {
+                    state["brokenReason"]
+                        .as_str()
+                        .map(|reason| format!("Not working · {reason}"))
+                })
+                .or_else(|| {
+                    (state["installed"] == json!(false)).then(|| "not installed".to_owned())
+                }),
+        };
+        match reason {
+            Some(reason) => excluded.push(json!({"id": id, "reason": reason})),
+            None => ranked.push(json!({"id": id})),
+        }
+    }
+    (
+        Some(json!({"ranked": ranked, "excluded": excluded})),
+        verdict,
+    )
 }
 
 /// `policySummary` (`src/plugins/policy.ts:78-81`): the config mode and the
@@ -527,14 +591,21 @@ async fn link_probe(ctx: &Ctx) -> Result<bool, String> {
         .get("PACER_PORT")
         .and_then(|value| value.parse::<u16>().ok())
         .unwrap_or(4317);
-    if !http_ok(port, "/health", None).await? {
+    // `fetch` in the TS core reports a refused loopback connect with this
+    // message; keep the checklist's error detail byte-identical.
+    let healthy = http_ok(port, "/health", None)
+        .await
+        .map_err(|_| "Unable to connect. Is the computer able to access the url?".to_owned())?;
+    if !healthy {
         return Ok(false);
     }
     let token = fs::read_to_string(ctx.pacer_home.join("token"))
         .map_err(error_message)?
         .trim()
         .to_owned();
-    http_ok(port, "/v2/snapshot", Some(&token)).await
+    http_ok(port, "/v2/snapshot", Some(&token))
+        .await
+        .map_err(|_| "Unable to connect. Is the computer able to access the url?".to_owned())
 }
 
 /// `anyReviewed` (`src/setup/check.ts:24-32`): reviewed is monotonic, so a
@@ -680,7 +751,7 @@ pub async fn setup_facts(ctx: &Ctx, snapshot_probe: bool, host: &mut dyn SetupHo
 
     // Cached status (G2). A missing Core reply leaves the status-derived rows pending.
     let status = host.cached_status_parts().await.unwrap_or(Value::Null);
-    let (executors, verdict) = status_facts(&status);
+    let (executors, verdict) = status_facts(&status, strategy.as_ref());
 
     let skipped = ctx.pacer_home.join("onboarding/skipped").exists();
     let entries = host.plugins(ctx).await.unwrap_or_default();
