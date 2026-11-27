@@ -266,7 +266,14 @@ function overlayLines(input: FrameInput, overlay: Overlay, view: ScreenView, wid
       }
       if (overlay.mode === "yes_no") {
         lines.push(...bodyLines, []);
-        lines.push([span("y", { bold: true }), span(" Yes   "), span("n", { bold: true }), span(" No")]);
+        const yesFocused = overlay.index === 0;
+        const noFocused = overlay.index === 1;
+        lines.push([
+          span(yesFocused ? `${glyph(theme, "›")} ` : "  ", { fg: "focus", bold: true }),
+          span("y", { bold: true }), span(" Yes   "),
+          span(noFocused ? `${glyph(theme, "›")} ` : "  ", { fg: "focus", bold: true }),
+          span("n", { bold: true }), span(" No"),
+        ]);
         if (overlay.recommended) lines.push([span(`Recommended: ${overlay.recommended}`, { fg: "muted" })]);
         if (overlay.error) lines.push(statusSpans(theme, { label: overlay.error, tone: "bad", glyph: "✕" }));
         lines.push([], [span("y / n · Esc cancel", { fg: "muted" })]);

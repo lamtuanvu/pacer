@@ -487,9 +487,6 @@ fn run_question_detail(
         .and_then(|a| a.get("label"))
         .and_then(|v| v.as_str());
     let mut parts: Vec<String> = Vec::new();
-    if let Some(label) = first_label {
-        parts.push(format!("The first button answers \"{label}\"."));
-    }
     parts.push(format!("{run_subject}."));
     parts.push(format!("{}.", asker_cue(asker_kind)));
     let collapsed = collapsed_question_text(question_text);
@@ -526,14 +523,6 @@ fn run_question_detail(
             "Recommended: {}.",
             clip_code_points(&collapse_newlines(rec), OPTION_DETAIL_CLIP, true)
         ));
-    }
-    // m1: CLI hint when no buttons, or when listed options exceed the buttons shown.
-    if action_count == 0
-        || opt_words
-            .as_ref()
-            .is_some_and(|opts| opts.len() > action_count)
-    {
-        parts.push(format!("Answer with: pacer answer {id} \"<your answer>\""));
     }
     parts.join(" ")
 }

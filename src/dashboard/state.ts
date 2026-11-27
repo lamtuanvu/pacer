@@ -301,7 +301,15 @@ function answerOverlayKey(
   }
   const move = key === "up" || key === "k" ? -1 : key === "down" || key === "j" ? 1 : 0;
   if (move) {
-    return { state: { ...state, overlay: { ...overlay, index: Math.max(0, Math.min(overlay.options.length - 1, overlay.index + move)) } } };
+    // In yes_no mode the form starts with nothing chosen (explicit). Map the first
+    // move predictably (Down -> Yes, Up -> No) instead of clamping -1 to 0, so a
+    // choice is always visible before Enter can answer. Other explicit modes keep
+    // their first-option default, but never inherit a stale error.
+    if (overlay.mode === "yes_no" && overlay.index < 0) {
+      const next = move > 0 ? 0 : Math.max(0, overlay.options.length - 1);
+      return { state: { ...state, overlay: { ...overlay, index: next, error: undefined } } };
+    }
+    return { state: { ...state, overlay: { ...overlay, index: Math.max(0, Math.min(overlay.options.length - 1, overlay.index + move)), error: undefined } } };
   }
   if (key === " " && overlay.mode === "multi") {
     const value = overlay.options[overlay.index]?.value;

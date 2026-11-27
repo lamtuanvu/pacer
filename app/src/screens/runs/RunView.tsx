@@ -9,9 +9,11 @@ import {
   orchestratorBlock, pausedReasonLabel, runAge, runPriorityLabel, runStatus, waitsOnLabel, awaitsVerdict,
   RUN_QUESTIONS_ERROR, RUN_SEEN_ERROR,
 } from "../../../../src/view-model/runs";
+import { attentionStatus, runBlocked } from "../../../../src/view-model/words";
 import type { RunQuestionView } from "../../data/runs";
 import { runIdentity, useRetryFocus, useRunDetail, useRunSeen } from "./run-data";
 import { useActions } from "../../data/action-context";
+import { ActionButton } from "../ActionButton";
 import { Alert } from "../../ds/Alert";
 import { Button, ButtonLink } from "../../ds/Button";
 import { Page } from "../../ds/Page";
@@ -122,6 +124,7 @@ export function RunView({ runId, query, fetchText }: { runId: string; query: Rou
   const orch = isObj(run?.orchestrator) ? run!.orchestrator as { state?: string; planner?: string; reason?: string; next_wake_at?: number } : undefined;
   const orchLine = sentenceCase(orchestratorBlock(orch, now));
   const orchAttention = orchestratorNeedsAttention(orch);
+  const runAttention = (state.snapshot?.attention ?? []).filter((item: { run?: { id: string } }) => item.run?.id === runId);
   const createdAt = typeof run?.createdAt === "number" ? run.createdAt : 0;
   const unavailable = !ops.has("run.get");
   const backHref = withQuery("#/runs", query);
@@ -182,6 +185,24 @@ export function RunView({ runId, query, fetchText }: { runId: string; query: Rou
         {orchAttention
           ? <Alert tone="warning" title={orch?.state === "retrying" ? "The planner is retrying" : "The planner is blocked"}><p data-orchestrator>{orchLine}</p></Alert>
           : <p className="rv-cap" data-orchestrator>{orchLine}</p>}
+        {runAttention.length ? (
+          <section className="rv-section" aria-label="Needs your attention">
+            <h2 className="rv-title">Needs your attention</h2>
+            {runAttention.map((item: any) => {
+              const status = item.kind === "question" ? attentionStatus(item, state.snapshot?.tasks ?? []) : runBlocked;
+              return <div key={item.id} className="ny-item" data-attention-id={item.id}>
+                <span aria-hidden="true" className={`ny-glyph ny-glyph--${status.tone === "neutral" ? "info" : status.tone}`}>{status.glyph}</span>
+                <div className="ny-gate">
+                  <span className="ny-title-line"><span className="ny-title">{item.title}</span><Pill tone={status.tone}>{status.label}</Pill></span>
+                  <span className="ny-reason">{item.detail}</span>
+                </div>
+                <span className="ny-actions">
+                  {item.actions.map((action: any) => <ActionButton key={action.label} runner={runner} id={`${item.id}:${action.label}`} action={action} />)}
+                </span>
+              </div>;
+            })}
+          </section>
+        ) : null}
 
         {offered.length > 1 ? (
           <div className="rv-boards" role="group" aria-label="Run boards">

@@ -146,7 +146,7 @@ export function runQuestionActions(q: QuestionRow): Action[] {
   // A human step decides what the run does next (publishing included): every
   // one-click answer to it asks first, so no single key or click decides it.
   if (q.askerKind !== "human_step") return actions;
-  const asked = clipCodePoints(collapsedQuestionText(q.text), FULL_QUESTION_CLIP, true);
+  const asked = collapsedQuestionText(q.text);
   return actions.map(action => ({ ...action, confirm: `Answer "${String(action.params.answer)}" to: ${asked}` }));
 }
 
@@ -220,9 +220,6 @@ export function runQuestionDetail(
   run: Pick<RunRow, "title" | "workflow">,
 ): string {
   const parts: string[] = [];
-  if (actions.length > 0) {
-    parts.push(`The first button answers "${actions[0]!.label}".`);
-  }
   parts.push(`${runDetailSubject(run)}.`, `${askerCue(q.askerKind)}.`);
   const collapsed = collapsedQuestionText(q.text);
   if (Array.from(collapsed).length > QUESTION_TITLE_CLIP) {
@@ -234,10 +231,6 @@ export function runQuestionDetail(
   }
   if (q.recommended) {
     parts.push(`Recommended: ${clipCodePoints(collapseNewlines(q.recommended), OPTION_DETAIL_CLIP, true)}.`);
-  }
-  // m1: CLI hint when no buttons, or when listed options exceed the buttons shown.
-  if (actions.length === 0 || (opts !== null && opts.length > actions.length)) {
-    parts.push(`Answer with: pacer answer ${q.id} "<your answer>"`);
   }
   return parts.join(" ");
 }
