@@ -5,6 +5,7 @@ import { callOp, type OpDeps } from "../api/ops";
 import { commandArgs } from "./accounts";
 import type { Command, Result } from "./types";
 import type { Ctx } from "../types";
+import { terminalJson } from "./terminal-text";
 
 const USAGE =
   "usage: pacer question escalate <id> --suggested <text> --reason <text> [--expect-rev N] | get <id> | list [--run <id>] [--status open|answered|withdrawn] | convert <task-id> [--json]";
@@ -36,13 +37,13 @@ export async function questionCmd(args: string[], ctx: Ctx, deps: OpDeps = {}): 
         reason: String(flags.reason),
         expect_rev: expectRev,
       }, deps);
-      return { code: 0, out: JSON.stringify(result, null, flags.json ? 2 : undefined), err: "" };
+      return { code: 0, out: terminalJson(result, flags.json ? 2 : undefined), err: "" };
     }
     if (sub === "get") {
       const { pos, flags } = commandArgs(rest, [], ["json"]);
       if (pos.length !== 1) throw Error(USAGE);
       const result = await call(ctx, "question.get", { id: pos[0] }, deps);
-      return { code: 0, out: JSON.stringify(result, null, flags.json ? 2 : undefined), err: "" };
+      return { code: 0, out: terminalJson(result, flags.json ? 2 : undefined), err: "" };
     }
     if (sub === "list") {
       const { pos, flags } = commandArgs(rest, ["run", "status"], ["json"]);
@@ -51,13 +52,13 @@ export async function questionCmd(args: string[], ctx: Ctx, deps: OpDeps = {}): 
         ...(flags.run ? { run: String(flags.run) } : {}),
         ...(flags.status ? { status: String(flags.status) } : {}),
       }, deps);
-      return { code: 0, out: JSON.stringify(result, null, flags.json ? 2 : undefined), err: "" };
+      return { code: 0, out: terminalJson(result, flags.json ? 2 : undefined), err: "" };
     }
     if (sub === "convert") {
       const { pos, flags } = commandArgs(rest, [], ["json"]);
       if (pos.length !== 1) throw Error(USAGE);
       const result = await call(ctx, "question.convert_prompt", { id: pos[0] }, deps);
-      return { code: 0, out: JSON.stringify(result, null, flags.json ? 2 : undefined), err: "" };
+      return { code: 0, out: terminalJson(result, flags.json ? 2 : undefined), err: "" };
     }
     throw Error(USAGE);
   } catch (e) {

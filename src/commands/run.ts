@@ -10,6 +10,7 @@ import { callOp, type OpDeps } from "../api/ops";
 import { stepAwaitsReview, WAITING_FOR_REVIEW } from "../view-model/run-tree";
 import { commandArgs } from "./accounts";
 import type { Command, Result } from "./types";
+import { terminalJson, terminalLine } from "./terminal-text";
 import type { Ctx } from "../types";
 
 const USAGE = "usage: pacer run start <workflow|auto> --brief <text> [--repo <path>] [--title <t>] [--priority urgent|normal|background] [--publish draft] | list [--status <s>] | show <id> | graph <id> [--version N] | submit-graph --file <path> --id <run> --step <step> | answer <id> <step> <answer> | stop <id> | retry-orchestrator <id> | sync <id> | publish <id> --title <t> --body-file <path> [--draft] | cleanup <id> [--delete-branch] [--yes] | auto <id> on|off | planner <id> <agent> | budget <id> [--turns N] [--messages N] | priority <id> urgent|normal|background | pause <id> | resume <id> | seen <id> | decide <id> <step> <choice> --reason <text> | decide --json '{\"id\",\"kind\":\"summary\",\"summary\":\"…\"}' | decide <id> --json '{\"kind\":\"summary\",\"summary\":\"…\"}' | choose <id> <step> <workflow> --reason <text> [--json]";
@@ -88,7 +89,7 @@ function renderRun(run: RunLike, steps: StepLike[]): string {
     const status = stepAwaitsReview(step) ? WAITING_FOR_REVIEW : step.status;
     lines.push([stepLabel(step), status, step.taskId ?? "-", ...(step.error ? [step.error] : [])].join("  "));
   }
-  return lines.join("\n");
+  return lines.map(terminalLine).join("\n");
 }
 
 export async function runCmd(args: string[], ctx: Ctx, deps: OpDeps = {}): Promise<Result> {
@@ -129,9 +130,9 @@ export async function runCmd(args: string[], ctx: Ctx, deps: OpDeps = {}): Promi
       const got = await call(ctx, "run.get", { id: pos[0] }, deps) as {
         run: RunLike; steps: StepLike[]; pendingApproval?: { stepId: string };
       };
-      if (json) return { code: 0, out: JSON.stringify(got, null, 2), err: "" };
+      if (json) return { code: 0, out: terminalJson(got, 2), err: "" };
       const questions = await call(ctx, "question.list", { run: pos[0], status: "open" }, deps) as OpenQuestion[];
-      return { code: 0, out: [renderRun(got.run, got.steps), ...nextActions(got.run, got.steps, questions, got.pendingApproval)].join("\n"), err: "" };
+      return { code: 0, out: [renderRun(got.run, got.steps), ...nextActions(got.run, got.steps, questions, got.pendingApproval).map(terminalLine)].join("\n"), err: "" };
     }
     if (sub === "answer" || sub === "stop") {
       const { pos } = commandArgs(rest, [], ["json"]);

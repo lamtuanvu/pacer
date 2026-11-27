@@ -10,6 +10,7 @@ import { spawnRunner } from "../tasks/api";
 import type { Ctx } from "../types";
 import { commandArgs } from "./accounts";
 import type { Command, Result } from "./types";
+import { terminalJson, terminalText } from "./terminal-text";
 
 const TASK = /^t-\d{8}-\d{6}-[0-9a-f]{4}$/;
 const target = (s: string) => TASK.test(s) ? `task:${s}` : s;
@@ -28,8 +29,8 @@ const MSG_USAGE = "usage: pacer msg send|inbox|log|read|confirm|close|policy|hoo
 const call = (ctx: Ctx, op: string, params: Record<string, unknown>): Promise<any> =>
   Promise.resolve(callOp(ctx, op, params, { spawnRunner, participant: localHuman(ctx) }));
 const show = (messages: Array<{ id: string; from: string; to: string; kind: string; body: string }>) =>
-  messages.map(m => `${m.id}  ${m.kind}  ${m.from} -> ${m.to}\n${m.body}\n`).join("\n") || "(no messages)";
-const out = (json: boolean, value: unknown, text: string): Result => ({ code: 0, out: json ? JSON.stringify(value, null, 2) : text, err: "" });
+  messages.map(m => `${m.id}  ${m.kind}  ${m.from} -> ${m.to}\n${terminalText(m.body)}\n`).join("\n") || "(no messages)";
+const out = (json: boolean, value: unknown, text: string): Result => ({ code: 0, out: json ? terminalJson(value, 2) : text, err: "" });
 const fail = (e: unknown): Result => {
   const reason = e instanceof CoreError && typeof e.data?.reason === "string" ? ` (${e.data.reason})` : "";
   const hint = e instanceof CoreError && e.hint ? `\n${e.hint}` : "";

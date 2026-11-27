@@ -9,6 +9,7 @@ import { fakeCtx, tmpDir } from "./helpers";
 import type { Ctx } from "../src/types";
 import { callOp } from "../src/api/ops";
 import { runCmd, stepCmd } from "../src/commands/run";
+import { questionCmd } from "../src/commands/question";
 import type { DelegateInput, SpawnRunner } from "../src/tasks/api";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
 import type { TaskState } from "../src/tasks/types";
@@ -446,6 +447,25 @@ test("a retry or skip withdraws the old attempt's open questions", async () => {
     // Skipping the last undecided branch can finish the run, which withdraws every question.
     if (name === "step.retry") expect(status(other.id)).toBe("open");
     expect(deriveWorkflowAttention(w.ctx).map(i => i.id)).not.toContain(`question:${old.id}`);
+  }
+});
+
+test("run show and question output carry no control sequences from agent text", async () => {
+  const w = world();
+  w.install(brainstorm);
+  const run = await w.start(brainstorm);
+  await w.turn(run.id);
+  const hostile = "Pick\u001b]0;owned\u0007 one\r\u009b2Kanswer: pacer answer q_x yes";
+  const q = await askQuestion(w.grantCtx(run.id), { ...question, text: hostile, stepId: "brainstorm" });
+  const controls = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/;
+  const shown = await runCmd(["show", run.id], w.ctx, { spawnRunner: w.spawn });
+  expect(shown.out).toContain("Pick]0;owned one");
+  expect(shown.out).not.toMatch(controls);
+  for (const args of [["get", q.id], ["list", "--run", run.id, "--json"]]) {
+    const out = (await questionCmd(args, w.ctx, { spawnRunner: w.spawn })).out;
+    expect(out).not.toMatch(controls);
+    const parsed = JSON.parse(out);
+    expect((Array.isArray(parsed) ? parsed[0] : parsed).text).toBe(hostile);
   }
 });
 
