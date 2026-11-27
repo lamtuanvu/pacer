@@ -209,6 +209,26 @@ test.skipIf(!front)("work-grant guard gate preserves TS exit and stderr", () => 
   } finally { rmSync(root,{recursive:true,force:true}); }
 }, 10000);
 
+test.skipIf(!front)("work-grant status gate lets only the installed hook form through, as TS does", () => {
+  const root = mkdtempSync(join(tmpdir(), "pacer-cli-status-grant-"));
+  try {
+    const env = { ...process.env, HOME: root, PACER_HOME: join(root,".pacer"), PACER_ROLE:"executor",
+      PACER_WORK_GRANT:"grant", PACER_CORE_ARGV:JSON.stringify([process.execPath,cli]), PACER_NO_SELF_REPAIR:"1" };
+    const run = (args:string[], program:string, prefix:string[] = []) => spawnSync(program,[...prefix,...args],{
+      env, input:"{}", encoding:"utf8", timeout:5000,
+    });
+    for (const planner of ["claude-code", "codex", "cursor", "opencode"]) {
+      const args = ["status", "--hook", planner], ts = run(args, process.execPath, [cli]), rust = run(args, front!);
+      expect([rust.status,rust.stdout,rust.stderr]).toEqual([ts.status,ts.stdout,ts.stderr]);
+      expect([rust.status,rust.stdout,rust.stderr]).toEqual([0,"",""]);
+    }
+    for (const args of [["status"], ["status", "--line"], ["status", "--hook"], ["status", "--hook", "other"], ["status", "--hook", "codex", "--json"]]) {
+      const rust = run(args, front!);
+      expect([rust.status,rust.stdout,rust.stderr]).toEqual([2,"","pacer: work grants cannot read global status\n"]);
+    }
+  } finally { rmSync(root,{recursive:true,force:true}); }
+}, 60000);
+
 test.skipIf(!front)("bootstrap validation precedes native guard routing", () => {
   const root = mkdtempSync(join(tmpdir(), "pacer-guard-bootstrap-"));
   try {
