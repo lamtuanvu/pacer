@@ -111,6 +111,11 @@ async fn an_onboarding_skipped_marker_makes_the_fact_true() {
 async fn status_and_policy_entries_are_read_from_the_host() {
     let root = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(root.path().join(".pacer")).unwrap();
+    std::fs::write(
+        root.path().join(".pacer/strategy.yaml"),
+        "planner: claude-code\nproviders:\n  claude-code: {usage: quota}\n  codex: {}\nrouting:\n  - default: [codex]\n",
+    )
+    .unwrap();
     let mut host = fixture();
     host.status = json!({"executors": {"ranked": [{"id": "codex"}], "excluded": []}, "planner": "codex", "providers": [{"id": "codex", "verdict": "OK"}]});
     host.entries = vec![json!({"id": "fx-policy", "state": "ready", "manifest": {"contributes": {"policy": {}}}})];
