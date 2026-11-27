@@ -602,8 +602,13 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             };
             let snapshot_sync = if crate::native::needs_snapshot_bridge(op.name) {
                 state.core.target().await.map(|target| {
-                    Box::pin(crate::native::snapshot_sync::http(Some(target)))
-                        as pacer_foundation::api::OpFuture<'_>
+                    let parts = Box::pin(crate::native::snapshot_sync::http(Some(target)))
+                        as pacer_foundation::api::OpFuture<'_>;
+                    crate::native::status_runtime::with_native_status(
+                        &state.status,
+                        ctx.clone(),
+                        parts,
+                    )
                 })
             } else {
                 None

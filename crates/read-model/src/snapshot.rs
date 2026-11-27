@@ -10,6 +10,9 @@ use std::{
     collections::HashMap,
     path::{Path, PathBuf},
 };
+/// Status reuse window of `liveSnapshot` (`src/api/events.ts:52`), shared with
+/// the front door so its freshness check and the read model cannot drift.
+pub const STATUS_CACHE_MAX_AGE_S: f64 = 60.0;
 /// The hex sha256 of the byte string `[]`, matching the TS owner's hash of an
 /// empty `agent_sessions` table (`createHash('sha256').update('[]')`).
 fn empty_sessions_sha256() -> String {
@@ -97,7 +100,7 @@ impl<'a> SnapshotInput<'a> {
         Self {
             probes,
             status,
-            max_budget_age_s: 60.0,
+            max_budget_age_s: STATUS_CACHE_MAX_AGE_S,
         }
     }
 }
@@ -255,6 +258,15 @@ impl ReadModel {
     pub fn new() -> Self {
         Self::default()
     }
+    /// True when `snapshot` would accept `StatusInput::Cached` for this home now
+    /// (the same key and age rule as the `Cached` arm of `snapshot`). The front
+    /// door uses it to avoid computing status when the read model can reuse one.
+    pub fn status_cache_fresh(&self, ctx: &Ctx, max_age_s: f64) -> bool {
+        let key = stringify(&json!([fallback_strategy(&ctx.pacer_home), read_hold(ctx)]));
+        self.statuses.get(&ctx.pacer_home).is_some_and(|cache| {
+            cache.key == key && ctx.now >= cache.at && ctx.now - cache.at < max_age_s
+        })
+    }
     pub fn store(&mut self, ctx: &Ctx) -> Result<&mut TaskStore, Error> {
         if !self.stores.contains_key(&ctx.pacer_home) {
             self.stores
@@ -342,25 +354,7 @@ impl ReadModel {
                 )
             })
             .collect();
-        let strategy = load_strategy(&ctx.pacer_home).unwrap_or_else(|_| {
-            let mut s = validate_strategy(
-                &json!({
-                "planner":"claude-code","providers":{
-                "claude-code":{
-                }
-                }
-                }
-                ),
-                Path::new("snapshot"),
-                "snapshot",
-            )
-            .unwrap_or_else(|_| object());
-            for k in ["runners", "accounts", "providers"] {
-                s[k] = object();
-            }
-            s["routing"] = json!([]);
-            s
-        });
+        let strategy = fallback_strategy(&ctx.pacer_home);
         let hold = read_hold(ctx);
         let key = stringify(&json!([strategy, hold]));
         let cache = self.statuses.get(&ctx.pacer_home);
@@ -545,6 +539,30 @@ impl ReadModel {
             questions,
         })
     }
+}
+/// The fallback strategy `liveSnapshot` and `strategyForSnapshot` build when
+/// the home's `strategy.yaml` cannot be loaded. Shared with the front door so
+/// its native status uses the same strategy as the read model's cache key.
+pub fn fallback_strategy(home: &Path) -> Value {
+    load_strategy(home).unwrap_or_else(|_| {
+        let mut s = validate_strategy(
+            &json!({
+            "planner":"claude-code","providers":{
+            "claude-code":{
+            }
+            }
+            }
+            ),
+            Path::new("snapshot"),
+            "snapshot",
+        )
+        .unwrap_or_else(|_| object());
+        for k in ["runners", "accounts", "providers"] {
+            s[k] = object();
+        }
+        s["routing"] = json!([]);
+        s
+    })
 }
 fn read_hold(ctx: &Ctx) -> Value {
     let hold = read(ctx, "state/mode-hold.json");

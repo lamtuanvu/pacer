@@ -1,6 +1,6 @@
 import { childEnv, fakeServiceManager } from "./child-env";
 import { expect, test } from "bun:test";
-import { cpSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { callOp } from "../src/api/ops";
@@ -86,6 +86,15 @@ function stripVolatile(snapshot: Record<string, unknown>) {
       return copy;
     });
   }
+  if (Array.isArray(next.attention)) {
+    next.attention = (next.attention as Record<string, unknown>[]).map(row => {
+      const copy = { ...row };
+      // Raised/since follow the wall clock of each read, not the status cache.
+      delete copy.raisedAt;
+      delete copy.since;
+      return copy;
+    });
+  }
   return next;
 }
 
@@ -108,6 +117,94 @@ test.skipIf(!front)("snapshot.get matches forced forwarding over stdio", async (
   } finally {
     rmSync(nativeHome, { recursive: true, force: true });
     rmSync(forwardHome, { recursive: true, force: true });
+  }
+}, 120_000);
+
+test.skipIf(!front)("warm snapshot.get reuses status and probes Core once per call over stdio", async () => {
+  const ctx = fakeCtx({ which: () => null });
+  mkdirSync(join(ctx.pacerHome, "state"), { recursive: true, mode: 0o700 });
+  mkdirSync(join(ctx.pacerHome, "link"), { recursive: true, mode: 0o700 });
+  const home = mkdtempSync(join(tmpdir(), "pacer-snapshot-get-reuse-"));
+  cpSync(ctx.home, home, { recursive: true });
+  const log = join(home, "core-stdin.log");
+  const coreProxy = JSON.stringify([process.execPath, join(import.meta.dir, "fixtures/core-stdin-proxy.ts"), ...JSON.parse(core)]);
+  const child = Bun.spawn([front!, "api", "--stdio"], {
+    env: {
+      ...childEnv(home),
+      PATH: `${fakeServiceManager(home)}:${agentFreePath}`,
+      PACER_CORE_ARGV: coreProxy,
+      PACER_TEST_CORE_LOG: log,
+      PACER_NO_UPDATE_CHECK: "1",
+      PACER_NO_SELF_REPAIR: "1",
+      PACER_DISCOVERY: "off",
+      PACER_DEBUG_NATIVE: "1",
+      PACER_TRACE_STATUS: "1",
+    },
+    stdin: "pipe",
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  try {
+    const reader = child.stdout.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let stderrText = "";
+    (async () => {
+      const errReader = child.stderr.getReader();
+      const errDecoder = new TextDecoder();
+      for (;;) {
+        const chunk = await errReader.read();
+        if (chunk.done) break;
+        stderrText += errDecoder.decode(chunk.value, { stream: true });
+      }
+    })();
+    const traceCount = () => stderrText.split("[pacer:status:debug]").length - 1;
+    const reply = async () => {
+      for (;;) {
+        const end = buffer.indexOf("\n");
+        if (end >= 0) {
+          const line = buffer.slice(0, end);
+          buffer = buffer.slice(end + 1);
+          return JSON.parse(line);
+        }
+        const chunk = await reader.read();
+        if (chunk.done) throw new Error("front door closed before a reply");
+        buffer += decoder.decode(chunk.value, { stream: true });
+      }
+    };
+    await child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "hello", params: { protocol: 3 } }) + "\n");
+    expect((await reply()).result.protocol).toBe("3.0.0");
+    const get = (id: number) => child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method: "snapshot.get", params: {} }) + "\n");
+    await get(2);
+    const first = await reply();
+    await Bun.sleep(50);
+    const coldTraces = traceCount();
+    expect(coldTraces).toBeGreaterThan(0);
+    await Bun.sleep(1000);
+    await get(3);
+    const second = await reply();
+    await Bun.sleep(50);
+    expect(traceCount(), "the warm call must not compute status again").toBe(coldTraces);
+    await child.stdin.end();
+    const code = await child.exited;
+    expect(code, stderrText).toBe(0);
+    expect(stderrText.split("\n").filter(line => /^native snapshot\.get \d+$/.test(line)))
+      .toEqual(["native snapshot.get 2", "native snapshot.get 3"]);
+    const norm = (r: { result: { snapshot: Record<string, unknown> } }) =>
+      normalize({ ...r.result, snapshot: stripVolatile(r.result.snapshot) });
+    expect(norm(first)).toEqual(norm(second));
+    const probes = readFileSync(log, "utf8").split("\n")
+      .filter(line => line.includes('"method":"_internal.snapshot-probe.parts"'));
+    expect(probes).toHaveLength(2);
+    for (const line of probes) {
+      expect(JSON.parse(line).params).toEqual({ key: expect.any(String), status: false });
+    }
+  } finally {
+    if (child.exitCode === null) {
+      child.kill("SIGTERM");
+      await child.exited;
+    }
+    rmSync(home, { recursive: true, force: true });
   }
 }, 120_000);
 

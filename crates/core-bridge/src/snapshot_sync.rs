@@ -33,7 +33,8 @@ pub async fn http(target: Option<(u16, String)>) -> Result<Value, CoreError> {
             ))
             .header("authorization", format!("Bearer {token}"))
             .header("content-type", "application/json")
-            .body(Body::from("{}"))
+            // Native status is added by the front door; TS only supplies the other parts.
+            .body(Body::from(r#"{"status":false}"#))
             .map_err(|_| unavailable("snapshot probe bridge unavailable"))?;
         let client: Client<HttpConnector, Body> =
             Client::builder(TokioExecutor::new()).build_http();
@@ -56,19 +57,20 @@ pub async fn http(target: Option<(u16, String)>) -> Result<Value, CoreError> {
         .map_err(|_| unavailable("snapshot probe bridge timed out"))?
 }
 
-pub async fn stdio<W: tokio::io::AsyncWrite + Unpin>(
+/// Send the probe request, returning its id. Split from `stdio_reply` so the
+/// front door can keep pumping core frames while it awaits the reply.
+pub async fn stdio_send<W: tokio::io::AsyncWrite + Unpin>(
     core: &mut W,
     prefix: &str,
     key: &str,
-    replies: &mut tokio::sync::mpsc::UnboundedReceiver<Value>,
-) -> Result<Value, CoreError> {
+) -> Result<String, CoreError> {
     use tokio::io::AsyncWriteExt;
     let id = format!("{prefix}:{}", hex::encode(rand::random::<[u8; 16]>()));
     let request = serde_json::json!({
         "jsonrpc": "2.0",
         "id": id,
         "method": "_internal.snapshot-probe.parts",
-        "params": {"key": key},
+        "params": {"key": key, "status": false},
     });
     let mut bytes = serde_json::to_vec(&request)
         .map_err(|_| CoreError::new(Code::Internal, "snapshot probe encoding failed"))?;
@@ -79,9 +81,28 @@ pub async fn stdio<W: tokio::io::AsyncWrite + Unpin>(
     core.flush()
         .await
         .map_err(|_| unavailable("snapshot probe channel closed"))?;
+    Ok(id)
+}
+
+/// Await the reply to a request already sent by `stdio_send`.
+pub async fn stdio_reply(
+    replies: &mut tokio::sync::mpsc::UnboundedReceiver<Value>,
+    id: String,
+) -> Result<Value, CoreError> {
     tokio::time::timeout(std::time::Duration::from_secs(120), receive(replies, &id))
         .await
         .map_err(|_| unavailable("snapshot probe bridge timed out"))?
+}
+
+/// Send and await in one step for callers that do not pump core frames.
+pub async fn stdio<W: tokio::io::AsyncWrite + Unpin>(
+    core: &mut W,
+    prefix: &str,
+    key: &str,
+    replies: &mut tokio::sync::mpsc::UnboundedReceiver<Value>,
+) -> Result<Value, CoreError> {
+    let id = stdio_send(core, prefix, key).await?;
+    stdio_reply(replies, id).await
 }
 
 async fn receive(

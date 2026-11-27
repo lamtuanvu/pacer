@@ -9,6 +9,7 @@ import { discoveryRuleInput } from "../discovery/prompts";
 import { policySummary } from "../plugins/policy";
 import { waitingIO } from "../core/path-probe";
 import { computeStatus } from "../engine/status";
+import { CoreError } from "../core/errors";
 import { machineGuardState } from "../engine/machine";
 import { serviceInstalled } from "../service";
 import { PROTOCOL_VERSION } from "./protocol";
@@ -45,8 +46,29 @@ function strategyForSnapshot(ctx: Ctx) {
   }
 }
 
+/** The optional, strict body/params of the sealed snapshot probe route. */
+export function parseSnapshotProbeOpts(value: unknown): { status?: boolean } {
+  const params = value === undefined ? {} : value;
+  if (!params || typeof params !== "object" || Array.isArray(params)) {
+    const kind = params === null ? "null" : Array.isArray(params) ? "array" : typeof params;
+    throw new CoreError("invalid_input", `params: Invalid input: expected object, received ${kind}`);
+  }
+  const opts: { status?: boolean } = {};
+  for (const [key, entry] of Object.entries(params as Record<string, unknown>)) {
+    if (key !== "status") {
+      throw new CoreError("invalid_input", `params: Unrecognized key(s) in object: '${key}'`);
+    }
+    if (typeof entry !== "boolean") {
+      const kind = entry === null ? "null" : Array.isArray(entry) ? "array" : typeof entry;
+      throw new CoreError("invalid_input", `status: Invalid input: expected boolean, received ${kind}`);
+    }
+    opts.status = entry;
+  }
+  return opts;
+}
+
 /** Injection payload for native `snapshot.get` read-model composition. */
-export async function snapshotProbeParts(ctx: Ctx) {
+export async function snapshotProbeParts(ctx: Ctx, opts: { status?: boolean } = {}) {
   const session = sessionProbeParts(ctx);
   const { setup } = await readModelContext(ctx);
   const policy = policySummary(ctx);
@@ -71,14 +93,7 @@ export async function snapshotProbeParts(ctx: Ctx) {
     ...waitingField(),
   };
   const discovery = discoveryRuleInput(ctx, ctx.now);
-  let status: unknown;
-  let statusError: string | undefined;
-  try {
-    status = await computeStatus({ ...ctx, readOnly: true }, strategy);
-  } catch (error) {
-    statusError = error instanceof Error ? error.message : String(error);
-  }
-  return {
+  const parts = {
     revision: session.revision,
     active: session.active,
     alivePids: session.alivePids,
@@ -89,7 +104,16 @@ export async function snapshotProbeParts(ctx: Ctx) {
     desktopUpdates: desktopUpdateStatuses(ctx),
     serviceInstalled: serviceInstalled(ctx),
     canPair: discovery?.canPair ?? false,
-    status,
-    statusError,
   };
+  // The native front door asks for the non-status parts only; it adds status
+  // itself (cached or a read-only native compute) before the read model sees them.
+  if (opts.status === false) return parts;
+  let status: unknown;
+  let statusError: string | undefined;
+  try {
+    status = await computeStatus({ ...ctx, readOnly: true }, strategy);
+  } catch (error) {
+    statusError = error instanceof Error ? error.message : String(error);
+  }
+  return { ...parts, status, statusError };
 }

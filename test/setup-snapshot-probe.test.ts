@@ -1,4 +1,5 @@
-import {expect,test,spyOn} from "bun:test";
+import {expect,mock,test,spyOn} from "bun:test";
+import {join} from "node:path";
 import {checkSetup} from "../src/setup/check";
 import {fakeCtx} from "./helpers";
 import {readModelContext} from "../src/api/read-model";
@@ -67,4 +68,52 @@ test("standalone setup retains pending for an unsuccessful link response",async(
  const request=spyOn(globalThis,"fetch").mockResolvedValue(new Response(null,{status:503}));
  try{expect((await checkSetup(ctx)).items.find(i=>i.id==="link")?.status).toBe("pending");}
  finally{request.mockRestore();}
+});
+
+test("snapshot probe opts are strict about the optional status flag",async()=>{
+ const {parseSnapshotProbeOpts}=await import("../src/api/snapshot-probe-bridge");
+ expect(parseSnapshotProbeOpts(undefined)).toEqual({});
+ expect(parseSnapshotProbeOpts({})).toEqual({});
+ expect(parseSnapshotProbeOpts({status:false})).toEqual({status:false});
+ expect(parseSnapshotProbeOpts({status:true})).toEqual({status:true});
+ expect(()=>parseSnapshotProbeOpts(null)).toThrow("params: Invalid input: expected object, received null");
+ expect(()=>parseSnapshotProbeOpts([])).toThrow("params: Invalid input: expected object, received array");
+ expect(()=>parseSnapshotProbeOpts({status:"false"})).toThrow("status: Invalid input: expected boolean, received string");
+ expect(()=>parseSnapshotProbeOpts({status:false,x:1})).toThrow("params: Unrecognized key(s) in object: 'x'");
+});
+
+test("the snapshot probe route maps an invalid JSON body to invalid_input",async()=>{
+ const {startServer}=await import("../src/serve/http");
+ const ctx=fakeCtx(),port=54324,token=ensureToken(ctx);
+ let handler!:(request:Request,server:{port:number})=>Promise<Response>;
+ const listener=spyOn(Bun,"serve").mockImplementation(((options:{fetch:typeof handler})=>{
+  handler=options.fetch;return {port,stop(){}};
+ }) as unknown as typeof Bun.serve);
+ const request=spyOn(globalThis,"fetch").mockImplementation((async()=>{throw new DOMException("probe timed out","TimeoutError");}) as unknown as typeof fetch);
+ let server:ReturnType<typeof startServer>|undefined;
+ try{
+  server=startServer(()=>ctx,{port,pumpMs:0,internal:{token}});
+  const response=await handler(new Request(`http://127.0.0.1:${port}/_internal/snapshot-probe-parts`,{method:"POST",headers:{Host:`127.0.0.1:${port}`,Authorization:`Bearer ${token}`,"Content-Type":"application/json"},body:"{not json"}),{port});
+  expect(response.status).toBe(400);
+  expect((await response.json()).error.code).toBe("invalid_input");
+ }finally{server?.stop();request.mockRestore();listener.mockRestore();}
+});
+
+test("snapshot probe parts skip the status computation when status is false",async()=>{
+ const statusPath=join(import.meta.dir,"../src/engine/status.ts");
+ const actual=await import(statusPath);
+ const original=actual.computeStatus;
+ let calls=0;
+ mock.module(statusPath,()=>({...actual,computeStatus:async(...args:Parameters<typeof original>)=>{
+  calls++;return original(...args);
+ }}));
+ const {snapshotProbeParts}=await import("../src/api/snapshot-probe-bridge");
+ const ctx=fakeCtx();
+ const without=await snapshotProbeParts(ctx,{status:false});
+ expect(calls).toBe(0);
+ expect("status" in without).toBe(false);
+ expect("statusError" in without).toBe(false);
+ const withStatus=await snapshotProbeParts(ctx);
+ expect(calls).toBe(1);
+ expect("status" in withStatus).toBe(true);
 });

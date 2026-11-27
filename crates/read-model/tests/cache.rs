@@ -110,6 +110,35 @@ fn status_cache_is_home_scoped_expires_and_does_not_absorb_failures() {
     );
 }
 #[test]
+fn status_cache_fresh_follows_the_snapshot_key_and_age_rule() {
+    let (_dir, ctx, p, status) = fixture();
+    let mut model = ReadModel::new();
+    let zone = chrono_tz::UTC;
+    assert!(!model.status_cache_fresh(&ctx, 60.0));
+    model
+        .snapshot(
+            &ctx,
+            SnapshotInput::new(&p, StatusInput::Provided(status)),
+            zone,
+            &|_| false,
+        )
+        .unwrap();
+    assert!(model.status_cache_fresh(&ctx, 60.0));
+    assert!(!model.status_cache_fresh(
+        &Ctx {
+            now: ctx.now + 60.0,
+            ..ctx.clone()
+        },
+        60.0
+    ));
+    write_json_atomic(
+        &ctx.pacer_home.join("state/mode-hold.json"),
+        &json!({"mode":"strict","until":ctx.now+30.0}),
+    )
+    .unwrap();
+    assert!(!model.status_cache_fresh(&ctx, 60.0));
+}
+#[test]
 fn holds_invalidate_status_while_setup_context_has_its_own_five_second_ttl() {
     let (_dir, ctx, mut p, status) = fixture();
     let mut model = ReadModel::new();

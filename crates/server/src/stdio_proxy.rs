@@ -1043,30 +1043,48 @@ async fn forward_input<
                         Err(error) => Err(error),
                     }
                 } else if crate::native::needs_snapshot_bridge(op.name) {
-                    call_native(
-                        &request_ctx,
-                        op,
-                        params,
-                        request.get("id"),
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        Some(Box::pin(crate::native::snapshot_sync::stdio(
-                            &mut core, sync.0, sync.1, sync.2,
-                        ))
-                            as pacer_foundation::api::OpFuture<'_>),
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
+                    // Send the probe first so the reply future no longer borrows
+                    // `core`: the native status computation makes plugin calls,
+                    // and the loop must keep pumping core frames while it waits.
+                    let sent =
+                        crate::native::snapshot_sync::stdio_send(&mut core, sync.0, sync.1).await;
+                    let snapshot_op = match sent {
+                        Ok(id) => Box::pin(call_native(
+                            &request_ctx,
+                            op,
+                            params,
+                            request.get("id"),
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                            Some(crate::native::status_runtime::with_native_status(
+                                &status,
+                                request_ctx.clone(),
+                                Box::pin(crate::native::snapshot_sync::stdio_reply(sync.2, id))
+                                    as pacer_foundation::api::OpFuture<'_>,
+                            )
+                                as pacer_foundation::api::OpFuture<'_>),
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                        )) as pacer_foundation::api::OpFuture<'_>,
+                        Err(error) => Box::pin(async move { Err(error) })
+                            as pacer_foundation::api::OpFuture<'_>,
+                    };
+                    crate::native::status_runtime::pump_frames(
+                        snapshot_op,
+                        &mut plugins.frames,
+                        &mut core,
                     )
                     .await
+                    .unwrap_or_else(|error| Err(CoreError::new(Code::Internal, error.to_string())))
                 } else if crate::native::needs_session_probe(op.name) {
                     call_native(
                         &request_ctx,

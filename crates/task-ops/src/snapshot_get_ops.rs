@@ -127,7 +127,11 @@ pub fn parse_snapshot_parts(value: Value) -> Result<SnapshotBridgeParts, CoreErr
     );
     let service_installed = map.get("serviceInstalled").map(truth).unwrap_or(false);
     let can_pair = map.get("canPair").map(truth).unwrap_or(false);
-    let status = if let Some(message) = map.get("statusError").and_then(Value::as_str) {
+    let status = if map.get("statusCached").and_then(Value::as_bool) == Some(true) {
+        // The front door found the read model's 60 s status cache fresh, so it
+        // added no status value; the read model reuses its own cached one.
+        StatusInput::Cached
+    } else if let Some(message) = map.get("statusError").and_then(Value::as_str) {
         StatusInput::Failure(message.into())
     } else {
         StatusInput::Provided(
@@ -155,7 +159,7 @@ pub fn parse_snapshot_parts(value: Value) -> Result<SnapshotBridgeParts, CoreErr
     })
 }
 
-pub(crate) fn model() -> &'static Mutex<ReadModel> {
+pub fn model() -> &'static Mutex<ReadModel> {
     static MODEL: OnceLock<Mutex<ReadModel>> = OnceLock::new();
     MODEL.get_or_init(|| Mutex::new(ReadModel::new()))
 }
@@ -219,5 +223,32 @@ mod tests {
         .unwrap();
         assert!(parts.probes.can_pair);
         assert!(parts.alive_pids.contains(&42));
+    }
+
+    #[test]
+    fn parse_snapshot_parts_accepts_a_cached_status_without_a_value() {
+        let parts = parse_snapshot_parts(json!({
+            "revision": "abc",
+            "active": [],
+            "alivePids": [],
+            "setup": {"open": 0, "items": []},
+            "policy": {},
+            "machine": {"os": "linux", "arch": "x64"},
+            "service": {"version": "0.0.0", "protocol": "3.0.0", "pid": 1, "startedAt": 0, "notifier": null},
+            "desktopUpdates": [],
+            "serviceInstalled": false,
+            "canPair": false,
+            "statusCached": true,
+        }))
+        .unwrap();
+        assert!(matches!(parts.status, StatusInput::Cached));
+        assert!(
+            parse_snapshot_parts(json!({
+                "revision": "abc", "active": [], "alivePids": [],
+                "setup": {}, "policy": {}, "machine": {}, "service": {},
+                "desktopUpdates": [], "serviceInstalled": false, "canPair": false,
+            }))
+            .is_err()
+        );
     }
 }

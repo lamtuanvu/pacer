@@ -532,8 +532,18 @@ export function startServer(
         if (pathname === "/_internal/snapshot-probe-parts" && req.method === "POST") {
           if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
           try {
-            const { snapshotProbeParts } = await import("../api/snapshot-probe-bridge");
-            return Response.json({ result: await snapshotProbeParts(getCtx()) });
+            // The body is optional; an empty one means no params. Same strict
+            // parsing and error mapping the status-broker route used to have.
+            const text = await req.text();
+            let params: unknown = {};
+            if (text.trim()) {
+              try { params = JSON.parse(text); } catch {
+                const { CoreError } = await import("../core/errors");
+                throw new CoreError("invalid_input", "params: invalid JSON");
+              }
+            }
+            const { snapshotProbeParts, parseSnapshotProbeOpts } = await import("../api/snapshot-probe-bridge");
+            return Response.json({ result: await snapshotProbeParts(getCtx(), parseSnapshotProbeOpts(params)) });
           } catch (error) {
             const { toApiError, httpStatus } = await import("../api/errors");
             const body = toApiError(error);
