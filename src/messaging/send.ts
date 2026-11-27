@@ -31,10 +31,8 @@ export async function sendMessage(ctx: Ctx, input: SendInput, deps: SendDeps = {
   const verdict = checkSend(ctx, { from: caller.id, to: input.to, kind, bytes: Buffer.byteLength(body, "utf8"), hasGrant: !!caller.grant });
   const taskId = taskOf(input.to) ?? taskOf(caller.id);
   const root = taskOf(input.to) ? rootOf(ctx, input.to) : rootOf(ctx, caller.id);
-  const targetTask = taskOf(input.to) ? readTask(ctx, taskOf(input.to)!) : null;
-  const plannerTarget = !!targetTask && isPlannerTask(ctx, targetTask);
   const r = store.insertMessage(ctx, { taskId, rootId: root, from: caller.id, to: input.to, kind, body, replyTo: input.replyTo ?? null,
-    requestId: input.requestId ?? null, status: verdict.hold || plannerTarget ? "held" : "pending" });
+    requestId: input.requestId ?? null, status: verdict.hold ? "held" : "pending" });
   if (r.duplicate) return duplicate(ctx, { ...r.message, fingerprint: store.byRequest(ctx, caller.id, input.requestId!)?.fingerprint ?? null }, store.fingerprint(input.to, kind, body), deps);
   void notifyMessage(ctx, r.message);
   // Spent message budget must not short-circuit before deliverMessage: live
