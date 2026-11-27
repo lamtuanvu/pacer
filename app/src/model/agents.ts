@@ -4,6 +4,9 @@ import { TIERS } from "../../../src/dispatch/candidates";
 import { suggestTier, tierLabels } from "./executor-models";
 import { formatContext, MATRIX_DIFFICULTIES, type MatrixDifficulty, type MatrixDraft, type MatrixRow, type MatrixTier } from "./model-matrix";
 
+/** Listings an agent reads from its own model list (Codex's saved list, `cursor-agent models`, `agy models`). */
+export const AGENT_LISTINGS: readonly string[] = ["codex", "cursor", "agy"];
+
 /** A rated size; "unknown" (unrated) is never suggested. */
 export type ModelSize = Exclude<MatrixTier, "unknown">;
 
@@ -37,9 +40,10 @@ const ALIAS_NOTES: Readonly<Record<string, string>> = {
   haiku: "Alias for the newest Haiku model",
 };
 
-/** Listing facts in plain words, for example "128K context · tools". */
-export function listingNote(model: Pick<AvailableModel, "context" | "tools">): string | undefined {
-  const parts = [model.context ? `${formatContext(model.context)} context` : "", model.tools === true ? "tools" : model.tools === false ? "no tools" : ""].filter(Boolean);
+/** Listing facts in plain words, for example "Codex 5.3 · 128K context · tools"; a name that only repeats the id is left out. */
+export function listingNote(model: Pick<AvailableModel, "context" | "tools"> & { id?: string; name?: unknown }): string | undefined {
+  const name = typeof model.name === "string" && model.name.trim() && model.name.trim().toLowerCase() !== model.id?.toLowerCase() ? model.name.trim() : "";
+  const parts = [name, model.context ? `${formatContext(model.context)} context` : "", model.tools === true ? "tools" : model.tools === false ? "no tools" : ""].filter(Boolean);
   return parts.length ? parts.join(" · ") : undefined;
 }
 

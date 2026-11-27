@@ -11,9 +11,10 @@ export function displayModel(id: string): string {
 }
 
 /** Warning copy when a known listing no longer offers the executor's default model; an unknown
- * listing (models null) or an absent default warns of nothing, because there is nothing verified to report. */
+ * listing (models null) or an absent default warns of nothing, because there is nothing verified to report.
+ * Codex's saved list leaves out models Codex hides but still runs, so a model missing from it is not a problem. */
 export function modelWarning(list: AvailableModels, model: string | null, provider: string): string | null {
-  if (model === null || list.models === null) return null;
+  if (model === null || list.models === null || list.source === "codex") return null;
   return list.models.some(m => m.id === model) ? null : `${displayModel(model)} is no longer offered by ${list.provider ?? provider}`;
 }
 

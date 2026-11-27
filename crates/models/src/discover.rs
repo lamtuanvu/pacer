@@ -110,10 +110,21 @@ pub(crate) async fn run_capped(
     timeout: Duration,
     cap: usize,
 ) -> Option<Vec<u8>> {
+    run_program(process, &["opencode", "models", "--standalone"], timeout, cap).await
+}
+
+/// `execProcess` for `argv` as Core's `ctx.run` runs it (see [`run_models`]).
+pub(crate) async fn run_program(
+    process: &CoreProcess,
+    argv: &[&str],
+    timeout: Duration,
+    cap: usize,
+) -> Option<Vec<u8>> {
     use std::os::unix::process::CommandExt as _;
-    let mut command = std::process::Command::new("opencode");
+    let (program, args) = argv.split_first()?;
+    let mut command = std::process::Command::new(program);
     command
-        .args(["models", "--standalone"])
+        .args(args)
         .env_clear()
         .envs(process.env.iter().map(|(k, v)| (k, v)))
         // Tools that resolve paths from $PWD (OpenCode does) must see the child's directory.
@@ -179,7 +190,7 @@ fn temp_name(path: &Path) -> PathBuf {
 
 /// `writeCache`: best effort, `wx` temp file (0600) then rename, in a 0700
 /// directory; a failure never fails the listing.
-fn write_cache(path: &Path, text: &str) {
+pub(crate) fn write_cache(path: &Path, text: &str) {
     let Some(dir) = path.parent() else {
         return;
     };

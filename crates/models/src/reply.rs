@@ -2,8 +2,9 @@
 //! checks (with discovery), the `executor.models.available` reply, and the
 //! inputs only TypeScript can answer.
 use crate::{
-    Listing,
-    available::{Cached, available_models, cache_file, compose, js_number, read_cache},
+    AvailableModels, Listing, ModelSource,
+    agent_listings::{AgentListing, agent_listing, list_cli},
+    available::{Cached, available_models, cache_file, compose, js_number, read_cache, stamp},
     catalog,
     discover::{core_process, discover},
 };
@@ -62,32 +63,53 @@ pub fn listing_needs_core(home: &Path, now: f64, strategy: &Value, runner_id: &s
     }
 }
 
+/// The unknown listing `availableModels` starts from.
+fn base(now: f64, runner_id: &str) -> AvailableModels {
+    AvailableModels {
+        runner: runner_id.to_owned(),
+        source: ModelSource::None,
+        models: None,
+        fetched_at: stamp(now),
+        note: None,
+        provider: None,
+    }
+}
+
 /// The `executor.models.available` result for a runner the strategy declares:
-/// a fresh cache exactly as TypeScript parsed it, else the composed or
-/// discovered listing. `None` is a reply only TypeScript can produce.
+/// a fresh cache exactly as TypeScript parsed it, else the agent's own list
+/// (Codex, Cursor, Antigravity), the composed or the discovered listing.
+/// `None` is a reply only TypeScript can produce. `user_home` is `ctx.home`.
 pub async fn available_reply(
     home: &Path,
+    user_home: &Path,
     now: f64,
     strategy: &Value,
     runner_id: &str,
     refresh: bool,
 ) -> Option<Value> {
     if !refresh {
-        match read_cache(&cache_file(home, runner_id), now) {
+        match read_cache(&cache_file(home, runner_id), now, true) {
             Cached::Hit(value) => return wire_value(&value),
             Cached::Unsupported => return None,
             Cached::Miss => {}
         }
     }
-    let list = match compose(now, strategy, runner_id) {
-        Listing::Known(list) => list,
-        Listing::NeedsDiscovery(discovery) => {
-            match discover(home, discovery, &*core_process()?).await {
-                Listing::Known(list) => list,
-                _ => return None,
-            }
+    let list = match agent_listing(user_home, strategy, runner_id, &base(now, runner_id)) {
+        Some(AgentListing::Known(list)) => list,
+        Some(AgentListing::Cli(list, agent)) => {
+            list_cli(home, list, agent, &*core_process()?).await
         }
-        Listing::Unsupported => return None,
+        Some(AgentListing::Unsupported) => return None,
+        None => match compose(now, strategy, runner_id) {
+            Listing::Known(list) => list,
+            Listing::NeedsDiscovery(discovery) => {
+                match discover(home, discovery, &*core_process()?).await {
+                    Listing::Known(list) => list,
+                    _ => return None,
+                }
+            }
+            Listing::Unsupported => return None,
+        },
     };
     wire_value(&list.to_json())
 }
@@ -95,17 +117,26 @@ pub async fn available_reply(
 /// Whether [`available_reply`] would return `None`, checked before any discovery runs.
 pub fn available_needs_core(
     home: &Path,
+    user_home: &Path,
     now: f64,
     strategy: &Value,
     runner_id: &str,
     refresh: bool,
 ) -> bool {
     if !refresh {
-        match read_cache(&cache_file(home, runner_id), now) {
+        match read_cache(&cache_file(home, runner_id), now, true) {
             Cached::Hit(value) => return wire_value(&value).is_none(),
             Cached::Unsupported => return true,
             Cached::Miss => {}
         }
+    }
+    match agent_listing(user_home, strategy, runner_id, &base(now, runner_id)) {
+        Some(AgentListing::Known(list)) => return wire_value(&list.to_json()).is_none(),
+        Some(AgentListing::Cli(list, _)) => {
+            return core_process().is_none() || wire_value(&list.to_json()).is_none();
+        }
+        Some(AgentListing::Unsupported) => return true,
+        None => {}
     }
     match compose(now, strategy, runner_id) {
         Listing::Known(list) => wire_value(&list.to_json()).is_none(),

@@ -20,6 +20,11 @@ test("modelWarning names the provider when an offered default stops being served
   expect(modelWarning(known, null, "Go")).toBeNull();
 });
 
+test("modelWarning trusts Codex's saved list only for what it lists", () => {
+  expect(modelWarning({ ...known, source: "codex" }, "zhipu/glm-4.5", "Go")).toBeNull();
+  expect(modelWarning({ ...known, source: "cursor" }, "zhipu/glm-4.5", "Go")).toBe("glm-4.5 is no longer offered by Go");
+});
+
 test("modelWarning prefers the listing's provider label over the caller's fallback", () => {
   expect(modelWarning(labeled, "zhipu/glm-4.5", "Go")).toBe("glm-4.5 is no longer offered by Zhipu");
 });

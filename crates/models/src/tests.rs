@@ -459,4 +459,5 @@ fn runner_models_validation_matches_validate_runner_models() {
     );
 }
 
+mod agents;
 mod discovery;

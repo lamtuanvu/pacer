@@ -12,12 +12,17 @@ import { closedPort, isolatedEnv } from "./isolated-port";
 const front = process.env.PACER_TEST_NATIVE_FRONT_DOOR;
 const core = JSON.stringify([process.execPath, join(import.meta.dir, "../src/cli.ts")]);
 const fixtures = join(import.meta.dir, "fixtures", "bin");
+// Stand-ins for `cursor-agent models` and `agy models`; state in $HOME/.fake-<name>.
+const agentFixtures = join(import.meta.dir, "fixtures", "agent-bin");
+const CODEX_CACHE = readFileSync(join(import.meta.dir, "fixtures", "codex", "models_cache.json"), "utf8");
 const OPS = ["executor.models.available", "runner.set"];
 
 const STRATEGY = `planner: claude-code
 accounts:
   claude: {kind: claude}
   codex: {kind: codex}
+  cursor: {kind: cursor}
+  agy: {kind: agy}
   acme:
     kind: endpoint
     usage: unmetered
@@ -33,6 +38,8 @@ ${["fresh", "odd", "stale", "fail", "empty", "lone", "miss", "hang"].map(n => ` 
 runners:
   claude-code: {}
   codex: {}
+  cursor: {}
+  agy: {}
   opencode#acme: {model: pacer-acme/a}
 ${["fresh", "odd", "stale", "fail", "empty", "lone", "miss", "hang"].map(n => `  opencode#oc-${n}: {model: acme/a}`).join("\n")}
   opencode#oc-nullcat: {model: nullcat/a}
@@ -46,7 +53,7 @@ const CATALOG = JSON.stringify({ fetchedAt: 1, providers: {
 } });
 const SEEDED = Math.floor(Date.now() / 1000) - 5;
 
-interface Setup { mode?: "list" | "empty" | "fail" | "hang"; models?: string }
+interface Setup { mode?: "list" | "empty" | "fail" | "hang"; models?: string; agent?: "cursor-agent" | "agy"; codex?: string | null }
 type Step = [op: string, params: unknown, native: boolean, setup?: Setup, contains?: string];
 
 function cachePath(home: string, runner: string) {
@@ -66,11 +73,19 @@ function makeHome(): string {
   seed("opencode#oc-stale", JSON.stringify({ runner: "opencode#oc-stale", source: "opencode", models: [{ id: "acme/old" }], fetchedAt: SEEDED - 3600, provider: "acme" }));
   seed("opencode#oc-lone", `{"runner":"opencode#oc-lone","source":"opencode","models":[{"id":"acme/\\ud800"}],"fetchedAt":${SEEDED}}`);
   configure(home, { mode: "list", models: "acme/a\nacme/b\nacme/c\nother/x\n" });
+  configure(home, { agent: "cursor-agent", mode: "list", models: "Available models\n\nauto - Auto (current, default)\ngpt-5.3-codex - Codex 5.3\n\nTip: use --model <id> to switch.\n" });
+  configure(home, { agent: "agy", mode: "list", models: "Fetching available models...\ngemini-4-hydrogen-high\tGemini 4 Hydrogen (High)\n" });
   return home;
 }
 
 function configure(home: string, setup: Setup) {
-  const state = join(home, ".fake-opencode");
+  if (setup.codex !== undefined) {
+    const dir = join(home, ".codex");
+    if (setup.codex === null) rmSync(dir, { recursive: true, force: true });
+    else { mkdirSync(dir, { recursive: true }); writeFileSync(join(dir, "models_cache.json"), setup.codex); }
+    return;
+  }
+  const state = join(home, setup.agent ? `.fake-${setup.agent}` : ".fake-opencode");
   mkdirSync(state, { recursive: true });
   if (setup.mode) writeFileSync(join(state, "mode"), setup.mode);
   if (setup.models !== undefined) writeFileSync(join(state, "models"), setup.models);
@@ -88,7 +103,10 @@ function disk(home: string) {
     return `${name} ${(statSync(path).mode & 0o777).toString(8)} ${normalize(home, readFileSync(path, "utf8"))}`;
   });
   const calls = join(home, ".fake-opencode", "calls.log");
+  const agentCalls = (name: string) => { const log = join(home, `.fake-${name}`, "calls.log"); return existsSync(log) ? normalize(home, readFileSync(log, "utf8")) : ""; };
   return {
+    cursor: agentCalls("cursor-agent"),
+    agy: agentCalls("agy"),
     dirMode: (statSync(dir).mode & 0o777).toString(8),
     caches,
     strategy: readFileSync(join(home, ".pacer", "strategy.yaml"), "utf8"),
@@ -98,7 +116,7 @@ function disk(home: string) {
 }
 
 function env(home: string, forward: boolean, port = closedPort()) {
-  return isolatedEnv({ HOME: home, PACER_HOME: join(home, ".pacer"), PATH: `${fixtures}:/usr/bin:/bin`, PACER_CORE_ARGV: core,
+  return isolatedEnv({ HOME: home, PACER_HOME: join(home, ".pacer"), PATH: `${fixtures}:${agentFixtures}:/usr/bin:/bin`, PACER_CORE_ARGV: core,
     PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off", PACER_DEBUG_NATIVE: "1",
     PACER_FAKE_OPENCODE_PROBE: "door-env", ...(forward ? { PACER_FORWARD_OPS: OPS.join(",") } : {}) }, port);
 }
@@ -195,6 +213,20 @@ const STEPS: Step[] = [
   ["executor.models.available", available("opencode#oc-nullcat"), false, { models: "nullcat/a\n" }],
   ["runner.set", { id: "opencode#oc-miss", model: "acme/nope" }, true, { models: "acme/a\nacme/b\nacme/c\n" }],
   ["runner.set", { id: "opencode#oc-miss", model: "acme/c" }, true],
+  // Codex's saved list: missing, then the fixture (hidden models left out), garbage; never cached.
+  ["executor.models.available", available("codex"), true, { codex: CODEX_CACHE }],
+  ["executor.models.available", available("codex", { refresh: true }), true, { codex: "{garbage" }],
+  ["executor.models.available", available("codex"), true, { codex: '{"models":[{"slug":"h","visibility":"hide"}]}' }],
+  ["executor.models.available", available("codex"), true, { codex: null }],
+  // Cursor and Antigravity run their CLI once, then serve the cache until a refresh.
+  ["executor.models.available", available("cursor"), true],
+  ["executor.models.available", available("cursor"), true],
+  ["executor.models.available", available("cursor", { refresh: true }), true, { agent: "cursor-agent", mode: "fail" }],
+  ["executor.models.available", available("cursor", { refresh: true }), true, { agent: "cursor-agent", mode: "list", models: "garbage\n" }],
+  ["executor.models.available", available("agy"), true],
+  ["executor.models.available", available("agy", { refresh: true }), true, { agent: "agy", mode: "empty" }],
+  // The model checks keep no listing for agents: an unlisted model is saved without a check.
+  ["runner.set", { id: "cursor", model: "not-listed" }, true],
 ];
 
 for (const transport of ["stdio", "http"] as const) {
