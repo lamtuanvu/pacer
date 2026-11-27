@@ -21,7 +21,8 @@ import { submitGraph } from "../src/workflow/generate";
 import { advanceRuns } from "../src/workflow/tick";
 import { askQuestion } from "../src/workflow/questions";
 import { issueRunGrant } from "../src/workflow/run-grant";
-import { enqueueWakeup, liveTurn, openWakeups } from "../src/workflow/wakeups";
+import { claimedWakeups, enqueueWakeup, liveTurn, openWakeups } from "../src/workflow/wakeups";
+import { buildHandoverPrompt } from "../src/workflow/orchestrator";
 import { deriveWorkflowAttention } from "../src/workflow/attention";
 import type { WorkflowDef } from "../src/workflow/schema";
 
@@ -725,6 +726,25 @@ test("every one-click answer to a human step or plan approval asks first", async
   const own = world();
   await asked(own);
   expect(deriveWorkflowAttention(own.ctx)[0]!.actions.map(a => a.confirm)).toEqual([undefined, undefined]);
+});
+
+test("only a headless planner turn is told to end after a blocking ask", async () => {
+  const instruction = "do not wait or poll for the answer";
+  for (const interactive of [false, true]) {
+    const w = world();
+    const def = w.install({ ...brainstorm, id: `t/ask-lane-${interactive}`, steps: {
+      ...brainstorm.steps,
+      brainstorm: { type: "agent", role: "orchestrator", interactive, prompt: "Brainstorm {{brief}}" },
+    } });
+    const run = await w.start(def);
+    const turn = await w.turn(run.id);
+    const prompts = [
+      readTask(w.ctx, turn.taskId!)!.brief.goal,
+      // A planner switch builds its own prompt for the same claimed wake-ups.
+      buildHandoverPrompt(w.ctx, getRun(w.ctx, run.id)!, claimedWakeups(w.ctx, turn.id), def, stepsOfRun(w.ctx, run.id)),
+    ];
+    for (const prompt of prompts) expect(prompt.includes(instruction)).toBe(!interactive);
+  }
 });
 
 // Known gap, awaiting a product decision: while an interactive planner turn is live,

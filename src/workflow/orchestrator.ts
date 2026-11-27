@@ -756,6 +756,13 @@ function reviewPayload(
   };
 }
 
+/** A headless turn cannot receive an answer, so it ends after a blocking ask and the
+ *  answer starts the next turn. Interactive turns get no such instruction. */
+function blockingAskInstruction(ctx: Ctx, wakeups: Wakeup[]): string[] {
+  if (claimsInteractiveStep(ctx, wakeups)) return [];
+  return ["This turn is headless. After asking a question that blocks a step or branch (pacer ask blocks the step unless you pass --blocks nothing), do not wait or poll for the answer and do not report that step's result: finish any work that does not depend on it, then end your turn. The answer starts a new turn that carries it."];
+}
+
 /** Standard orchestrator turn prompt: wake-ups first, then summary; each block capped. */
 export function buildTurnPrompt(
   ctx: Ctx,
@@ -884,6 +891,7 @@ export function buildTurnPrompt(
     "  pacer question escalate <id> --suggested <text> --reason <text> [--expect-rev <n>]",
     "  pacer ask --type <kind> [--option ...] [--recommend] [--blocks] [--artifact] --step <id> [--attempt <n>] \"<text>\"",
     "  pacer review <taskId> --accept|--reject  /  pacer stop <taskId>",
+    ...blockingAskInstruction(ctx, wakeups),
   ].join("\n");
   // Wake-ups and run-state first so the UTF-8 cap never drops decision triggers
   // or error=/task=/run= lines; open/brief are lower priority and may be omitted
@@ -932,6 +940,7 @@ export function buildHandoverPrompt(
     "This is a planner handover. Prior decisions and results are below.",
     "Unfenced sections titled 'Orchestrator step', 'choose_workflow' or 'generate' are the steps to perform; end each with pacer step result, run choose/decide, or run submit-graph as applicable.",
     "Commands use <owningRunId> from each open block / step line.",
+    ...blockingAskInstruction(ctx, wakeups),
   ].join("\n");
   const openBlocks = openOrchestratorBlocks(ctx, nonce, run, wakeups, steps);
   // Run summary early (with wake-ups) so the UTF-8 cap cannot drop it (H3).
