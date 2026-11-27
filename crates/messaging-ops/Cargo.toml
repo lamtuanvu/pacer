@@ -11,7 +11,7 @@ serde_json.workspace = true
 pacer-config = { path = "../config" }
 pacer-foundation = { path = "../foundation" }
 pacer-store = { path = "../store" }
-rusqlite = { version = "0.41", features = ["bundled"] }
+rusqlite = { version = "0.43", features = ["bundled"] }
 tokio.workspace = true
 
 [dev-dependencies]

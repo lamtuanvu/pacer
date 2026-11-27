@@ -12,7 +12,7 @@ pacer-foundation = { path = "../foundation" }
 pacer-js-json = { path = "../js-json" }
 pacer-engine = { path = "../engine" }
 pacer-store = { path = "../store" }
-rusqlite = { version = "0.41", features = ["bundled"] }
+rusqlite = { version = "0.43", features = ["bundled"] }
 sha2 = "0.10"
 
 [dev-dependencies]

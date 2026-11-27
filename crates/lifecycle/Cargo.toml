@@ -11,7 +11,7 @@ pacer-store = { path = "../store" }
 pacer-foundation = { path = "../foundation" }
 pacer-repos = { path = "../repos" }
 pacer-js-json = { path = "../js-json" }
-rusqlite = { version = "0.41", features = ["bundled"] }
+rusqlite = { version = "0.43", features = ["bundled"] }
 ryu-js = "1"
 serde.workspace = true
 serde_json = { workspace = true, features = ["raw_value", "float_roundtrip"] }
