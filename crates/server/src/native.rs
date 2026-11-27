@@ -103,7 +103,6 @@ pub use assistant_ops::assistant_stays_forwarded;
 pub(crate) use config_get_ops::needs_config_host_bridge;
 pub use config_writes::config_set_stays_forwarded;
 pub use dependency_writes::dependencies_waive_stays_forwarded;
-pub use desktop_reconcile_ops::desktop_reconcile_stays_forwarded;
 pub use discovery_ops::discovery_stays_forwarded;
 pub(crate) use dispatch_lifecycle_sync::dispatch_lifecycle_stays_forwarded;
 pub(crate) use host_check_clean_setup_ops::{host_stays_forwarded, needs_host_effects};

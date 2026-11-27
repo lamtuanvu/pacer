@@ -2196,6 +2196,7 @@ name = "pacer-update"
 version = "0.0.0"
 dependencies = [
  "nix",
+ "pacer-config",
  "pacer-foundation",
  "pacer-messaging-ops",
  "pacer-store",

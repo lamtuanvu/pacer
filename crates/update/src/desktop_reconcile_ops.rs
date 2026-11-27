@@ -1,15 +1,16 @@
 //! Native `desktop.reconcile.*` (`src/api/ops-desktop-reconciliation.ts`).
 //! Status is the fixed assessment without peer data; request and cancel stay
-//! unavailable until reconciliation exists. An Orca task worktree as the
-//! process directory needs the strategy provider match, so it stays forwarded.
+//! unavailable until reconciliation exists. Orca executor lanes are refused
+//! natively with the same strategy-provider check as `isExecutorSession`.
 #![allow(clippy::result_large_err)]
+use pacer_config::strategy::load_strategy;
 use pacer_foundation::{
     Ctx,
     api::{Code, CoreError, OpFuture},
 };
+use pacer_store::role::executor_session;
 use serde_json::{Map, Value, json};
-
-use pacer_messaging_ops::msg_ops::{current_dir, orca_worktree, own_worktree};
+use std::path::Path;
 
 fn invalid(message: impl Into<String>) -> CoreError {
     CoreError::new(Code::InvalidInput, message)
@@ -30,15 +31,23 @@ const MAX_SAFE: f64 = 9_007_199_254_740_991.0;
 const UPGRADE_REFUSAL: &str =
     "PACER_ROLE=executor: upgrades are not allowed from a delegated task.";
 
-pub fn desktop_reconcile_stays_forwarded(op: &str) -> bool {
-    matches!(op, "desktop.reconcile.request" | "desktop.reconcile.cancel")
-        && current_dir().is_some_and(|cwd| orca_worktree(&cwd))
+/// Configured strategy provider ids (`loadStrategy(ctx).providers` in `src/install/role.ts`).
+pub(crate) fn strategy_providers(ctx: &Ctx) -> Vec<String> {
+    let Ok(strategy) = load_strategy(&ctx.pacer_home) else {
+        return Vec::new();
+    };
+    strategy
+        .get("providers")
+        .and_then(Value::as_object)
+        .map(|providers| providers.keys().cloned().collect())
+        .unwrap_or_default()
 }
 
 /// `parseOpParams` refusals that precede the schema: executor upgrades, then enforcement.
-fn authorize(ctx: &Ctx, upgrade: bool) -> Result<(), CoreError> {
+/// `cwd` is injectable so an Orca lane can be checked without changing the process directory.
+fn authorize_at(ctx: &Ctx, upgrade: bool, cwd: Option<&Path>) -> Result<(), CoreError> {
     let executor = ctx.env.get("PACER_ROLE").map(String::as_str) == Some("executor")
-        || current_dir().is_some_and(|cwd| own_worktree(ctx, &cwd));
+        || cwd.is_some_and(|cwd| executor_session(ctx, cwd, || strategy_providers(ctx)));
     if upgrade && executor {
         return Err(CoreError::new(Code::NotAllowed, UPGRADE_REFUSAL));
     }
@@ -53,6 +62,10 @@ fn authorize(ctx: &Ctx, upgrade: bool) -> Result<(), CoreError> {
         ));
     }
     Ok(())
+}
+
+fn authorize(ctx: &Ctx, upgrade: bool) -> Result<(), CoreError> {
+    authorize_at(ctx, upgrade, std::env::current_dir().ok().as_deref())
 }
 
 /// `/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/`
@@ -298,8 +311,33 @@ mod tests {
                 )
             );
         }
-        assert!(!desktop_reconcile_stays_forwarded(
-            "desktop.reconcile.status"
-        ));
+        // A plain process directory is not an executor lane.
+        let plain = ctx(&[]);
+        assert!(authorize_at(&plain, true, Some(Path::new("/tmp"))).is_ok());
+    }
+
+    #[test]
+    fn orca_lane_of_a_configured_provider_gets_the_upgrade_refusal() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join(".pacer");
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::write(
+            home.join("strategy.yaml"),
+            "planner: claude-code\nproviders: {claude-code: {}}\n",
+        )
+        .unwrap();
+        let ctx = Ctx::with(dir.path().into(), home, Default::default(), 1_000_000.0);
+        let lane = Path::new("/u/orca/workspaces/ws/pacer-t-20261028-100000-aaaa-claude-code/src");
+        let other = Path::new("/u/orca/workspaces/ws/pacer-t-20261028-100000-aaaa-codex/src");
+        let err = authorize_at(&ctx, true, Some(lane)).unwrap_err();
+        assert_eq!(err.message, UPGRADE_REFUSAL);
+        assert!(
+            authorize_at(&ctx, true, Some(other)).is_ok(),
+            "an unconfigured provider is not an executor lane"
+        );
+        assert!(
+            authorize_at(&ctx, false, Some(lane)).is_ok(),
+            "status is not an upgrade op"
+        );
     }
 }
