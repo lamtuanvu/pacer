@@ -4,7 +4,7 @@ import { dispatchConfigSchema } from "../src/dispatch/types";
 import { SortableList } from "../app/src/ds/SortableList";
 import { SaveBar } from "../app/src/ds/SaveBar";
 import { countSetupChanges, discardSetup, ladderChanges, moveKey, orderChanges, PartialSaveError, positionAnnouncement, reconcileSetup, ruleChanges, saveSetup, type SetupDraft } from "../app/src/model/dispatcher-setup";
-import { DispatcherGuidedSetup, SetupEditor } from "../app/src/screens/settings/DispatcherSetup";
+import { DispatcherGuidedSetup, RepositoryLists, SetupEditor } from "../app/src/screens/settings/DispatcherSetup";
 import { SavedSetups } from "../app/src/screens/settings/Dispatcher";
 import { TaskContext } from "../app/src/screens/task-shared";
 import { initialState } from "../app/src/data/store";
@@ -103,17 +103,23 @@ test("Who can run what shows the default list, the task-kind lists and the choic
   // Kinds still on the default list each offer their own list; tests already has one.
   expect(html).toContain('aria-label="Give docs its own list"');
   expect(html).not.toContain('aria-label="Give tests its own list"');
-  expect(html).toContain("No unsaved changes");
-  expect(html).toContain("Lists save into the active profile, <strong>default</strong>. Repository lists are kept separately.");
-  expect(html.match(/pc-btn--primary/g) ?? []).toHaveLength(1);
-  expect(html).toContain("Save lists");
+  // The idle save bar is hidden (as on the Agents tab); where lists save is said in the Default list help.
+  expect(html).toContain("pc-save-bar--clean");
+  expect(html).not.toContain("Save lists");
+  expect(html).toContain("Lists save into the active profile, <strong>default</strong>; repository lists are kept separately.");
+  expect(html.match(/pc-btn--primary/g) ?? []).toHaveLength(0);
+  // Try a task has one entry, the section below the editor; neither a save-bar button nor a pacing link.
+  expect(html).not.toContain(">Try a task</button>");
+  expect(html).not.toContain("Planner reserve and pacing");
 });
 
 test("saved profiles are marked with an identicon and switch only through an explicit button", () => {
   const html = wrap(<SavedSetups initialData={[{ name: "default", active: true, summary: "Built in" }, { name: "night", active: false, summary: "Cheap runs" }]} />);
   expect(html.match(/pc-identicon /g)).toHaveLength(2);
   expect(html).toContain("night");
-  expect(html).toContain('aria-label="Switch to night"');
+  // The compared profile has one Switch, in the comparison panel; the row offers none.
+  expect(html).toContain(">Switch to night</button>");
+  expect(html).not.toContain('aria-label="Switch to night"');
   expect(html).not.toContain('aria-label="Switch to default"');
   expect(html).toContain("Active");
   expect(html).toContain("Comparing");
@@ -282,4 +288,24 @@ test("older services explain that agent lists need an update", () => {
     <DispatcherGuidedSetup view={{strategy:"default",planner:"codex",plannerAccount:"work",source:"built-in",config:dispatchConfigSchema.parse({})}} onSaved={()=>{}} />
   </TaskContext.Provider>);
   expect(html).toContain("Update the service to edit agent lists here.");
+});
+
+test("S5: Repository lists say they are loading or failed instead of claiming none", () => {
+  const draw = (props: { policies?: any[]; error?: unknown }) => wrap(<RepositoryLists {...props} repos={[{ value: "a", label: "a" }]} disabled={false} onEdit={() => {}} />);
+  expect(draw({})).toContain("Loading repository lists…");
+  expect(draw({})).not.toContain("No repository has its own list");
+  expect(draw({})).not.toContain("Give a repository its own list");
+  expect(draw({ error: new Error("down") })).toContain("Repository lists could not be loaded.");
+  expect(draw({ policies: [] })).toContain("No repository has its own list. Every repository uses the default list.");
+});
+
+test("S7: a Skipped agent in the default list is explained and Right now offers Refresh readings", () => {
+  const skipped = { id: "codex", agent: "codex", account: "work", enabled: true, state: "ready", rank: 1, slots: { used: 0, max: 1 }, recentFailures: 0, stale: true };
+  const snapshot = { tasks: [], accounts: [], executors: [skipped] };
+  const html = renderToString(<TaskContext.Provider value={{ state: { ...state, snapshot, features: { readModel: true, ops: new Set(["routing.get", "routing.set", "limits.refresh"]) } }, api: { call: async () => ({}) } } as any}>
+    <SetupEditor view={view} eligibility={{ kind: "global", rules: [{ executors: ["codex"] }], available: ["codex"] }} onSaved={() => {}} onDirtyChange={() => {}} repoLists={0} />
+  </TaskContext.Provider>);
+  expect(html).toContain("No agent in the default list can take work right now.");
+  expect(html).toContain("is skipped until its usage reading is refreshed, so tasks go to Codex as an unconfirmed fallback.");
+  expect(html).toContain(">Refresh readings</button>");
 });

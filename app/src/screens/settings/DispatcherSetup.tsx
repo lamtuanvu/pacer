@@ -19,7 +19,8 @@ import type { Rule } from "../../model/executors";
 import type { SortableItem } from "../../ds/SortableList";
 import type { ProjectStrategyView } from "../../model/project-strategies";
 import { kinds as TASK_KINDS } from "../../model/tasks";
-import { defaultRuleIndex, listAvailability, rulesSummary, type HubAgent } from "../../model/dispatcher-hub";
+import { addLabel, defaultRuleIndex, listAvailability, rulesSummary, stepName, STEP_COPY, type HubAgent } from "../../model/dispatcher-hub";
+import { useActions } from "../../data/action-context";
 import { countSetupChanges, discardSetup, eligibilityChanges, ladderChanges, orderChanges, ruleChanges, PartialSaveError, reconcileSetup, saveSetup, strategyDraft, type EligibilityDraft, type SetupDraft, type StrategyDraft } from "../../model/dispatcher-setup";
 import { ErrorMessage, useTaskContext } from "../task-shared";
 import { DispatcherLadderFields, DispatcherReadError, ListField, type DispatcherConfigView } from "./Dispatcher";
@@ -184,19 +185,14 @@ function blockedReason(setup: SetupDraft, ladderDirty: boolean, name: string, re
   return undefined;
 }
 
-const stepCopy: Record<string, [string, string]> = {
-  "capable-with-headroom": ["A capable model with spare capacity", "Model size fits the task, and the account has room"],
-  "usable-fallback": ["Any usable fallback", "Anyone who can still take work, even with little room left"],
-};
 const capacityCopy = (capacity: string) => capacity === "comfortable" ? "needs spare capacity" : capacity === "usable" ? "needs some capacity" : "allows unknown capacity";
-const stepName = (id: string) => stepCopy[id]?.[0] ?? id.replaceAll("-", " ").replace(/^\w/, letter => letter.toUpperCase());
 
 /**
  * Who can run what: the default list, task-kind lists or one repository's list, and the choice method, with
  * one SaveBar. Freshly loaded settings merge into the open draft part by part (see reconcileSetup), so a refetch
  * or a partial save never drops edits. `between` renders between the lists and the choice method.
  */
-export function SetupEditor({ view, eligibility: source, onSaved, onDirtyChange, onLadderDraft, notice, repoLists = 0, between }: { view: DispatcherConfigView; eligibility: EligibilitySource; onSaved: (notice: string) => void; onDirtyChange: (dirty: boolean) => void; onLadderDraft?: (draft: StrategyDraft | undefined) => void; notice?: string; repoLists?: number; between?: ComponentChildren }) {
+export function SetupEditor({ view, eligibility: source, onSaved, onDirtyChange, onLadderDraft, notice, repoLists, between }: { view: DispatcherConfigView; eligibility: EligibilitySource; onSaved: (notice: string) => void; onDirtyChange: (dirty: boolean) => void; onLadderDraft?: (draft: StrategyDraft | undefined) => void; notice?: string; /** Undefined while the repository lists are unknown. */ repoLists?: number; between?: ComponentChildren }) {
   useDispatcherStyles();
   const { state, api } = useTaskContext();
   const agents = useHubAgents();
@@ -260,7 +256,13 @@ export function SetupEditor({ view, eligibility: source, onSaved, onDirtyChange,
       if (failure instanceof PartialSaveError) onSaved("");
     } finally { setBusy(false); }
   };
-  const tryTask = () => document.querySelector<HTMLInputElement>("#dispatch-preview input[aria-label=Task]")?.focus();
+  const actions = useActions();
+  const [refreshing, setRefreshing] = useState(false), [refreshError, setRefreshError] = useState<unknown>();
+  // A Skipped agent waits for a fresh usage reading; Refresh reads every account again.
+  const refreshReadings = async () => {
+    setRefreshing(true); setRefreshError(undefined);
+    try { await api.call("limits.refresh", {}); await actions?.refetch(); } catch (failure) { setRefreshError(failure); } finally { setRefreshing(false); }
+  };
 
   const ladder = <section className="pc-stack pc-stack--normal" id="decision-ladder" aria-labelledby="decision-ladder-h">
     <div className="pc-hub-section-head__text">
@@ -272,12 +274,12 @@ export function SetupEditor({ view, eligibility: source, onSaved, onDirtyChange,
       <ol className="pc-choice-ladder pc-hub-ladder">
         {setup.ladder.steps.map((step, index) => <li key={step.id}>
           <span className={`pc-ladder-number pc-ladder-number--${step.capacity === "comfortable" ? "good" : step.capacity === "usable" ? "warn" : "muted"}`}>{index + 1}</span>
-          <span className="pc-hub-ladder__text"><strong>{stepName(step.id)}</strong><span className="u3-muted">{stepCopy[step.id]?.[1] ?? `${step.match.kind ? `${step.match.kind} tasks` : "Any task kind"} · ${capacityCopy(step.capacity)}`}</span></span>
+          <span className="pc-hub-ladder__text"><strong>{stepName(step.id)}</strong><span className="u3-muted">{STEP_COPY[step.id]?.[1] ?? `${step.match.kind ? `${step.match.kind} tasks` : "Any task kind"} · ${capacityCopy(step.capacity)}`}</span></span>
         </li>)}
         <li><span className="pc-ladder-number pc-ladder-number--muted" aria-hidden="true">·</span>
           <span className="pc-hub-ladder__text"><strong>Nobody fits</strong><span className="u3-muted">{setup.ladder.onNoMatch === "fail" ? "Pacer reports that nobody can take the task" : "The task waits in the queue until someone can take it"}</span></span></li>
       </ol>
-      <div className="pc-choice-ladder-actions"><Button size="sm" variant="secondary" onClick={() => setEditingLadder(value => !value)} aria-expanded={editingLadder}>Edit choice method</Button><span className="u3-muted">Saved into a new profile you can switch to.</span><TextAction size="caption" href={hrefFor(routes.settings("planner"))}>Planner reserve and pacing</TextAction></div>
+      <div className="pc-choice-ladder-actions"><Button size="sm" variant="secondary" onClick={() => setEditingLadder(value => !value)} aria-expanded={editingLadder}>Edit choice method</Button><span className="u3-muted">Saved into a new profile you can switch to.</span></div>
       {editingLadder && <div className="pc-stack pc-stack--section">
         <DispatcherLadderFields config={setup.ladder} disabled={disabled} onChange={ladder => setSetup(current => ({ ...current, ladder }))} />
         {ladderDirty && <div className="pc-card pc-stack pc-stack--normal">
@@ -298,7 +300,11 @@ export function SetupEditor({ view, eligibility: source, onSaved, onDirtyChange,
         <p className="pc-hub-now__headline">{summary.headline}</p>
         <p className="pc-hub-now__consequence">{summary.consequence}</p>
       </div>
-      {summary.action && missing.length > 0 && <div className="pc-hub-now__actions"><Button size="sm" variant="secondary" disabled={disabled} onClick={addMissing}>{summary.action.label}</Button></div>}
+      {(missing.length > 0 || (summary.skipped.length > 0 && state.features.ops.has("limits.refresh"))) && <div className="pc-hub-now__actions">
+        {missing.length > 0 && <Button size="sm" variant="secondary" disabled={disabled} onClick={addMissing}>{addLabel(missing.map(id => agents.find(agent => agent.runner === id)?.name ?? executorLabel(id)))}</Button>}
+        {summary.skipped.length > 0 && state.features.ops.has("limits.refresh") && <Button size="sm" variant="quiet" busy={refreshing} disabled={!state.connected} onClick={() => void refreshReadings()}>Refresh readings</Button>}
+      </div>}
+      {refreshError ? <ErrorMessage error={refreshError} /> : null}
     </Card>}
     <div className="pc-hub-columns">
       <div className="pc-stack pc-stack--section">
@@ -306,7 +312,7 @@ export function SetupEditor({ view, eligibility: source, onSaved, onDirtyChange,
           <section className="pc-stack pc-stack--normal" id="executor-eligibility" aria-labelledby="default-list-h">
             <div className="pc-hub-section-head__text">
               <SectionHeading id="default-list-h">Default list · every repository</SectionHeading>
-              <p className="u3-muted">Who may do the work. Pacer chooses among them with the method below; the first one doesn't always run. Drag or use the move buttons to reorder.</p>
+              <p className="u3-muted">Who may do the work. Pacer chooses among them with the method below; the first one doesn't always run. Drag or use the move buttons to reorder. Lists save into the active profile, <strong>{view.strategy || "default"}</strong>; repository lists are kept separately.</p>
             </div>
             <DefaultList rules={setup.eligibility.draft} available={source.available} disabled={disabled} onChange={setEligibility} />
           </section>
@@ -330,17 +336,17 @@ export function SetupEditor({ view, eligibility: source, onSaved, onDirtyChange,
         {ladder}
       </div>
     </div>
-    <SaveBar inline alwaysVisible statusDot size="sm" scope={!count && notice && savedScope ? savedScope : scopeText} count={count} busy={busy} onSave={() => void save()} onDiscard={discard} blockedReason={blocked} notice={notice || undefined}
+    <SaveBar inline statusDot size="sm" scope={!count && notice && savedScope ? savedScope : scopeText} count={count} busy={busy} onSave={() => void save()} onDiscard={discard} blockedReason={blocked} notice={notice || undefined}
       saveLabel={ladderDirty ? "Validate and save" : "Save lists"}>
-      <div className="pc-hub-save-note"><span>{source.kind === "project" ? <>This list saves for {source.repoLabel} and stays when you switch profiles.</> : <>Lists save into the active profile, <strong>{view.strategy || "default"}</strong>. Repository lists are kept separately.</>}</span>
-        {(state.features.ops.has("dispatch.explain") || state.features.ops.has("dispatch.preview")) && <Button size="sm" variant="quiet" onClick={tryTask}>Try a task</Button>}</div>
-      {conflict && <p role="status">Another client changed these settings. Your changes are kept; Discard loads theirs.</p>}
-      <ErrorMessage error={error} />
+      {conflict || error ? <>
+        {conflict && <p role="status">Another client changed these settings. Your changes are kept; Discard loads theirs.</p>}
+        <ErrorMessage error={error} />
+      </> : undefined}
     </SaveBar>
   </div>;
 }
 
-function ScopedEditor({ view, scope, repoLabel, onSaved, onDirtyChange, onLadderDraft, notice, repoLists, between }: { view: DispatcherConfigView; scope: string; repoLabel: string; onSaved: (notice: string) => void; onDirtyChange: (dirty: boolean) => void; onLadderDraft?: (draft: StrategyDraft | undefined) => void; notice: string; repoLists: number; between?: ComponentChildren }) {
+function ScopedEditor({ view, scope, repoLabel, onSaved, onDirtyChange, onLadderDraft, notice, repoLists, between }: { view: DispatcherConfigView; scope: string; repoLabel: string; onSaved: (notice: string) => void; onDirtyChange: (dirty: boolean) => void; onLadderDraft?: (draft: StrategyDraft | undefined) => void; notice: string; repoLists?: number; between?: ComponentChildren }) {
   const query = useResource<{ rules: Rule[]; available: string[] } | ProjectStrategyView>(scope ? "project.strategy.get" : "routing.get", scope ? { repo: scope } : {});
   const data = query.data;
   if (!data) return <section id="executor-eligibility" aria-label="Who can run what">
@@ -378,7 +384,7 @@ export function DispatcherGuidedSetup({ view, onSaved, onLadderDraft }: { view: 
 }
 
 /** Repositories with their own list: who is on it, how many can take work, and the edit actions. */
-function RepositoryLists({ policies, repos, disabled, reason, onEdit }: { policies?: ProjectStrategyView[]; repos: ScopeOption[]; disabled: boolean; reason?: string; onEdit: (repo: string) => void }) {
+export function RepositoryLists({ policies, error, repos, disabled, reason, onEdit }: { policies?: ProjectStrategyView[]; error?: unknown; repos: ScopeOption[]; disabled: boolean; reason?: string; onEdit: (repo: string) => void }) {
   const agents = useHubAgents();
   const own = (policies ?? []).filter(policy => policy.executors?.length);
   const without = repos.filter(repo => !repo.ownList);
@@ -389,7 +395,8 @@ function RepositoryLists({ policies, repos, disabled, reason, onEdit }: { polici
       <SectionHeading id="repo-lists-h">Repository lists</SectionHeading>
       <p className="u3-muted">A repository with its own list ignores the default list. These stay when you switch profiles.</p>
     </div>
-    {own.length ? <ul className="pc-hub-repos">{own.map(policy => {
+    {!policies ? <p className="u3-muted" role={error ? undefined : "status"}>{error ? "Repository lists could not be loaded." : "Loading repository lists…"}</p>
+    : own.length ? <ul className="pc-hub-repos">{own.map(policy => {
       const ids = policy.executors!.map(reference => id(policy, reference)), availability = listAvailability(ids, agents);
       return <li key={policy.repo.key} className="pc-hub-repo">
         <span className="pc-hub-repo__head"><code title={policy.repo.label}>{policy.repo.label}</code><Pill tone={availability.tone}>{availability.text}</Pill></span>
@@ -399,7 +406,7 @@ function RepositoryLists({ policies, repos, disabled, reason, onEdit }: { polici
         <span className="pc-hub-repo__actions"><Button size="sm" variant="quiet" disabled={disabled} aria-describedby={reason ? "dispatcher-scope-reason" : undefined} aria-label={`Edit the ${policy.repo.label} list`} onClick={() => onEdit(policy.repo.key)}>Edit list</Button></span>
       </li>;
     })}</ul> : <p className="u3-muted">No repository has its own list. Every repository uses the default list.</p>}
-    {without.length > 0 && <div><Button size="sm" variant="secondary" disabled={disabled} aria-describedby={reason ? "dispatcher-scope-reason" : undefined} onClick={() => onEdit(without[0]!.value)}>Give a repository its own list</Button></div>}
+    {policies && without.length > 0 && <div><Button size="sm" variant="secondary" disabled={disabled} aria-describedby={reason ? "dispatcher-scope-reason" : undefined} onClick={() => onEdit(without[0]!.value)}>Give a repository its own list</Button></div>}
     {!repos.length && <p className="u3-muted">Add a repository to give it its own list.</p>}
     {reason && <p id="dispatcher-scope-reason" className="u3-muted">{reason}</p>}
   </section>;
@@ -409,7 +416,8 @@ function GuidedSetup({ view, onSaved, onLadderDraft, repos, policies, listError 
   const [scope, setScope] = useState(""), [dirty, setDirty] = useState(false), [notice, setNotice] = useState("");
   const pick = (value: string) => { if (dirty || value === scope) return; setScope(value); setNotice(""); };
   const reason = dirty ? "Save or discard your changes to switch lists." : undefined;
-  const repoLists = (policies?.data ?? []).filter(policy => policy.executors?.length).length;
+  // Unknown until project.strategy.list answers: Right now keeps its qualifier meanwhile.
+  const repoLists = policies?.data ? policies.data.filter(policy => policy.executors?.length).length : undefined;
   const label = repos.find(option => option.value === scope)?.label ?? scope;
   const between = scope ? <section className="pc-stack pc-stack--compact" id="dispatcher-scope" aria-label="Choose a repository">
     <div className="pc-hub-scope">
@@ -419,7 +427,7 @@ function GuidedSetup({ view, onSaved, onLadderDraft, repos, policies, listError 
     </div>
     {reason && <p id="dispatcher-scope-reason" className="u3-muted">{reason}</p>}
     {listError}
-  </section> : <>{policies && <RepositoryLists policies={policies.data} repos={repos} disabled={dirty} reason={reason} onEdit={pick} />}{listError}</>;
+  </section> : <>{policies && <RepositoryLists policies={policies.data} error={policies.error} repos={repos} disabled={dirty} reason={reason} onEdit={pick} />}{listError}</>;
   return <ScopedEditor key={scope} view={view} scope={scope} notice={notice} repoLabel={label} repoLists={repoLists} between={between}
     onDirtyChange={setDirty} onLadderDraft={onLadderDraft} onSaved={message => { setNotice(message); policies?.reload(); onSaved(); }} />;
 }

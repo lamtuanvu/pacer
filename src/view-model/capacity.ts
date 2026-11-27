@@ -97,7 +97,10 @@ export function executorReadiness(executor: ExecutorRow, snapshot: ClientSnapsho
   else if (executor.untested) { label = "Not tested"; tone = "neutral"; reason = "Still takes work · run a test task to confirm"; }
   else if (executorPace(executor, snapshot).label === "Ahead of pace") { label = "Ahead of pace"; tone = "warn"; reason = "Used before others only for capable work"; }
   if ((label === "Ready" || label === "Ahead of pace") && executor.state === "failing" && executor.recentFailures > 0) reason = `${executor.recentFailures} recent failures`;
-  return { label, tone, glyph: tone === "good" ? "✓" : tone === "neutral" ? "■" : "!", reason,
+  // A key for logic, so callers never match display copy: Off and Cannot take work are left out of ranking; Skipped
+  // agents can still be ranked as uncertain fallbacks but are not taking work right now.
+  const availability: "takes" | "skipped" | "off" | "blocked" = label === "Off" ? "off" : label === "Cannot take work" ? "blocked" : label === "Skipped" ? "skipped" : "takes";
+  return { label, tone, glyph: tone === "good" ? "✓" : tone === "neutral" ? "■" : "!", reason, availability,
     tooltip: (() => {
       const segments = [technical.label, technical.detail, technical.age, ...(executor.sub ? executor.sub.split(" · ") : [])].filter(Boolean) as string[];
       const seen = new Set<string>();

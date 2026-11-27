@@ -61,25 +61,29 @@ test("each difficulty row puts its label before its radio group and says how man
     expect(label).toBeGreaterThan(-1);
     expect(group).toBeGreaterThan(label);
   }
-  expect(html).toContain("1 agent has a small or larger model");
-  expect(html).toContain("No agent has a medium or larger model");
+  expect(html).toContain("1 agent in the default list has a small or larger model");
+  expect(html).toContain("No agent in the default list has a medium or larger model");
 });
 
 test("Right now, the difficulty strip and the agents table come from the inventory", () => {
   const html = render(config.tierTargets);
   // Headings are real h2s; the callout names where work goes.
   for (const heading of ["Right now", "Model size for each difficulty", "Agents and models"]) expect(html).toMatch(new RegExp(`<h2[^>]*>${heading}</h2>`));
-  expect(html).toContain("Standard and complex tasks go to agents without a sized model, because no agent that can take work has a medium or larger model.");
+  expect(html).toContain("Standard and complex tasks run on models smaller than they need.");
   expect(html).toContain("Add a medium model");
   expect(html).toContain('aria-label="Who gets each difficulty"');
   // Each runner keeps its own row with its runner id in mono, and the chosen model per difficulty.
   for (const id of ["opencode-go", "codex", "claude-code"]) expect(html).toContain(`<code>${id}</code>`);
   expect(html).toContain("small-model");
-  expect(html).toContain("Runs gpt-5 for every difficulty");
-  expect(html).toContain("chooses a model itself, so it can take any difficulty");
-  // Below its target the rated executor is skipped by automatic dispatch.
-  expect(html).toContain(">Skipped</code>");
-  expect(html).toContain("No medium or larger model; runs its default only if picked directly");
+  // Unrated and own-model agents name their model once, in their own cells (no spanning cell).
+  expect(html).toContain(">gpt-5</code>");
+  expect(html).toContain("Same for every difficulty");
+  expect(html).toContain(">Its own choice</code>");
+  expect(html).not.toContain("colspan");
+  // Below its target the rated executor runs its default, as delegated tasks do.
+  expect(html).toContain("Smaller than medium: runs its default");
+  // The tiles name who gets each difficulty and on which model.
+  expect(html).toContain("opencode-go (small-model)");
   // Actions go to the agent's own page; the unrated model offers Set its size.
   expect(html).toContain('href="#/settings/agents?agent=codex"');
   expect(html).toContain("Set its size");
@@ -93,6 +97,8 @@ test("Right now, the difficulty strip and the agents table come from the invento
 
 test("an unsteered inventory explains why and points at an agent to size", () => {
   const html = render(config.tierTargets, { models: [unrated, fixed] });
+  // An empty filter stays visible with its count but cannot be chosen.
+  expect(html).toMatch(/<button[^>]*disabled[^>]*>Follow the size <span class="pc-hub-chip-count">0<\/span>/);
   expect(html).toContain("Every task gets the same model, whatever its difficulty.");
   expect(html).toContain("Set model sizes");
   expect(html).toContain('href="#/settings/agents?agent=codex"');
@@ -120,7 +126,8 @@ test("a non-matching mapping shows the Custom preset as a non-interactive marker
 test("the save bar appears only when dirty and saves as a new setup without the set operation", () => {
   const dirty: TierTargets = { simple: "medium", standard: "medium", complex: "frontier" };
   const html = render(dirty);
-  expect(html).toContain("unsaved change"); expect(html).toContain("Discard"); expect(html).toContain("Save as new setup…");
+  expect(html).toContain("unsaved change"); expect(html).toContain("Discard"); expect(html).toContain("Save as a new profile…");
+  expect(html).toContain("pc-save-bar");
   // Without dispatch.tierTargets.set only the new-setup path is offered.
   expect(html).not.toContain(">Save</button>");
   expect(render(config.tierTargets)).not.toContain("unsaved change");
@@ -130,14 +137,15 @@ test("the in-place Save appears when the set operation exists on a strategy setu
   const dirty: TierTargets = { simple: "medium", standard: "medium", complex: "frontier" };
   const html = render(dirty, { state: withSet });
   expect(html).toContain(">Save</button>");
-  expect(html).toContain("Save as new setup…");
+  expect(html).toContain("Save as a new profile…");
+  expect(html).not.toContain("setup");
 });
 
 test("the in-place Save appears for every setup, including built-in default, when the set operation exists", () => {
   const dirty: TierTargets = { simple: "medium", standard: "medium", complex: "frontier" };
   const html = render(dirty, { state: withSet, config: { strategy: "default", source: "built-in", config } });
   expect(html).toContain(">Save</button>");
-  expect(html).toContain("Save as new setup…");
+  expect(html).toContain("Save as a new profile…");
 });
 
 test("tier summary selects declared models and handles executor defaults", () => {
@@ -201,11 +209,14 @@ test("the planner row says when it takes work through the tier fallback and when
   const plannerModel: ModelRecord = { runner: "claude-code", executor: "claude-code", account: "team", binding: { kind: "exact", id: "opus" }, actualModel: null, tier: "frontier", strengths: [], provenance: "declared" } as ModelRecord;
   const withPlanner = { strategy: "custom", source: "strategy", config, planner: "claude-code", plannerAccount: "team" } as ConfigView;
   const html = render(config.tierTargets, { models: [rated, plannerModel], config: withPlanner });
-  expect(html).toContain("Standard and complex tasks go to the planner, because no other agent that can take work has a medium or larger model.");
+  // The fallback covers complex tasks only (src/dispatch/tier-fallback.ts); standard goes to the small executor.
+  expect(html).toContain("Complex tasks go to the planner.");
+  expect(html).not.toContain("Standard and complex tasks go to the planner");
   expect(html).toContain("Planner fallback settings");
   expect(html).toContain('href="#/settings/agents?agent=claude-code"');
-  expect(html).toContain("Fallback: no other agent has a frontier model");
-  expect(html).toContain("Not used: another agent has a small or larger model");
+  expect(html).toContain("Fallback: no agent in the default list has a frontier model");
+  expect(html).toContain("Not used: the planner fallback covers complex tasks only");
+  expect(html).toContain("opencode-go (default model, smaller than medium)");
   // The planner is listed first with the Planner pill, and its models are not counted as executor coverage.
   expect(html.indexOf("<code>claude-code</code>")).toBeLessThan(html.indexOf("<code>opencode-go</code>"));
   expect(html).toContain("Only the planner has a frontier model");
@@ -314,7 +325,7 @@ async function withChoice(run: (getHtml: () => string, calls: Array<{ op: string
   }
 }
 
-test("the table skips a below-target follow runner by automatic dispatch (F3)", async () => {
+test("the table shows a below-target follow runner running its default (F3)", async () => {
   // A follow runner whose only model (provider/fast) is rated below the standard and complex targets is shown as
   // skipped by automatic dispatch, with a note that it runs its default only when picked directly.
   const inventoryModels: ModelRecord[] = [
@@ -324,8 +335,8 @@ test("the table skips a below-target follow runner by automatic dispatch (F3)", 
     expect(calls.filter(c => c.op === "runner.models.get").length).toBeGreaterThan(0);
     const html = getHtml();
     expect(html).toContain("fast");
-    expect(html).toContain("Skipped");
-    expect(html).toContain("No medium or larger model; runs its default only if picked directly");
+    expect(html).toContain("Smaller than medium: runs its default");
+    expect(html).toContain("Smaller than frontier: runs its default");
     expect(html).not.toContain("Not used");
   }, {
     runnerModels: { opencode: { runner: "opencode", revision: "r1", default: "provider/fast", models: [{ id: "provider/fast", tier: "small" }] } },
@@ -338,8 +349,9 @@ test("an agent that picks its own model names its configured default (runner.mod
     { runner: "codex", account: "work", executor: "codex", binding: { kind: "executor-default" }, actualModel: null, tier: "unknown", strengths: [], provenance: "declared" } as ModelRecord,
   ];
   await withChoice(async (getHtml) => {
-    await untilSel(() => getHtml().includes("Uses its default model"));
-    expect(getHtml()).toContain("Uses its default model, gpt-5.5, for every difficulty");
+    await untilSel(() => getHtml().includes("gpt-5.5"));
+    expect(getHtml()).toContain("gpt-5.5");
+    expect(getHtml()).toContain("Same for every difficulty");
   }, {
     runnerModels: { codex: { runner: "codex", revision: "r1", default: "gpt-5.5", models: [] } },
     inventoryModels,

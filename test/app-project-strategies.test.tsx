@@ -13,8 +13,8 @@ const config = {strategy:"default",planner:"codex",plannerAccount:"work",source:
 const render = (s=state,initial=view) => renderToString(<TaskContext.Provider value={{state:s,api}}><SetupEditor view={config} eligibility={{kind:"project",repo:initial.repo.key,repoLabel:initial.repo.label,view:initial}} onSaved={()=>{}} onDirtyChange={()=>{}}/></TaskContext.Provider>);
 test("editor names keyboard reorder controls and distinguishes saved project order", () => {
   const html=render();
-  for(const copy of ["acme/repo list","Agents for tasks in acme/repo, in order.","Move down: Cursor · team · local","Move up: Codex · personal · local","Use the default instead","Agents for acme/repo, in priority order","This list saves for acme/repo and stays when you switch profiles."]) expect(html).toContain(copy);
-  expect(html).toContain("No unsaved changes");
+  for(const copy of ["acme/repo list","Agents for tasks in acme/repo, in order.","Move down: Cursor · team · local","Move up: Codex · personal · local","Use the default instead","Agents for acme/repo, in priority order","keeps it when you switch profiles"]) expect(html).toContain(copy);
+  expect(html).toContain("pc-save-bar--clean");
   const inherited=render(state,{...view,rev:0,executors:null as any});
   expect(inherited).toContain("Add agents to give this repository its own list");
   expect(inherited).toContain("Add Cursor · team · local");

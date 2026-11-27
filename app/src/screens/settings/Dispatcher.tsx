@@ -274,11 +274,11 @@ export function DispatcherLadderFields({config,onChange,disabled}:{config:Dispat
 }
 
 /** The Overview tab's intro line and its one header action, Preview a task. */
-export function DispatcherOverview({previewOpen=false,onPreview}:{view?:DispatcherConfigView;repositoryChoices?:boolean;previewOpen?:boolean;onPreview?:()=>void}) {
+export function DispatcherOverview({previewOpen=false,onPreview}:{previewOpen?:boolean;onPreview?:()=>void}) {
   useDispatcherStyles();
   return <div className="pc-hub-intro" id="dispatcher">
     <p>The planner organizes the work. Pacer picks an agent and a model for each task it hands out.</p>
-    {onPreview&&<Button size="sm" variant="secondary" aria-expanded={previewOpen} aria-controls="dispatch-preview" onClick={onPreview}>Preview a task</Button>}
+    {onPreview&&<Button size="sm" variant="secondary" aria-expanded={previewOpen} aria-controls="dispatch-preview" onClick={onPreview}>Try a task</Button>}
   </div>;
 }
 
@@ -304,12 +304,13 @@ function DispatcherContent({query,tab}:{query:RouteQuery;tab:"overview"|"rules"}
   const [ladderDraft,setLadderDraft]=useState<StrategyDraft>();
   const [previewOpen,setPreviewOpen]=useState(false);
   const canPreview=state.features.ops.has("dispatch.explain")||state.features.ops.has("dispatch.preview");
-  const preview=canPreview&&<DispatcherPreviewForm query={query} draft={tab==="rules"?ladderDraft:undefined}/>;
+  const preview=canPreview&&<DispatcherPreviewForm query={query} draft={tab==="rules"?ladderDraft:undefined} focusOnMount={tab==="overview"}/>;
   // Preview a task opens the form under the intro and puts the cursor in its Task field.
-  const openPreview=()=>{setPreviewOpen(open=>!open);if(!previewOpen)setTimeout(()=>document.querySelector<HTMLInputElement>("#dispatch-preview input[aria-label=Task]")?.focus(),0);};
+  // Try a task opens the form under the intro; the form puts the cursor in its Task field when it mounts.
+  const openPreview=()=>setPreviewOpen(open=>!open);
   if(!config.data)return <Section id="dispatcher" title="Dispatcher"><p role={config.error?"alert":undefined}>{config.error?"Dispatcher settings could not be loaded.":"Loading dispatcher settings…"}</p></Section>;
   return <><DispatcherReadError error={config.error} reload={config.reload} subject="dispatcher settings"/>
-    {tab==="overview"?<><DispatcherOverview view={config.data} previewOpen={previewOpen} onPreview={canPreview?openPreview:undefined}/>
+    {tab==="overview"?<><DispatcherOverview previewOpen={previewOpen} onPreview={canPreview?openPreview:undefined}/>
       {previewOpen&&preview}
       <DispatcherModelChoice initialConfig={config.data} initialInventory={models.data} onSaved={()=>{config.reload();models.reload();}}/></>
       :<><DispatcherGuidedSetup view={config.data} onLadderDraft={setLadderDraft} onSaved={()=>{config.reload();models.reload();}}/>{preview}</>}
@@ -369,7 +370,9 @@ function DispatcherEnforcement({query}:{query:RouteQuery}){
 
 /** A strategy draft the preview explains with: the unsaved ladder, or a saved profile (`{from}` alone). */
 export type PreviewDraft = { from?: string; set?: Record<string, unknown> };
-export function DispatcherPreviewForm({query,draft,draftNote,title="Try a task"}:{query:RouteQuery;draft?:PreviewDraft;draftNote?:string;title?:string}) {
+export function DispatcherPreviewForm({query,draft,draftNote,title="Try a task",focusOnMount=false}:{query:RouteQuery;draft?:PreviewDraft;draftNote?:string;title?:string;focusOnMount?:boolean}) {
+  const taskInput=useRef<HTMLInputElement>(null);
+  useEffect(()=>{if(focusOnMount)taskInput.current?.focus();},[]);
   const {state,api}=useTaskContext();
   const repos=state.snapshot?.repos??[];
   const [repo,setRepo]=useState(query.repo??""),[goal,setGoal]=useState(""),[kind,setKind]=useState(""),[tier,setTier]=useState(""),[tools,setTools]=useState(false);
@@ -407,7 +410,7 @@ export function DispatcherPreviewForm({query,draft,draftNote,title="Try a task"}
       <div className="dispatcher-preview-row">
         {repos.length?<ChoicePicker aria-label="Repository" className="pc-choice-picker--mono" value={repo} searchable options={repos.map(item=>({value:item.key,label:item.label}))} onValueChange={setRepo}/>:<p>Choose a repository from the repository picker before previewing.</p>}
         <ChoicePicker aria-label="Task kind" value={kind} options={[{value:"",label:"Any kind"}, ...["tests","feature","debug","docs","review","refactor"].map(value=>({value,label:value}))]} onValueChange={setKind}/>
-        <TextInput aria-label="Task" aria-invalid={!!goalError} aria-describedby={goalError ? "dispatch-preview-goal-error" : undefined} value={goal} maxLength={8000} placeholder="What work should Pacer assign?" onInput={event=>{setGoal(event.currentTarget.value);setGoalError("");}}/>
+        <TextInput ref={taskInput} aria-label="Task" aria-invalid={!!goalError} aria-describedby={goalError ? "dispatch-preview-goal-error" : undefined} value={goal} maxLength={8000} placeholder="What work should Pacer assign?" onInput={event=>{setGoal(event.currentTarget.value);setGoalError("");}}/>
         <div className="dispatcher-preview-submit"><Button type="submit" busy={busy}>Preview</Button></div>
       </div>
       {goalError&&<p id="dispatch-preview-goal-error" className="pc-field__error" role="alert">{goalError}</p>}

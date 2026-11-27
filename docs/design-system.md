@@ -913,6 +913,8 @@ while drawing outlined 28px pills. Other tabs retain their underline treatment.
 `SortableList layout="executor"` adds the bordered, padded executor list and an
 end-of-list drag guide; only keyed executor rows participate in reorder geometry.
 The Move up/down and Remove buttons use SVG icons and preserve accessible names.
+Its guide and help text say "agent" ("Drag an agent here…"). In a container narrower than
+520px the move and remove buttons stay on the name line and the status pill wraps below it.
 
 `TextAction size="caption"` provides a 12/16 standalone action for release notes.
 `SettingRow layout="inline-help"` places number controls and capacity help on one

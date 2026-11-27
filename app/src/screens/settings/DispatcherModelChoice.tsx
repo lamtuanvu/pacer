@@ -27,7 +27,10 @@ import {
   adjustTier, applyPreset, matchingPreset, PRESETS, PRESET_LABELS,
   RATED_TIERS, DIFFICULTIES, type PresetName, type RatedTier, type Difficulty,
 } from "../../model/tier-targets";
-import { overviewModel, type AgentBehavior, type HubAction, type HubAgent, type OverviewRow } from "../../model/dispatcher-hub";
+import { joinNames, overviewModel, type AgentBehavior, type HubAction, type HubAgent, type OverviewRow } from "../../model/dispatcher-hub";
+import type { Rule } from "../../model/executors";
+import { SaveBar } from "../../ds/SaveBar";
+const messageOf = (failure: unknown) => failure instanceof Error ? failure.message : String(failure);
 import { hrefFor, routes } from "../../router";
 import type { DispatcherInventory } from "./Dispatcher";
 import { plannerRunner } from "../../model/planner";
@@ -42,16 +45,16 @@ const mappingError = (targets: TierTargets) => TIERS[targets.simple] > TIERS[tar
 export async function saveTierTargets(call: BrowserApi["call"], saved: ConfigView, targets: TierTargets, profileName = "model-choices"): Promise<void> {
   const error = mappingError(targets);
   if (error) throw new Error(error);
-  if (profileName === "default") throw new Error("Choose a name for the saved setup; default is protected.");
-  if (profileName === saved.strategy) throw new Error("Choose a new saved setup name; the active setup cannot be overwritten.");
+  if (profileName === "default") throw new Error("Choose a name for the new profile; default is protected.");
+  if (profileName === saved.strategy) throw new Error("Choose a new profile name; the active profile cannot be overwritten.");
   const latest = await call<ConfigView>("dispatch.config.get", {});
-  if (!same(latest.config, saved.config) || latest.strategy !== saved.strategy) throw new Error("The active saved setup changed in another client. Discard to load it.");
+  if (!same(latest.config, saved.config) || latest.strategy !== saved.strategy) throw new Error("The active profile changed in another client. Discard to load it.");
   const draft = { from: saved.strategy, set: { "dispatch.tierTargets": targets } };
   const preview = await call<{ ok: boolean; errors: string[] }>("strategy.preview", { draft });
   if (!preview.ok) throw new Error(preview.errors?.join(" ") || "Model choices could not be validated.");
   await call("strategy.save", { name: profileName, draft, reason: "Update model choices by task difficulty" });
   try { await call("strategy.use", { name: profileName }); }
-  catch (error) { throw new Error(`Saved model choices, but the setup could not be activated: ${error instanceof Error ? error.message : String(error)}`); }
+  catch (error) { throw new Error(`Saved model choices, but the profile could not be switched to: ${error instanceof Error ? error.message : String(error)}`); }
 }
 
 /** In-place save of the active setup through the revision-checked tier-targets operations. */
@@ -108,7 +111,9 @@ export function DispatcherModelChoice({ initialConfig, initialInventory, initial
   const [profileName, setProfileName] = useState("");
   const [defaults, setDefaults] = useState<Record<string, string>>({});
   const [filter, setFilter] = useState<"all" | AgentBehavior>("all");
-  const [refreshing, setRefreshing] = useState(false), [refreshedAt, setRefreshedAt] = useState<number | null>(null);
+  const [refreshing, setRefreshing] = useState(false), [refreshedAt, setRefreshedAt] = useState<number | null>(null), [refreshFailed, setRefreshFailed] = useState("");
+  // The default list decides who the engine ranks; older services without routing.get count every agent as listed.
+  const routing = useResource<{ rules: Rule[]; available: string[] }>(state.features.ops.has("routing.get") ? "routing.get" : "dispatch.models");
   const dirty = !!targets && !!base && !same(targets, base.config.tierTargets);
   useEffect(() => {
     if (config.data && !dirty) { setBase(config.data); setTargets(config.data.config.tierTargets); }
@@ -159,7 +164,7 @@ export function DispatcherModelChoice({ initialConfig, initialInventory, initial
       } else {
         // Conflict: the setup changed elsewhere since this draft began. Keep the draft so it can be
         // saved as a new setup; do not reload or overwrite the active setup with it.
-        flashNotice("The active setup changed elsewhere. Discard to load it, or save as a new setup.");
+        flashNotice("The active profile changed elsewhere. Discard to load it, or save as a new profile.");
       }
     } catch (failure) { setError(failure); }
     finally { pending.current = false; setBusy(false); }
@@ -172,19 +177,23 @@ export function DispatcherModelChoice({ initialConfig, initialInventory, initial
       await saveTierTargets(api.call.bind(api), base, targets, profileName.trim());
       setDialog(false);
       setBase({ ...base, strategy: profileName.trim(), config: { ...base.config, tierTargets: targets } });
-      flashNotice("Saved as a new setup and made it active."); config.reload(); inventory.reload(); onSaved?.();
+      flashNotice("Saved as a new profile and switched to it."); config.reload(); inventory.reload(); onSaved?.();
     } catch (failure) { setError(failure); }
     finally { pending.current = false; setBusy(false); }
   };
   const refreshAll = async () => {
     const runnerIds = [...new Set((inventory.data?.models ?? []).map(m => m.runner))];
-    setRefreshing(true);
+    setRefreshing(true); setRefreshFailed("");
     try {
-      await Promise.all([
-        ...runnerIds.map(runner => api.call("executor.models.available", { runner, refresh: true }).catch(() => null)),
-        state.features.ops.has("limits.refresh") ? api.call("limits.refresh", {}).catch(() => null) : Promise.resolve(null),
+      // Every failure is named, and the reading only counts as fresh when something did refresh.
+      const results = await Promise.all([
+        ...runnerIds.map(runner => api.call("executor.models.available", { runner, refresh: true }).then(() => null, (failure: unknown) => ({ who: `${executorLabel(runner)} models`, failure }))),
+        state.features.ops.has("limits.refresh") ? api.call("limits.refresh", {}).then(() => null, (failure: unknown) => ({ who: "usage", failure })) : Promise.resolve(null),
       ]);
-      inventory.reload(); config.reload(); setRefreshedAt(Date.now() / 1000);
+      const failed = results.filter((item): item is { who: string; failure: unknown } => !!item);
+      if (failed.length) setRefreshFailed(`Couldn't refresh ${joinNames(failed.map(item => item.who))}: ${messageOf(failed[0]!.failure)}`);
+      if (failed.length < results.length) setRefreshedAt(Date.now() / 1000);
+      inventory.reload(); config.reload();
     } finally { setRefreshing(false); }
   };
 
@@ -199,11 +208,13 @@ export function DispatcherModelChoice({ initialConfig, initialInventory, initial
     ...[...new Set(records.map(record => record.runner))].filter(runner => !snapshot?.executors?.some(row => row.id === runner)).map(runner => ({ runner, name: executorLabel(runner) })),
   ];
   const fallbackOn = settings.data?.keys?.["pacing.planner_tier_fallback"]?.value !== "off";
-  const model = targets ? overviewModel({ records, targets, agents, plannerRunner: planner, fallbackOn, defaults }) : null;
+  const defaultList = routing.data && "rules" in routing.data ? routing.data.rules.find(rule => !rule.kinds)?.executors : undefined;
+  const model = targets ? overviewModel({ records, targets, agents, plannerRunner: planner, fallbackOn, defaults, defaultList }) : null;
   const preset = targets ? matchingPreset(targets) : "custom";
   const agentHref = (runner: string) => scoped(hrefFor(routes.agents(runner)));
   const actionLink = (action: HubAction, variant: "secondary" | "quiet") => action.addAgent
     ? <ButtonLink size="sm" variant={variant} href={scoped(hrefFor(routes.addExecutor()))}>{action.label}</ButtonLink>
+    : action.rules ? <ButtonLink size="sm" variant={variant} href={scoped("#/settings/rules")}>{action.label}</ButtonLink>
     : <ButtonLink size="sm" variant={variant} href={action.agent ? agentHref(action.agent) : scoped(hrefFor(routes.agents()))}>{action.label}</ButtonLink>;
   const readinessOf = (runner: string) => {
     const row = snapshot?.executors?.find(item => item.id === runner);
@@ -223,6 +234,7 @@ export function DispatcherModelChoice({ initialConfig, initialInventory, initial
             <strong>{row.name}</strong>
             <span className="pc-hub-agent__meta"><code>{row.runner}</code>
               {row.planner ? <Pill tone="info">Planner</Pill> : status ? <span onKeyDown={containTooltipEscape}><Tooltip text={`${status.reason}. ${status.tooltip}`}><span tabIndex={0}><StatusPill status={status} /></span></Tooltip></span> : null}
+              {!row.listed && <Pill tone="neutral">Not in the default list</Pill>}
             </span>
           </span>
         </span>
@@ -230,16 +242,13 @@ export function DispatcherModelChoice({ initialConfig, initialInventory, initial
       <td className="pc-hub-table__models"><span className="pc-hub-models">
         {row.models.length ? row.models.map(item => <ModelChip key={item.id} id={item.id} tier={item.tier} />) : <span className="u3-muted">No models set · uses its own default</span>}
       </span></td>
-      {row.cells ? row.cells.map(cell => <td key={cell.difficulty} className="pc-hub-table__cell">
+      {row.cells.map((cell, index) => <td key={cell.difficulty} className="pc-hub-table__cell">
         <span className="pc-hub-cell__label">{difficultyLabels[cell.difficulty]}</span>
+        {index === 0 && row.flat && <Pill tone={row.flat.tone}>{row.flat.pill}</Pill>}
         <code className={cell.muted ? "pc-hub-cell__model pc-hub-cell__model--muted" : "pc-hub-cell__model"}>{cell.model}</code>
-        <span className="pc-hub-cell__note">{cell.note}</span>
-      </td>) : <td colSpan={3} className="pc-hub-table__cell">
-        <span className={`pc-hub-flat pc-hub-flat--${row.flat!.tone}`}>
-          <Pill tone={row.flat!.tone}>{row.flat!.pill}</Pill><span>{row.flat!.text}</span>
-          {row.canRate && <TextAction size="caption" href={agentHref(row.runner)}>Set its size<span className="sr-only"> for {row.name}</span></TextAction>}
-        </span>
-      </td>}
+        {cell.note && <span className="pc-hub-cell__note">{cell.note}</span>}
+        {index === 0 && row.canRate && <TextAction size="caption" href={agentHref(row.runner)}>Set its size<span className="sr-only"> for {row.name}</span></TextAction>}
+      </td>)}
       <td className="pc-hub-table__open"><ButtonLink size="sm" variant="quiet" href={agentHref(row.runner)} aria-label={`Open ${row.name}`}>Open<Icon name="chevron-right" /></ButtonLink></td>
     </tr>;
   };
@@ -288,21 +297,16 @@ export function DispatcherModelChoice({ initialConfig, initialInventory, initial
               <span className="pc-hub-sizes__who">{model.coverage[d]}</span>
             </div>)}
           </div>
-          {(dirty || notice) && <div className="pc-model-choice__savedock">
-            {dirty && <div className="u3-save-bar">
-              <div className="pc-model-choice__savecopy">
-                <span role="status" aria-live="polite">{busy ? "Saving…" : `${changeCount} unsaved change${changeCount === 1 ? "" : "s"}`}</span>
-                <span className="u3-muted">Saving updates the active profile “{base?.strategy}”. New tasks use it at once.</span>
-              </div>
-              <div className="u3-actions">
-                <Button variant="ghost" disabled={busy} onClick={discard}>Discard</Button>
-                <Button variant={directSave ? "secondary" : "primary"} disabled={busy} onClick={openName}>Save as new setup…</Button>
-                {directSave && <Button variant="primary" busy={busy} onClick={() => void saveInPlace()}>Save</Button>}
-              </div>
-            </div>}
-            {notice && <div className="pc-model-choice__notice" role="status" aria-live="polite">{notice}</div>}
+          {(changeCount > 0 || !!notice || !!error) && <div className="pc-model-choice__savedock">
+            <SaveBar count={changeCount} busy={busy} onDiscard={discard} onSave={() => directSave ? void saveInPlace() : openName()}
+              saveLabel={directSave ? "Save" : "Save as a new profile…"} scope={changeCount ? `active profile ${base.strategy}` : undefined} notice={notice || undefined}>
+              {changeCount > 0 || error ? <>
+                {changeCount > 0 && <div className="pc-hub-save-note"><span>New tasks use the change at once.</span>
+                  {directSave && <Button size="sm" variant="quiet" disabled={busy} onClick={openName}>Save as a new profile…</Button>}</div>}
+                <ErrorMessage error={error} />
+              </> : undefined}
+            </SaveBar>
           </div>}
-          <ErrorMessage error={error} />
         </section>
 
         <section className="pc-stack pc-stack--normal" aria-labelledby="hub-agents-h">
@@ -313,11 +317,12 @@ export function DispatcherModelChoice({ initialConfig, initialInventory, initial
             </div>
             <div className="pc-hub-chips">
               <span className="pc-hub-chips" role="group" aria-label="Show agents">
-                {FILTERS.map(item => <FilterChip key={item.value} selected={filter === item.value} onClick={() => setFilter(item.value)}>{item.label} <span className="pc-hub-chip-count">{model.counts[item.value]}</span></FilterChip>)}
+                {FILTERS.map(item => <FilterChip key={item.value} selected={filter === item.value} disabled={item.value !== "all" && !model.counts[item.value]} onClick={() => setFilter(item.value)}>{item.label} <span className="pc-hub-chip-count">{model.counts[item.value]}</span></FilterChip>)}
               </span>
               <Button variant="ghost" size="sm" busy={refreshing} disabled={!state.connected} aria-label="Refresh all accounts: models, sign-in and usage" onClick={() => void refreshAll()}><Icon name="refresh" />Refresh all</Button>
             </div>
           </div>
+          {refreshFailed && <p className="pc-field__error" role="alert">{refreshFailed}</p>}
           <ResourceState resource={inventory}>
             {!model.rows.length ? <p className="u3-muted">No agents in the model inventory yet. <TextAction href={scoped(hrefFor(routes.addExecutor()))}>Add an agent</TextAction></p>
               : <div className="pc-hub-table-wrap">
@@ -335,13 +340,13 @@ export function DispatcherModelChoice({ initialConfig, initialInventory, initial
           <p className="u3-muted">Sizes are what you declared. Pacer never guesses a model's size; an unrated model runs for every difficulty until you set one.</p>
         </section>
 
-        {dialog && <Dialog title="Save as a new setup" close={() => setDialog(false)}>
+        {dialog && <Dialog title="Save as a new profile" close={() => setDialog(false)}>
           <form className="pc-stack pc-stack--normal" onSubmit={event => { event.preventDefault(); void saveAsNew(); }}>
-            <p className="u3-muted">Name the saved setup so you can switch back later. The active setup keeps its current choices until you save.</p>
-            <Field label="Saved setup name"><TextInput value={profileName} autoFocus required disabled={busy} onInput={event => setProfileName(event.currentTarget.value)} /></Field>
+            <p className="u3-muted">Name the new profile so you can switch back later. The active profile keeps its current choices.</p>
+            <Field label="Profile name"><TextInput value={profileName} autoFocus required disabled={busy} onInput={event => setProfileName(event.currentTarget.value)} /></Field>
             <div className="u3-actions">
               <Button variant="ghost" disabled={busy} onClick={() => setDialog(false)}>Cancel</Button>
-              <Button type="submit" variant="primary" busy={busy} disabled={!profileName.trim() || busy}>Save and use setup</Button>
+              <Button type="submit" variant="primary" busy={busy} disabled={!profileName.trim() || busy}>Save and switch to it</Button>
             </div>
           </form>
         </Dialog>}

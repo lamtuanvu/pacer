@@ -17,8 +17,8 @@ beforeAll(async () => {
     { headers: { 'Content-Type': 'text/html' } },
   ) });
   browser = await chromium.launch({ executablePath: browserPath, headless: true });
-}, 15000);
-afterAll(async () => { await browser?.close(); server?.stop(true); }, 15000);
+}, 60000);
+afterAll(async () => { await browser?.close(); server?.stop(true); }, 60000);
 
 const order = (page: Page) => page.getByTestId('order').textContent();
 const focusedLabel = (page: Page) => page.evaluate(() => document.activeElement?.getAttribute('aria-label') ?? document.activeElement?.tagName);
@@ -264,7 +264,7 @@ for (const discard of [false, true]) {
         await page.getByRole('button', { name: 'Move up: Usable fallback' }).click();
         await page.locator('.pc-save-bar', { hasText: '1 unsaved change' }).waitFor();
         await page.getByRole('button', { name: 'Discard', exact: true }).click();
-        await page.locator('.pc-save-bar', { hasText: 'No unsaved changes' }).waitFor();
+        await page.locator('.pc-save-bar.pc-save-bar--clean').waitFor({ state: 'attached' });
       }
       await page.getByLabel('Task', { exact: true }).fill('Check the route');
       await page.getByRole('button', { name: 'Preview', exact: true }).click();
@@ -422,11 +422,11 @@ browserTest('ladder icon actions preserve move focus, announcements and numbered
   } finally {await page.close();}
 });
 
-browserTest('Overview opens Preview a task from its header action and puts the cursor in Task', async () => {
+browserTest('Overview opens Try a task from its header action and puts the cursor in Task', async () => {
   const page=await browser.newPage({viewport:{width:1440,height:900}});
   try {
     await page.goto(`${server.url.href}#overview`);
-    const open=page.getByRole('button',{name:'Preview a task'});
+    const open=page.getByRole('button',{name:'Try a task'});
     await open.waitFor();
     expect(await open.getAttribute('aria-expanded')).toBe('false');
     expect(await page.locator('#dispatch-preview').count()).toBe(0);

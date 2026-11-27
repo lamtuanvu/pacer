@@ -857,6 +857,8 @@ code.pc-code-wrap{display:block;min-width:0;max-width:100%;white-space:pre-wrap;
  .pc-sortable--icons .pc-sortable__actions .pc-btn{min-height:var(--control-touch);min-width:var(--control-touch)}
 }
 @container(max-width:520px){.pc-sortable--icons .pc-sortable__row{display:flex;flex-wrap:wrap}}
+/* Narrow agent rows keep their move and remove controls on the name line; the status pill wraps below the name. */
+@container(max-width:520px){.pc-sortable--executor .pc-sortable__row>.pc-sortable__content{flex:1 1 0;min-width:0}.pc-sortable--executor .pc-sortable__row>.pc-sortable__actions{order:2;width:auto;flex:none}.pc-sortable--executor .pc-sortable__row>.pc-executor-state{order:3;flex-basis:100%}}
 .pc-choice-picker--mono .pc-choice-picker__value,.pc-choice-picker--mono .pc-choice-picker__option-label{font-family:var(--font-mono)}
 /* Settings owns the full left panel; the shared collapse control stays available beside its header. */
 .pc-side-panel--left:has(.pc-settings-nav){position:relative;flex-basis:var(--size-272);width:var(--size-272)}

@@ -39,11 +39,16 @@ const profiles = [
   { name: 'default', active: true, summary: 'Codex first, Claude Code keeps 15%' },
   { name: 'cheap-first', active: false, summary: 'Local model first, Claude Code keeps 15%; cheapest-first policy', description: 'Routine bulk work: local model and BytePlus before the subscriptions.' },
   { name: 'save-claude', active: false, summary: 'Codex first, Claude Code keeps 30%' },
+  { name: 'ladder-night', active: false, summary: 'Codex first, Claude Code keeps 15%' },
+  { name: 'fewer-models', active: false, summary: 'Codex first, Claude Code keeps 15%' },
 ];
-const yaml = (policy: string, reserve: number) => `planner: claude-code\npacing: \n  policy: ${policy}\n  planner_reserve: ${reserve}\nrouting: \n  - executors: \n      - codex\n`;
+const yaml = (policy: string, reserve: number, extra = '') => `planner: claude-code\npacing: \n  policy: ${policy}\n  planner_reserve: ${reserve}\nrouting: \n  - executors: \n      - codex\n${extra || 'runners: \n  claude-code: \n    models: \n      - id: opus\n        tier: frontier\n      - id: sonnet\n        tier: medium\n'}`;
+const ladder = 'runners: \n  claude-code: \n    models: \n      - id: opus\n        tier: frontier\n      - id: sonnet\n        tier: medium\ndispatch: \n  steps: \n    - id: usable-fallback\n    - id: capable-with-headroom\n  onNoMatch: fail\n';
+const fewer = 'runners: \n  claude-code: \n    models: \n      - id: opus\n        tier: frontier\n';
+let failRefresh = '';
 let routing = { rules: [{ executors: ['codex', 'opencode#byteplus', 'opencode#local'] }], available: executors.map(item => item.id) };
 const calls: [string, any][] = [];
-Object.assign(window, { hubFixture: { calls: () => calls, routing: () => routing } });
+Object.assign(window, { hubFixture: { calls: () => calls, routing: () => routing, failRefresh: (runner: string) => { failRefresh = runner; } } });
 const api = { call: async (op: string, params: any) => {
   calls.push([op, params]);
   switch (op) {
@@ -59,10 +64,12 @@ const api = { call: async (op: string, params: any) => {
     case 'strategy.preview': {
       const from = params.draft.from;
       const cheap = from === 'cheap-first';
-      return { ok: true, errors: [], summary: '', yaml: from === 'save-claude' ? yaml('priority', 30) : cheap ? yaml('cheapest-first', 15) : yaml('priority', 15),
+      return { ok: true, errors: [], summary: '', yaml: from === 'save-claude' ? yaml('priority', 30) : cheap ? yaml('cheapest-first', 15) : from === 'ladder-night' ? yaml('priority', 15, ladder) : from === 'fewer-models' ? yaml('priority', 15, fewer) : yaml('priority', 15),
         ranking: { current: ['codex', 'opencode#local'], draft: cheap ? ['opencode#local', 'opencode#byteplus', 'codex'] : ['codex', 'opencode#local'] },
         routing: { current: routing.rules, draft: cheap ? [{ executors: ['opencode#local', 'opencode#byteplus', 'codex'] }] : routing.rules } };
     }
+    case 'executor.models.available': if (failRefresh && params.runner === failRefresh) throw new Error('Sign-in expired'); return { runner: params.runner, source: 'none', models: null, fetchedAt: 1800000000 };
+    case 'strategy.build': return { opened: true, target: 'terminal', command: 'pacer strategy build' };
     case 'dispatch.explain': return { schemaVersion: 1, revision: 'r1', at: 0, observedAt: null, outcome: 'select', kind: { value: 'tests', source: 'given' },
       strategy: { name: 'cheap-first', draft: !!params.strategyDraft, source: 'strategy' }, engine: { id: 'ladder', version: '1' },
       chosen: { executor: 'opencode', account: 'local', runner: 'opencode#local', model: { kind: 'executor-default' }, host: null }, step: { id: 'usable-fallback', index: 1, skipped: [] },
@@ -70,7 +77,7 @@ const api = { call: async (op: string, params: any) => {
     default: return {};
   }
 } } as any;
-const ops = ['dispatch.config.get', 'dispatch.models', 'dispatch.explain', 'dispatch.tierTargets.set', 'routing.get', 'routing.set', 'strategy.list', 'strategy.preview', 'strategy.use', 'strategy.save',
+const ops = ['strategy.build', 'dispatch.config.get', 'dispatch.models', 'dispatch.explain', 'dispatch.tierTargets.set', 'routing.get', 'routing.set', 'strategy.list', 'strategy.preview', 'strategy.use', 'strategy.save',
   'project.strategy.get', 'project.strategy.list', 'project.strategy.set', 'project.strategy.remove', 'limits.refresh'];
 const state = { ...initialState(), connected: true, features: { readModel: true, ops: new Set(ops) },
   snapshot: { ...initialState().snapshot, at: 1800000000, executors, accounts: [], hosts: [], repos: [repo], tasks: [], planner: { agent: 'claude-code', runner: 'claude-code' } } } as any;
