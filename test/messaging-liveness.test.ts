@@ -45,7 +45,20 @@ function msg(from: string, to: string, o: Partial<Message> = {}): Message {
     status: "pending", createdAt: NOW - 50, deliveredAt: null, readAt: null, turnId: null, ...o };
 }
 const node = (t: TaskRecord, o: Partial<SnapshotTask> = {}): SnapshotTask => ({ task: t, work: false, parent: "external:planner", depth: 1, lastProgressAt: NOW, heldOpenForHuman: false, ...o });
-const snap = (o: Partial<LivenessSnapshot>): LivenessSnapshot => ({ tasks: [], unread: [], questions: [], retryDelivery: true, noProgressS: 1800, idleAfterS: 600, ...o });
+const snap = (o: Partial<LivenessSnapshot>): LivenessSnapshot => ({ tasks: [], unread: [], questions: [], retryDelivery: true, noProgressS: 1800, idleAfterS: 600, pendingLiveAnswers: new Set(), ...o });
+
+test("a planner's pending open-turn live answer is not undelivered", () => {
+  const t = task("t-a", { state: "running", kind: "orchestrate" });
+  const answer = msg("human", "task:t-a", { kind: "answer", status: "pending" });
+  const held = msg("external:planner", "task:t-a", { kind: "message", status: "pending" });
+  expect(analyzeLiveness(snap({
+    tasks: [node(t, { planner: true })], unread: [answer], pendingLiveAnswers: new Set([answer.id]),
+  }), NOW)).toEqual([]);
+  // Other pending rows to the planner still stall as undelivered.
+  expect(analyzeLiveness(snap({
+    tasks: [node(t, { planner: true })], unread: [answer, held], pendingLiveAnswers: new Set([answer.id]),
+  }), NOW)).toEqual([expect.objectContaining({ node: "task:t-a", reason: "undelivered" })]);
+});
 
 test("a settled task with a pending message is undelivered", () => {
   const t = task("t-a");

@@ -31,8 +31,8 @@ import { isPlannerTask } from "../workflow/live-answer";
 import { randomBytes } from "node:crypto";
 import { dataPreamble } from "../workflow/template";
 
-/** Why a message to a run's planner task is held: no turn and no live session carries it. */
-export const PLANNER_HOLD = "this task is a workflow planner, which takes no messages; only the person's answers to its own questions reach it";
+export { PLANNER_HOLD } from "./planner-hold";
+import { PLANNER_HOLD } from "./planner-hold";
 export type Delivery = "turn_started" | "queued" | "pull" | "held" | "closed" | "cap" | "live_unavailable" | "no_session" | "live";
 const REPORT_BYTES = 64 * 1024;
 

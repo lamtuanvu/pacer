@@ -70,7 +70,7 @@ export function Thread({ id, closed, notice }: { id: string; closed: boolean; no
     if (params.kind === "answer" && params.reply_to && answerDelivered(result.delivery)) void api.call("msg.read", { ids: [params.reply_to] }).catch(() => undefined);
     if (result.message) log.setData({ messages: [...(log.data?.messages ?? []).filter(m => m.id !== result.message!.id), result.message] });
     input.current?.focus();
-    setStatus(result.delivery === "pending" ? "Message recorded; delivery is not confirmed yet." : sendOutcome(result.delivery)); log.reload();
+    setStatus(result.delivery === "pending" ? "Message recorded; delivery is not confirmed yet." : sendOutcome(result.delivery, result.hold)); log.reload();
   });
   const view = useMemo(() => log.data && threadView(pendingThread(log.data.messages, pending.item), { now: Date.now() / 1000, titleOf }), [log.data, tasks, pending.item]);
   useEffect(() => {

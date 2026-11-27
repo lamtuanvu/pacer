@@ -11,7 +11,7 @@ import type { Ctx } from "../types";
 import { commandArgs } from "./accounts";
 import type { Command, Result } from "./types";
 import { terminalJson, terminalText } from "./terminal-text";
-import { PLANNER_HOLD } from "../messaging/turns";
+import { PLANNER_HOLD } from "../messaging/planner-hold";
 
 const TASK = /^t-\d{8}-\d{6}-[0-9a-f]{4}$/;
 const target = (s: string) => TASK.test(s) ? `task:${s}` : s;

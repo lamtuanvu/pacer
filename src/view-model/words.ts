@@ -1,3 +1,4 @@
+import { PLANNER_HOLD } from "../messaging/planner-hold";
 import { agentInfo, agentKey } from "./agents";
 /** The one vocabulary for statuses, verdicts, phases and modes. Every surface imports these; none spells a status on its own. */
 export type StatusTone = "good" | "warn" | "bad" | "info" | "neutral";
@@ -237,8 +238,10 @@ const answerDeliveries: Record<string, string> = {
   no_session: "Answer saved, but the task has no session to continue.",
 };
 export const answerDeliveryWords = (delivery: unknown, hold?: { reason?: unknown }): string =>
-  // Project policy held the task's next turn: say why; the answer waits with the question still open.
-  delivery === "held" && typeof hold?.reason === "string" ? `Answer held, not delivered yet: project policy holds this task (${hold.reason}). The question stays open.`
+  // A planner hold is not project policy and is not waiting for msg confirm.
+  delivery === "held" && hold?.reason === PLANNER_HOLD ? `Answer held, not delivered yet: ${PLANNER_HOLD}. The question stays open.`
+    // Project policy held the task's next turn: say why; the answer waits with the question still open.
+    : delivery === "held" && typeof hold?.reason === "string" ? `Answer held, not delivered yet: project policy holds this task (${hold.reason}). The question stays open.`
     : typeof delivery === "string" && Object.hasOwn(answerDeliveries, delivery) ? answerDeliveries[delivery]! : "Answer sent.";
 /** Stable task-local identity for independently controlled conversations. */
 export const agentSessionLabel=(executor:string,ordinal:number)=>`${executorLabel(executor)} · Session ${ordinal}`;
@@ -247,6 +250,8 @@ export const agentSessionLabel=(executor:string,ordinal:number)=>`${executorLabe
 const messageKinds: Record<string, string> = { question: "Question", answer: "Answer", report: "Report", nudge: "Reminder", close: "Closed" };
 export const messageKindWords = (kind: string): string | null => Object.hasOwn(messageKinds, kind) ? messageKinds[kind]! : null;
 const messageDeliveries: Record<string, string> = { turn_started: "Sent. The task is picking it up.", queued: "Sent. The task reads it when its current step ends.", live: "Sent to the live session.", pull: "Sent. The task reads it with its next step.", held: "Sent. A messaging rule holds it until you confirm.", cap: "Sent, but this task tree has reached its turn limit.", no_session: "Sent, but this task can't resume its session to read it.", live_unavailable: "Sent, but this live session can't receive it yet.", closed: "Sent, but this task is closed for messages." };
-export const messageDeliveryWords = (delivery: string | undefined): string => delivery && Object.hasOwn(messageDeliveries, delivery) ? messageDeliveries[delivery]! : "Sent.";
+export const messageDeliveryWords = (delivery: string | undefined, hold?: { reason?: unknown }): string =>
+  delivery === "held" && hold?.reason === PLANNER_HOLD ? `Sent. Held: ${PLANNER_HOLD}`
+    : delivery && Object.hasOwn(messageDeliveries, delivery) ? messageDeliveries[delivery]! : "Sent.";
 export const stalledWords = "Stalled — needs a decision";
 export const handBackWords = "Waiting for you to hand back the terminal";

@@ -56,7 +56,7 @@ export function sendRefusal(error: unknown): { text: string; blocking: boolean }
   const reason = data && typeof data === "object" ? (data as { reason?: unknown }).reason : undefined;
   return { text: messageRefusalWords(typeof reason === "string" ? reason : undefined), blocking: ["msg_node_closed", "msg_forbidden", "msg_live_unavailable", "msg_worktree_unavailable"].includes(String(reason)) };
 }
-export const sendOutcome = (delivery: string | undefined): string => messageDeliveryWords(delivery);
+export const sendOutcome = (delivery: string | undefined, hold?: { reason?: unknown }): string => messageDeliveryWords(delivery, hold);
 
 /** The fields the liveness broker and the live driver add to a task; both may be absent on older services. */
 export interface LivenessInput { liveness?: { stalled?: boolean; reason?: string } | null; liveBlocked?: string | null }
