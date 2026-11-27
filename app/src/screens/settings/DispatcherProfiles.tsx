@@ -67,8 +67,10 @@ export function DispatcherProfiles({ query: route, onActivated, initialData }: {
   const canCompare = state.features.ops.has("strategy.preview");
   const canTry = state.features.ops.has("dispatch.explain") || state.features.ops.has("dispatch.preview");
   const side = !!frame?.right && !frame.inline;
-  // The comparison belongs in the shell's side panel: open it once when the frame offers one.
-  useLayoutEffect(() => { if (frame?.details && !frame.details.open && !frame.inline) frame.details.toggle(); }, [!!frame?.details]);
+  // The comparison belongs in the shell's side panel: open it once there is something to compare (never an empty
+  // panel while the list loads or when only one profile exists).
+  const hasCompare = !!compared;
+  useLayoutEffect(() => { if (hasCompare && frame?.details && !frame.details.open && !frame.inline) frame.details.toggle(); }, [!!frame?.details, hasCompare]);
   const switchTo = (target: string) => void action.run("strategy.use", { name: target }, () => { setTrying(undefined); onActivated?.(); });
   const nameError = !name ? "" : !NAME.test(name) ? "Use lowercase letters, numbers and hyphens, starting with a letter or number."
     : name === "default" ? "default is protected; choose another name." : rows.some(row => row.name === name) ? "A profile with this name exists; choose another name." : "";
@@ -147,7 +149,7 @@ export function DispatcherProfiles({ query: route, onActivated, initialData }: {
       </ResourceState>
       <Feedback action={action} />
     </section>
-    <FrameSlot name="right">{side ? panel : null}</FrameSlot>
+    <FrameSlot name="right">{side ? panel || (query.data && <section className="pc-hub-compare" aria-label="Compare profiles"><p className="u3-muted">Only one profile is saved. Save the current settings as a profile to compare it with the active one.</p></section>) : null}</FrameSlot>
     {!side && panel}
     {trying && <DispatcherPreviewForm query={route ?? { repo: null, scope: null }} draft={{ from: trying }} focusOnMount draftNote={`Uses the ${trying} profile, not the active one.`} title={`Try a task with ${trying}`} />}
     {saving && <Dialog title="Save current as a profile" close={() => setSaving(false)}>

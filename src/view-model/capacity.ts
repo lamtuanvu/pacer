@@ -86,20 +86,27 @@ export function executorReadiness(executor: ExecutorRow, snapshot: ClientSnapsho
   else if (codes.includes("subscription_missing")) { label = "Cannot take work"; tone = "bad"; reason = "No active subscription"; }
   else if (codes.some(code => ["authentication_failed", "signed_out"].includes(code))) { label = "Cannot take work"; tone = "bad"; reason = "Sign-in is required"; }
   else if (executor.state === "failing" && decision?.state !== "eligible" && executor.recentFailures > 0) { label = "Cannot take work"; tone = "bad"; reason = `${executor.recentFailures} recent failures`; }
-  else if (stale || codes.includes("budget_expired_or_unknown")) { label = "Skipped"; tone = "warn"; reason = age == null ? "Usage reading needs refreshing" : `Usage reading is ${age < 3600 ? `${Math.floor(age / 60)}m` : `${Math.floor(age / 3600)}h`} old`; }
   else if (decision?.state === "ineligible" || (["down", "blocked", "exhausted"].includes(executor.state) || executor.state === "failing" && decision?.state !== "eligible")) {
     label = "Cannot take work"; tone = "bad";
     reason = executor.state === "blocked" || codes.includes("blocked") ? "Blocked by you" : executor.state === "exhausted" || codes.includes("budget_exhausted") ? "Out of quota" : codes.includes("not_installed") ? "Agent needs installing" : executor.reason?.startsWith("Key missing") ? "Key missing" : executor.reason?.startsWith("Not working") || executor.lastCheck?.passed === false ? "Last test task failed" : "Agent needs attention";
   }
+  // An agent the engine leaves out stays "Cannot take work" even when its reading is also stale.
+  else if (stale || codes.includes("budget_expired_or_unknown")) { label = "Skipped"; tone = "warn"; reason = age == null ? "Usage reading needs refreshing" : `Usage reading is ${age < 3600 ? `${Math.floor(age / 60)}m` : `${Math.floor(age / 3600)}h`} old`; }
   else if (!decision || decision.state === "uncertain") { label = "Skipped"; tone = "warn"; reason = "Refresh to confirm availability"; }
   else if (executor.state === "full") { label = "Skipped"; tone = "neutral"; reason = "All parallel slots are in use"; }
   // An untested endpoint still receives work; only the endpoint test task has not run yet.
   else if (executor.untested) { label = "Not tested"; tone = "neutral"; reason = "Still takes work · run a test task to confirm"; }
   else if (executorPace(executor, snapshot).label === "Ahead of pace") { label = "Ahead of pace"; tone = "warn"; reason = "Used before others only for capable work"; }
   if ((label === "Ready" || label === "Ahead of pace") && executor.state === "failing" && executor.recentFailures > 0) reason = `${executor.recentFailures} recent failures`;
-  // A key for logic, so callers never match display copy: Off and Cannot take work are left out of ranking; Skipped
-  // agents can still be ranked as uncertain fallbacks but are not taking work right now.
-  const availability: "takes" | "skipped" | "off" | "blocked" = label === "Off" ? "off" : label === "Cannot take work" ? "blocked" : label === "Skipped" ? "skipped" : "takes";
+  // A key for logic, from the engine facts rather than the label: off and blocked agents are left out of ranking;
+  // skipped agents can still be ranked as uncertain fallbacks but are not taking work right now.
+  const blocked = codes.includes("subscription_missing") || codes.some(code => ["authentication_failed", "signed_out"].includes(code))
+    || decision?.state === "ineligible" || ["down", "blocked", "exhausted"].includes(executor.state)
+    || (executor.state === "failing" && decision?.state !== "eligible");
+  const availability: "takes" | "skipped" | "off" | "blocked" = !executor.enabled || executor.state === "disabled" ? "off"
+    : blocked ? "blocked"
+    : stale || codes.includes("budget_expired_or_unknown") || !decision || decision.state === "uncertain" || executor.state === "full" ? "skipped"
+    : "takes";
   return { label, tone, glyph: tone === "good" ? "✓" : tone === "neutral" ? "■" : "!", reason, availability,
     tooltip: (() => {
       const segments = [technical.label, technical.detail, technical.age, ...(executor.sub ? executor.sub.split(" · ") : [])].filter(Boolean) as string[];

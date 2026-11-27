@@ -58,6 +58,14 @@ test('readiness maps authoritative eligibility and pace with one short reason', 
   expect(executorReadiness({...ready,eligibility:missing},snap)).toMatchObject({label:'Cannot take work',reason:'No active subscription'});
   expect(executorReadiness({...ready,stale:true},{...snap,accounts:[{...snap.accounts![0]!,capturedAt:snap.at-19*3600}]}).reason).toBe('Usage reading is 19h old');
   expect(executorReadiness({...ready,eligibility:undefined},snap).label).toBe('Skipped');
+  // NEW-1: an agent the engine leaves out stays blocked even with a stale reading, and the key comes from the facts.
+  const down = {...eligible,state:'ineligible',reasons:[{code:'unavailable'}]}, spent = {...eligible,state:'ineligible',reasons:[{code:'budget_exhausted'}]};
+  expect(executorReadiness({...ready,state:'down',stale:true,eligibility:down},snap)).toMatchObject({label:'Cannot take work',availability:'blocked'});
+  expect(executorReadiness({...ready,state:'exhausted',stale:true,eligibility:spent},snap)).toMatchObject({label:'Cannot take work',reason:'Out of quota',availability:'blocked'});
+  expect(executorReadiness({...ready,stale:true},snap).availability).toBe('skipped');
+  expect(executorReadiness({...ready,enabled:false,state:'exhausted'},snap).availability).toBe('off');
+  expect(executorReadiness(ready,snap).availability).toBe('takes');
+  expect(executorReadiness({...ready,state:'full'},snap).availability).toBe('skipped');
   expect(executorReadiness({...ready,untested:true},snap)).toMatchObject({label:'Not tested',tone:'neutral',reason:'Still takes work · run a test task to confirm'});
   expect(executorReadiness({...ready,untested:true},{...snap,accounts:[{...snap.accounts![0]!,verdict:'AHEAD'}]}).label).toBe('Not tested');
   expect(executorReadiness({...ready,untested:true,state:'full'},snap)).toMatchObject({label:'Skipped',reason:'All parallel slots are in use'});

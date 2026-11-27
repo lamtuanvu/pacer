@@ -189,3 +189,15 @@ test("S6: profile rows split the summary into First, the planner reserve and the
   expect(profileRowFacts("Invalid or missing strategy")).toBeNull();
   expect(joinNames(["A", "B", "C"])).toBe("A, B and C");
 });
+
+test("NEW-1: a listed frontier agent that is exhausted with a stale reading does not stop the planner fallback", async () => {
+  const { executorReadiness } = await import("../src/view-model/capacity");
+  const eligibility = { state: "ineligible", reasons: [{ code: "budget_exhausted", evidenceIds: [] }], evaluatedAt: 0, validUntil: null, evidenceAgeS: null, availability: "unavailable", budget: "exhausted", spendingRisk: "unknown" };
+  const row = { id: "cursor", agent: "cursor", account: "cursor", host: null, model: null, rank: 1, enabled: true, state: "exhausted", stale: true, tone: "bad", sub: "", usedPct: null, pacePct: null, slots: { used: 0, max: 1 }, lastCheck: null, recentFailures: 0, next: false, eligibility };
+  const readiness = executorReadiness(row as never, { at: 1800000000, executors: [row], accounts: [] } as never);
+  expect(readiness.availability).toBe("blocked");
+  const model = overviewModel({ records: [planner, record("cursor", "big", "frontier")], targets, agents: [ready("claude-code", "Claude Code"), { runner: "cursor", name: "Cursor", readiness }], plannerRunner: "claude-code", fallbackOn: true, defaultList: ["cursor"] });
+  expect(model.tiles[2]).toMatchObject({ planner: true, count: "Planner" });
+  expect(model.tiles.map(tile => tile.who).join(" ")).not.toContain("unconfirmed");
+  expect(rulesSummary({ list: ["cursor"], agents: [{ runner: "cursor", name: "Cursor", readiness }], available: [], repoLists: 0 }).skipped).toEqual([]);
+});

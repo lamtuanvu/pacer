@@ -21,7 +21,7 @@ import { SectionHeading } from "../../ds/SectionHeading";
 import { StatusPill } from "../../ds/StatusPill";
 import { Tooltip } from "../../ds/Tooltip";
 import { ErrorMessage, useTaskContext } from "../task-shared";
-import { containTooltipEscape, ResourceState, useResource, useScoped } from "./shared";
+import { containTooltipEscape, ResourceState, resourceRevision, useResource, useScoped } from "./shared";
 import { difficultyLabels, tierLabels } from "../../model/executor-models";
 import {
   adjustTier, applyPreset, matchingPreset, PRESETS, PRESET_LABELS,
@@ -30,12 +30,13 @@ import {
 import { joinNames, overviewModel, type AgentBehavior, type HubAction, type HubAgent, type OverviewRow } from "../../model/dispatcher-hub";
 import type { Rule } from "../../model/executors";
 import { SaveBar } from "../../ds/SaveBar";
-const messageOf = (failure: unknown) => failure instanceof Error ? failure.message : String(failure);
 import { hrefFor, routes } from "../../router";
 import type { DispatcherInventory } from "./Dispatcher";
 import { plannerRunner } from "../../model/planner";
 import type { ConfigData } from "../../model/strategy";
 import { useDispatcherStyles } from "./dispatcher-styles";
+
+const messageOf = (failure: unknown) => failure instanceof Error ? failure.message : String(failure);
 
 type ConfigView = { strategy: string; source?: "built-in" | "strategy"; config: DispatchConfig; planner?: string; plannerAccount?: string };
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
@@ -112,8 +113,19 @@ export function DispatcherModelChoice({ initialConfig, initialInventory, initial
   const [defaults, setDefaults] = useState<Record<string, string>>({});
   const [filter, setFilter] = useState<"all" | AgentBehavior>("all");
   const [refreshing, setRefreshing] = useState(false), [refreshedAt, setRefreshedAt] = useState<number | null>(null), [refreshFailed, setRefreshFailed] = useState("");
-  // The default list decides who the engine ranks; older services without routing.get count every agent as listed.
-  const routing = useResource<{ rules: Rule[]; available: string[] }>(state.features.ops.has("routing.get") ? "routing.get" : "dispatch.models");
+  // The default list decides who the engine ranks. Right now waits for it rather than counting every agent as listed;
+  // only a service without routing.get (which has no list to read) counts every agent, and says so.
+  const hasRouting = state.features.ops.has("routing.get");
+  const [routing, setRouting] = useState<{ rules: Rule[] }>(), [routingError, setRoutingError] = useState<unknown>(), [routingTry, retryRouting] = useState(0);
+  const routingRevision = resourceRevision("routing.get", state.invalidations);
+  useEffect(() => {
+    if (!hasRouting) return;
+    let live = true;
+    setRoutingError(undefined);
+    api.call<{ rules: Rule[] }>("routing.get", {}).then(value => { if (live) setRouting(value); }, failure => { if (live) setRoutingError(failure); });
+    return () => { live = false; };
+  }, [api, hasRouting, routingTry, routingRevision, state.connected]);
+  const listState: "known" | "loading" | "failed" | "unsupported" = !hasRouting ? "unsupported" : routing ? "known" : routingError ? "failed" : "loading";
   const dirty = !!targets && !!base && !same(targets, base.config.tierTargets);
   useEffect(() => {
     if (config.data && !dirty) { setBase(config.data); setTargets(config.data.config.tierTargets); }
@@ -208,7 +220,7 @@ export function DispatcherModelChoice({ initialConfig, initialInventory, initial
     ...[...new Set(records.map(record => record.runner))].filter(runner => !snapshot?.executors?.some(row => row.id === runner)).map(runner => ({ runner, name: executorLabel(runner) })),
   ];
   const fallbackOn = settings.data?.keys?.["pacing.planner_tier_fallback"]?.value !== "off";
-  const defaultList = routing.data && "rules" in routing.data ? routing.data.rules.find(rule => !rule.kinds)?.executors : undefined;
+  const defaultList = routing ? routing.rules.find(rule => !rule.kinds)?.executors ?? [] : undefined;
   const model = targets ? overviewModel({ records, targets, agents, plannerRunner: planner, fallbackOn, defaults, defaultList }) : null;
   const preset = targets ? matchingPreset(targets) : "custom";
   const agentHref = (runner: string) => scoped(hrefFor(routes.agents(runner)));
@@ -258,7 +270,14 @@ export function DispatcherModelChoice({ initialConfig, initialInventory, initial
     <ResourceState resource={config}>
       {config.data && targets && base && model && <>
         <Card tone="sunken" className="pc-hub-now" aria-labelledby="hub-now-h">
-          <div className="pc-hub-now__text">
+          {listState === "loading" || listState === "failed" ? <div className="pc-hub-now__text">
+            <SectionHeading id="hub-now-h">Right now</SectionHeading>
+            {listState === "loading" ? <p className="u3-muted" role="status">Reading the default list…</p> : <>
+              <p className="pc-hub-now__headline">The default list could not be read, so Pacer can't say where work goes.</p>
+              <ErrorMessage error={routingError} />
+              <div className="pc-hub-now__actions"><Button size="sm" variant="secondary" onClick={() => retryRouting(n => n + 1)}>Try again</Button></div>
+            </>}
+          </div> : <><div className="pc-hub-now__text">
             <SectionHeading id="hub-now-h">Right now</SectionHeading>
             <p className="pc-hub-now__headline">{model.summary.headline}</p>
             <p className="pc-hub-now__consequence">{model.summary.consequence}</p>
@@ -266,6 +285,7 @@ export function DispatcherModelChoice({ initialConfig, initialInventory, initial
               {model.summary.action && actionLink(model.summary.action, "secondary")}
               {model.summary.secondary && actionLink(model.summary.secondary, "quiet")}
             </div>}
+            {listState === "unsupported" && <p className="u3-muted">This service doesn't report the default list, so every agent counts as listed.</p>}
           </div>
           <ul className="pc-hub-tiles" aria-label="Who gets each difficulty">
             {model.tiles.map(tile => <li key={tile.difficulty} className="pc-hub-tile">
@@ -273,7 +293,7 @@ export function DispatcherModelChoice({ initialConfig, initialInventory, initial
               <span className="pc-hub-tile__count">{tile.agents.length > 0 && <AgentStack agents={tile.agents.map(runner => markAgent(runner))} size={20} />}<strong>{tile.count}</strong></span>
               <span className="pc-hub-tile__who">{tile.who}</span>
             </li>)}
-          </ul>
+          </ul></>}
         </Card>
 
         <section className="pc-stack pc-stack--normal" aria-labelledby="hub-sizes-h">
@@ -294,7 +314,7 @@ export function DispatcherModelChoice({ initialConfig, initialInventory, initial
               <RadioGroup label={`${difficultyLabels[d]} tasks`} className="pc-hub-sizes__radios">
                 {RATED_TIERS.map(t => <RadioChip key={t} checked={targets[d] === t} disabled={busy} onSelect={() => pickTier(d, t)}>{tierLabels[t]}</RadioChip>)}
               </RadioGroup>
-              <span className="pc-hub-sizes__who">{model.coverage[d]}</span>
+              <span className="pc-hub-sizes__who">{listState === "loading" || listState === "failed" ? "" : model.coverage[d]}</span>
             </div>)}
           </div>
           {(changeCount > 0 || !!notice || !!error) && <div className="pc-model-choice__savedock">

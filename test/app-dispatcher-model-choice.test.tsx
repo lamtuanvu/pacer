@@ -357,3 +357,13 @@ test("an agent that picks its own model names its configured default (runner.mod
     inventoryModels,
   });
 });
+
+test("Nit 1: while the default list is unknown, Right now says so instead of counting every agent", () => {
+  const withRouting = { ...initialState(), features: { readModel: false, ops: new Set(["routing.get"]) } };
+  const html = render(config.tierTargets, { state: withRouting });
+  expect(html).toContain("Reading the default list…");
+  expect(html).not.toContain('aria-label="Who gets each difficulty"');
+  expect(html).not.toContain("in the default list has");
+  // A service without routing.get has no list to read: every agent counts, and the page says so.
+  expect(render(config.tierTargets)).toContain("This service doesn't report the default list, so every agent counts as listed.");
+});
