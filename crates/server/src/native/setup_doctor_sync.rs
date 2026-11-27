@@ -4,7 +4,7 @@
 use serde_json::{Value, json};
 
 pub(crate) fn routes(op: &str) -> bool {
-    pacer_config_ops::doctor_ops::needs_setup_doctor_bridge(op)
+    pacer_setup_ops::doctor_ops::needs_setup_doctor_bridge(op)
 }
 
 /// Serve already knows its link is reachable, as the HTTP op deps say for the

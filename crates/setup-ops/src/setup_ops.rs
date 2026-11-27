@@ -8,7 +8,7 @@ use pacer_store::publish_config_change;
 use serde_json::{Value, json};
 use std::{fs, io::Write, path::Path};
 
-use super::executor_setup_ops::{invalid, type_name};
+use pacer_config_ops::executor_setup_ops::{invalid, type_name};
 
 fn empty_object(params: &Value) -> Result<(), CoreError> {
     let map = params.as_object().ok_or_else(|| {

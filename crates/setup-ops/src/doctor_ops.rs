@@ -17,10 +17,10 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use crate::host_read_ops::invalid;
-use crate::repo_registry_ops::params_object;
 use crate::setup_checklist::checklist_for_home;
 use crate::setup_gate::{GateInput, aggregate, fingerprint, should_skip_full_window};
+use pacer_config_ops::host_read_ops::invalid;
+use pacer_config_ops::repo_registry_ops::params_object;
 
 const TRIGGERS: [&str; 3] = ["startup", "update", "manual"];
 
@@ -403,8 +403,8 @@ pub async fn run(
         "setup.health" => setup_health(ctx, parsed["params"]["trigger"].as_str(), parts).await,
         // Desktop capture and update ops run their real handler in Core (the broker and
         // updater state live there); Rust validated the params, so Core's reply is the answer.
-        op if crate::desktop_capture_ops::needs_capture_bridge(op)
-            || crate::desktop_update_ops::needs_update_bridge(op) =>
+        op if pacer_config_ops::desktop_capture_ops::needs_capture_bridge(op)
+            || pacer_config_ops::desktop_update_ops::needs_update_bridge(op) =>
         {
             parts.await
         }
