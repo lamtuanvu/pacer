@@ -26,6 +26,7 @@ import {
 import { reviewRef, type ReviewRef } from "./branch";
 import { speaksFor } from "./fanout";
 import { resumeHeldSteps } from "./hold";
+import { closeLiveAnswers, liveAnswerReachable, turnWasAnswered } from "./live-answer";
 import { raiseMissingApprovalQuestions } from "./questions";
 import { canSendBack, mergeConflictFor } from "./review";
 import { revokeOrphanRunGrants, revokeRunGrant, revokeRunGrantsForRun } from "./run-grant";
@@ -179,6 +180,7 @@ function settleOrchAfterLastTurn(ctx: Ctx, runId: string): void {
 /** Finish a live turn the way stopLiveTurnsForRun does when the task is already gone. */
 function finishTurnForEndedRun(ctx: Ctx, turn: TurnRow, reason: string): void {
   revokeRunGrant(ctx, turn.id);
+  closeLiveAnswers(ctx, turn, false);
   releaseWakeups(ctx, turn.id);
   updateTurn(ctx, turn.id, { status: "stopped", endedAt: ctx.now, reason });
   settleOrchAfterLastTurn(ctx, turn.runId);
@@ -756,11 +758,17 @@ function reviewPayload(
   };
 }
 
-/** A headless turn cannot receive an answer, so it ends after a blocking ask and the
- *  answer starts the next turn. Interactive turns get no such instruction. */
-function blockingAskInstruction(ctx: Ctx, wakeups: Wakeup[]): string[] {
-  if (claimsInteractiveStep(ctx, wakeups)) return [];
-  return ["This turn is headless. After asking a question that blocks a step or branch (pacer ask blocks the step unless you pass --blocks nothing), do not wait or poll for the answer and do not report that step's result: finish any work that does not depend on it, then end your turn. The answer starts a new turn that carries it."];
+/** What the planner does after a blocking ask. Where pacer can type into its terminal it
+ *  waits there; otherwise it ends the turn and the answer starts the next one. */
+function blockingAskInstruction(ctx: Ctx, run: RunRow, wakeups: Wakeup[]): string[] {
+  const asked = "After asking a question that blocks a step or branch (pacer ask blocks the step unless you pass --blocks nothing)";
+  if (!claimsInteractiveStep(ctx, wakeups)) {
+    return [`This turn is headless. ${asked}, do not wait or poll for the answer and do not report that step's result: finish any work that does not depend on it, then end your turn. The answer starts a new turn that carries it.`];
+  }
+  if (liveAnswerReachable(ctx, resolvePlanner(ctx, run))) {
+    return [`This turn is interactive. ${asked}, do not report that step's result and do not finish with pacer report: finish any work that does not depend on it, then end your reply and wait at your prompt. The answer is typed into this session.`];
+  }
+  return [`This turn is interactive, but an answer cannot be typed into this session. ${asked}, do not wait for the answer and do not report that step's result: finish any work that does not depend on it, then report this session done with pacer report. The answer starts a new turn that carries it.`];
 }
 
 /** Standard orchestrator turn prompt: wake-ups first, then summary; each block capped. */
@@ -891,7 +899,7 @@ export function buildTurnPrompt(
     "  pacer question escalate <id> --suggested <text> --reason <text> [--expect-rev <n>]",
     "  pacer ask --type <kind> [--option ...] [--recommend] [--blocks] [--artifact] --step <id> [--attempt <n>] \"<text>\"",
     "  pacer review <taskId> --accept|--reject  /  pacer stop <taskId>",
-    ...blockingAskInstruction(ctx, wakeups),
+    ...blockingAskInstruction(ctx, run, wakeups),
   ].join("\n");
   // Wake-ups and run-state first so the UTF-8 cap never drops decision triggers
   // or error=/task=/run= lines; open/brief are lower priority and may be omitted
@@ -940,7 +948,7 @@ export function buildHandoverPrompt(
     "This is a planner handover. Prior decisions and results are below.",
     "Unfenced sections titled 'Orchestrator step', 'choose_workflow' or 'generate' are the steps to perform; end each with pacer step result, run choose/decide, or run submit-graph as applicable.",
     "Commands use <owningRunId> from each open block / step line.",
-    ...blockingAskInstruction(ctx, wakeups),
+    ...blockingAskInstruction(ctx, run, wakeups),
   ].join("\n");
   const openBlocks = openOrchestratorBlocks(ctx, nonce, run, wakeups, steps);
   // Run summary early (with wake-ups) so the UTF-8 cap cannot drop it (H3).
@@ -1184,6 +1192,7 @@ export async function settleTurn(ctx: Ctx, turnId: string, outcome: TurnOutcome)
   revokeRunGrant(ctx, turnId);
   const owning = getRun(ctx, turn.runId);
   const endedRun = runIsTerminal(owning?.status);
+  closeLiveAnswers(ctx, turn, outcome.outcome === "done");
 
   if (outcome.outcome === "done") {
     const claimed = claimedWakeups(ctx, turnId);
@@ -1265,6 +1274,16 @@ export async function settleTurn(ctx: Ctx, turnId: string, outcome: TurnOutcome)
     });
     settleOrchAfterLastTurn(ctx, turn.runId);
     return stopped;
+  }
+
+  // An interactive turn that reaches its deadline after the person answered it is not a
+  // planner failure: an answer still owed starts a new turn at once.
+  if (outcome.outcome === "failed" && outcome.reason === "deadline" && turn.taskId
+    && readTask(ctx, turn.taskId)?.interactive === true && turnWasAnswered(ctx, turn)) {
+    patchRunBestEffort(ctx, turn.runId, { orchestratorState: "idle", nextWakeAt: null, reason: null });
+    return updateTurn(ctx, turnId, {
+      status: "stopped", endedAt: ctx.now, reason: "deadline after an answer",
+    });
   }
 
   const countFailure = outcome.countFailure !== false;

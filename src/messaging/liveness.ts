@@ -6,6 +6,7 @@ import { listTasksWhere } from "../tasks/store";
 import type { TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
 import { heldOpenForHuman, parentOf, participantKind, taskOf } from "./participants";
+import { awaitingRunAnswer } from "../workflow/live-answer";
 import { effectivePolicy } from "./policy";
 import { getMessage, messagesDatabase } from "./store";
 import { isClosed } from "./turns";
@@ -94,7 +95,8 @@ export function buildSnapshot(ctx: Ctx): LivenessSnapshot {
     const lastProgressAt = Math.max(task.progress?.lastChangeAt ?? 0, started, lastSent.get(self)?.at ?? 0);
     const silentSince = silentAtPrompt(task) ? silentPromptSince(task) : undefined;
     return { task, work: !!getWork(ctx, task.id), parent, depth, lastProgressAt,
-      heldOpenForHuman: heldOpenForHuman(ctx, task, parent), ...(silentSince !== undefined ? { silentSince } : {}) };
+      // A planner waiting for an answer to its own question is quiet on purpose, like a session its user owns.
+      heldOpenForHuman: heldOpenForHuman(ctx, task, parent) || task.kind === "orchestrate" && awaitingRunAnswer(ctx, task.id), ...(silentSince !== undefined ? { silentSince } : {}) };
   });
   const ids = (sql: string, ...args: number[]) => db.query<{ id: string }, number[]>(sql).all(...args).map(r => getMessage(ctx, r.id)!).filter(Boolean);
   const unread = ids("SELECT id FROM messages WHERE status IN ('pending','delivered') ORDER BY id");

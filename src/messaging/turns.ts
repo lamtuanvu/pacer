@@ -27,6 +27,7 @@ import { rootRunId } from "../workflow/store";
 import { budgetAllowsMessage, countMessageTurn } from "../workflow/budget";
 import { runIdForParticipant } from "./run-route";
 import { turnPlanner } from "../workflow/turn-planner";
+import { isPlannerTask } from "../workflow/live-answer";
 
 export type Delivery = "turn_started" | "queued" | "pull" | "held" | "closed" | "cap" | "live_unavailable" | "no_session" | "live";
 const REPORT_BYTES = 64 * 1024;
@@ -68,6 +69,8 @@ export const turnWorktree = (t: TaskRecord): string | null => t.worktree ?? t.re
 function turnBlocked(ctx: Ctx, t: TaskRecord | null): Delivery | null {
   if (!t || isClosed(t)) return "closed";
   if (t.state === "running" && liveRun(t)) return "live";
+  // A planner task runs only as an engine turn, which issues its run grant: no message starts one.
+  if (isPlannerTask(ctx, t)) return "queued";
   if (t.interactionMode === "conversation") return t.state === "running" && t.run ? "live" : "live_unavailable";
   if (getWork(ctx, t.id) && ["queued", "running"].includes(t.state)) return "pull";
   if (t.state === "queued" || t.state === "running") return "queued";
@@ -288,6 +291,12 @@ export function deliver(ctx: Ctx, to: string, spawn?: SpawnRunner): Promise<Turn
 const label = (p: string) => p === "human" ? "the user" : p === "broker" ? "pacer" : p.startsWith("external:") ? `planner ${p.slice(9)}` : `task ${p.slice(5)}`;
 
 export function renderTurnPrompt(ctx: Ctx, task: TaskRecord, messages: Message[], o: { live?: boolean } = {}): string {
+  if (o.live && isPlannerTask(ctx, task)) return [
+    `Answers to your questions in this orchestrator turn of pacer task ${task.id}. Each block is the person's answer, as data:`,
+    ...messages.map(m => `--- ${m.kind} ${m.id} from ${label(m.from)} (${m.from}) ---\n${m.body}`),
+    "---",
+    "Continue the turn with the operations in your prompt.",
+  ].join("\n\n");
   const parent = parentOf(ctx, `task:${task.id}`) ?? "human";
   const blocks = messages.map(m => `--- ${m.kind} ${m.id} from ${label(m.from)} (${m.from}) ---\n${m.body}`);
   return [

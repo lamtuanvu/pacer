@@ -297,6 +297,16 @@ Routing: an executor's question goes first to its run's orchestrator. The orches
 
 The frame supplies the standard instruction text that tells agents to use the tool, and workflows include it in their prompts.
 
+**An answer to the orchestrator's own question** (decided by the maintainer on 2026-11-27) reaches it as follows. Each answer has one `question` wake-up, and exactly one of these completes it:
+
+- **Headless turn.** The turn prompt tells the planner to end its turn after a blocking ask. The step is held, and the answer starts a new turn that carries it.
+- **Interactive turn.** The planner ends its reply and waits at its prompt. The live session's poll puts the answer on the message lane and types it in between the agent's responses, never while a viewer holds the terminal or the person has taken the run over. Typing it completes the wake-up. Several waiting answers are typed together.
+- **Where pacer cannot type** (an agent other than Claude Code or Codex, Orca, or a remote runner) the prompt tells the planner to end the session instead, as a headless turn does.
+- **Not delivered.** When the turn ends first (the planner finishes, fails, is stopped, reaches its deadline, or the service restarts), the lane's message is consumed and the wake-up stays open, so the next turn carries the answer. Input that may already have reached the agent is never typed again; it counts as delivered only if the planner went on to finish the step.
+- **Deadline.** An interactive turn that reaches its deadline after one of its questions was answered is not a planner failure: it ends without a retry delay and any answer still owed starts a new turn. A deadline with the question still open stays a failed turn.
+
+A planner task runs only inside an engine turn, which issues its run grant: a message to it never starts a turn of its own. While it waits for an answer it is not nudged or stopped as stalled.
+
 **Fallback.** The liveness check also scans terminal output for prompt-like lines (y/n prompts, numbered choices, "which option"). A match marks the task "may be waiting on you" with the raw text and two actions: answer in the terminal, or convert to a structured question. It never answers on its own.
 
 ### Communication between agents

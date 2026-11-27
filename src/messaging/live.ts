@@ -25,6 +25,9 @@ const PASTE_START = "\x1b[200~", PASTE_END = "\x1b[201~";
 /** pacer's own viewer: its hello, and the controller label the session host records for it. */
 const PACER_VIEWER = { client: "cli", label: "pacer" } as const;
 export const PACER_CONTROLLER = viewerLabel(PACER_VIEWER);
+import { confirmLiveAnswers, isPlannerTask, queueLiveAnswers } from "../workflow/live-answer";
+import { liveTurnForTask } from "../workflow/wakeups";
+
 /** Larger bodies go to a run-dir file and only a short prompt is typed, as a conversation's first request does. */
 const INLINE_BYTES = 32 * 1024;
 
@@ -52,6 +55,8 @@ export async function liveTick(ctx: Ctx, task: TaskRecord, run: RunRef, s: RunSt
 /** Fresh run activity and control: the agent is still between turns and nobody but pacer's own viewer holds the terminal. */
 function stillBetweenTurns(ctx: Ctx, id: string, run: RunRef, deps: LiveDeps): boolean {
   const t = readTask(ctx, id), s = deps.readState?.(run.dir) ?? readRun(run.dir);
+  // A planner's terminal takes input only while its engine turn is live.
+  if (t && isPlannerTask(ctx, t) && !liveTurnForTask(ctx, id)) return false;
   return !!t && t.run?.dir === run.dir && !t.liveTurn && !t.run.takeover && t.takeover?.state !== "driving" &&
     s.alive && !!s.interactive && (!s.controller || s.controller === PACER_CONTROLLER) && betweenTurns(t, s);
 }
@@ -67,6 +72,8 @@ async function liveTickLocked(ctx: Ctx, task: TaskRecord, run: RunRef, s: RunSta
     return;
   }
   const to = `task:${t.id}`;
+  const planner = isPlannerTask(ctx, t);
+  if (planner) queueLiveAnswers(now, t);
   if (isClosed(t) || !store.pendingFor(ctx, to).length) return setBlocked(ctx, t, false);
   if (!betweenTurns(t, s)) return;
   if (s.controller) return setBlocked(ctx, t, true);
@@ -119,6 +126,7 @@ async function liveTickLocked(ctx: Ctx, task: TaskRecord, run: RunRef, s: RunSta
     updateTask(ctx, t.id, x => { x.liveError = { at: now.now, message }; delete x.liveBlocked; });
     return;
   }
+  if (planner) confirmLiveAnswers(now, t.id, messages);
   store.recordTurn(ctx, { id: turnId, taskId: t.id, rootId: root, at: now.now });
   updateTask(ctx, t.id, x => { x.liveTurn = { id: turnId, at: now.now, statusAt }; delete x.liveBlocked; delete x.liveError; });
 }
@@ -140,7 +148,14 @@ function setBlocked(ctx: Ctx, t: TaskRecord, blocked: boolean): void {
 export function finishLiveTurn(ctx: Ctx, t: TaskRecord, spawn?: SpawnRunner): void {
   const live = t.liveTurn;
   if (!live || !t.run) return;
-  const id = t.id, parent = reportReader(ctx, t);
+  const id = t.id;
+  // A planner reports through its engine operations; its replies are not messages to anyone.
+  if (isPlannerTask(ctx, t)) {
+    store.endTurn(ctx, live.id, "turn-ended", ctx.now);
+    updateTask(ctx, id, x => { if (x.liveTurn?.id === live.id) delete x.liveTurn; });
+    return;
+  }
+  const parent = reportReader(ctx, t);
   const body = transcriptReport(t.run.dir) || "The agent ended its turn without a reply.";
   const reported = store.sentSince(ctx, `task:${id}`, live.at).some(m => m.to === parent && agentReport(m));
   if (parent && !reported) report(ctx, id, parent, "", body, `report:${live.id}`, spawn);
