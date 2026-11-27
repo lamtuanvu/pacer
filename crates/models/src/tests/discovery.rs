@@ -318,7 +318,7 @@ async fn fresh_caches_are_echoed_as_parsed_and_refresh_skips_them() {
     let s = strategy();
     let odd = r#"{"runner":"opencode#named","source":"opencode","models":["a",{"id":"b","x":[1,2]}],"fetchedAt":1700000000,"provider":"vendor","extra":{"2":0,"1":1}}"#;
     super::seed(dir.path(), "opencode#named", odd);
-    let reply = available_reply(dir.path(), NOW, &s, "opencode#named", false)
+    let reply = available_reply(dir.path(), dir.path(), NOW, &s, "opencode#named", false)
         .await
         .unwrap();
     assert_eq!(
@@ -327,12 +327,13 @@ async fn fresh_caches_are_echoed_as_parsed_and_refresh_skips_them() {
     );
     assert!(!available_needs_core(
         dir.path(),
+        dir.path(),
         NOW,
         &s,
         "opencode#named",
         false
     ));
-    let fresh = available_reply(dir.path(), NOW, &s, "opencode#named", true)
+    let fresh = available_reply(dir.path(), dir.path(), NOW, &s, "opencode#named", true)
         .await
         .unwrap();
     assert_eq!(fresh["source"], "connection");
@@ -345,13 +346,14 @@ async fn fresh_caches_are_echoed_as_parsed_and_refresh_skips_them() {
     super::seed(dir.path(), "opencode#named", lone);
     assert!(available_needs_core(
         dir.path(),
+        dir.path(),
         NOW,
         &s,
         "opencode#named",
         false
     ));
     assert_eq!(
-        available_reply(dir.path(), NOW, &s, "opencode#named", false).await,
+        available_reply(dir.path(), dir.path(), NOW, &s, "opencode#named", false).await,
         None
     );
 }

@@ -8,7 +8,7 @@ import { Pill } from "../../ds/Pill";
 import { SegmentedControl } from "../../ds/Patterns";
 import { SectionHeading } from "../../ds/SectionHeading";
 import { tierLabels, modelWarning } from "../../model/executor-models";
-import { addModelOptions, modelNote, suggestedSize, type ModelSize } from "../../model/agents";
+import { addModelOptions, AGENT_LISTINGS, modelNote, suggestedSize, type ModelSize } from "../../model/agents";
 import type { MatrixDraft, MatrixTier } from "../../model/model-matrix";
 import type { ModelDraftsState } from "./useModelDrafts";
 
@@ -57,7 +57,9 @@ export function AgentModels({ runner, agent, models, planner, disabled }: { runn
   </section>;
   const taken = draft.rows.map(row => row.id);
   const listed = available?.models?.length ?? 0;
-  const source = listed ? `${listed} ${listed === 1 ? "model" : "models"} from ${available?.provider ?? name}` : agent === "claude-code" ? "From Claude Code" : undefined;
+  // An agent's own list is named after the agent ("from Cursor"); a provider listing after the provider.
+  const from = available && AGENT_LISTINGS.includes(available.source) ? name : available?.provider ?? name;
+  const source = listed ? `${listed} ${listed === 1 ? "model" : "models"} from ${from}` : agent === "claude-code" ? "From Claude Code" : undefined;
   const remove = (id: string) => {
     const at = taken.indexOf(id);
     focusNext.current = taken[at + 1] ?? taken[at - 1] ?? "";

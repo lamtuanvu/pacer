@@ -1,0 +1,23 @@
+#!/bin/sh
+# Test stand-in for `cursor-agent models` (and `agy models` through the agy link). State lives in
+# $HOME/.fake-<name> (cursor-agent or agy):
+#   mode    list (default) | empty | fail | hang
+#   models  stdout for `list`
+#   calls.log  one line per call: arguments, $PWD and $PACER_FAKE_OPENCODE_PROBE
+name=$(basename "$0")
+state=$HOME/.fake-$name
+mkdir -p "$state"
+printf 'args=%s pwd=%s probe=%s\n' "$*" "$PWD" "$PACER_FAKE_OPENCODE_PROBE" >> "$state/calls.log"
+[ "$1" = models ] || { echo "fake $name: unsupported command: $*" >&2; exit 2; }
+mode=list
+[ -f "$state/mode" ] && mode=$(cat "$state/mode")
+case "$mode" in
+  list) [ -f "$state/models" ] && cat "$state/models"; exit 0 ;;
+  empty) exit 0 ;;
+  fail) echo "fake $name: not signed in" >&2; exit 1 ;;
+  hang)
+    sleep 300 &
+    echo $! > "$state/grandchild.pid"
+    exec sleep 300 ;;
+  *) echo "fake $name: unknown mode $mode" >&2; exit 2 ;;
+esac
