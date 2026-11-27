@@ -79,23 +79,31 @@ async function exchange(dir: string, cases: [string, unknown][], forward: boolea
   } finally { if (child.exitCode === null) { child.kill("SIGTERM"); await child.exited; } }
 }
 
+/** The repair a gate report adds when serve's own measured link latency misses its target. */
+function isLinkRepair(item: any) {
+  return item?.kind === "remedy" && item.check === "Link latency" && item.remedy?.kind === "agent" && item.remedy.op === "doctor.fix.delegate";
+}
+
 /**
  * Replies with this home, wall-clock times, the gate's run time, the serve owner's pid and the measured link
  * latency (whose level and the remedy a warning adds are its own threshold) replaced;
- * everything else compares exactly.
+ * everything else compares exactly. Only a running serve measures a latency, so only its caller passes
+ * `served`, which also drops the gate's repair for a missed threshold.
  */
-function normalize(value: unknown, dir: string) {
+function normalize(value: unknown, dir: string, served = false) {
   return JSON.parse(JSON.stringify(value).replaceAll(dir, "$HOME")
     .replace(/"checkedAt":\d+(\.\d+)?/g, '"checkedAt":"<now>"')
     .replace(/"durationSeconds":\d+(\.\d+)?(e-?\d+)?/g, '"durationSeconds":"<elapsed>"')
     .replace(/owner pid \d+/g, "owner pid <pid>"), (_key, item) => {
+    if (served && Array.isArray(item)) return item.filter(entry => !isLinkRepair(entry));
     if (!(item && typeof item === "object" && item.name === "Link latency" && /^\/v2\/snapshot max [\d.]+ ms /.test(item.detail))) return item;
     const { remedy: _remedy, ...check } = item;
     return { ...check, level: "<measured>", detail: item.detail.replace(/max [\d.]+ ms/, "max <ms> ms") };
   });
 }
 
-const stored = (dir: string) => normalize(JSON.parse(readFileSync(join(dir, ".pacer", "setup-health.json"), "utf8")), dir);
+const stored = (dir: string, served = false) =>
+  normalize(JSON.parse(readFileSync(join(dir, ".pacer", "setup-health.json"), "utf8")), dir, served);
 
 const ERRORS: [string, unknown][] = [
   ["setup.check", 5], ["setup.check", "s"], ["setup.check", []],
@@ -177,10 +185,12 @@ async function serve(dir: string, forward: boolean) {
   const stderr = new Response(child.stderr).text();
   const base = `http://127.0.0.1:${port}`;
   let token = "", ready = false;
-  for (let n = 0; n < 1000 && !ready; n++) {
+  // Doctor reports the background worker's state, which stays "starting" (or absent) after serve first answers.
+  for (const end = Date.now() + 60_000; !ready && Date.now() < end && child.exitCode === null; ) {
     try {
       token = readFileSync(join(dir, ".pacer/token"), "utf8").trim();
-      ready = (await fetch(base + "/v3/hello", { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(500) })).ok;
+      ready = (await fetch(base + "/v3/hello", { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(500) })).ok
+        && JSON.parse(readFileSync(join(dir, ".pacer/state/background-worker.json"), "utf8")).state === "running";
     } catch {}
     if (!ready) await Bun.sleep(20);
   }
@@ -217,7 +227,7 @@ test.skipIf(!front)("HTTP doctor and health reports, errors and refusals match f
       await server.post("setup.check", {}, server.bearer),
       await server.post("setup.check", { extra: 1 }, server.bearer),
     ];
-    results.push({ bodies: normalize(bodies, dir), markers: await server.stop(), stored: stored(dir) });
+    results.push({ bodies: normalize(bodies, dir, true), markers: await server.stop(), stored: stored(dir, true) });
   }
   expect(results[0]!.bodies).toEqual(results[1]!.bodies);
   expect(results[0]!.stored).toEqual(results[1]!.stored);

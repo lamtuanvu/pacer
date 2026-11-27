@@ -107,6 +107,8 @@ function world() {
     accounts: {claude: {kind: "claude"}, codex: {kind: "codex"}, team: {kind: "codex", home: "~/.codex-team"}},
     planner: "claude-code", hosts: {box: {ssh: "box-ssh", repos: {"github.com/o/r": checkout}, accounts: {team: {home: "~/.codex-team"}}}},
     routing: [{default: ["codex@box", "codex#team@box", "codex"]}],
+    // Serve's start-up clean sweep removes host worktrees over SSH, with pauses that can outlast `quiet`.
+    execution: {autoClean: false},
   }));
   const ctx = fakeCtx({home, pacerHome});
   const remoteTask = (taskRepo: string, state: "done" | "running", received: boolean) => {
@@ -208,7 +210,7 @@ function state(w: World, exact = false) {
   }));
 }
 
-/** The state once Core's start-up work (store migrations, the first remote usage poll) has stopped changing it. */
+/** The state once Core's start-up work (store migrations, the first usage refresh) has stopped changing it. */
 async function quiet(w: World) {
   const end = Date.now() + 30_000;
   for (let last = state(w); ; ) {
@@ -343,6 +345,8 @@ describe("HTTP front door", () => {
     for (const [op, body] of REFUSALS) (out.refusals as unknown[]).push(await server.raw(op, body));
     out.appRefusals = [await server.raw("host.check", '{"alias":"nope"}', server.app), await server.raw("host.clean", '{"alias":"box","dry_run":"yes"}', server.app)];
     const before = await quiet(w), stamps = state(w, true);
+    // Start-up must not work on the host: its writes would land among the dry runs.
+    out.startupRanSsh = existsSync(w.log);
     out.dryRuns = [];
     for (const body of DRY_RUNS) (out.dryRuns as unknown[]).push(await server.raw("host.clean", body));
     out.appDryRun = await server.raw("host.clean", DRY_RUNS[0]!, server.app);
@@ -436,6 +440,7 @@ describe("HTTP front door", () => {
     expect(r.appDryRun).toEqual(r.dryRuns[0]);
     expect((r.appRefusals as Array<{body: string}>).map(reply => JSON.parse(reply.body).error.message))
       .toEqual(["unknown host nope", "dry_run: Invalid input: expected boolean, received string"]);
+    expect(r.startupRanSsh).toBe(false);
     expect(r.dryRunWroteNothing).toBe(true);
     expect(JSON.parse(r.check.settled).result).toMatchObject({kind: "host.check", target: "box", state: "passed"});
     expect(JSON.parse(r.appCheck.settled).result).toMatchObject({kind: "host.check", target: "box", state: "passed"});
