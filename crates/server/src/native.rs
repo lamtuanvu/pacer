@@ -25,6 +25,7 @@ use pacer_dispatch_ops::lifecycle_ops as dispatch_lifecycle_ops;
 use pacer_dispatch_ops::planning_ops;
 pub(crate) use pacer_dispatch_ops::preview_ops;
 use pacer_setup_ops::doctor_ops;
+use pacer_setup_ops::setup_facts::SetupHost;
 pub(crate) mod dispatch_preview_sync;
 pub use dispatch_preview_sync::dispatch_preview_stays_forwarded;
 pub(crate) mod dispatch_enforcement_sync;
@@ -1197,6 +1198,8 @@ pub fn service_registry(forward: &str) -> Registry<'static> {
     )
 }
 
+/// The common entry point: no setup host, so setup facts must be replayed by
+/// the parity driver rather than gathered from the machine.
 #[allow(clippy::result_large_err, clippy::too_many_arguments)]
 pub async fn call_native(
     ctx: &Ctx,
@@ -1216,7 +1219,53 @@ pub async fn call_native(
     task_stop_effects: Option<pacer_foundation::api::OpFuture<'_>>,
     task_review_probe: Option<Value>,
     task_review_effects: Option<pacer_foundation::api::OpFuture<'_>>,
+    handover_bridge: Option<&mut dyn pacer_update::handover::HandoverBridge>,
+) -> Result<Value, CoreError> {
+    call_native_with_setup(
+        ctx,
+        op,
+        params,
+        request_id,
+        endpoint_sync,
+        broker_sync,
+        session_sync,
+        task_read_sync,
+        config_host_sync,
+        snapshot_sync,
+        task_clean_sync,
+        host_read_sync,
+        core_bridge_sync,
+        task_stop_probe,
+        task_stop_effects,
+        task_review_probe,
+        task_review_effects,
+        handover_bridge,
+        None,
+    )
+    .await
+}
+
+#[allow(clippy::result_large_err, clippy::too_many_arguments)]
+pub async fn call_native_with_setup(
+    ctx: &Ctx,
+    op: &NativeOp,
+    params: Value,
+    request_id: Option<&Value>,
+    endpoint_sync: Option<pacer_foundation::api::OpFuture<'_>>,
+    broker_sync: Option<pacer_foundation::api::OpFuture<'_>>,
+    session_sync: Option<pacer_foundation::api::OpFuture<'_>>,
+    task_read_sync: Option<pacer_foundation::api::OpFuture<'_>>,
+    config_host_sync: Option<pacer_foundation::api::OpFuture<'_>>,
+    snapshot_sync: Option<pacer_foundation::api::OpFuture<'_>>,
+    task_clean_sync: Option<pacer_foundation::api::OpFuture<'_>>,
+    host_read_sync: Option<pacer_foundation::api::OpFuture<'_>>,
+    core_bridge_sync: Option<pacer_foundation::api::OpFuture<'_>>,
+    task_stop_probe: Option<Value>,
+    task_stop_effects: Option<pacer_foundation::api::OpFuture<'_>>,
+    task_review_probe: Option<Value>,
+    task_review_effects: Option<pacer_foundation::api::OpFuture<'_>>,
     _handover_bridge: Option<&mut dyn pacer_update::handover::HandoverBridge>,
+    setup_host: Option<&mut dyn SetupHost>,
 ) -> Result<Value, CoreError> {
     let mut host_read_bridge = host_read_sync;
     if std::env::var("PACER_DEBUG_NATIVE").as_deref() == Ok("1") {
@@ -1395,6 +1444,27 @@ pub async fn call_native(
             )
         })?;
         account_list_ops::account_list(ctx, params, parts).await?
+    } else if matches!(op.name, "setup.check" | "setup.health") {
+        // Facts are native; only the doctor checks still cross the private bridge.
+        let parsed = if op.name == "setup.check" {
+            pacer_config_ops::repo_registry_ops::params_object(&params)?;
+            serde_json::json!({})
+        } else {
+            p8_bridge_ops::bridge_params(op.name, &params)?
+        };
+        let parts = if op.name == "setup.health" {
+            core_bridge_sync.ok_or_else(|| {
+                CoreError::new(
+                    pacer_foundation::api::Code::Unavailable,
+                    "setup doctor bridge unavailable",
+                )
+            })?
+        } else {
+            core_bridge_sync.unwrap_or_else(|| {
+                Box::pin(async { Ok(serde_json::Value::Null) }) as pacer_foundation::api::OpFuture<'_>
+            })
+        };
+        doctor_ops::run(ctx, op.name, &parsed, parts, setup_host).await?
     } else if needs_core_bridge(op.name) {
         let parsed = p8_bridge_ops::bridge_params(op.name, &params)?;
         let parts = core_bridge_sync.ok_or_else(|| {
@@ -1403,7 +1473,7 @@ pub async fn call_native(
                 "core bridge unavailable",
             )
         })?;
-        doctor_ops::run(ctx, op.name, &parsed, parts).await?
+        doctor_ops::run(ctx, op.name, &parsed, parts, None).await?
     } else if needs_host_effects(op.name) {
         host_check_clean_setup_ops::call(ctx, op.name, params, core_bridge_sync).await?
     } else {

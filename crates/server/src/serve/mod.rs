@@ -38,7 +38,7 @@ pub mod proxy;
 pub mod sessions;
 pub mod ws;
 
-use crate::native::{call_native, service_registry};
+use crate::native::{call_native_with_setup, service_registry};
 use axum::{
     Router,
     body::Body,
@@ -744,7 +744,20 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             } else {
                 None
             };
-            call_native(
+            let mut setup_host = if matches!(op.name, "setup.check" | "setup.health") {
+                let status = state.core.target().await.map(|target| {
+                    Box::pin(crate::native::status_sync::http(
+                        Some(target),
+                        serde_json::json!({"cacheOnly": true}),
+                    )) as pacer_foundation::api::OpFuture<'static>
+                });
+                Some(pacer_setup_ops::setup_facts::BridgeHost::new(
+                    None, status, None, false,
+                ))
+            } else {
+                None
+            };
+            call_native_with_setup(
                 &request_ctx,
                 op,
                 params,
@@ -763,6 +776,9 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                 task_review_probe_cache,
                 task_review_effects,
                 None,
+                setup_host.as_mut().map(|host| {
+                    host as &mut dyn pacer_setup_ops::setup_facts::SetupHost
+                }),
             )
             .await
         };

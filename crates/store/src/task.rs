@@ -723,6 +723,17 @@ impl TaskStore {
             .query_row("SELECT total_changes()", [], |r| r.get(0))?;
         Ok(format!("{}:{external}:{local}", self.generation))
     }
+    /// `hasReviewedTask` (`src/tasks/store.ts:349-363`): whether any unarchived
+    /// record carries a truthy `review`. Setup facts read the scalar only.
+    pub fn has_reviewed(&mut self) -> Result<bool> {
+        self.refresh()?;
+        let reviewed: i64 = self.db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM tasks WHERE archived=0 AND CASE json_type(record,'$.review') WHEN 'true' THEN 1 WHEN 'object' THEN 1 WHEN 'array' THEN 1 WHEN 'text' THEN length(CAST(json_extract(record,'$.review') AS BLOB))>0 WHEN 'integer' THEN json_extract(record,'$.review')<>0 WHEN 'real' THEN json_extract(record,'$.review')<>0 ELSE 0 END)",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(reviewed != 0)
+    }
     pub fn connection(&mut self) -> Result<&Connection> {
         self.refresh()?;
         Ok(&self.db)

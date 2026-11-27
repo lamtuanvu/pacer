@@ -18,6 +18,7 @@ use std::{
 };
 
 use crate::setup_checklist::checklist_for_home;
+use crate::setup_facts::{SetupHost, integration_hashes, setup_facts};
 use crate::setup_gate::{GateInput, aggregate, fingerprint, should_skip_full_window};
 use pacer_config_ops::host_read_ops::invalid;
 use pacer_config_ops::repo_registry_ops::params_object;
@@ -309,6 +310,7 @@ async fn setup_health(
     ctx: &Ctx,
     requested: Option<&str>,
     parts: OpFuture<'_>,
+    host: Option<&mut dyn SetupHost>,
 ) -> Result<Value, CoreError> {
     let started = unix_millis();
     let pass_path = ctx.pacer_home.join("setup-health.json");
@@ -330,6 +332,19 @@ async fn setup_health(
     if let Some(failure) = parts.get("failure") {
         return Err(core_failure(failure));
     }
+    // The bridge now carries only the doctor checks. Facts, version and hashes
+    // are native; the `parts` fields are kept for the parity driver, which
+    // replays what Core gathered for the same home.
+    let facts = match parts.get("facts") {
+        Some(facts) => facts.clone(),
+        None => {
+            let host = host.ok_or_else(|| {
+                CoreError::new(Code::Unavailable, "setup facts host unavailable")
+            })?;
+            let probe = host.snapshot_probe();
+            setup_facts(ctx, probe, host).await
+        }
+    };
     // Removable-volume probes are Diagnostics-only; keep the gate bounded.
     let checks: Vec<Value> = doctor["checks"]
         .as_array()
@@ -344,7 +359,7 @@ async fn setup_health(
         .cloned()
         .collect();
     let checked_at = js_number(ctx.now);
-    let list = checklist_for_home(&ctx.pacer_home, &parts["facts"], checked_at.clone());
+    let list = checklist_for_home(&ctx.pacer_home, &facts, checked_at.clone());
     let mut report = aggregate(GateInput {
         checks: &checks,
         checklist: &list,
@@ -353,7 +368,10 @@ async fn setup_health(
         duration_seconds: js_number((unix_millis() - started) / 1000.0),
         notifications_skipped: notifications_skipped(&ctx.pacer_home),
     });
-    let (version, hashes) = (&parts["version"], &parts["integrationHashes"]);
+    let native_version = Value::from(crate::setup_facts::current_version());
+    let native_hashes = integration_hashes(&ctx.pacer_home);
+    let version = parts.get("version").unwrap_or(&native_version);
+    let hashes = parts.get("integrationHashes").unwrap_or(&native_hashes);
     let print = fingerprint(&report, version, hashes);
 
     let mut stored = print.clone();
@@ -386,21 +404,38 @@ async fn setup_health(
     Ok(Value::Object(report))
 }
 
-/// Answers a validated request from Core's parts; `parsed` is [`bridge_params`]' value.
+/// Answers a validated request; `parsed` is [`bridge_params`]' value. Setup
+/// facts come from Rust through `host`; only the doctor checks still cross Core.
 pub async fn run(
     ctx: &Ctx,
     op: &str,
     parsed: &Value,
     parts: OpFuture<'_>,
+    host: Option<&mut dyn SetupHost>,
 ) -> Result<Value, CoreError> {
     match op {
-        "setup.check" => Ok(checklist_for_home(
-            &ctx.pacer_home,
-            &parts.await?,
-            js_number(ctx.now),
-        )),
+        "setup.check" => {
+            let parts = parts.await.unwrap_or(Value::Null);
+            let facts = match parts.get("facts") {
+                Some(facts) => facts.clone(),
+                None => {
+                    let host = host.ok_or_else(|| {
+                        CoreError::new(Code::Unavailable, "setup facts host unavailable")
+                    })?;
+                    let probe = host.snapshot_probe();
+                    setup_facts(ctx, probe, host).await
+                }
+            };
+            Ok(checklist_for_home(
+                &ctx.pacer_home,
+                &facts,
+                js_number(ctx.now),
+            ))
+        }
         "doctor.run" => store_doctor_report(ctx, &parts.await?["doctor"]),
-        "setup.health" => setup_health(ctx, parsed["params"]["trigger"].as_str(), parts).await,
+        "setup.health" => {
+            setup_health(ctx, parsed["params"]["trigger"].as_str(), parts, host).await
+        }
         // Desktop capture and update ops run their real handler in Core (the broker and
         // updater state live there); Rust validated the params, so Core's reply is the answer.
         op if pacer_config_ops::desktop_capture_ops::needs_capture_bridge(op)

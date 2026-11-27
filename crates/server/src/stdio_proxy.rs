@@ -1,5 +1,5 @@
 use crate::core_secrets::{self, CoreSecrets};
-use crate::native::{call_native, service_registry};
+use crate::native::{call_native, call_native_with_setup, service_registry};
 use crate::stdio_plugins::{self, Done, Line, Ownership, PluginLink};
 use pacer_foundation::{
     Ctx,
@@ -1173,11 +1173,36 @@ async fn forward_input<
                         None,
                     )
                     .await
-                } else if crate::native::needs_core_bridge(op.name) {
-                    match crate::native::p8_bridge_ops::bridge_params(op.name, &params) {
+                } else if matches!(op.name, "setup.check" | "setup.health")
+                    || crate::native::needs_core_bridge(op.name)
+                {
+                    let bridge_params = if op.name == "setup.check" {
+                        Ok(serde_json::json!({}))
+                    } else {
+                        crate::native::p8_bridge_ops::bridge_params(op.name, &params)
+                    };
+                    match bridge_params {
                         Ok(bridge_params) => {
                             let op_name = op.name.to_owned();
-                            call_native(
+                            // The status bridge is awaited first so the two Core
+                            // channels never hold the child stream at once.
+                            let status = if matches!(op_name.as_str(), "setup.check" | "setup.health")
+                            {
+                                crate::native::status_sync::stdio(
+                                    &mut core,
+                                    sync.0,
+                                    sync.1,
+                                    serde_json::json!({"cacheOnly": true}),
+                                    &mut *sync.2,
+                                )
+                                .await
+                                .ok()
+                            } else {
+                                None
+                            };
+                            let mut setup_host =
+                                pacer_setup_ops::setup_facts::BridgeHost::with_status_value(status, true);
+                            call_native_with_setup(
                                 &request_ctx,
                                 op,
                                 params,
@@ -1204,6 +1229,8 @@ async fn forward_input<
                                 None,
                                 None,
                                 None,
+                                Some(&mut setup_host
+                                    as &mut dyn pacer_setup_ops::setup_facts::SetupHost),
                             )
                             .await
                         }

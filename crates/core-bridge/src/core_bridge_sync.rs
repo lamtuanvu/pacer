@@ -22,7 +22,6 @@ fn map_body(value: &Value) -> Result<Value, CoreError> {
 
 fn http_path(op: &str) -> Result<&'static str, CoreError> {
     match op {
-        "setup.check" => Ok("/_internal/setup-check"),
         "setup.effects" => Ok("/_internal/setup-effects"),
         op if desktop_capture_ops::needs_capture_bridge(op) => Ok("/_internal/desktop-capture"),
         op if desktop_update_ops::needs_update_bridge(op) => Ok("/_internal/desktop-update"),
@@ -42,7 +41,6 @@ fn http_path(op: &str) -> Result<&'static str, CoreError> {
 
 fn stdio_method(op: &str) -> Result<&'static str, CoreError> {
     match op {
-        "setup.check" => Ok("_internal.setup.check"),
         "setup.effects" => Ok("_internal.setup.effects"),
         op if desktop_capture_ops::needs_capture_bridge(op) => Ok("_internal.desktop.capture"),
         op if desktop_update_ops::needs_update_bridge(op) => Ok("_internal.desktop.update"),
@@ -83,9 +81,9 @@ pub fn request_body(op: &str, params: &Value) -> Result<Value, CoreError> {
         op if desktop_capture_ops::needs_capture_bridge(op) => Ok(params.clone()),
         op if desktop_update_ops::needs_update_bridge(op) => Ok(params.clone()),
         "setup.health" | "doctor.run" => Ok(params.clone()),
-        "setup.check" | "setup.effects" | "service.effects" | "update.effects"
-        | "handover.effects" | "onboarding.effects" | "host.effects" | "session.lifecycle"
-        | "client.control" | "terminal.parts" | "agent.effects" => Ok(params.clone()),
+        "setup.effects" | "service.effects" | "update.effects" | "handover.effects"
+        | "onboarding.effects" | "host.effects" | "session.lifecycle" | "client.control"
+        | "terminal.parts" | "agent.effects" => Ok(params.clone()),
         _ => Err(unavailable("core bridge unavailable")),
     }
 }

@@ -6,6 +6,7 @@
 pub mod diagnostic_summary;
 pub mod doctor_ops;
 pub mod setup_checklist;
+pub mod setup_facts;
 pub mod setup_gate;
 pub mod setup_ops;
 pub mod setup_skip;

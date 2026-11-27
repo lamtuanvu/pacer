@@ -49,8 +49,7 @@ fn doctor_bridge_params(op: &str, params: &Value) -> Result<Value, CoreError> {
 }
 
 pub fn needs_core_bridge(op: &str) -> bool {
-    op == "setup.check"
-        || desktop_capture_ops::needs_capture_bridge(op)
+    desktop_capture_ops::needs_capture_bridge(op)
         || desktop_update_ops::needs_update_bridge(op)
         || matches!(op, "setup.health" | "doctor.run")
 }
@@ -66,11 +65,6 @@ pub fn bridge_stub(_: &Ctx, _: Value) -> OpFuture<'_> {
 
 pub fn bridge_params(op: &str, params: &Value) -> Result<Value, CoreError> {
     match op {
-        // The stripping `z.object({})`: `null` reads as `{}` and other keys are dropped.
-        "setup.check" => {
-            params_object(params)?;
-            Ok(json!({}))
-        }
         op if desktop_capture_ops::needs_capture_bridge(op) => {
             desktop_capture_ops::bridge_params(op, params)
         }

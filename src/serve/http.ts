@@ -653,23 +653,6 @@ export function startServer(
             return Response.json({ error: body }, { status: httpStatus(body.code) });
           }
         }
-        if (pathname === "/_internal/setup-check" && req.method === "POST") {
-          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
-          try {
-            const body = await req.json().catch(() => ({}));
-            const snapshotProbe = body && typeof body === "object" && !Array.isArray(body)
-              ? (body as { snapshotProbe?: unknown }).snapshotProbe
-              : undefined;
-            const { setupCheckBridge } = await import("../api/setup-check-bridge");
-            return Response.json({
-              result: await setupCheckBridge(getCtx(), typeof snapshotProbe === "boolean" ? snapshotProbe : false),
-            });
-          } catch (error) {
-            const { toApiError, httpStatus } = await import("../api/errors");
-            const body = toApiError(error);
-            return Response.json({ error: body }, { status: httpStatus(body.code) });
-          }
-        }
         if (pathname === "/_internal/setup-doctor" && req.method === "POST") {
           if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
           try {

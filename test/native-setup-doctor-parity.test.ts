@@ -30,7 +30,10 @@ function nativeResult(home: string, op: string, params: unknown, bridge: { echo:
     );
     driver = join(metadata.target_directory, "debug/examples/config_ops_diff");
   }
-  const input = { op, params, home, now: 1_700_000_000, ...("echo" in bridge ? { bridgeEcho: true } : { bridgeResult: bridge.result }) };
+  // `setup.check` validates its params natively and no longer has a Core bridge;
+  // the other two ops still replay their Core parts in the driver.
+  const input = { op, params, home, now: 1_700_000_000,
+    ...("echo" in bridge ? { bridgeEcho: true } : op === "setup.check" ? {} : { bridgeResult: bridge.result }) };
   return JSON.parse(execFileSync(driver, [], { input: `${JSON.stringify(input)}\n`, env: pinnedEnv(process.env) }).toString());
 }
 
@@ -136,7 +139,7 @@ test("setup doctor bridge returns Core's parts and keeps the enforcement refusal
   const doctor = await setupDoctorBridge(ctx, { op: "doctor.run", params: {} }) as Record<string, unknown>;
   expect(Object.keys(doctor)).toEqual(["doctor"]);
   const gate = await setupDoctorBridge(ctx, { op: "setup.health", params: {}, snapshotProbe: false }) as Record<string, unknown>;
-  expect(Object.keys(gate)).toEqual(["doctor", "facts", "version", "integrationHashes"]);
+  expect(Object.keys(gate)).toEqual(["doctor"]);
   expect(existsSync(join(dir, ".pacer", "setup-health.json"))).toBe(false);
   expect(existsSync(join(dir, ".pacer", "diagnostics", "doctor-latest.json"))).toBe(false);
   const refused = { ...ctx, env: { ...ctx.env, PACER_ENFORCEMENT_TOKEN: "pet_x" } };

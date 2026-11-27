@@ -281,16 +281,6 @@ export async function runStdio(
           result = await clientControlBridge(getCtx(), (r.params as { request?: unknown }).request);
           break;
         }
-        case "_internal.setup.check": {
-          const key = o.nativeConfigKey;
-          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
-            throw new CoreError("unknown_op", "unknown operation");
-          }
-          const snapshotProbe = (r.params as { snapshotProbe?: unknown }).snapshotProbe;
-          const { setupCheckBridge } = await import("./setup-check-bridge");
-          result = await setupCheckBridge(getCtx(), typeof snapshotProbe === "boolean" ? snapshotProbe : undefined);
-          break;
-        }
         case "_internal.plugins": {
           // The front door's plugin channel: the HTTP door's `/_internal/plugins`, sealed by the sync key.
           const key = o.nativeConfigKey;
