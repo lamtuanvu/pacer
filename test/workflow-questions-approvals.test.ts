@@ -435,6 +435,20 @@ test("a retry that cannot start its new attempt leaves the failed step open", as
   expect(w.row(run.id, "work")).toMatchObject({ attempt: 2, status: "running" });
 });
 
+test("a retry or skip withdraws the old attempt's open questions", async () => {
+  for (const name of ["step.retry", "step.skip"] as const) {
+    const { w, run, person } = await rejectedBranch();
+    const old = await askQuestion(w.grantCtx(run.id), { ...question, stepId: "review", branch: "a" });
+    const other = await askQuestion(w.grantCtx(run.id), { ...question, stepId: "review", branch: "b" });
+    await person(name);
+    const status = (id: string) => listQuestions(w.ctx, run.id).find(q => q.id === id)!.status;
+    expect(status(old.id)).toBe("withdrawn");
+    // Skipping the last undecided branch can finish the run, which withdraws every question.
+    if (name === "step.retry") expect(status(other.id)).toBe("open");
+    expect(deriveWorkflowAttention(w.ctx).map(i => i.id)).not.toContain(`question:${old.id}`);
+  }
+});
+
 test("a one-click yes on a human step takes the edge and approves publishing in the engine's spelling", async () => {
   for (const spelling of ["Yes", "YES ", "yes"]) {
     const w = world();

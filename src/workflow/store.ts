@@ -2357,6 +2357,20 @@ export function withdrawOpenQuestionsForRun(ctx: Ctx, runId: string): QuestionRo
   return out;
 }
 
+/** Withdraws the open questions about one step attempt, which nobody waits for once a
+ *  retry or skip took it. */
+export function withdrawOpenQuestionsForStep(ctx: Ctx, key: StepKey): QuestionRow[] {
+  const open = listQuestions(ctx, key.runId, "open").filter(q =>
+    q.stepId === key.stepId && q.attempt === key.attempt && q.branch === key.branch);
+  for (const question of open) {
+    workflowDatabase(ctx).query(
+      "UPDATE workflow_questions SET status = 'withdrawn', rev = rev + 1 WHERE id = ? AND status = 'open'",
+    ).run(question.id);
+  }
+  if (open.length > 0) touchMeaningful(ctx, key.runId);
+  return open.flatMap(question => getQuestion(ctx, question.id) ?? []);
+}
+
 /** Compare-and-set answer: requires the current rev and an open status. */
 export function answerQuestionRecord(
   ctx: Ctx,

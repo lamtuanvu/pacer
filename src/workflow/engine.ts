@@ -39,7 +39,7 @@ import {
   runEntityValue, setGraphStatus, setPublishOptIn,
   startRunDelayMs, stepByTask, stepsOfRun,
   taskByRequestId, updateRun, updateStep,
-  withdrawOpenQuestionsForRun, workflowDatabase, type RunPatch,
+  withdrawOpenQuestionsForRun, withdrawOpenQuestionsForStep, workflowDatabase, type RunPatch,
   type RunRow, type StepKey, type StepRow,
   getDefinitionRow, isDefinitionDisabled, isDefinitionInvalid,
   resolveWorkflowPrompt, setPluginDefinitionsDisabled,
@@ -333,6 +333,12 @@ function liveRun(ctx: Ctx, runId: string): RunRow {
   return run;
 }
 
+/** Publishes a withdrawn question without waiting for it. */
+function publishQuestionWithdrawn(ctx: Ctx, q: ReturnType<typeof withdrawOpenQuestionsForRun>[number]): void {
+  void publish(ctx, [{ type: "entity", data: { kind: "question", id: q.id, value: questionEntityValue(q) } }])
+    .catch(() => {});
+}
+
 /** Applies a run patch against the current rev and publishes the change. Terminal
  *  runs stay terminal: patching one is a conflict (an end edge never overwrites a
  *  stopped run). */
@@ -366,12 +372,7 @@ async function patchRun(ctx: Ctx, runId: string, patch: RunPatch, o?: EngineOpti
     }
   }
   if (patch.status && RUN_TERMINAL.includes(patch.status)) {
-    for (const q of withdrawn) {
-      void publish(ctx, [{
-        type: "entity",
-        data: { kind: "question", id: q.id, value: questionEntityValue(q) },
-      }]).catch(() => {});
-    }
+    for (const q of withdrawn) publishQuestionWithdrawn(ctx, q);
     settleRootWorkNode(ctx, updated, patch.status === "failed" ? "failed" : patch.status === "stopped" ? "stopped" : "done");
     // Terminal status is already committed. Git settle takes the merge lock (up to
     // ~150 s) and must not block stop/fail/done; run it in the background with
@@ -2208,7 +2209,8 @@ function clearStepFailureWakeups(ctx: Ctx, row: StepRow): void {
  * row still open.
  */
 function claimFailedStep<T>(ctx: Ctx, row: StepRow, expectRev: number | undefined, take: () => T): T {
-  return workflowDatabase(ctx).transaction(() => {
+  let withdrawn: ReturnType<typeof withdrawOpenQuestionsForStep> = [];
+  const claimed = workflowDatabase(ctx).transaction(() => {
     const run = liveRun(ctx, row.runId);
     if (expectRev !== undefined) updateRun(ctx, run.id, expectRev, {});
     if (!openFailedSteps(ctx, row.runId, row.stepId)
@@ -2217,10 +2219,13 @@ function claimFailedStep<T>(ctx: Ctx, row: StepRow, expectRev: number | undefine
     }
     const taken = take();
     clearStepFailureWakeups(ctx, row);
+    withdrawn = withdrawOpenQuestionsForStep(ctx, keyOf(row));
     const current = getRun(ctx, run.id)!;
     if (current.status === "waiting") updateRun(ctx, current.id, current.rev, { status: "running" });
     return taken;
   }).immediate();
+  for (const question of withdrawn) publishQuestionWithdrawn(ctx, question);
+  return claimed;
 }
 
 /** Skip a failed step (treat as done with `{ skipped: true }`) and advance. The person
