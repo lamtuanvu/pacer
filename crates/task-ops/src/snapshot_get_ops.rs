@@ -6,6 +6,7 @@ use pacer_foundation::{
 use pacer_read_model::{
     ActiveSession, Probes, ReadModel, SessionProbe, SnapshotInput, StatusInput,
 };
+use pacer_store::read_only::open_read_only;
 use serde_json::Value;
 use std::{
     collections::HashSet,
@@ -32,6 +33,27 @@ pub fn needs_snapshot_bridge(op: &str) -> bool {
         op,
         "snapshot.get" | "attention.dismiss" | "attention.snooze"
     )
+}
+
+/// `snapshot.get` while a workflow run is live: its run items
+/// (`src/workflow/attention.ts`) are composed only by TypeScript, apart from
+/// person questions. A missing store or table stays native; a store that cannot
+/// be read is forwarded.
+pub fn snapshot_get_stays_forwarded(ctx: &Ctx, op: &str) -> bool {
+    if op != "snapshot.get" {
+        return false;
+    }
+    let store = match open_read_only(&ctx.pacer_home.join("state").join("tasks.db")) {
+        Ok(Some(store)) => store,
+        Ok(None) => return false,
+        Err(_) => return true,
+    };
+    store.tables.contains("workflow_runs")
+        && store
+            .db
+            .prepare("SELECT 1 FROM workflow_runs WHERE status IN ('running', 'waiting')")
+            .and_then(|mut statement| statement.exists([]))
+            .unwrap_or(true)
 }
 
 fn parse_params(params: &Value) -> Result<(), CoreError> {
@@ -219,5 +241,42 @@ mod tests {
         .unwrap();
         assert!(parts.probes.can_pair);
         assert!(parts.alive_pids.contains(&42));
+    }
+
+    #[test]
+    fn forwards_only_while_a_workflow_run_is_live() {
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = Ctx::with(
+            dir.path().into(),
+            dir.path().into(),
+            Default::default(),
+            1.0,
+        );
+        let forwarded = || snapshot_get_stays_forwarded(&ctx, "snapshot.get");
+        assert!(!forwarded(), "no task store");
+        std::fs::create_dir_all(dir.path().join("state")).unwrap();
+        let db = rusqlite::Connection::open(dir.path().join("state/tasks.db")).unwrap();
+        db.execute_batch("PRAGMA journal_mode=WAL; CREATE TABLE tasks(id TEXT)")
+            .unwrap();
+        assert!(!forwarded(), "no workflow table");
+        db.execute_batch(
+            "CREATE TABLE workflow_runs(id TEXT, status TEXT);
+             INSERT INTO workflow_runs VALUES ('a','done'),('b','failed'),('c','stopped')",
+        )
+        .unwrap();
+        assert!(!forwarded(), "only settled runs");
+        for status in ["running", "waiting"] {
+            db.execute("INSERT INTO workflow_runs VALUES ('live',?)", [status])
+                .unwrap();
+            assert!(forwarded(), "{status}");
+            assert!(!snapshot_get_stays_forwarded(&ctx, "task.get"));
+            db.execute("DELETE FROM workflow_runs WHERE id='live'", [])
+                .unwrap();
+            assert!(!forwarded());
+        }
+        drop(db);
+        assert!(!forwarded(), "closed store");
+        std::fs::write(dir.path().join("state/tasks.db"), "not a database").unwrap();
+        assert!(forwarded(), "an unreadable store is TypeScript's to answer");
     }
 }

@@ -14,7 +14,9 @@ operation names, or `*`, that forces native operations back through the TypeScri
 core. It cannot enable an operation. The setting is read at startup and logged once
 to stderr. `/v2` always forwards; stdio dispatches natively only after an accepted
 protocol 3 `hello`. Work-grant requests remain forwarded to the core for scoped
-authorization. For a diagnostic run, `PACER_DEBUG_NATIVE=1` writes `native <op> <id>`
+authorization, and a stdio session holding a work grant, an enforcement or
+assistant identity, a run grant or the orchestrator role runs no operation
+natively. For a diagnostic run, `PACER_DEBUG_NATIVE=1` writes `native <op> <id>`
 to stderr for stdio requests with an ID, and `native <op>` for HTTP requests
 and notifications, when the Rust handler executes. The test-only `test-ops` build exposes
 `test.echo` and `_debug.native` for strict native evidence; release builds do not.

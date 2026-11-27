@@ -42,9 +42,13 @@ async function raisedItems(ctx: Ctx) {
   const accounts=buildAccounts(status,strategy,ctx);
   return mergeAttention(ctx, deriveItems({now:ctx.now,tasks,executors,accounts,planner:buildPlanner(status),setup:buildSetup(context.setup),update:null,retryTarget:t=>retryTargetFor(t,strategy,executors),discovery:discoveryRuleInput(ctx,ctx.now)}));
 }
+/** Workflow-run items. Dismissing one only hides it, even when it names a
+ *  task: the run still waits on that task. A review gate is refused outright. */
+const WORKFLOW_ITEM = /^(run_review|budget_[a-z_]+|orchestrator_failed|unresolved_wake):/;
+
 export async function dismiss(ctx: Ctx, id: string) {
   let pending: ReturnType<typeof dismissTasks> | undefined;
-  const result = dismissItem(ctx,id,await raisedItems(ctx),item=>{if(item.taskId){assertDismissable(ctx,item.taskId);pending=dismissTasks(ctx,[item.taskId]);}});
+  const result = dismissItem(ctx,id,await raisedItems(ctx),item=>{if(item.taskId&&!WORKFLOW_ITEM.test(item.id)){assertDismissable(ctx,item.taskId);pending=dismissTasks(ctx,[item.taskId]);}});
   await pending;
   return result;
 }
