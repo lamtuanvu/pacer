@@ -25,7 +25,7 @@ const PROPOSABLE: [&str; 10] = [
 ];
 
 /// Read access to the task a card concerns. Injected by the caller.
-pub trait CardDeps: Send {
+pub trait CardDeps: Send + Sync {
     fn task(&self, ctx: &Ctx, id: &str) -> Option<CardTask>;
     fn managed(&self, ctx: &Ctx, id: &str) -> bool {
         let _ = ctx;

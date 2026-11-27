@@ -198,8 +198,9 @@ fn forward_override_removes_only_selected_native_ops() {
             .get("assistant.cancel")
             .is_none()
     );
-    // `assistant.tool` is served by the TypeScript core: only it holds a live turn's tool context.
-    assert!(registry("").get("assistant.tool").is_none());
+    // `assistant.tool` is native: the front door checks the turn's live grant.
+    assert!(registry("").get("assistant.tool").is_some());
+    assert!(registry("assistant.tool").get("assistant.tool").is_none());
 }
 
 #[test]

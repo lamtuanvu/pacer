@@ -26,11 +26,26 @@ pub trait ReadOps: Send {
 }
 
 /// What one turn remembers across its tool calls.
-#[derive(Default)]
 pub struct ToolState {
     pub seen_tasks: BTreeSet<String>,
     pub tool_log: Vec<Value>,
+    pub cards: Vec<Value>,
+    pub notes: Vec<String>,
     pub rounds: u32,
+    pub max: u32,
+}
+
+impl Default for ToolState {
+    fn default() -> Self {
+        Self {
+            seen_tasks: BTreeSet::new(),
+            tool_log: Vec::new(),
+            cards: Vec::new(),
+            notes: Vec::new(),
+            rounds: 0,
+            max: MAX_TOOL_ROUNDS,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -589,7 +604,22 @@ pub async fn run_assistant_tool(
     state: &mut ToolState,
     reads: &mut dyn ReadOps,
 ) -> (String, bool) {
-    if state.rounds >= MAX_TOOL_ROUNDS {
+    run_assistant_tool_with_cards(ctx, call, scope, redactor, state, reads, &NoCards).await
+}
+
+/// The same tool call with the live turn's card reader. `propose_action` reads
+/// the task revision when it builds the card, so a card the user confirms later
+/// still matches the task it proposed.
+pub async fn run_assistant_tool_with_cards(
+    ctx: &Ctx,
+    call: &Value,
+    scope: &Value,
+    redactor: &Redactor,
+    state: &mut ToolState,
+    reads: &mut dyn ReadOps,
+    cards: &dyn crate::assistant_ops::cards::CardDeps,
+) -> (String, bool) {
+    if state.rounds >= state.max {
         return (
             error_content("That turn has used its tool-call budget."),
             false,
@@ -600,7 +630,7 @@ pub async fn run_assistant_tool(
     let args = call.get("arguments").cloned().unwrap_or(Value::Null);
     if name == "propose_action" {
         let op = args.get("op").and_then(Value::as_str).unwrap_or_default();
-        let result = cards::build_card(ctx, &args, &NoCards, redactor);
+        let result = cards::build_card(ctx, &args, cards, redactor);
         let logged_op = if result.ok() {
             Value::String(op.to_owned())
         } else {
@@ -608,11 +638,17 @@ pub async fn run_assistant_tool(
         };
         state.tool_log.push(json!({"name": name, "op": logged_op}));
         return match result {
-            cards::CardResult::Ok(_) => (
-                "The proposal is shown to the user as a card. It has not run.".to_owned(),
-                true,
-            ),
-            cards::CardResult::Note(note) => (note, false),
+            cards::CardResult::Ok(card) => {
+                state.cards.push(card);
+                (
+                    "The proposal is shown to the user as a card. It has not run.".to_owned(),
+                    true,
+                )
+            }
+            cards::CardResult::Note(note) => {
+                state.notes.push(note.clone());
+                (note, false)
+            }
         };
     }
     let out = run_read_tool(ctx, name, &args, scope, redactor, reads).await;

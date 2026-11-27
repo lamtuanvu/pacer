@@ -18,6 +18,7 @@ pacer-messaging-ops = { path = "../messaging-ops" }
 regex = "1"
 rand = "0.9"
 sha2 = "0.10"
+tokio.workspace = true
 
 [dev-dependencies]
 tempfile = "3"

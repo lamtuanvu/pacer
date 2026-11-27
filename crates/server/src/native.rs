@@ -89,7 +89,7 @@ use pacer_task_ops::task_get_ops;
 use pacer_task_ops::task_reads;
 use pacer_task_ops::task_review_ops;
 pub(crate) use pacer_task_ops::task_send_ops;
-pub(crate) mod assistant_turn_sync;
+pub(crate) mod assistant_reads;
 pub(crate) mod task_send_sync;
 pub(crate) mod terminal_sync;
 pub(crate) use pacer_core_bridge::task_stop_sync;
@@ -1141,6 +1141,10 @@ static OPS: &[NativeOp] = &[
         name: "assistant.card.refresh",
         call: assistant_ops::assistant_card_refresh,
     },
+    NativeOp {
+        name: "assistant.tool",
+        call: assistant_tool,
+    },
     #[cfg(feature = "test-ops")]
     NativeOp {
         name: "test.echo",
@@ -1152,6 +1156,25 @@ static OPS: &[NativeOp] = &[
         call: debug,
     },
 ];
+
+/// `assistant.tool` runs one tool of the live turn through the native registry.
+fn assistant_tool(ctx: &pacer_foundation::Ctx, params: serde_json::Value) -> pacer_foundation::api::OpFuture<'_> {
+    Box::pin(async move {
+        let mut reads = assistant_reads::NativeReadOps;
+        pacer_assistant_ops::assistant_ops::turn::assistant_tool(ctx, params, &mut reads).await
+    })
+}
+
+/// Install the native-host-backed reply runner for assistant turns. Called once
+/// by each door that owns a plugin process; with no owner the ops refuse.
+pub fn install_assistant_runner(
+    owner: pacer_plugin_runtime::SharedOwner,
+    link: impl Fn() -> assistant_reads::CoreLinkFuture + Send + Sync + 'static,
+) {
+    assistant_ops::turn::set_runner(std::sync::Arc::new(
+        assistant_reads::NativeReplyRunner::new(owner, link),
+    ));
+}
 
 /// Operations a front door answers without a Core plugin channel (examples, parity tools).
 pub fn registry(forward: &str) -> Registry<'static> {

@@ -271,6 +271,11 @@ impl Ownership {
         self.session.is_some()
     }
 
+    /// The owner of children this connection started, for native assistant turns.
+    pub(crate) fn owner(&self) -> Option<pacer_plugin_runtime::SharedOwner> {
+        self.session.as_ref().map(|session| Arc::clone(session.owner()))
+    }
+
     /// Crashes of the children this connection owns. An attached connection
     /// gets none: the serve owner reports to serve's Core (ADR 0027).
     pub(crate) fn crash_reports(&self) -> Option<mpsc::UnboundedReceiver<CrashReport>> {

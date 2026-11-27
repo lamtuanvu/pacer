@@ -234,6 +234,9 @@ async fn committed_auth_goldens() {
                     }
                 );
             }
+            Decision::Native { .. } => {
+                assert_eq!(row["status"], 200, "{name}");
+            }
             Decision::Reject(response) => {
                 assert_eq!(
                     response.status().as_u16() as u64,
@@ -565,7 +568,7 @@ fn ordering_and_browser_rule_edges() {
 fn status_of(decision: Decision) -> u16 {
     match decision {
         Decision::Reject(response) => response.status().as_u16(),
-        Decision::Forward { .. } => 200,
+        Decision::Forward { .. } | Decision::Native { .. } => 200,
         Decision::Health | Decision::AppAuth => 0,
     }
 }

@@ -512,6 +512,214 @@ pub fn usage_since(db: &Connection, at: f64) -> Result<[Value; 3]> {
     Ok(row.map(|v| if v.is_null() { json!(0) } else { v }))
 }
 
+/// `startTurn`: create the conversation when needed, insert the running turn and
+/// its usage row, and return `{conversationId, turnId}`. Ids match the TypeScript
+/// `conv-<12>` / `turn-<12>` shape generated from a UUID's first bytes.
+pub fn start_turn(
+    db: &Connection,
+    conversation_id: Option<&str>,
+    question: &str,
+    scope: &Value,
+    account: Option<&str>,
+    now: f64,
+) -> Result<(String, String)> {
+    let tx = Transaction::new_unchecked(db, TransactionBehavior::Immediate)?;
+    let hex12 = || {
+        let bytes: [u8; 6] = rand::random();
+        bytes.iter().map(|b| format!("{b:02x}")).collect::<String>()
+    };
+    let conversation_id = match conversation_id {
+        Some(id) => {
+            if !has_conversation(&tx, id)? {
+                return Err(StoreError::Admission("Unknown conversation.".into()));
+            }
+            id.to_owned()
+        }
+        None => {
+            let id = format!("conv-{}", hex12());
+            let title: String = question.split_whitespace().collect::<Vec<_>>().join(" ");
+            let title: String = title.chars().take(80).collect();
+            tx.execute(
+                "INSERT INTO assistant_conversations(id,title,created_at,updated_at) VALUES(?,?,?,?)",
+                params![id, title, js_bound(now), js_bound(now)],
+            )?;
+            id
+        }
+    };
+    let seq = tx
+        .query_row(
+            "SELECT MAX(seq) AS n FROM assistant_turns WHERE conversation_id=?",
+            [&conversation_id],
+            |r| r.get::<_, Option<i64>>(0),
+        )?
+        .unwrap_or(0)
+        + 1;
+    let turn_id = format!("turn-{}", hex12());
+    tx.execute(
+        "INSERT INTO assistant_turns(id,conversation_id,seq,at,question,state,account,scope) VALUES(?,?,?,?,?,'running',?,?)",
+        params![
+            turn_id,
+            conversation_id,
+            seq,
+            js_bound(now),
+            question,
+            account,
+            stringify(scope)
+        ],
+    )?;
+    tx.execute(
+        "INSERT INTO assistant_usage(turn_id,conversation_id,at,account) VALUES(?,?,?,?)",
+        params![turn_id, conversation_id, js_bound(now), account],
+    )?;
+    tx.execute(
+        "UPDATE assistant_conversations SET updated_at=? WHERE id=?",
+        params![js_bound(now), conversation_id],
+    )?;
+    tx.commit()?;
+    Ok((conversation_id, turn_id))
+}
+
+/// `finishTurn`: settle one turn's final state, answer, cards, citations, tool
+/// log, usage and its conversation's updated time.
+#[allow(clippy::too_many_arguments)]
+pub fn finish_turn(
+    db: &Connection,
+    turn_id: &str,
+    state: &str,
+    answer: Option<&str>,
+    error: Option<&str>,
+    cards: &Value,
+    citations: &Value,
+    tool_calls: &Value,
+    usage: Option<&Value>,
+    now: f64,
+) -> Result<()> {
+    let tx = Transaction::new_unchecked(db, TransactionBehavior::Immediate)?;
+    tx.execute(
+        "UPDATE assistant_turns SET state=?,answer=?,error=?,cards=?,citations=?,tool_calls=? WHERE id=?",
+        params![
+            state,
+            answer,
+            error,
+            stringify(cards),
+            stringify(citations),
+            stringify(tool_calls),
+            turn_id
+        ],
+    )?;
+    if let Some(usage) = usage {
+        let number = |key: &str| match usage.get(key) {
+            Some(Value::Number(n)) => SqlValue::Integer(n.as_i64().unwrap_or(0)),
+            _ => SqlValue::Null,
+        };
+        tx.execute(
+            "UPDATE assistant_usage SET input=?,output=?,cache_read=?,cache_write=?,coverage=? WHERE turn_id=?",
+            params![
+                number("input"),
+                number("output"),
+                number("cacheRead"),
+                number("cacheWrite"),
+                usage["coverage"].as_str().unwrap_or("unknown"),
+                turn_id
+            ],
+        )?;
+    }
+    let conversation: Option<String> = tx
+        .query_row(
+            "SELECT conversation_id FROM assistant_turns WHERE id=?",
+            [turn_id],
+            |r| r.get(0),
+        )
+        .optional()?;
+    if let Some(id) = conversation {
+        tx.execute(
+            "UPDATE assistant_conversations SET updated_at=? WHERE id=?",
+            params![js_bound(now), id],
+        )?;
+    }
+    Ok(tx.commit()?)
+}
+
+/// The last 20 finished turns of a conversation, oldest first, within 24 KiB.
+pub fn conversation_window(
+    db: &Connection,
+    conversation_id: &str,
+    exclude_turn_id: &str,
+) -> Result<Vec<(String, String)>> {
+    let mut stmt = db.prepare(
+        "SELECT question,answer FROM assistant_turns WHERE conversation_id=? AND id!=? AND state='done' AND answer IS NOT NULL ORDER BY seq DESC LIMIT 20",
+    )?;
+    let rows = stmt
+        .query_map(params![conversation_id, exclude_turn_id], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut out = Vec::new();
+    let mut bytes = 0usize;
+    for row in rows {
+        bytes += row.0.len() + row.1.len();
+        if bytes > 24 * 1024 {
+            break;
+        }
+        out.push(row);
+    }
+    out.reverse();
+    Ok(out)
+}
+
+/// The backend's resume handle for one conversation, or `None`.
+pub fn read_backend_session(db: &Connection, conversation_id: &str) -> Result<Option<Value>> {
+    let text: Option<String> = db
+        .query_row(
+            "SELECT backend_session FROM assistant_conversations WHERE id=?",
+            [conversation_id],
+            |r| r.get(0),
+        )
+        .optional()?;
+    let Some(text) = text else {
+        return Ok(None);
+    };
+    let value = match js_parse(&text) {
+        Ok(value) => value,
+        Err(_) => return Ok(None),
+    };
+    Ok((value["handle"].is_string()
+        && value["account"].is_string()
+        && matches!(value["backend"].as_str(), Some("pacer" | "executor")))
+    .then_some(value))
+}
+
+/// Store or clear a conversation's resume handle.
+pub fn write_backend_session(
+    db: &Connection,
+    conversation_id: &str,
+    value: Option<&Value>,
+) -> Result<()> {
+    db.execute(
+        "UPDATE assistant_conversations SET backend_session=? WHERE id=?",
+        params![value.map(stringify), conversation_id],
+    )?;
+    Ok(())
+}
+
+/// Settle turns left `running` by a service restart so History never promises
+/// an answer that will not arrive.
+pub fn settle_interrupted_turns(
+    db: &Connection,
+    now: f64,
+    active_turn_id: Option<&str>,
+    older_than_s: f64,
+) -> Result<usize> {
+    Ok(db.execute(
+        "UPDATE assistant_turns SET state='error',error='The service restarted before this answer finished.' WHERE state='running' AND at<? AND id IS NOT ?",
+        params![js_bound(now - older_than_s), active_turn_id],
+    )?)
+}
+
+fn stringify(value: &Value) -> String {
+    serde_json::to_string(value).unwrap_or_else(|_| "null".to_owned())
+}
+
 /// Bun binds an integral JavaScript number as an integer.
 fn js_bound(n: f64) -> SqlValue {
     if n.fract() == 0.0 && n.abs() <= 9_007_199_254_740_991.0 {
