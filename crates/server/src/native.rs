@@ -1114,6 +1114,10 @@ static OPS: &[NativeOp] = &[
         call: assistant_ops::turn::assistant_ask,
     },
     NativeOp {
+        name: "assistant.selftest",
+        call: assistant_ops::selftest::assistant_selftest,
+    },
+    NativeOp {
         name: "assistant.cancel",
         call: assistant_ops::turn::assistant_cancel,
     },
@@ -1158,7 +1162,10 @@ static OPS: &[NativeOp] = &[
 ];
 
 /// `assistant.tool` runs one tool of the live turn through the native registry.
-fn assistant_tool(ctx: &pacer_foundation::Ctx, params: serde_json::Value) -> pacer_foundation::api::OpFuture<'_> {
+fn assistant_tool(
+    ctx: &pacer_foundation::Ctx,
+    params: serde_json::Value,
+) -> pacer_foundation::api::OpFuture<'_> {
     Box::pin(async move {
         let mut reads = assistant_reads::NativeReadOps;
         pacer_assistant_ops::assistant_ops::turn::assistant_tool(ctx, params, &mut reads).await

@@ -669,14 +669,18 @@ pub fn conversation_window(
 
 /// The backend's resume handle for one conversation, or `None`.
 pub fn read_backend_session(db: &Connection, conversation_id: &str) -> Result<Option<Value>> {
-    let text: Option<String> = db
+    let value: Option<SqlValue> = db
         .query_row(
             "SELECT backend_session FROM assistant_conversations WHERE id=?",
             [conversation_id],
             |r| r.get(0),
         )
         .optional()?;
-    let Some(text) = text else {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let SqlValue::Text(text) = value else {
+        // A freshly created conversation has no backend session yet.
         return Ok(None);
     };
     let value = match js_parse(&text) {
