@@ -32,8 +32,10 @@ async fn listener_with_core(
         .unwrap();
     let port = socket.local_addr().unwrap().port();
     let ctx = Ctx::with(home.into(), home.into(), Default::default(), 1000.0);
+    let status = crate::native::status_runtime::serve_runtime(core.clone());
     let state = Arc::new(Listener {
         core,
+        status,
         heartbeat: Arc::new(heartbeat::Heartbeat::new()),
         ctx,
         port,

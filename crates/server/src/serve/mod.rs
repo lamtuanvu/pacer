@@ -51,6 +51,7 @@ use pacer_foundation::{
     Ctx,
     api::{Code, CoreError, Registry},
 };
+use pacer_status::compute::StatusRuntime;
 use serde_json::Value;
 use std::{collections::HashMap, io, sync::Arc};
 // Bun's HTTP listener joins Cookie fields with semicolon-space; Fetch joins
@@ -75,6 +76,7 @@ fn header_value(headers: &axum::http::HeaderMap, name: &str) -> Option<String> {
 
 struct Listener {
     core: Arc<core_child::CoreChild>,
+    status: Arc<StatusRuntime>,
     heartbeat: Arc<heartbeat::Heartbeat>,
     ctx: Ctx,
     port: u16,
@@ -340,6 +342,8 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             crate::native::msg_write_sync::trace(op.name, None);
             let mut bridge = crate::native::dispatch_preview_sync::HttpBridge {
                 target: state.core.target().await,
+                ctx: ctx.clone(),
+                status: Arc::clone(&state.status),
             };
             let result =
                 crate::native::preview_ops::dispatch_preview(&ctx, op.name, params, &mut bridge);
@@ -557,12 +561,11 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             });
             let broker_sync = if crate::native::needs_usage_broker(op.name) {
                 let broker_params = crate::native::usage_broker_params(op.name, &params);
-                state.core.target().await.map(|target| {
-                    Box::pin(crate::native::status_sync::http(
-                        Some(target),
-                        broker_params,
-                    )) as pacer_foundation::api::OpFuture<'_>
-                })
+                Some(Box::pin(crate::native::status_runtime::broker_parts(
+                    &state.status,
+                    ctx.clone(),
+                    broker_params,
+                )) as pacer_foundation::api::OpFuture<'_>)
             } else {
                 None
             };
@@ -968,6 +971,7 @@ pub async fn run_serve(
             link,
         ));
     }
+    let status = crate::native::status_runtime::serve_runtime(core.clone());
     let beats = Arc::new(heartbeat::Heartbeat::new());
     let probe = tokio::spawn(heartbeat::run(core.clone(), beats.clone()));
     let radio = discovery::Radio::spawn(
@@ -979,6 +983,7 @@ pub async fn run_serve(
     );
     let state = Arc::new(Listener {
         core,
+        status,
         heartbeat: beats,
         ctx,
         port,
