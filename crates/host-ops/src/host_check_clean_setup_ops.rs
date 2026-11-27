@@ -24,7 +24,7 @@ use pacer_store::{TaskFilter, TaskStore};
 use serde_json::{Map, Value, json};
 use std::time::Duration;
 
-use crate::runner_ops::{authorize, invalid, params_object, type_name};
+use pacer_config_ops::runner_ops::{authorize, invalid, params_object, type_name};
 
 /// `TERMINAL_STATES` in `src/tasks/types.ts`.
 const TERMINAL: [&str; 6] = [
@@ -168,7 +168,9 @@ fn issue(name: &str, field: &Field, value: Option<&Value>) -> Option<String> {
         (Field::True, Some(Value::Bool(true)))
         | (Field::NonEmpty | Field::Bool | Field::Uuid, None)
         | (Field::Bool, Some(Value::Bool(_))) => None,
-        (Field::Uuid, Some(Value::String(text))) if crate::strategy_build_ops::zod_uuid(text) => {
+        (Field::Uuid, Some(Value::String(text)))
+            if pacer_config_ops::strategy_build_ops::zod_uuid(text) =>
+        {
             None
         }
         (Field::True, _) => Some(format!("{name}: Invalid input: expected true")),

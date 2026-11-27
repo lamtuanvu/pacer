@@ -35,12 +35,12 @@ pub use pacer_task_ops::session_lifecycle_ops::session_lifecycle_stays_forwarded
 use pacer_update::desktop_reconcile_ops;
 pub(crate) mod dispatch_lifecycle_sync;
 use pacer_config_ops::engine_ops;
-use pacer_config_ops::host_check_clean_setup_ops;
 use pacer_config_ops::host_mut_ops;
 use pacer_config_ops::host_read_ops;
 use pacer_config_ops::limits_refresh_ops;
 pub(crate) use pacer_core_bridge::host_mut_sync;
 pub(crate) use pacer_core_bridge::host_read_sync;
+use pacer_host_ops::host_check_clean_setup_ops;
 use pacer_task_ops::attention_ops;
 use pacer_task_ops::files_search_ops;
 use pacer_task_ops::job_ops;

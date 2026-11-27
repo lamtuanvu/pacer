@@ -684,7 +684,7 @@ async fn forward_input<
                     continue;
                 }
                 if crate::native::needs_host_effects(op.name) {
-                    use pacer_config_ops::host_check_clean_setup_ops::{Admission, admit};
+                    use pacer_host_ops::host_check_clean_setup_ops::{Admission, admit};
                     crate::native::msg_write_sync::trace(op.name, request.get("id"));
                     let result = match admit(&request_ctx, op.name, &params) {
                         Ok(Admission::Core) => {
