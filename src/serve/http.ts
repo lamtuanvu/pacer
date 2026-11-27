@@ -220,11 +220,6 @@ export function startServer(
         // The front door's heartbeat: an answer proves this event loop is responsive.
         if (req.method === "GET" && pathname === "/health") return Response.json({ ok: true, pid: process.pid });
         if (pathname === "/_internal/plugins") return pluginNativeRoute(getCtx(), req);
-        if (pathname === "/_internal/app-page") {
-          const params = new URL(req.url).searchParams;
-          const status = Number(params.get("status") ?? 200);
-          return appPage(params.get("message") ?? "", Number.isInteger(status) && status >= 200 && status <= 599 ? status : 500);
-        }
         if (pathname === "/_internal/native-config-finish" && req.method === "POST") {
           if (authKind !== "bearer") return new Response("forbidden\n", {status: 403});
           try {
