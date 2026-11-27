@@ -97,7 +97,8 @@ pub(super) fn cli_version(ctx: &Ctx, adapter: &str) -> Option<String> {
     let mut bytes = Vec::new();
     child.stdout.take()?.read_to_end(&mut bytes).ok()?;
     let text = String::from_utf8_lossy(&bytes);
-    let line = text.lines().next().unwrap_or("").trim().trim().to_owned();
+    // `stdout.trim().split("\n")[0]!.trim()`: a leading blank line is skipped too.
+    let line = text.trim().lines().next().unwrap_or("").trim().to_owned();
     if line.is_empty() {
         return None;
     }

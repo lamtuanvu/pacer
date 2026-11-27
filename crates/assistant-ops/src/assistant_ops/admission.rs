@@ -345,7 +345,9 @@ pub fn assistant_candidates_with<'a>(
         parse("assistant.candidates", params)?;
         let strategy = strategy(ctx)
             .ok_or_else(|| unavailable("the strategy requires the TypeScript loader"))?;
-        let entries = host.plugins(ctx).await?;
+        // `replyProvider`/`assistantProvider` swallow registry read failures in TypeScript and
+        // degrade to no plugin; the same failure here must not turn the read into an error.
+        let entries = host.plugins(ctx).await.unwrap_or_default();
         Ok(json!({"accounts":candidate_rows(ctx, &strategy, &entries),"reads":READS}))
     })
 }
@@ -361,7 +363,12 @@ pub fn assistant_status_with<'a>(
         parse("assistant.status", params)?;
         let settings = stored_settings(ctx)?;
         let configured = settings.account.as_deref().is_some_and(|a| !a.is_empty());
-        let entries = host.plugins(ctx).await?;
+        // An unconfigured assistant needs no plugin snapshot, and so needs no Core at all.
+        let entries = if configured {
+            host.plugins(ctx).await.unwrap_or_default()
+        } else {
+            Vec::new()
+        };
         // TypeScript catches admission failures and reports them as the reason, without a hint.
         let admission = if configured {
             match admit_with(ctx, host, &entries).await {

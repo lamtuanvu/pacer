@@ -35,6 +35,10 @@ fn reply(backend: &str) -> Value {
     plugin("assistant-reply", json!({"assistant": {"backend": backend, "reply": true}}))
 }
 
+fn entry(value: Value) -> pacer_plugin_ops::public::Entry {
+    serde_json::from_value(value).expect("entry")
+}
+
 const ADMISSION_STRATEGY: &str = STRATEGY;
 
 fn admission_ctx(dir: &tempfile::TempDir, env: &[(&str, &str)]) -> Ctx {
@@ -512,6 +516,50 @@ async fn admission_refuses_in_typescript_order() {
     save_for_admission(&c2, "ep", "pacer", 50);
     let got = admitted(&c2, Fake { entries: vec![reply("pacer")], parts: clear_parts() }).await;
     assert_eq!(got, Admission { ok: true, reason: None, hint: None });
+}
+
+#[test]
+fn a_passing_self_test_keeps_live_tools_and_skips_leading_blank_version_lines() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let bin = dir.path().join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let cli = bin.join("opencode");
+    std::fs::write(&cli, "#!/bin/sh\nprintf '\\nfake 1.0\\n'\n").unwrap();
+    std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let c = Ctx::with(
+        dir.path().into(),
+        dir.path().into(),
+        [("PATH".into(), bin.to_string_lossy().into_owned())].into_iter().collect(),
+        1_700_000_000.0,
+    );
+    std::fs::create_dir_all(c.pacer_home.join("state")).unwrap();
+    std::fs::write(
+        c.pacer_home.join("state/assistant-selftest.json"),
+        json!({"ep": {"version": "fake 1.0", "passed": true, "liveTools": true, "at": 1.0}}).to_string(),
+    )
+    .unwrap();
+    assert_eq!(admission::self_test_status(&c, "ep", "opencode"), (true, None));
+    let check = selftest_read::check(&c, "ep", "opencode");
+    assert!(check.live_tools);
+}
+
+#[test]
+fn accounts_without_an_ask_adapter_get_no_executor_row() {
+    let dir = tempfile::tempdir().unwrap();
+    let c = admission_ctx(&dir, &[]);
+    std::fs::write(
+        c.pacer_home.join("strategy.yaml"),
+        ADMISSION_STRATEGY.replace(
+            "  bare: {kind: endpoint, usage: unmetered}",
+            "  bare: {kind: endpoint, usage: unmetered}\n  cursor-acct: {kind: cursor}",
+        ),
+    )
+    .unwrap();
+    let strategy = strategy(&c).unwrap();
+    let entries = vec![entry(reply("pacer")), entry(reply("executor"))];
+    let rows = admission::candidate_rows(&c, &strategy, &entries);
+    assert!(rows.iter().all(|r| r["account"] != "cursor-acct"), "{rows:?}");
 }
 
 #[tokio::test]
