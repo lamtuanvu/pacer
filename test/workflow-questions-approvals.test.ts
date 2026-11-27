@@ -11,6 +11,7 @@ import { callOp } from "../src/api/ops";
 import { runCmd, stepCmd } from "../src/commands/run";
 import type { DelegateInput, SpawnRunner } from "../src/tasks/api";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
+import { inbox } from "../src/messaging/store";
 import type { TaskState } from "../src/tasks/types";
 import {
   addDefinition, getRun, listQuestions, setRunBranch, stepsOfRun, updateRun, updateStep, workflowDatabase,
@@ -724,4 +725,27 @@ test("every one-click answer to a human step or plan approval asks first", async
   const own = world();
   await asked(own);
   expect(deriveWorkflowAttention(own.ctx)[0]!.actions.map(a => a.confirm)).toEqual([undefined, undefined]);
+});
+
+// Known gap, awaiting a product decision: while an interactive planner turn is live,
+// an answer to its blocking question is only queued. Nothing ends the turn or sends
+// the answer to it, so it waits for the two-hour deadline, which counts as a failed
+// turn. Make this an ordinary test with the fix.
+test.failing("an answer given during a live interactive planner turn reaches the planner before its deadline", async () => {
+  const w = world();
+  const def = w.install({ ...brainstorm, id: "t/ask-live", steps: {
+    ...brainstorm.steps,
+    brainstorm: { type: "agent", role: "orchestrator", interactive: true, prompt: "Brainstorm {{brief}}" },
+  } });
+  const run = await w.start(def);
+  const first = await w.turn(run.id);
+  const q = await askQuestion(w.grantCtx(run.id), { ...question, stepId: "brainstorm" });
+  updateTask(w.ctx, first.taskId!, t => { t.state = "running"; });
+  await w.person("question.answer", { id: q.id, answer: "sqlite", expect_rev: q.rev });
+  for (let i = 0; i < 3; i++) await w.tick();
+  // Either way of reaching the planner counts: a message to the live task, or a new turn.
+  const sent = inbox(w.ctx, `task:${first.taskId}`).some(m => m.body.includes("sqlite"));
+  const next = liveTurn(w.ctx, run.id);
+  const resumed = !!next && next.id !== first.id && readTask(w.ctx, next.taskId!)!.brief.goal.includes("sqlite");
+  expect(sent || resumed).toBe(true);
 });
