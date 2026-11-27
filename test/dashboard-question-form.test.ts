@@ -698,6 +698,12 @@ describe("confirming a one-click human-step answer", () => {
     expect(text).toContain("n/⏎/Esc Cancel");
     expect(text).not.toContain("y/⏎");
   });
+  test("skipping a step also takes y, not Enter", () => {
+    const skip = serviceAct(ctx, { label: "Skip step", op: "step.skip", params: { id: "run_aaaaaaaaaa", step: "work", expect_rev: 1 }, confirm: "Skip this step?" });
+    const state = trigger(initialState("home"), skip).state;
+    expect(reduceKey(state, "enter", runsCtx([])).effect).toBeUndefined();
+    expect(reduceKey(state, "y", runsCtx([])).effect).toMatchObject({ type: "action", action: { op: "step.skip" } });
+  });
   test("other confirmations keep Enter as yes", () => {
     const stop = serviceAct(ctx, { label: "Stop run", op: "run.stop", params: { id: "run_aaaaaaaaaa", expect_rev: 1 }, confirm: "Stop this run?" });
     const state = trigger(initialState("home"), stop).state;
