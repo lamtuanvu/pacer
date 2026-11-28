@@ -203,14 +203,21 @@ fn forward_override_removes_only_selected_native_ops() {
 }
 
 #[test]
-fn service_install_and_update_apply_are_native_with_a_core_effects_bridge() {
+fn service_install_uses_a_core_bridge_and_update_apply_is_native() {
     for name in ["service.install", "update.apply"] {
         assert!(registry("").get(name).is_some(), "{name}");
         assert!(super::service_registry("").get(name).is_some(), "{name}");
         assert!(registry(name).get(name).is_none(), "{name}");
-        assert!(super::install_apply_sync::uses_effects(name), "{name}");
     }
-    assert!(!super::install_apply_sync::uses_effects("service.status"));
+    assert!(super::service_install_dispatch::uses_effects(
+        "service.install"
+    ));
+    assert!(!super::service_install_dispatch::uses_effects(
+        "update.apply"
+    ));
+    assert!(!super::service_install_dispatch::uses_effects(
+        "service.status"
+    ));
     let ctx = |env: &[(&str, &str)]| {
         let env = env
             .iter()
@@ -225,14 +232,10 @@ fn service_install_and_update_apply_are_native_with_a_core_effects_bridge() {
         "service.install",
         &params
     ));
-    assert!(super::service_agent_stays_forwarded(
+    assert!(!super::service_agent_stays_forwarded(
         &grant,
         "update.apply",
         &params
-    ));
-    assert!(!super::install_apply_sync::stays_forwarded(
-        &grant,
-        "service.status"
     ));
 }
 
@@ -283,7 +286,6 @@ async fn install_apply_bridge_names_reach_core_endpoints() {
     // Without a Core target the bridge reports a restarting core, not an unknown bridge.
     for bridge in [
         "service.effects",
-        "update.effects",
         "handover.effects",
         "onboarding.effects",
         "host.effects",
@@ -301,7 +303,6 @@ async fn install_apply_bridge_names_reach_core_endpoints() {
 fn install_apply_bridges_wait_like_the_forwarded_path() {
     use crate::native::core_bridge_sync::deadline;
     assert_eq!(deadline("service.effects"), None);
-    assert_eq!(deadline("update.effects"), None);
     assert_eq!(deadline("handover.effects"), None);
     assert_eq!(deadline("onboarding.effects"), None);
     assert_eq!(deadline("host.effects"), None);
@@ -557,4 +558,95 @@ fn service_registers_plugin_reads_and_mutations_with_individual_fallbacks() {
     assert!(registry("").get("plugin.install").is_none());
     assert!(super::service_registry("*").names().is_empty());
     assert!(registry("").get("plugin.list").is_none());
+}
+
+#[tokio::test]
+async fn update_apply_refuses_a_bundled_executable_before_creating_a_job() {
+    use pacer_foundation::api::Code;
+    let dir = tempfile::tempdir().unwrap();
+    let bin = dir.path().join("x.app/Contents/Resources/pacer");
+    std::fs::create_dir_all(bin.parent().unwrap()).unwrap();
+    std::fs::write(&bin, b"#!/bin/sh\necho pacer 0.1.0\n").unwrap();
+    let env = std::collections::HashMap::from([(
+        "PACER_BIN".to_owned(),
+        bin.to_string_lossy().into_owned(),
+    )]);
+    let ctx = pacer_foundation::Ctx::with(dir.path().into(), dir.path().join(".pacer"), env, 1.0);
+    let error = super::update_apply::update_apply(&ctx, serde_json::json!({}), true)
+        .await
+        .unwrap_err();
+    assert_eq!(error.code, Code::NotAllowed);
+    assert!(
+        error
+            .message
+            .contains("this executable belongs to the desktop app"),
+        "{}",
+        error.message
+    );
+    assert_eq!(
+        error.hint.as_deref(),
+        Some(pacer_update::apply::MANAGED_UPDATE_HINT)
+    );
+    assert!(!ctx.pacer_home.join("state/jobs").exists());
+}
+
+#[tokio::test]
+async fn update_apply_from_source_is_refused_with_the_install_hint() {
+    use pacer_foundation::api::Code;
+    let dir = tempfile::tempdir().unwrap();
+    let env = std::collections::HashMap::from([(
+        "PACER_CORE_ARGV".to_owned(),
+        "bun src/cli.ts".to_owned(),
+    )]);
+    let ctx = pacer_foundation::Ctx::with(dir.path().into(), dir.path().join(".pacer"), env, 1.0);
+    let error = super::update_apply::update_apply(&ctx, serde_json::json!({}), false)
+        .await
+        .unwrap_err();
+    assert_eq!(error.code, Code::NotAllowed);
+    assert!(
+        error.message.contains("runs from source"),
+        "{}",
+        error.message
+    );
+    assert_eq!(
+        error.hint.as_deref(),
+        Some("Install a release build to update from this screen.")
+    );
+    assert!(!ctx.pacer_home.join("state/jobs").exists());
+}
+
+#[tokio::test]
+async fn update_apply_over_serve_returns_the_running_job() {
+    let dir = tempfile::tempdir().unwrap();
+    let ctx = pacer_foundation::Ctx::with(
+        dir.path().into(),
+        dir.path().join(".pacer"),
+        std::collections::HashMap::new(),
+        1.0,
+    );
+    let steps = serde_json::json!([
+        {"name":"Download","state":"running","detail":"2.0.0"},
+        {"name":"Verify","state":"pending"},
+        {"name":"Replace","state":"pending"},
+        {"name":"Refresh integrations","state":"pending"},
+        {"name":"Restart","state":"pending"}
+    ]);
+    let job = pacer_lifecycle::jobs::create(
+        "j-1",
+        "update.apply",
+        "pacer",
+        steps.as_array().unwrap(),
+        1.0,
+        42.0,
+        false,
+    );
+    let path = ctx.pacer_home.join("state/jobs/j-1.json");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, serde_json::to_vec(&job).unwrap()).unwrap();
+    let reply = super::update_apply::update_apply(&ctx, serde_json::json!({}), true)
+        .await
+        .unwrap();
+    assert_eq!(reply["job"]["id"], "j-1");
+    assert_eq!(reply["job"]["kind"], "update.apply");
+    assert_eq!(reply["job"]["state"], "running");
 }

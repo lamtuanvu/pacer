@@ -2,7 +2,6 @@
 //! bridge integration is exercised separately by the fixed live fixture.
 use pacer_foundation::{Ctx, api::OpFuture};
 use pacer_install::install_ops::ServiceEffects;
-use pacer_update::apply::UpdateEffects;
 use serde_json::{Value, json};
 use std::io::{self, BufRead, Write};
 
@@ -21,12 +20,6 @@ impl Effects {
 }
 
 impl ServiceEffects for Effects {
-    fn call(&mut self, request: Value) -> OpFuture<'_> {
-        self.record(request)
-    }
-}
-
-impl UpdateEffects for Effects {
     fn call(&mut self, request: Value) -> OpFuture<'_> {
         self.record(request)
     }
@@ -189,7 +182,8 @@ async fn main() -> io::Result<()> {
         let op = registry
             .get(name)
             .ok_or_else(|| io::Error::other("missing native op"))?;
-        if pacer_server::native::assistant_stays_forwarded(&ctx, name, &input["params"])
+        if (name == "update.apply" && ctx.env.contains_key("PACER_WORK_GRANT"))
+            || pacer_server::native::assistant_stays_forwarded(&ctx, name, &input["params"])
             || pacer_server::native::repo_registry_stays_forwarded(&ctx, name, &input["params"])
             || pacer_server::native::runner_attention_stays_forwarded(&ctx, name, &input["params"])
             || pacer_server::native::service_agent_stays_forwarded(&ctx, name, &input["params"])
@@ -313,7 +307,10 @@ async fn main() -> io::Result<()> {
             let result = if name == "service.install" {
                 pacer_install::install_ops::service_install(&ctx, params, &mut effects).await
             } else {
-                pacer_update::apply::update_apply(&ctx, params, &mut effects).await
+                // update.apply is fully native: the driver exercises its refusals and
+                // schema; the job itself is exercised by the front-door parity/e2e tests.
+                let admitted = pacer_update::apply::admit(&ctx, &params);
+                admitted.map(|()| json!({"job": {"kind": "update.apply", "target": "pacer"}}))
             };
             let mut output = match result {
                 Ok(value) => json!({"result":value}),

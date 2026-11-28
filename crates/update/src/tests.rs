@@ -6,6 +6,7 @@ use crate::{
         update_check_false,
     },
     feed::{Channel, latest, latest_for, normalize_base, parse_cli_nightly, parse_latest},
+    js,
     service::{js_number, launchd_number, systemd_fields},
     update_check,
 };
@@ -313,90 +314,146 @@ fn service_manager_output_parses_like_the_reference() {
     assert_eq!(js_number("12abc"), None);
 }
 
-#[derive(Default)]
-struct Effects(Vec<Value>);
-
-impl apply::UpdateEffects for Effects {
-    fn call(&mut self, request: Value) -> pacer_foundation::api::OpFuture<'_> {
-        self.0.push(request);
-        Box::pin(async { Ok(json!({"job": {"id": "j-1"}})) })
-    }
-}
-
-fn apply_update(
-    env: &[(&str, &str)],
-    params: Value,
-) -> (Result<Value, pacer_foundation::api::CoreError>, Vec<Value>) {
+#[test]
+fn update_apply_refusals_and_schema_issues() {
     let dir = tempfile::tempdir().unwrap();
-    let mut effects = Effects::default();
-    let result = tokio::runtime::Builder::new_current_thread()
-        .build()
-        .unwrap()
-        .block_on(apply::update_apply(
-            &ctx(dir.path(), env),
-            params,
-            &mut effects,
-        ));
-    (result, effects.0)
-}
-
-#[test]
-fn update_apply_requests_one_core_update_job() {
-    for params in [json!({}), json!(null), json!({"force": true})] {
-        let (result, effects) = apply_update(&[], params);
-        assert_eq!(result.unwrap(), json!({"job": {"id": "j-1"}}));
-        assert_eq!(effects, vec![json!({"kind": "apply"})]);
-    }
-}
-
-#[test]
-fn update_apply_refusals_and_schema_issues_never_reach_core() {
     let error = |env: &[(&str, &str)], params: Value| {
-        let (result, effects) = apply_update(env, params);
-        assert!(effects.is_empty());
-        let error = result.unwrap_err();
-        (error.code, error.message)
+        let c = ctx(dir.path(), env);
+        apply::admit(&c, &params).unwrap_err()
     };
     assert_eq!(
-        error(&[], json!(false)),
-        (
-            Code::InvalidInput,
-            "params: Invalid input: expected object, received boolean".to_owned()
-        )
+        error(&[], json!(false)).message,
+        "params: Invalid input: expected object, received boolean"
     );
     assert_eq!(
         error(
             &[("PACER_ROLE", "executor"), ("PACER_ENFORCEMENT_TOKEN", "t")],
             json!([])
-        ),
-        (
-            Code::NotAllowed,
-            "PACER_ROLE=executor: upgrades are not allowed from a delegated task.".to_owned()
         )
+        .message,
+        "PACER_ROLE=executor: upgrades are not allowed from a delegated task."
     );
     assert_eq!(
-        error(&[("PACER_ENFORCEMENT_TOKEN", "t")], json!([])),
-        (
-            Code::NotAllowed,
-            "Enforcement identity only reports a native child denial".to_owned()
-        )
+        error(&[("PACER_ENFORCEMENT_TOKEN", "t")], json!([])).message,
+        "Enforcement identity only reports a native child denial"
     );
-    let dir = tempfile::tempdir().unwrap();
-    assert!(apply::stays_forwarded(&ctx(
-        dir.path(),
-        &[("PACER_WORK_GRANT", "g")]
-    )));
-    assert!(!apply::stays_forwarded(&ctx(dir.path(), &[])));
+    assert!(apply::admit(&ctx(dir.path(), &[]), &json!({})).is_ok());
+    assert!(apply::admit(&ctx(dir.path(), &[]), &Value::Null).is_ok());
 }
 
 #[test]
-fn update_check_forwards_installations_managed_elsewhere() {
+fn update_apply_preflight_refuses_a_source_core_and_a_managed_install() {
+    use crate::run::{NoopHost, UpdateInputs, UpdateOptions, run_update};
     let dir = tempfile::tempdir().unwrap();
-    let plain = ctx(dir.path(), &[]);
-    assert!(!crate::service_update_stays_forwarded(
-        &plain,
-        "update.check"
-    ));
+    let bin = dir.path().join("pacer");
+    std::fs::write(&bin, b"#!/bin/sh\necho pacer 0.1.0\n").unwrap();
+    let inputs = |env: Vec<(&str, &str)>, standalone: bool| {
+        let mut map = std::collections::HashMap::new();
+        for (k, v) in env {
+            map.insert(k.to_owned(), v.to_owned());
+        }
+        UpdateInputs {
+            env: map,
+            pacer_home: dir.path().join(".pacer"),
+            exec_path: bin.clone(),
+            standalone,
+            version: "0.1.0".into(),
+            platform: Some(crate::manifest::host_platform().unwrap()),
+            nightly: false,
+        }
+    };
+    // A source core is refused with the install-a-release hint, before any fetch.
+    let c = ctx(dir.path(), &[("PACER_CORE_ARGV", "bun src/cli.ts")]);
+    let error = apply::preflight(&c, &inputs(vec![], false)).unwrap_err();
+    assert_eq!(error.code, Code::NotAllowed);
+    assert_eq!(
+        error.hint.as_deref(),
+        Some("Install a release build to update from this screen.")
+    );
+    assert!(error.message.contains("runs from source"));
+    // A standalone install passes the source check and reaches the (empty) source probe.
+    let c = ctx(dir.path(), &[]);
+    assert!(apply::preflight(&c, &inputs(vec![], true)).is_ok());
+    // The probe itself refuses a non-standalone install with the source message.
+    let probe = inputs(vec![], false);
+    let result = run_update(
+        &UpdateOptions {
+            check: false,
+            ..UpdateOptions::default()
+        },
+        &probe,
+        &mut NoopHost,
+    );
+    assert_eq!(result.code, 2);
+    assert!(
+        result
+            .err
+            .starts_with("pacer update: this pacer runs from source")
+    );
+}
+
+#[test]
+fn js_string_of_array_follows_array_to_string() {
+    assert_eq!(js::js_string_of_array(&json!(["1", "2", ["3"]])), "1,2,3");
+    assert_eq!(
+        js::js_string_of_array(&json!([null, 1, true, {"a": 1}, []])),
+        ",1,true,[object Object],"
+    );
+    assert_eq!(js::js_string_of_array(&json!(["1.0.0"])), "1.0.0");
+    assert_eq!(js::js_string_of_array(&json!("1.0.0")), "1.0.0");
+}
+
+#[test]
+fn a_cached_array_latest_is_coerced_like_string_of_array() {
+    let dir = tempfile::tempdir().unwrap();
+    let c = ctx(dir.path(), &[("PACER_RELEASE_BASE", "http://127.0.0.1:9")]);
+    std::fs::create_dir_all(&c.pacer_home).unwrap();
+    // `String(["1.0.0"])` is a version: the reference keeps the cache and reports the array.
+    std::fs::write(
+        c.pacer_home.join("update-check.json"),
+        r#"{"checkedAt":1000000,"latest":["1.0.0"],"current":"0.0.0-dev","channel":"stable"}"#,
+    )
+    .unwrap();
+    let out = run(&c, json!({})).unwrap();
+    assert_eq!(out["latest"], json!(["1.0.0"]));
+    assert_eq!(out["available"], json!(true));
+
+    // `isVersion(String(["1","2",["3"]]))` is false for "1,2,3": the reference drops the
+    // cache and reports the failed feed read. This is the coercion the port reproduces.
+    std::fs::write(
+        c.pacer_home.join("update-check.json"),
+        r#"{"checkedAt":1000000,"latest":["1","2",["3"]],"current":"0.0.0-dev","channel":"stable"}"#,
+    )
+    .unwrap();
+    let out = run(&c, json!({})).unwrap();
+    assert_eq!(out["latest"], Value::Null);
+    assert_eq!(out["available"], json!(false));
+    assert!(out["error"].as_str().unwrap().contains("download failed"));
+}
+
+#[test]
+fn an_npm_install_reports_managed_by_npm() {
+    let dir = tempfile::tempdir().unwrap();
+    let c = ctx(
+        dir.path(),
+        &[
+            ("PACER_INSTALL_METHOD", "npm"),
+            ("PACER_NO_UPDATE_CHECK", "1"),
+        ],
+    );
+    let out = run(&c, json!({})).unwrap();
+    assert_eq!(out["managedBy"], "npm");
+    assert_eq!(
+        out["managedHint"],
+        "pacer was installed with npm; update with: npm install -g @lamtuanvu/pacer@latest"
+    );
+}
+
+#[test]
+fn a_desktop_owner_reports_managed_by_desktop_without_forwarding() {
+    let dir = tempfile::tempdir().unwrap();
+    let c = ctx(dir.path(), &[("PACER_NO_UPDATE_CHECK", "1")]);
+    assert!(!crate::service_update_stays_forwarded(&c, "update.check"));
     for env in [
         ("PACER_INSTALL_METHOD", "npm"),
         ("HOMEBREW_PREFIX", "/opt/homebrew"),
@@ -407,28 +464,21 @@ fn update_check_forwards_installations_managed_elsewhere() {
         ("PACER_BIN", "/Applications/Pacer.APP/contents/MacOS/pacer"),
     ] {
         assert!(
-            crate::service_update_stays_forwarded(&ctx(dir.path(), &[env]), "update.check"),
+            !crate::service_update_stays_forwarded(&ctx(dir.path(), &[env]), "update.check"),
             "{env:?}"
         );
     }
-    std::fs::create_dir_all(dir.path().join(".pacer")).unwrap();
-    let owner = dir.path().join(".pacer/owner.json");
+    std::fs::create_dir_all(&c.pacer_home).unwrap();
+    let owner = c.pacer_home.join("owner.json");
     std::fs::write(
         &owner,
-        r#"{"schema":1,"owner":"cli","executable":"/x","at":1}"#,
+        r#"{"schema":1,"owner":"desktop","executable":"/unrelated/pacer","at":1}"#,
     )
     .unwrap();
-    assert!(!crate::service_update_stays_forwarded(
-        &plain,
-        "update.check"
-    ));
-    std::fs::write(
-        &owner,
-        r#"{"schema":1,"owner":"desktop","executable":"/x","at":1}"#,
-    )
-    .unwrap();
-    assert!(crate::service_update_stays_forwarded(
-        &plain,
-        "update.check"
-    ));
+    let out = run(&c, json!({})).unwrap();
+    assert_eq!(out["managedBy"], "desktop");
+    assert_eq!(
+        out["managedHint"],
+        crate::manager::MANAGED_BY_DESKTOP_MESSAGE
+    );
 }
