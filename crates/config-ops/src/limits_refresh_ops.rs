@@ -4,7 +4,7 @@
 //! because the read runs the usage plugin and the per-process refresh coordinator.
 #![allow(clippy::result_large_err)] // CoreError is the shared public operation ABI.
 use pacer_config::strategy::load_strategy;
-use pacer_engine::usage_refresh::refresh_capability;
+use pacer_config::usage_refresh::refresh_capability;
 use pacer_foundation::{
     Ctx,
     api::{Code, CoreError, OpFuture},

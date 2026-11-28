@@ -1,7 +1,6 @@
-//! Cross-runtime driver for `usage_refresh` capability/outcome rules.
-use pacer_engine::usage_refresh::{
-    automatic_refresh_suppressed, refresh_capability, refresh_outcome,
-};
+//! Cross-runtime driver for the `pacer_status::refresh` rules (moved unchanged
+//! from the `pacer-engine` bin in B12-4).
+use pacer_status::refresh::{automatic_refresh_suppressed, refresh_capability, refresh_outcome};
 use serde_json::Value;
 use std::{env, error::Error};
 

@@ -1,0 +1,215 @@
+[
+  {
+    "name": "signin-claude-oauth",
+    "input": {
+      "now": 1000000,
+      "env": {},
+      "files": {
+        "~/.claude.json": {
+          "content": "{\"oauthAccount\":{\"accountUuid\":\"x\"}}",
+          "mtime": 999940
+        }
+      },
+      "account": {
+        "name": "claude",
+        "kind": "claude",
+        "source": "native"
+      },
+      "scope": {
+        "account": "claude",
+        "identity": "1ca4a3b39516caf15ea9196da78e7be251d5098603deaf0e76aecb19d8f539db"
+      }
+    },
+    "expected": {
+      "signedIn": true
+    }
+  },
+  {
+    "name": "signin-claude-out",
+    "input": {
+      "now": 1000000,
+      "env": {},
+      "files": {
+        "~/.claude.json": {
+          "content": "{\"numStartups\":1}",
+          "mtime": 999940
+        }
+      },
+      "account": {
+        "name": "claude",
+        "kind": "claude",
+        "source": "native"
+      },
+      "scope": {
+        "account": "claude",
+        "identity": "1ca4a3b39516caf15ea9196da78e7be251d5098603deaf0e76aecb19d8f539db"
+      }
+    },
+    "expected": {
+      "signedIn": false,
+      "reason": "signed out — run claude and log in",
+      "fix": "run claude and log in"
+    }
+  },
+  {
+    "name": "signin-claude-env-key",
+    "input": {
+      "now": 1000000,
+      "env": {
+        "ANTHROPIC_API_KEY": "sk-x"
+      },
+      "files": {},
+      "account": {
+        "name": "claude",
+        "kind": "claude",
+        "source": "native"
+      },
+      "scope": {
+        "account": "claude",
+        "identity": "1ca4a3b39516caf15ea9196da78e7be251d5098603deaf0e76aecb19d8f539db"
+      }
+    },
+    "expected": {
+      "signedIn": true
+    }
+  },
+  {
+    "name": "signin-codex-auth-file",
+    "input": {
+      "now": 1000000,
+      "env": {},
+      "files": {
+        "~/.codex/auth.json": {
+          "content": "{}",
+          "mtime": 999940
+        }
+      },
+      "account": {
+        "name": "codex",
+        "kind": "codex",
+        "source": "native"
+      },
+      "scope": {
+        "account": "codex",
+        "identity": "ba12ca8466eb53b85795f5f9bac98cd9a8f3e5f817c8b64309ebbc433a1f0f0c"
+      }
+    },
+    "expected": {
+      "signedIn": true
+    }
+  },
+  {
+    "name": "signin-codex-failed",
+    "input": {
+      "now": 1000000,
+      "env": {},
+      "files": {
+        "~/.codex/auth.json": {
+          "content": "{}",
+          "mtime": 999300
+        },
+        "state/auth-failed.json": {
+          "content": "{\"codex\":999900}"
+        },
+        "state/auth-evidence.json": {
+          "content": "{\"codex\":{\"at\":999900,\"scope\":{\"account\":\"codex\",\"identity\":\"ba12ca8466eb53b85795f5f9bac98cd9a8f3e5f817c8b64309ebbc433a1f0f0c\"}}}"
+        }
+      },
+      "account": {
+        "name": "codex",
+        "kind": "codex",
+        "source": "native"
+      },
+      "scope": {
+        "account": "codex",
+        "identity": "ba12ca8466eb53b85795f5f9bac98cd9a8f3e5f817c8b64309ebbc433a1f0f0c"
+      }
+    },
+    "expected": {
+      "signedIn": false,
+      "reason": "signed out — authentication failed; run codex login",
+      "fix": "run codex login"
+    }
+  },
+  {
+    "name": "signin-codex-recovered",
+    "input": {
+      "now": 999961,
+      "env": {},
+      "files": {
+        "~/.codex/auth.json": {
+          "content": "{}",
+          "mtime": 999960
+        },
+        "state/auth-failed.json": {
+          "content": "{\"codex\":999900}"
+        },
+        "state/auth-evidence.json": {
+          "content": "{\"codex\":{\"at\":999900,\"scope\":{\"account\":\"codex\",\"identity\":\"ba12ca8466eb53b85795f5f9bac98cd9a8f3e5f817c8b64309ebbc433a1f0f0c\"}}}"
+        }
+      },
+      "account": {
+        "name": "codex",
+        "kind": "codex",
+        "source": "native"
+      },
+      "scope": {
+        "account": "codex",
+        "identity": "ba12ca8466eb53b85795f5f9bac98cd9a8f3e5f817c8b64309ebbc433a1f0f0c"
+      }
+    },
+    "expected": {
+      "signedIn": true,
+      "recoveredAt": 999960,
+      "recoveredScopes": [
+        {
+          "account": "codex",
+          "identity": "ba12ca8466eb53b85795f5f9bac98cd9a8f3e5f817c8b64309ebbc433a1f0f0c"
+        }
+      ]
+    }
+  },
+  {
+    "name": "signin-orca-missing",
+    "input": {
+      "now": 1000000,
+      "env": {
+        "ORCA_USER_DATA_PATH": "/nonexistent-orca-root"
+      },
+      "files": {},
+      "account": {
+        "name": "o",
+        "kind": "claude",
+        "source": "orca",
+        "orcaAccount": "abc"
+      },
+      "scope": {
+        "account": "o",
+        "identity": "53f48c24a3420e063f6badb65f92ffd78957b62ab148724d4a28f197b209ae06"
+      }
+    },
+    "expected": {
+      "signedIn": null
+    }
+  },
+  {
+    "name": "signin-endpoint",
+    "input": {
+      "now": 1000000,
+      "env": {},
+      "files": {},
+      "account": {
+        "name": "api",
+        "kind": "endpoint",
+        "source": "native"
+      },
+      "scope": {
+        "account": "api",
+        "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    "expected": {
+      "signedIn": null
+    }
+  }
+]

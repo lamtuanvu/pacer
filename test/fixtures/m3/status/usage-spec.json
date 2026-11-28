@@ -1,0 +1,645 @@
+[
+  {
+    "name": "claude-default",
+    "input": {
+      "home": "{{HOME}}",
+      "pacerHome": "{{PACER_HOME}}",
+      "now": 1798000000,
+      "env": {
+        "PACER_PORT": "50910",
+        "OLLAMA_HOST": "http://127.0.0.1:50911",
+        "LMS_API_SERVER_INFO_PATH": "/tmp/pacer-lms-server.json",
+        "HOME": "{{HOME}}",
+        "PATH": "/usr/bin:/bin",
+        "TMPDIR": "/tmp",
+        "LANG": "en_US.UTF-8",
+        "XDG_CONFIG_HOME": "{{HOME}}/.config",
+        "ORCA_USER_DATA_PATH": "{{HOME}}/orca",
+        "CODEX_HOME": "{{HOME}}/accounts/team",
+        "HTTP_PROXY": "proxy.example.invalid",
+        "HTTPS_PROXY": "proxy.example.invalid",
+        "NO_PROXY": "proxy.example.invalid",
+        "http_proxy": "proxy.example.invalid",
+        "https_proxy": "proxy.example.invalid",
+        "no_proxy": "proxy.example.invalid",
+        "SSL_CERT_FILE": "proxy.example.invalid",
+        "SSL_CERT_DIR": "proxy.example.invalid",
+        "NODE_EXTRA_CA_CERTS": "proxy.example.invalid",
+        "ssl_cert_file": "proxy.example.invalid",
+        "ssl_cert_dir": "proxy.example.invalid",
+        "node_extra_ca_certs": "proxy.example.invalid"
+      },
+      "account": {
+        "name": "claude",
+        "model": null,
+        "kind": "claude",
+        "source": "default",
+        "home": null,
+        "orcaAccount": null,
+        "usage": "quota",
+        "usageSource": "native",
+        "quotaSource": null,
+        "provider": null,
+        "weeklyUsd": null,
+        "weeklyTokens": null,
+        "cooldownS": 21600,
+        "allowPaid": false
+      },
+      "cfg": {
+        "id": "claude-code",
+        "via": null,
+        "model": null,
+        "usage": "quota",
+        "allowPaid": false,
+        "cooldownS": 21600,
+        "quotaSource": null,
+        "weeklyTokens": null,
+        "weeklyUsd": null
+      },
+      "refresh": false,
+      "readOnly": false,
+      "entries": [
+        {
+          "id": "pacer-usage",
+          "bundled": true,
+          "state": "ready",
+          "manifest": {
+            "contributes": {
+              "usage": {
+                "providers": [
+                  "claude-code",
+                  "codex",
+                  "arkcli",
+                  "metered"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "expected": {
+      "plugin": "pacer-usage",
+      "params": {
+        "provider": "claude-code",
+        "usage": "quota",
+        "account": {
+          "name": "claude",
+          "kind": "claude",
+          "source": "default"
+        },
+        "accountHome": "{{HOME}}/.claude",
+        "model": null,
+        "weeklyTokens": null,
+        "weeklyUsd": null,
+        "quotaSource": null,
+        "now": 1798000000,
+        "readOnly": false,
+        "refresh": false,
+        "resources": {
+          "claudeFiles": [
+            "{{PACER_HOME}}/cache/claude-rate-limits.json",
+            "{{HOME}}/.claude/state/budget/claude.json"
+          ]
+        }
+      },
+      "resources": {
+        "reads": [
+          {
+            "path": "{{PACER_HOME}}/cache/claude-rate-limits.json",
+            "kind": "file"
+          },
+          {
+            "path": "{{HOME}}/.claude/state/budget/claude.json",
+            "kind": "file"
+          }
+        ],
+        "commands": [],
+        "stores": []
+      },
+      "accountHome": "{{HOME}}/.claude"
+    }
+  },
+  {
+    "name": "claude-named",
+    "input": {
+      "home": "{{HOME}}",
+      "pacerHome": "{{PACER_HOME}}",
+      "now": 1798000000,
+      "env": {
+        "PACER_PORT": "50910",
+        "OLLAMA_HOST": "http://127.0.0.1:50911",
+        "LMS_API_SERVER_INFO_PATH": "/tmp/pacer-lms-server.json",
+        "HOME": "{{HOME}}",
+        "PATH": "/usr/bin:/bin",
+        "TMPDIR": "/tmp",
+        "LANG": "en_US.UTF-8",
+        "XDG_CONFIG_HOME": "{{HOME}}/.config",
+        "ORCA_USER_DATA_PATH": "{{HOME}}/orca",
+        "CODEX_HOME": "{{HOME}}/accounts/team",
+        "HTTP_PROXY": "proxy.example.invalid",
+        "HTTPS_PROXY": "proxy.example.invalid",
+        "NO_PROXY": "proxy.example.invalid",
+        "http_proxy": "proxy.example.invalid",
+        "https_proxy": "proxy.example.invalid",
+        "no_proxy": "proxy.example.invalid",
+        "SSL_CERT_FILE": "proxy.example.invalid",
+        "SSL_CERT_DIR": "proxy.example.invalid",
+        "NODE_EXTRA_CA_CERTS": "proxy.example.invalid",
+        "ssl_cert_file": "proxy.example.invalid",
+        "ssl_cert_dir": "proxy.example.invalid",
+        "node_extra_ca_certs": "proxy.example.invalid"
+      },
+      "account": {
+        "name": "work",
+        "model": null,
+        "kind": "claude",
+        "source": "pacer",
+        "home": "{{HOME}}/work",
+        "orcaAccount": null,
+        "usage": "quota",
+        "usageSource": "native",
+        "quotaSource": null,
+        "provider": null,
+        "weeklyUsd": null,
+        "weeklyTokens": null,
+        "cooldownS": 21600,
+        "allowPaid": false
+      },
+      "cfg": {
+        "id": "claude-code",
+        "via": null,
+        "model": null,
+        "usage": "quota",
+        "allowPaid": false,
+        "cooldownS": 21600,
+        "quotaSource": null,
+        "weeklyTokens": null,
+        "weeklyUsd": null
+      },
+      "refresh": false,
+      "readOnly": false,
+      "entries": [
+        {
+          "id": "pacer-usage",
+          "bundled": true,
+          "state": "ready",
+          "manifest": {
+            "contributes": {
+              "usage": {
+                "providers": [
+                  "claude-code",
+                  "codex",
+                  "arkcli",
+                  "metered"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "expected": {
+      "plugin": "pacer-usage",
+      "params": {
+        "provider": "claude-code",
+        "usage": "quota",
+        "account": {
+          "name": "work",
+          "kind": "claude",
+          "source": "pacer"
+        },
+        "accountHome": null,
+        "model": null,
+        "weeklyTokens": null,
+        "weeklyUsd": null,
+        "quotaSource": null,
+        "now": 1798000000,
+        "readOnly": false,
+        "refresh": false,
+        "resources": {
+          "claudeFiles": [
+            "{{PACER_HOME}}/cache/claude-rate-limits.work.json"
+          ]
+        }
+      },
+      "resources": {
+        "reads": [
+          {
+            "path": "{{PACER_HOME}}/cache/claude-rate-limits.work.json",
+            "kind": "file"
+          }
+        ],
+        "commands": [],
+        "stores": []
+      },
+      "accountHome": null
+    }
+  },
+  {
+    "name": "codex-orca",
+    "input": {
+      "home": "{{HOME}}",
+      "pacerHome": "{{PACER_HOME}}",
+      "now": 1798000000,
+      "env": {
+        "PACER_PORT": "50910",
+        "OLLAMA_HOST": "http://127.0.0.1:50911",
+        "LMS_API_SERVER_INFO_PATH": "/tmp/pacer-lms-server.json",
+        "HOME": "{{HOME}}",
+        "PATH": "/usr/bin:/bin",
+        "TMPDIR": "/tmp",
+        "LANG": "en_US.UTF-8",
+        "XDG_CONFIG_HOME": "{{HOME}}/.config",
+        "ORCA_USER_DATA_PATH": "{{HOME}}/orca",
+        "CODEX_HOME": "{{HOME}}/accounts/team",
+        "HTTP_PROXY": "proxy.example.invalid",
+        "HTTPS_PROXY": "proxy.example.invalid",
+        "NO_PROXY": "proxy.example.invalid",
+        "http_proxy": "proxy.example.invalid",
+        "https_proxy": "proxy.example.invalid",
+        "no_proxy": "proxy.example.invalid",
+        "SSL_CERT_FILE": "proxy.example.invalid",
+        "SSL_CERT_DIR": "proxy.example.invalid",
+        "NODE_EXTRA_CA_CERTS": "proxy.example.invalid",
+        "ssl_cert_file": "proxy.example.invalid",
+        "ssl_cert_dir": "proxy.example.invalid",
+        "node_extra_ca_certs": "proxy.example.invalid"
+      },
+      "account": {
+        "name": "codex",
+        "model": null,
+        "kind": "codex",
+        "source": "orca",
+        "home": "~/accounts/team",
+        "orcaAccount": "team",
+        "usage": "quota",
+        "usageSource": "native",
+        "quotaSource": null,
+        "provider": null,
+        "weeklyUsd": null,
+        "weeklyTokens": null,
+        "cooldownS": 21600,
+        "allowPaid": false
+      },
+      "cfg": {
+        "id": "codex",
+        "via": null,
+        "model": null,
+        "usage": "quota",
+        "allowPaid": false,
+        "cooldownS": 21600,
+        "quotaSource": null,
+        "weeklyTokens": null,
+        "weeklyUsd": null
+      },
+      "refresh": true,
+      "readOnly": false,
+      "entries": [
+        {
+          "id": "pacer-usage",
+          "bundled": true,
+          "state": "ready",
+          "manifest": {
+            "contributes": {
+              "usage": {
+                "providers": [
+                  "claude-code",
+                  "codex",
+                  "arkcli",
+                  "metered"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "expected": {
+      "plugin": "pacer-usage",
+      "params": {
+        "provider": "codex",
+        "usage": "quota",
+        "account": {
+          "name": "codex",
+          "kind": "codex",
+          "source": "orca"
+        },
+        "accountHome": "{{HOME}}/orca/codex-accounts/team/home",
+        "model": null,
+        "weeklyTokens": null,
+        "weeklyUsd": null,
+        "quotaSource": null,
+        "now": 1798000000,
+        "readOnly": false,
+        "refresh": true,
+        "resources": {
+          "codexSessions": "{{HOME}}/orca/codex-accounts/team/home/sessions"
+        }
+      },
+      "resources": {
+        "reads": [
+          {
+            "path": "{{HOME}}/orca/codex-accounts/team/home/sessions",
+            "kind": "codex-logs"
+          }
+        ],
+        "commands": [
+          {
+            "argv": [
+              "codex",
+              "-s",
+              "read-only",
+              "-a",
+              "never",
+              "app-server"
+            ],
+            "timeoutMs": 10000,
+            "mode": "codex-live",
+            "env": {
+              "HOME": "{{HOME}}",
+              "PATH": "/usr/bin:/bin",
+              "TMPDIR": "/tmp",
+              "LANG": "en_US.UTF-8",
+              "XDG_CONFIG_HOME": "{{HOME}}/.config",
+              "HTTP_PROXY": "proxy.example.invalid",
+              "HTTPS_PROXY": "proxy.example.invalid",
+              "NO_PROXY": "proxy.example.invalid",
+              "http_proxy": "proxy.example.invalid",
+              "https_proxy": "proxy.example.invalid",
+              "no_proxy": "proxy.example.invalid",
+              "SSL_CERT_FILE": "proxy.example.invalid",
+              "SSL_CERT_DIR": "proxy.example.invalid",
+              "NODE_EXTRA_CA_CERTS": "proxy.example.invalid",
+              "ssl_cert_file": "proxy.example.invalid",
+              "ssl_cert_dir": "proxy.example.invalid",
+              "node_extra_ca_certs": "proxy.example.invalid",
+              "CODEX_HOME": "{{HOME}}/orca/codex-accounts/team/home"
+            }
+          }
+        ],
+        "stores": [
+          {
+            "id": "codex-cursors",
+            "path": "{{PACER_HOME}}/state/codex-cursors.json",
+            "kind": "cursors",
+            "version": 4,
+            "root": "{{HOME}}/orca/codex-accounts/team/home/sessions"
+          }
+        ]
+      },
+      "accountHome": "{{HOME}}/orca/codex-accounts/team/home"
+    }
+  },
+  {
+    "name": "arkcli",
+    "input": {
+      "home": "{{HOME}}",
+      "pacerHome": "{{PACER_HOME}}",
+      "now": 1798000000,
+      "env": {
+        "PACER_PORT": "50910",
+        "OLLAMA_HOST": "http://127.0.0.1:50911",
+        "LMS_API_SERVER_INFO_PATH": "/tmp/pacer-lms-server.json",
+        "HOME": "{{HOME}}",
+        "PATH": "/usr/bin:/bin",
+        "TMPDIR": "/tmp",
+        "LANG": "en_US.UTF-8",
+        "XDG_CONFIG_HOME": "{{HOME}}/.config",
+        "ORCA_USER_DATA_PATH": "{{HOME}}/orca",
+        "CODEX_HOME": "{{HOME}}/accounts/team",
+        "HTTP_PROXY": "proxy.example.invalid",
+        "HTTPS_PROXY": "proxy.example.invalid",
+        "NO_PROXY": "proxy.example.invalid",
+        "http_proxy": "proxy.example.invalid",
+        "https_proxy": "proxy.example.invalid",
+        "no_proxy": "proxy.example.invalid",
+        "SSL_CERT_FILE": "proxy.example.invalid",
+        "SSL_CERT_DIR": "proxy.example.invalid",
+        "NODE_EXTRA_CA_CERTS": "proxy.example.invalid",
+        "ssl_cert_file": "proxy.example.invalid",
+        "ssl_cert_dir": "proxy.example.invalid",
+        "node_extra_ca_certs": "proxy.example.invalid"
+      },
+      "account": {
+        "name": "plan",
+        "model": null,
+        "kind": "endpoint",
+        "source": "opencode",
+        "home": null,
+        "orcaAccount": null,
+        "usage": "quota",
+        "usageSource": "native",
+        "quotaSource": "arkcli",
+        "provider": null,
+        "weeklyUsd": null,
+        "weeklyTokens": null,
+        "cooldownS": 21600,
+        "allowPaid": false
+      },
+      "cfg": {
+        "id": "plan",
+        "via": null,
+        "model": null,
+        "usage": "quota",
+        "allowPaid": false,
+        "cooldownS": 21600,
+        "quotaSource": "arkcli",
+        "weeklyTokens": null,
+        "weeklyUsd": null
+      },
+      "refresh": false,
+      "readOnly": false,
+      "entries": [
+        {
+          "id": "pacer-usage",
+          "bundled": true,
+          "state": "ready",
+          "manifest": {
+            "contributes": {
+              "usage": {
+                "providers": [
+                  "claude-code",
+                  "codex",
+                  "arkcli",
+                  "metered"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "expected": {
+      "plugin": "pacer-usage",
+      "params": {
+        "provider": "arkcli",
+        "usage": "quota",
+        "account": {
+          "name": "plan",
+          "kind": "endpoint",
+          "source": "opencode"
+        },
+        "accountHome": null,
+        "model": null,
+        "weeklyTokens": null,
+        "weeklyUsd": null,
+        "quotaSource": "arkcli",
+        "now": 1798000000,
+        "readOnly": false,
+        "refresh": false,
+        "resources": {}
+      },
+      "resources": {
+        "reads": [],
+        "commands": [
+          {
+            "argv": [
+              "arkcli",
+              "usage",
+              "plan",
+              "--product",
+              "coding-plan"
+            ],
+            "timeoutMs": 8000
+          }
+        ],
+        "stores": [
+          {
+            "id": "arkcli-usage-plan",
+            "path": "{{PACER_HOME}}/cache/arkcli-usage-plan.json",
+            "kind": "cache"
+          }
+        ]
+      },
+      "accountHome": null
+    }
+  },
+  {
+    "name": "metered-with-model",
+    "input": {
+      "home": "{{HOME}}",
+      "pacerHome": "{{PACER_HOME}}",
+      "now": 1798000000,
+      "env": {
+        "PACER_PORT": "50910",
+        "OLLAMA_HOST": "http://127.0.0.1:50911",
+        "LMS_API_SERVER_INFO_PATH": "/tmp/pacer-lms-server.json",
+        "HOME": "{{HOME}}",
+        "PATH": "/usr/bin:/bin",
+        "TMPDIR": "/tmp",
+        "LANG": "en_US.UTF-8",
+        "XDG_CONFIG_HOME": "{{HOME}}/.config",
+        "ORCA_USER_DATA_PATH": "{{HOME}}/orca",
+        "CODEX_HOME": "{{HOME}}/accounts/team",
+        "HTTP_PROXY": "proxy.example.invalid",
+        "HTTPS_PROXY": "proxy.example.invalid",
+        "NO_PROXY": "proxy.example.invalid",
+        "http_proxy": "proxy.example.invalid",
+        "https_proxy": "proxy.example.invalid",
+        "no_proxy": "proxy.example.invalid",
+        "SSL_CERT_FILE": "proxy.example.invalid",
+        "SSL_CERT_DIR": "proxy.example.invalid",
+        "NODE_EXTRA_CA_CERTS": "proxy.example.invalid",
+        "ssl_cert_file": "proxy.example.invalid",
+        "ssl_cert_dir": "proxy.example.invalid",
+        "node_extra_ca_certs": "proxy.example.invalid"
+      },
+      "account": {
+        "name": "api",
+        "model": null,
+        "kind": "endpoint",
+        "source": "opencode",
+        "home": null,
+        "orcaAccount": null,
+        "usage": "metered",
+        "usageSource": "native",
+        "quotaSource": null,
+        "provider": null,
+        "weeklyUsd": null,
+        "weeklyTokens": null,
+        "cooldownS": 21600,
+        "allowPaid": false
+      },
+      "cfg": {
+        "id": "api",
+        "via": null,
+        "model": "public/code",
+        "usage": "metered",
+        "allowPaid": false,
+        "cooldownS": 21600,
+        "quotaSource": null,
+        "weeklyTokens": null,
+        "weeklyUsd": null
+      },
+      "refresh": false,
+      "readOnly": false,
+      "entries": [
+        {
+          "id": "pacer-usage",
+          "bundled": true,
+          "state": "ready",
+          "manifest": {
+            "contributes": {
+              "usage": {
+                "providers": [
+                  "claude-code",
+                  "codex",
+                  "arkcli",
+                  "metered"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "expected": {
+      "plugin": "pacer-usage",
+      "params": {
+        "provider": "metered",
+        "usage": "metered",
+        "account": {
+          "name": "api",
+          "kind": "endpoint",
+          "source": "opencode"
+        },
+        "accountHome": null,
+        "model": "public/code",
+        "weeklyTokens": null,
+        "weeklyUsd": null,
+        "quotaSource": null,
+        "now": 1798000000,
+        "readOnly": false,
+        "refresh": false,
+        "resources": {}
+      },
+      "resources": {
+        "reads": [],
+        "commands": [
+          {
+            "argv": [
+              "opencode",
+              "stats",
+              "--standalone",
+              "--models",
+              "--cost",
+              "--json",
+              "--days",
+              "7"
+            ],
+            "timeoutMs": 15000
+          }
+        ],
+        "stores": [
+          {
+            "id": "opencode-stats-7d-cost",
+            "path": "{{PACER_HOME}}/cache/opencode-stats-7d-cost.json",
+            "kind": "cache"
+          }
+        ]
+      },
+      "accountHome": null
+    }
+  }
+]
