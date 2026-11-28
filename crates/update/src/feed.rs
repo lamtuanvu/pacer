@@ -2,7 +2,8 @@
 //! `src/update/`, under the three-second `checkForUpdate` deadline. Errors are the messages
 //! TypeScript stores in `update-check.json`.
 use crate::{
-    check::{compare_versions, is_nightly_version, is_version},
+    channel::{compare_versions, is_version},
+    check::is_nightly_version,
     js,
 };
 use pacer_foundation::js_semantics::js_trim;
@@ -22,13 +23,13 @@ const NIGHTLY_URL: &str =
 
 /// The release channel (`UpdateChannel` in `src/update/channel.ts`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Channel {
+pub enum Channel {
     Stable,
     Nightly,
 }
 
 impl Channel {
-    pub(crate) fn as_str(self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             Channel::Stable => "stable",
             Channel::Nightly => "nightly",

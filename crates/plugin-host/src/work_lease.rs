@@ -5,15 +5,13 @@
 //! executor owner for now.
 mod state;
 use crate::BrokerError;
-use rusqlite::{Connection, OptionalExtension, types::ValueRef};
+use pacer_desktop_admission::{AdmissionError, coordinator};
+use rusqlite::{OptionalExtension, types::ValueRef};
 use serde_json::Value;
 use state::{AdmissionState, Lease, Orca, Remote, Units, same};
 use std::{
-    fs::{self, OpenOptions},
-    os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt},
     path::{Path, PathBuf},
     sync::OnceLock,
-    time::Duration,
 };
 
 /// Blocker kind matching the TS admission schema exactly
@@ -50,117 +48,67 @@ fn denied() -> BrokerError {
     BrokerError::Invalid("desktop work lease")
 }
 
-/// Validates a file (or directory when `directory`) is private to the current
-/// user: mode has no group/other bits and the owner is us, and it is the real
-/// object (a symlink is rejected via `symlink_metadata` rather than followed).
-fn private(path: &Path, directory: bool) -> Result<fs::Metadata, BrokerError> {
-    let m = fs::symlink_metadata(path).map_err(|_| denied())?;
-    if (if directory { !m.is_dir() } else { !m.is_file() })
-        || m.mode() & 0o077 != 0
-        || m.uid() != nix::unistd::Uid::current().as_raw()
-    {
-        return Err(denied());
-    }
-    Ok(m)
-}
-
-/// Runs a mutation inside the desktop `admission.sqlite` transaction, with the
-/// same file-permission, inode and sidecar checks as the TS coordinator.
+/// Runs a mutation inside the desktop `admission.sqlite` transaction. The
+/// shared `pacer_desktop_admission` coordinator owns the physical lock: file
+/// and directory privacy, inode pinning, `busy_timeout`, `synchronous=FULL`
+/// and the `BEGIN IMMEDIATE` / COMMIT / ROLLBACK envelope. This module owns
+/// the admission-row codec, running the state transition on the decoded row
+/// and writing it back before the coordinator commits.
 fn mutate<T>(
     home: &Path,
     action: impl FnOnce(&mut AdmissionState) -> Result<T, BrokerError>,
 ) -> Result<T, BrokerError> {
-    let dir = home.join("desktop-updates");
-    match fs::DirBuilder::new().mode(0o700).create(&dir) {
-        Ok(()) => {}
-        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
-        Err(_) => return Err(denied()),
-    }
-    private(&dir, true)?;
-    let path = dir.join("admission.sqlite");
-    match OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(&path)
-    {
-        Ok(file) => {
-            file.sync_all().map_err(|_| denied())?;
-            fs::File::open(&dir)
-                .and_then(|f| f.sync_all())
-                .map_err(|_| denied())?;
-        }
-        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
-        Err(_) => return Err(denied()),
-    }
-    let pinned = private(&path, false)?;
-    for suffix in ["-journal", "-wal", "-shm"] {
-        let p = PathBuf::from(format!("{}{suffix}", path.display()));
-        match fs::symlink_metadata(&p) {
-            Ok(_) => {
-                private(&p, false)?;
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(_) => return Err(denied()),
-        }
-    }
-    // Resolve the already-checked private directory, retaining inode checks on
-    // the logical state path around the transaction. SQLite NOFOLLOW also
-    // rejects symlinked ancestors such as macOS /var.
-    let database_path = fs::canonicalize(&dir)
-        .map_err(|_| denied())?
-        .join("admission.sqlite");
-    let mut db = Connection::open_with_flags(
-        &database_path,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE
-            | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX
-            | rusqlite::OpenFlags::SQLITE_OPEN_NOFOLLOW,
-    )
-    .map_err(|_| denied())?;
-    db.busy_timeout(Duration::from_secs(5))
-        .map_err(|_| denied())?;
-    db.pragma_update(None, "synchronous", "FULL")
-        .map_err(|_| denied())?;
-    let current = private(&path, false)?;
-    if current.dev() != pinned.dev() || current.ino() != pinned.ino() {
-        return Err(denied());
-    }
-    let tx = db
-        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
-        .map_err(|_| denied())?;
-    tx.execute_batch("CREATE TABLE IF NOT EXISTS admission (id INTEGER PRIMARY KEY CHECK (id = 1), state TEXT NOT NULL)").map_err(|_|denied())?;
-    // Row bytes are decoded like Bun (maximal-subpart U+FFFD for invalid
-    // UTF-8); non-TEXT rows reject like TS (plan §3.2). The row classification
-    // and text are owned here so no `ValueRef` borrow escapes the closure.
-    let value: Option<Option<String>> = tx
-        .query_row("SELECT state FROM admission WHERE id=1", [], |r| {
-            match r.get_ref(0)? {
-                ValueRef::Text(bytes) => Ok(Some(String::from_utf8_lossy(bytes).into_owned())),
-                ValueRef::Blob(_) | ValueRef::Null | ValueRef::Integer(_) | ValueRef::Real(_) => {
-                    Ok(None)
+    coordinator::with_coordinator(home, |tx| {
+        tx.execute_batch("CREATE TABLE IF NOT EXISTS admission (id INTEGER PRIMARY KEY CHECK (id = 1), state TEXT NOT NULL)")
+            .map_err(|_| AdmissionError::Denied)?;
+        // Row bytes are decoded like Bun (maximal-subpart U+FFFD for invalid
+        // UTF-8); non-TEXT rows reject like TS (plan §3.2). The row
+        // classification and text are owned here so no `ValueRef` borrow
+        // escapes the closure.
+        let value: Option<Option<String>> = tx
+            .query_row("SELECT state FROM admission WHERE id=1", [], |r| {
+                match r.get_ref(0)? {
+                    ValueRef::Text(bytes) => Ok(Some(String::from_utf8_lossy(bytes).into_owned())),
+                    ValueRef::Blob(_) | ValueRef::Null | ValueRef::Integer(_) | ValueRef::Real(_) => {
+                        Ok(None)
+                    }
                 }
-            }
-        })
-        .optional()
-        .map_err(|_| denied())?;
-    let mut state = match value {
-        Some(Some(text)) => AdmissionState::decode(&text).ok_or_else(denied)?,
-        Some(None) => return Err(denied()),
-        None => AdmissionState::empty(),
-    };
-    let result = action(&mut state)?;
-    let rendered = state.render().map_err(|_| denied())?;
-    tx.execute(
-        "INSERT INTO admission(id,state) VALUES(1,?) ON CONFLICT(id) DO UPDATE SET state=excluded.state",
-        [rendered],
-    )
-    .map_err(|_| denied())?;
-    let current = private(&path, false)?;
-    if current.dev() != pinned.dev() || current.ino() != pinned.ino() {
-        return Err(denied());
+            })
+            .optional()
+            .map_err(|_| AdmissionError::Denied)?;
+        let mut state = match value {
+            Some(Some(text)) => AdmissionState::decode(&text).ok_or_else(|| AdmissionError::Denied)?,
+            Some(None) => return Err(AdmissionError::Denied),
+            None => AdmissionState::empty(),
+        };
+        let result = action(&mut state).map_err(admission_from_broker)?;
+        let rendered = state.render().map_err(|_| AdmissionError::Denied)?;
+        tx.execute(
+            "INSERT INTO admission(id,state) VALUES(1,?) ON CONFLICT(id) DO UPDATE SET state=excluded.state",
+            [rendered],
+        )
+        .map_err(|_| AdmissionError::Denied)?;
+        Ok(result)
+    })
+    .map_err(admission_to_broker)
+}
+
+/// Preserves the reservation conflict message across the coordinator boundary;
+/// every other host error is a denied prerequisite.
+fn admission_from_broker(error: BrokerError) -> AdmissionError {
+    match error {
+        BrokerError::Effect(message) => AdmissionError::Reason(message),
+        _ => AdmissionError::Denied,
     }
-    tx.commit().map_err(|_| denied())?;
-    Ok(result)
+}
+
+fn admission_to_broker(error: AdmissionError) -> BrokerError {
+    match error {
+        AdmissionError::Denied | AdmissionError::Sqlite(_) | AdmissionError::Passthrough(_) => {
+            denied()
+        }
+        AdmissionError::Reason(message) => BrokerError::Effect(message),
+    }
 }
 
 impl Blocker {
