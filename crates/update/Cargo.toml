@@ -7,7 +7,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-nix = { version = "0.31", features = ["user"] }
+nix = { version = "0.32", features = ["user"] }
 pacer-messaging-ops = { path = "../messaging-ops" }
 pacer-foundation = { path = "../foundation" }
 pacer-store = { path = "../store" }
