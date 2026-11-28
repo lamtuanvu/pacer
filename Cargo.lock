@@ -1812,6 +1812,8 @@ dependencies = [
 name = "pacer-plugin"
 version = "0.6.0"
 dependencies = [
+ "icu_collator",
+ "jiff",
  "pacer-plugin-agent-session-protocol",
  "pacer-plugin-assistant-protocol",
  "pacer-plugin-decision-protocol",
@@ -1822,8 +1824,10 @@ dependencies = [
  "pacer-plugin-workflow-protocol",
  "serde",
  "serde_json",
+ "sha2",
  "tokio",
  "tokio-util",
+ "toml",
 ]
 
 [[package]]

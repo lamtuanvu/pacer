@@ -1,0 +1,121 @@
+{
+  "stages": [
+    {
+      "body": "one",
+      "after": true
+    },
+    {
+      "body": "two",
+      "after": true
+    }
+  ],
+  "record": {
+    "planner": "codex",
+    "installedAt": 1700000000,
+    "pacerArgv": [
+      "pacer"
+    ],
+    "files": [
+      {
+        "path": "$HOME/AGENTS.md",
+        "action": "edited",
+        "backup": "$HOME/AGENTS.md.pacer-bak-<STAMP>",
+        "exact": true,
+        "undo": [
+          {
+            "kind": "block",
+            "style": "md"
+          }
+        ],
+        "afterHash": "a2f08ac4f70f75dbec5b177915a4276e904c1bad05d70b75c68fbae293c6a6d5",
+        "managed": {
+          "schema": 1,
+          "hash": "5cc39e313656fe70f9448473ca700398607519734132a68582b4f5455805b79d"
+        }
+      },
+      {
+        "path": "$HOME/legacy.sh",
+        "action": "moved",
+        "backup": "$HOME/legacy.sh.pacer-bak-<STAMP>",
+        "undo": []
+      },
+      {
+        "path": "$HOME/new",
+        "action": "created",
+        "exact": true,
+        "undo": [],
+        "afterHash": "7aa7a5359173d05b63cfd682e3c38487f3cb4f7f1d60659fe59fab1505977d4c",
+        "managed": {
+          "schema": 1,
+          "hash": "7aa7a5359173d05b63cfd682e3c38487f3cb4f7f1d60659fe59fab1505977d4c"
+        }
+      }
+    ],
+    "commands": [],
+    "notes": [],
+    "mcp": true,
+    "account": "account",
+    "folder": "$HOME",
+    "configEnv": {
+      "CODEX_HOME": "$HOME"
+    }
+  },
+  "pending": [
+    [
+      "$HOME/AGENTS.md.pacer-bak-<STAMP>",
+      {
+        "path": "$HOME/AGENTS.md.pacer-bak-<STAMP>",
+        "before": null,
+        "after": "mine\n",
+        "mode": 384
+      }
+    ],
+    [
+      "$HOME/AGENTS.md",
+      {
+        "path": "$HOME/AGENTS.md",
+        "before": "mine\n",
+        "after": "mine\n\n<!-- >>> pacer >>> -->\ntwo\n<!-- <<< pacer <<< -->\n",
+        "beforeMode": 384
+      }
+    ],
+    [
+      "$HOME/legacy.sh.pacer-bak-<STAMP>",
+      {
+        "path": "$HOME/legacy.sh.pacer-bak-<STAMP>",
+        "before": null,
+        "after": "legacy\n",
+        "mode": 448
+      }
+    ],
+    [
+      "$HOME/legacy.sh",
+      {
+        "path": "$HOME/legacy.sh",
+        "before": "legacy\n",
+        "after": null,
+        "beforeMode": 448
+      }
+    ],
+    [
+      "$HOME/new",
+      {
+        "path": "$HOME/new",
+        "before": null,
+        "after": "new\n"
+      }
+    ]
+  ],
+  "touched": [
+    "$HOME/AGENTS.md",
+    "$HOME/legacy.sh",
+    "$HOME/new"
+  ],
+  "notes": [
+    "$HOME/legacy.sh already recorded; skipping move"
+  ],
+  "disk": {
+    "agents": "mine\n",
+    "legacy": "legacy\n"
+  }
+}
