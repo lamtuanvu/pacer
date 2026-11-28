@@ -1,12 +1,14 @@
 import {expect, test} from "bun:test";
 import {Database} from "bun:sqlite";
 import {execFileSync} from "node:child_process";
-import {existsSync, mkdtempSync, writeFileSync} from "node:fs";
+import {existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
-import {callOp} from "../src/api/ops";
+import {callOp, parseOpParams} from "../src/api/ops";
 import {toApiError} from "../src/api/errors";
-import {assistantDatabase} from "../src/assistant/store";
+import {CoreError} from "../src/core/errors";
+import {assistantDatabase, conversationTurns, getTurn, readSettings, updateCard} from "../src/assistant/store";
+import {deleteConversations, listHistory, refreshCard, saveSettings} from "../src/assistant/service";
 import {fakeCtx} from "./helpers";
 
 let binary: string;
@@ -23,7 +25,28 @@ function driver() {
 
 const NOW = 1_700_000_000;
 const TASK = "t-20231114-010203-abcd";
-const STRATEGY = 'accounts:\n  claude: {kind: claude}\n  ep: {kind: endpoint, usage: unmetered, connection: {api: openai-compatible, base_url: "http://127.0.0.1:1/v1", key: none, models: [{id: m1, name: Model One, context: 1000, output: 100, tools: true}, {id: m2, context: 1000, output: 100, tools: false}]}}\n  bare: {kind: endpoint, usage: unmetered}\n  local: {kind: endpoint, usage: unmetered, model: local/x, connection: {api: openai-compatible, base_url: "http://127.0.0.1:2/v1", key: none, models: [{id: lx, context: 10, output: 5, tools: true}]}}\nplanner: claude-code#claude\nrunners: {"opencode#ep": {model: pacer-ep/m2}}\nrouting: [{default: [opencode#ep]}]\n';
+const STRATEGY = 'accounts:\n  claude: {kind: claude, source: default}\n  cl: {kind: claude, home: "~/cl"}\n  ep: {kind: endpoint, usage: unmetered, connection: {api: openai-compatible, base_url: "http://127.0.0.1:1/v1", key: none, models: [{id: m1, name: Model One, context: 1000, output: 100, tools: true}, {id: m2, context: 1000, output: 100, tools: false}]}}\n  bare: {kind: endpoint, usage: unmetered}\n  local: {kind: endpoint, usage: unmetered, model: local/x, connection: {api: openai-compatible, base_url: "http://127.0.0.1:2/v1", key: none, models: [{id: lx, context: 10, output: 5, tools: true}]}}\nplanner: claude-code#claude\nrunners: {"opencode#ep": {model: pacer-ep/m2}}\nrouting: [{default: [opencode#ep]}]\n';
+/** The named Claude account's config folder must exist for its ask adapter to qualify. */
+const clHome = (home: string) => mkdirSync(join(home, "cl"), {recursive: true});
+
+const SETTINGS_SETUP: SetupData = {
+  strategy: STRATEGY,
+  dirs: ["cl"],
+  sql: [`INSERT INTO assistant_settings(id,runner,account,backend,limits,retention,rev) VALUES(1,'opencode#ep','ep',NULL,'{"turnsPerDay":3}','{"conversations":200,"days":30}',4)`],
+};
+const UNUSABLE_LIMITS: SetupData = {
+  sql: [`INSERT INTO assistant_settings(id,runner,account,backend,limits,retention,rev) VALUES(1,'opencode#ep','ep',NULL,'{"turnsPerDay":0}','{"conversations":200,"days":30}',4)`],
+};
+const UNUSABLE_RETENTION: SetupData = {
+  sql: [`INSERT INTO assistant_settings(id,runner,account,backend,limits,retention,rev) VALUES(1,'opencode#ep','ep',NULL,'{"turnsPerDay":3}','not json',4)`],
+};
+const UNTITLED: SetupData = {
+  sql: [
+    `INSERT INTO assistant_conversations(id,title,created_at,updated_at) VALUES('c-a','Alpha',1699990000,1699999000.5)`,
+    `INSERT INTO assistant_turns(id,conversation_id,seq,at,question,answer,state,error,account,scope,cards,citations) VALUES('turn-1','c-a',1,1699999000.5,'How?','Like it.','done',NULL,'ep','{"kind":"dispatch","days":7}','[{"id":"card-1","op":"dispatch.retry","params":{"id":"${TASK}","expect_rev":1},"title":"Retry","summary":"s","editable":[],"why":"because","state":"stale","result":"old"}]','[]')`,
+    `INSERT INTO tasks(id,rev,state,created_at,updated_at,record,archived) VALUES('${TASK}',3,'done',1,1,'{"id":"${TASK}","rev":3,"state":"done"}',0)`,
+  ],
+};
 const CARD = {id: "card-1", op: "dispatch.retry", params: {id: TASK, expect_rev: 1, note: "x\u0007 é ✓ \u2028"}, title: "Retry", summary: "s", editable: [{name: "note", label: "Note", value: "x"}], why: "because", state: "stale", result: "old", href: "#/tasks/x"};
 // Array-index keys come first after JSON.parse; the stored text keeps the original order.
 const CARDS = `[${JSON.stringify(CARD)},{"id":"card-2","op":"navigate","params":{"b":1,"2":true,"1":null},"title":"Go","summary":"","editable":[],"why":"","state":"pending"}]`;
@@ -56,20 +79,81 @@ function dump(home: string) {
   } finally { sqlite.close(); }
 }
 
-type Case = [op: string, params: unknown, setup?: (home: string) => void, env?: Record<string, string>];
+/**
+ * E3: after the ops' TS handlers became `nativeOnly`, the reference is the same TypeScript
+ * functions and schemas those handlers called, behind the same caller policy and Zod parsing.
+ */
+async function reference(ctx: ReturnType<typeof fakeCtx>, op: string, params: unknown): Promise<unknown> {
+  // The reference mirrors the old handlers' zod-parsed params; each case supplies a valid shape.
+  const p: any = parseOpParams(ctx, op, params);
+  switch (op) {
+    case "assistant.settings.get": return readSettings(ctx);
+    case "assistant.settings.set": return saveSettings(ctx, p);
+    case "assistant.conversations": return {conversations: listHistory(ctx, p)};
+    case "assistant.conversation": return {id: p.id, turns: conversationTurns(ctx, p.id)};
+    case "assistant.turn": {
+      const turn = getTurn(ctx, p.turnId);
+      if (!turn) throw new CoreError("not_found", "Unknown turn.");
+      return turn;
+    }
+    case "assistant.delete": return deleteConversations(ctx, p.id);
+    case "assistant.card.record": return updateCard(ctx, p.turnId, p.cardId, {state: p.state, ...(p.result !== undefined ? {result: p.result} : {})});
+    case "assistant.card.refresh": return refreshCard(ctx, p.turnId, p.cardId);
+    default: return callOp(ctx, op, p);
+  }
+}
 
-async function compare([op, params, setup, env = {}]: Case) {
+type SetupData = {strategy?: string; dirs?: string[]; sql?: string[]};
+type Golden = {file: "settings" | "history" | "cards"; setup: SetupData};
+type Case = [op: string, params: unknown, setup?: (home: string) => void, env?: Record<string, string>, golden?: Golden];
+
+/** E3: freeze a case for the Rust golden replay. `UPDATE_M3_GOLDENS=1` writes the fixture. */
+function record(golden: Golden | undefined, op: string, params: unknown, env: Record<string, string>, expected: unknown, codeOnly: boolean) {
+  if (!golden || process.env.UPDATE_M3_GOLDENS !== "1") return;
+  const path = join(import.meta.dir, "fixtures/m3/assistant", `${golden.file}.json`);
+  const all = existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) as unknown[] : [];
+  all.push({op, params, setup: golden.setup, env, expected, ...(codeOnly ? {codeOnly: true} : {})});
+  mkdirSync(join(import.meta.dir, "fixtures/m3/assistant"), {recursive: true});
+  writeFileSync(path, `${JSON.stringify(all, null, 2)}\n`);
+}
+
+async function compare([op, params, setup, env = {}, golden]: Case) {
   const rs = mkdtempSync(join(tmpdir(), "native-as-")), ts = mkdtempSync(join(tmpdir(), "native-as-"));
   setup?.(rs); setup?.(ts);
   const ctx = fakeCtx({pacerHome: ts, home: ts, now: NOW, env});
   let expected: unknown;
-  try { expected = {result: await callOp(ctx, op, params)}; } catch (error) { expected = {error: toApiError(error)}; }
+  try { expected = {result: await reference(ctx, op, params)}; } catch (error) { expected = {error: toApiError(error)}; }
   const input = `${JSON.stringify({op, params, home: rs, now: NOW, env})}\n`;
   const actual = JSON.parse(execFileSync(driver(), [], {input}).toString());
   const label = `${op} ${JSON.stringify(params)} ${JSON.stringify(env)}`;
   expect(actual, `${label} actual=${JSON.stringify(actual)} expected=${JSON.stringify(expected)}`).toEqual(expected);
   expect(JSON.stringify(actual), `${label}: bytes`).toBe(JSON.stringify(expected));
   expect(dump(rs), `${label}: tables`).toEqual(dump(ts));
+  record(golden, op, params, env, expected, false);
+}
+
+/**
+ * S0 Q1: Rust keeps the `internal` code and uses its own message. Freeze those messages here and in
+ * `test/fixtures/m3/assistant/*.json`; the Rust goldens replay them.
+ */
+const INTERNAL: Record<string, string> = {
+  settings: "assistant settings are unreadable: limits.turnsPerDay is outside 1..=1000",
+  conversations: "assistant settings are unreadable: retention is not valid JSON",
+  cards: `task ${TASK} has no title or goal`,
+};
+
+async function compareCode([op, params, setup, env = {}, golden]: Case, message: string) {
+  const rs = mkdtempSync(join(tmpdir(), "native-as-")), ts = mkdtempSync(join(tmpdir(), "native-as-"));
+  setup?.(rs); setup?.(ts);
+  const ctx = fakeCtx({pacerHome: ts, home: ts, now: NOW, env});
+  let expected: unknown;
+  try { expected = {result: await reference(ctx, op, params)}; } catch (error) { expected = {error: toApiError(error)}; }
+  const actual = JSON.parse(execFileSync(driver(), [], {input: `${JSON.stringify({op, params, home: rs, now: NOW, env})}\n`}).toString());
+  const label = `${op} ${JSON.stringify(params)}`;
+  expect(actual.error?.code, `${label}: code`).toBe((expected as {error?: {code: string}}).error?.code);
+  expect(actual.error?.message, `${label}: frozen Rust message`).toBe(message);
+  expect(dump(rs), `${label}: tables`).toEqual(dump(ts));
+  record(golden, op, params, env, {error: {code: actual.error.code, message}}, true);
 }
 
 async function forwarded([op, params, setup, env = {}]: Case) {
@@ -107,6 +191,11 @@ test("native assistant settings, history and cards match TypeScript results, err
     ["assistant.settings.set", {...base, backend: "x"}, strategy],
     ["assistant.settings.set", {...base, backend: 5}, strategy],
     ["assistant.settings.set", {...base, backend: null}, strategy],
+    // The executor backend qualifies any account with an ask-mode adapter (opencode, Claude Code, Codex).
+    ["assistant.settings.set", {runner: null, account: "cl", expect_rev: 4, backend: "executor"}, all(settings("ep"), strategy, clHome), {}, {file: "settings", setup: SETTINGS_SETUP}],
+    ["assistant.settings.set", {runner: null, account: "claude", expect_rev: 4, backend: "executor"}, all(settings("ep"), strategy), {}, {file: "settings", setup: SETTINGS_SETUP}],
+    ["assistant.settings.set", {runner: null, account: "bare", expect_rev: 4, backend: "executor"}, all(settings("ep"), strategy), {}, {file: "settings", setup: SETTINGS_SETUP}],
+    ["assistant.settings.set", {runner: null, account: "nope", expect_rev: 4, backend: "executor"}, all(settings("ep"), strategy), {}, {file: "settings", setup: SETTINGS_SETUP}],
     ["assistant.settings.set", "x"],
     ["assistant.settings.get", {}, settings("ep", '{"turnsPerDay":3}', '{"conversations":200,"days":30}', "executor")],
     ["assistant.settings.get", {}, settings("ep", '{"turnsPerDay":3}', '{"conversations":200,"days":30}', "garbage")],
@@ -148,34 +237,62 @@ test("native assistant settings, history and cards match TypeScript results, err
   for (const item of cases) await compare(item);
 }, 600_000);
 
-test("native assistant leaves cached-status admission and TypeScript-only inputs to the core", async () => {
+test("native assistant leaves candidates, work grants and unregistered ops to the core", async () => {
   const unusable = settings("ep", '{"turnsPerDay":0}');
   const cases: Case[] = [
-    // A pacer-backend status depends on the core's plugin registry (native binary present or not).
+    // Status admission still needs the core's plugins and cached status (B4-2 finishes it).
     ["assistant.status", {}, all(settings("ep"), strategy, history)],
     ["assistant.status", {}, all(settings("ep", "{}"), strategy, history)],
     ["assistant.status", {}, settings("ep")],
-    // Candidates and an executor backend's admission need the core's plugins and ask-mode check.
     ["assistant.candidates", {}],
     ["assistant.candidates", {}, strategy],
     ["assistant.status", {}, all(settings("ep", '{"turnsPerDay":3}', '{"conversations":200,"days":30}', "executor"), strategy, history)],
-    ["assistant.settings.set", {...base, account: "ep"}],
-    ["assistant.settings.get", {}, unusable],
-    ["assistant.settings.set", base, unusable],
-    ["assistant.conversations", {}, unusable],
     ["assistant.status", {}, unusable],
+    // Work grants are the remaining non-status selective forwarder.
     ["assistant.turn", {turnId: "turn-1"}, history, {PACER_WORK_GRANT: "pwg_x"}],
-    // taskTitle throws on a record without a title or goal; only TypeScript reproduces that error.
-    ["assistant.card.refresh", {turnId: "turn-1", cardId: "card-1"}, all(history, home => db(home).run("UPDATE tasks SET record=json_remove(record,'$.brief')"))],
   ];
   for (const item of cases) await forwarded(item);
   // The forwarded TypeScript reference reports the schema failure itself.
   const home = mkdtempSync(join(tmpdir(), "native-as-"));
   unusable(home);
-  await expect(callOp(fakeCtx({pacerHome: home, home, now: NOW, env: {}}), "assistant.settings.get", {})).rejects.toThrow();
+  await expect(reference(fakeCtx({pacerHome: home, home, now: NOW, env: {}}), "assistant.settings.get", {})).rejects.toThrow();
   // assistant.tool needs a live turn's tool context in the core, and assistant.selftest its agent CLI.
   // assistant.ask and assistant.cancel are covered by test/native-assistant-turn-parity.test.ts.
   for (const op of ["assistant.tool", "assistant.selftest"]) {
     expect(() => execFileSync(driver(), [], {input: `${JSON.stringify({op, params: {turnId: "turn-1", name: "snapshot", params: {}}, home, now: NOW})}\n`, stdio: ["pipe", "pipe", "ignore"]}), op).toThrow();
   }
+});
+
+/** E3: the TypeScript suite also reads the frozen goldens, so deleting `src/` later is safe. */
+test("frozen M3 assistant goldens drive the native registry", async () => {
+  const apply = (home: string, setup: SetupData) => {
+    if (setup.strategy) writeFileSync(join(home, "strategy.yaml"), setup.strategy);
+    for (const folder of setup.dirs ?? []) mkdirSync(join(home, folder), {recursive: true});
+    for (const sql of setup.sql ?? []) db(home).exec(sql);
+  };
+  for (const file of ["settings", "history", "cards"] as const) {
+    const cases = JSON.parse(readFileSync(join(import.meta.dir, "fixtures/m3/assistant", `${file}.json`), "utf8")) as Array<Record<string, any>>;
+    for (const c of cases) {
+      const home = mkdtempSync(join(tmpdir(), "native-as-golden-"));
+      apply(home, c.setup);
+      const actual = JSON.parse(execFileSync(driver(), [], {input: `${JSON.stringify({op: c.op, params: c.params, home, now: NOW, env: c.env ?? {}})}\n`}).toString());
+      const label = `${file} ${c.op} ${JSON.stringify(c.params)}`;
+      if (c.codeOnly) {
+        expect(actual.error.code, label).toBe(c.expected.error.code);
+        expect(actual.error.message, label).toBe(c.expected.error.message);
+      } else {
+        expect(actual, label).toEqual(c.expected);
+      }
+    }
+  }
+});
+
+test("unusable settings and untitled cards are native internal errors", async () => {
+  const untitled = (home: string) => {
+    history(home);
+    db(home).run(`UPDATE tasks SET record='{"id":"${TASK}","rev":3,"state":"done"}'`);
+  };
+  await compareCode(["assistant.settings.get", {}, settings("ep", '{"turnsPerDay":0}'), {}, {file: "settings", setup: UNUSABLE_LIMITS}], INTERNAL.settings);
+  await compareCode(["assistant.conversations", {}, settings("ep", '{"turnsPerDay":3}', "not json"), {}, {file: "history", setup: UNUSABLE_RETENTION}], INTERNAL.conversations);
+  await compareCode(["assistant.card.refresh", {turnId: "turn-1", cardId: "card-1"}, untitled, {}, {file: "cards", setup: UNTITLED}], INTERNAL.cards);
 });
