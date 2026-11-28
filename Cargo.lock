@@ -1752,6 +1752,7 @@ dependencies = [
  "ryu-js",
  "serde_json",
  "sha2",
+ "subtle",
  "tempfile",
  "tokio",
 ]
