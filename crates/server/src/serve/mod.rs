@@ -1,5 +1,6 @@
 //! Public listener authentication. Listener and core forwarding are wired separately.
 pub mod app_assets;
+mod assistant_stream;
 pub mod auth;
 pub mod core_child;
 pub mod discovery;
@@ -100,7 +101,12 @@ async fn forward_plugin_read(
 async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Response {
     // Session expiry is checked against the time of this request, never the start-up time.
     let ctx = state.ctx.at_now();
+    let mut native_grant = None;
     let auth = match auth::classify(&req, state.port, &state.token, &ctx) {
+        auth::Decision::Native { grant } => {
+            native_grant = Some(grant);
+            auth::AuthKind::Bearer
+        }
         auth::Decision::Health => return state.heartbeat.response(),
         auth::Decision::Reject(response) => {
             if let Some(page) = response.extensions().get::<auth::AppPage>() {
@@ -171,10 +177,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             Err(error) if plugin && error == pacer_plugin_ops::json::NESTING_FALLBACK => {
                 return forward_plugin_read(&state, parts, bytes, auth).await;
             }
-            Err(_)
-                if crate::native::dispatch_lifecycle_sync::forwards_undecodable_body(op.name)
-                    || crate::native::assistant_turn_sync::needs_bridge(op.name) =>
-            {
+            Err(_) if crate::native::dispatch_lifecycle_sync::forwards_undecodable_body(op.name) => {
                 let Some(target) = state.core.target().await else {
                     return proxy::unavailable(false);
                 };
@@ -308,14 +311,9 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                 Err(error) => native_error(error),
             };
         }
-        if crate::native::assistant_turn_sync::needs_bridge(op.name) {
-            crate::native::msg_write_sync::trace(op.name, None);
-            let mut bridge = crate::native::assistant_turn_sync::HttpBridge {
-                target: state.core.target().await,
-            };
-            let result =
-                crate::native::assistant_turn_sync::call(&ctx, op.name, params, &mut bridge);
-            return match result.await {
+        if native_grant.is_some() {
+            crate::native::assistant_reads::trace(op.name);
+            return match assistant_tool_with_grant(&ctx, &params, native_grant.as_deref().unwrap_or("")).await {
                 Ok(result) => native_json(StatusCode::OK, serde_json::json!({"result":result})),
                 Err(error) => native_error(error),
             };
@@ -851,6 +849,30 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
         )
         .await;
     }
+    // The ephemeral answer stream is a native turn surface. It is protocol 3
+    // only, never reachable by an executor session or a scoped grant.
+    if let Some(id) = req
+        .uri()
+        .path()
+        .strip_prefix("/v3/assistant/turns/")
+        .and_then(|rest| rest.strip_suffix("/stream"))
+        && !id.contains('/')
+        && !id.is_empty()
+    {
+        if native_grant.is_some()
+            || auth == auth::AuthKind::Task
+            || ctx.env.get("PACER_ROLE").map(String::as_str) == Some("executor")
+        {
+            return native_error(CoreError::new(Code::NotAllowed, "PACER_ROLE=executor: executors cannot use the assistant."));
+        }
+        if req.method() != axum::http::Method::GET {
+            return native_error(CoreError::new(Code::InvalidInput, "method not allowed"));
+        }
+        if std::env::var("PACER_DEBUG_NATIVE").as_deref() == Ok("1") {
+            eprintln!("native http.assistant_stream");
+        }
+        return assistant_stream::stream(id);
+    }
     if let Some(response) = app_assets::route(&req) {
         return response;
     }
@@ -866,6 +888,47 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
     }
     proxy::forward(req, target, auth).await
 }
+/// A `pag_` grant answers only its own turn, only while the turn is live.
+async fn assistant_tool_with_grant(
+    ctx: &pacer_foundation::Ctx,
+    params: &serde_json::Value,
+    grant: &str,
+) -> Result<serde_json::Value, CoreError> {
+    use pacer_foundation::api::Code;
+    use pacer_store::{TaskStore, assistant, work_grants};
+    let closed = || {
+        CoreError::new(
+            Code::NotAllowed,
+            "That assistant turn has ended; its tools are closed.",
+        )
+    };
+    let turn_id = params["turnId"]
+        .as_str()
+        .filter(|id| !id.is_empty() && id.chars().count() <= 128)
+        .ok_or_else(|| CoreError::new(Code::InvalidInput, "invalid assistant.tool params"))?;
+    let bound = {
+        let mut store = TaskStore::open(&ctx.pacer_home)
+            .map_err(|error| CoreError::new(Code::Internal, error.to_string()))?;
+        let db = assistant::database(&mut store)
+            .map_err(|error| CoreError::new(Code::Internal, error.to_string()))?;
+        work_grants::authorize_assistant(db, grant)
+            .map_err(|error| CoreError::new(Code::Internal, error.to_string()))?
+    };
+    if bound.as_deref() != Some(turn_id) {
+        return Err(closed());
+    }
+    if pacer_assistant_ops::assistant_ops::live::tools(turn_id).is_none() {
+        return Err(closed());
+    }
+    let mut reads = crate::native::assistant_reads::NativeReadOps;
+    pacer_assistant_ops::assistant_ops::turn::assistant_tool(
+        ctx,
+        params.clone(),
+        &mut reads,
+    )
+    .await
+}
+
 fn native_error(error: CoreError) -> Response {
     let status =
         StatusCode::from_u16(error.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
@@ -954,6 +1017,17 @@ pub async fn run_serve(
     });
     #[cfg(not(target_os = "macos"))]
     let core = Arc::new(core_child::CoreChild::spawn(core, env, owner_key));
+    if let Some(host) = &native_host {
+        let assistant_core = Arc::clone(&core);
+        crate::native::install_assistant_runner(host.owner(), move || {
+            let core = Arc::clone(&assistant_core);
+            Box::pin(async move {
+                crate::native::plugins::http_link(&core)
+                    .await
+                    .map(|(ipc, _)| ipc)
+            })
+        });
+    }
     if let Some(host) = &native_host {
         let core = core.clone();
         let link = move || {

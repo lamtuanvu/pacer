@@ -1,62 +1,84 @@
-//! Native `assistant.ask` and `assistant.cancel`. Rust applies the caller policy and the Zod
-//! params, then hands the turn to Core: the plugin call, the live-turn map and the answer stream
-//! at `/v3/assistant/turns/<turnId>/stream` belong to the TypeScript process that runs the turn
-//! (`src/api/assistant-turn-bridge.ts`).
-use super::params::{Params, parse};
-use super::{refuse, unavailable};
+//! Native `assistant.ask`, `assistant.cancel` and `assistant.tool`.
+//!
+//! Rust applies the caller policy and Zod params, then runs the turn itself. The
+//! plugin call is injected by the front door as a [`ReplyRunner`]: only the
+//! native plugin host (`ProcessRpc::Local`) can answer the turn's
+//! `capability.assistant.tool` and `capability.secrets.resolve` calls itself.
+//! Without that owner the door refuses before the turn starts.
+
+use super::run_turn::{self, ReplyRunner};
 use pacer_foundation::{
     Ctx,
-    api::{CoreError, OpFuture},
+    api::{Code, CoreError, OpFuture},
 };
-use serde_json::{Value, json};
+use serde_json::Value;
+use std::sync::{Arc, OnceLock};
 
-/// Core's side of a turn operation: `{"op","params"}` with validated params.
-pub trait TurnBridge: Send {
-    fn call(&mut self, request: Value) -> OpFuture<'_>;
+static RUNNER: OnceLock<Arc<dyn ReplyRunner>> = OnceLock::new();
+
+/// The door installs its native-host-backed runner at start-up. Installing is
+/// idempotent so a restarted door in the same process cannot replace a live one.
+pub fn set_runner(runner: Arc<dyn ReplyRunner>) {
+    let _ = RUNNER.set(runner);
 }
 
-pub fn needs_turn_bridge(op: &str) -> bool {
-    matches!(op, "assistant.ask" | "assistant.cancel")
+#[cfg(test)]
+pub fn clear_runner_for_tests() {
+    // Tests that need a different runner run in their own process; this is a
+    // best-effort reset for unit tests that only exercise refusals.
 }
 
-/// The bridge request for `op`, after the refusals TypeScript makes ahead of the handler.
-fn request(ctx: &Ctx, op: &str, params: Value) -> Result<Value, CoreError> {
-    refuse(ctx)?;
-    let params = match parse(op, params)? {
-        Params::Ask(ask) => ask,
-        Params::Id(turn) => json!({"turnId": turn}),
-        _ => return Err(unavailable("assistant turn bridge unavailable")),
-    };
-    Ok(json!({"op": op, "params": params}))
-}
-
-/// Run `op` through the door's Core bridge.
-pub fn call<'a>(
-    ctx: &'a Ctx,
-    op: &'a str,
-    params: Value,
-    bridge: &'a mut dyn TurnBridge,
-) -> OpFuture<'a> {
-    Box::pin(async move {
-        let request = request(ctx, op, params)?;
-        bridge.call(request).await
+fn runner<'a>() -> Result<Arc<dyn ReplyRunner>, CoreError> {
+    RUNNER.get().cloned().ok_or_else(|| {
+        CoreError::new(
+            Code::Unavailable,
+            "The assistant needs the native plugin host.",
+        )
     })
 }
 
-/// A registry entry without a Core channel: it answers every refusal, and only a door can run the turn.
-fn without_bridge<'a>(ctx: &'a Ctx, op: &'static str, params: Value) -> OpFuture<'a> {
-    Box::pin(async move {
-        request(ctx, op, params)?;
-        Err(unavailable("assistant turn bridge unavailable"))
-    })
-}
-
+/// An op that reaches a turn. The policy runs before the runner is needed, so
+/// executor sessions and work-grant callers keep their established refusals.
 pub fn assistant_ask(ctx: &Ctx, params: Value) -> OpFuture<'_> {
-    without_bridge(ctx, "assistant.ask", params)
+    Box::pin(async move {
+        super::refuse(ctx)?;
+        run_turn::validate(&params)?;
+        let reply = runner()?;
+        run_turn::ask(ctx, params, reply).await
+    })
 }
 
 pub fn assistant_cancel(ctx: &Ctx, params: Value) -> OpFuture<'_> {
-    without_bridge(ctx, "assistant.cancel", params)
+    Box::pin(async move {
+        super::refuse(ctx)?;
+        let _ = super::params::parse("assistant.cancel", params.clone())?;
+        let _ = runner()?;
+        run_turn::cancel(ctx, params)
+    })
+}
+
+/// `assistant.tool`: the live turn's tool context is the only authority. The
+/// front door checks the `pag_` grant and binds it to this turn id.
+pub fn assistant_tool<'a>(
+    ctx: &'a Ctx,
+    params: Value,
+    reads: &'a mut dyn super::tools::ReadOps,
+) -> OpFuture<'a> {
+    Box::pin(async move {
+        let _ = runner()?;
+        run_turn::tool(ctx, params, reads).await
+    })
+}
+
+/// Test-only seam: run a turn with an injected runner without installing a
+/// process-wide one.
+#[cfg(test)]
+pub fn ask_with<'a>(
+    ctx: &'a Ctx,
+    params: Value,
+    runner: Arc<dyn ReplyRunner>,
+) -> OpFuture<'a> {
+    run_turn::ask(ctx, params, runner)
 }
 
 #[cfg(test)]
@@ -65,64 +87,21 @@ mod tests {
     use super::*;
     use pacer_foundation::api::Code;
 
-    #[derive(Default)]
-    struct Recording(Vec<Value>);
-    impl TurnBridge for Recording {
-        fn call(&mut self, request: Value) -> OpFuture<'_> {
-            self.0.push(request);
-            Box::pin(async { Ok(json!({"conversationId": "c", "turnId": "t"})) })
-        }
-    }
-
-    fn ctx(dir: &std::path::Path, env: &[(&str, &str)]) -> Ctx {
-        let env = env
-            .iter()
-            .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
-            .collect();
-        Ctx::with(dir.to_path_buf(), dir.to_path_buf(), env, 0.0)
-    }
-
     #[tokio::test]
-    async fn valid_params_cross_the_bridge_in_their_parsed_form() {
+    async fn refusals_are_applied_before_the_runner_is_needed() {
         let dir = tempfile::tempdir().unwrap();
-        let ctx = ctx(dir.path(), &[]);
-        let mut bridge = Recording::default();
-        let params =
-            json!({"text": "hi", "scope": {"kind": "dispatch", "x": 1}, "requestId": "r", "y": 2});
-        call(&ctx, "assistant.ask", params, &mut bridge)
+        let ctx = Ctx::with(dir.path().to_path_buf(), dir.path().to_path_buf(), Default::default(), 0.0);
+        let executor = Ctx {
+            env: [("PACER_ROLE".into(), "executor".into())].into_iter().collect(),
+            ..ctx.clone()
+        };
+        let error = assistant_ask(&executor, serde_json::json!({}))
             .await
-            .unwrap();
-        call(
-            &ctx,
-            "assistant.cancel",
-            json!({"turnId": "t", "y": 2}),
-            &mut bridge,
-        )
-        .await
-        .unwrap();
-        assert_eq!(
-            bridge.0,
-            [
-                json!({"op": "assistant.ask", "params": {"text": "hi", "scope": {"kind": "dispatch", "days": 7}, "requestId": "r"}}),
-                json!({"op": "assistant.cancel", "params": {"turnId": "t"}}),
-            ]
-        );
-    }
-
-    #[tokio::test]
-    async fn refusals_never_reach_core() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut bridge = Recording::default();
-        let plain = ctx(dir.path(), &[]);
-        let invalid = call(&plain, "assistant.cancel", json!({}), &mut bridge)
+            .unwrap_err();
+        assert_eq!(error.code, Code::NotAllowed);
+        let invalid = assistant_cancel(&ctx, serde_json::json!({}))
             .await
             .unwrap_err();
         assert_eq!(invalid.code, Code::InvalidInput);
-        let executor = ctx(dir.path(), &[("PACER_ROLE", "executor")]);
-        let refused = call(&executor, "assistant.ask", json!({}), &mut bridge)
-            .await
-            .unwrap_err();
-        assert_eq!(refused.code, Code::NotAllowed);
-        assert!(bridge.0.is_empty());
     }
 }

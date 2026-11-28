@@ -50,7 +50,7 @@ fn unavailable(message: &str) -> CoreError {
 }
 
 /// `authorizeWorkOperation` and `isExecutorSession`, ahead of the params.
-fn refuse(ctx: &Ctx) -> Result<(), CoreError> {
+pub(crate) fn refuse(ctx: &Ctx) -> Result<(), CoreError> {
     if env(ctx, "PACER_ENFORCEMENT_TOKEN").is_some() {
         return Err(CoreError::new(
             Code::NotAllowed,
@@ -74,12 +74,12 @@ fn refuse(ctx: &Ctx) -> Result<(), CoreError> {
     Ok(())
 }
 
-/// Which assistant ops the native handler declines so the core answers them. `assistant.tool` and
-/// `assistant.selftest` are never native: they need the live turn's tool context and the agent CLI.
-/// `assistant.candidates` stays with the core: its rows depend on the executor backend's plugin and
-/// its recorded ask-mode check, which only the core knows.
+/// Which assistant ops the native handler declines so the core answers them.
+/// `assistant.selftest` stays with the core until B4-5; `assistant.candidates`
+/// needs the executor backend's ask-mode record. Turns and their tools are
+/// native: the reply plugin's door capabilities are answered here.
 pub fn assistant_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
-    if !op.starts_with("assistant.") || matches!(op, "assistant.tool" | "assistant.selftest") {
+    if !op.starts_with("assistant.") || op == "assistant.selftest" {
         return false;
     }
     if op == "assistant.candidates" {
@@ -168,7 +168,7 @@ fn array_index(key: &str) -> bool {
 }
 
 /// `loadStrategy`, when the Rust loader reads it with TypeScript key order.
-fn strategy(ctx: &Ctx) -> Option<Value> {
+pub(crate) fn strategy(ctx: &Ctx) -> Option<Value> {
     let strategy = load_strategy(&ctx.pacer_home).ok()?;
     let ordered = ["accounts", "runners"].iter().all(|key| {
         strategy
@@ -264,7 +264,7 @@ fn candidates(strategy: &Value) -> Vec<Value> {
 }
 
 /// The process time zone: `TZ`, else the `/etc/localtime` zone name.
-fn local_zone(ctx: &Ctx) -> Option<chrono_tz::Tz> {
+pub(crate) fn local_zone(ctx: &Ctx) -> Option<chrono_tz::Tz> {
     if let Some(name) = ctx.env.get("TZ") {
         return name.parse().ok();
     }
@@ -278,7 +278,7 @@ fn local_zone(ctx: &Ctx) -> Option<chrono_tz::Tz> {
 }
 
 /// `new Date(now * 1000).setHours(0, 0, 0, 0) / 1000`.
-fn local_midnight(now: f64, zone: chrono_tz::Tz) -> Option<f64> {
+pub(crate) fn local_midnight(now: f64, zone: chrono_tz::Tz) -> Option<f64> {
     let date = zone
         .timestamp_millis_opt((now * 1000.0).floor() as i64)
         .single()?
@@ -380,6 +380,12 @@ fn status(ctx: &Ctx) -> Result<Option<Value>, CoreError> {
 }
 
 mod params;
+pub mod cards;
+pub mod digest;
+pub mod live;
+pub mod redact;
+pub mod run_turn;
+pub mod tools;
 pub mod turn;
 use params::{Params, parse};
 

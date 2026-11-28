@@ -489,26 +489,6 @@ async fn forward_input<
                     }
                     continue;
                 }
-                if crate::native::assistant_turn_sync::needs_bridge(op.name) {
-                    crate::native::msg_write_sync::trace(op.name, request.get("id"));
-                    let mut bridge = crate::native::assistant_turn_sync::StdioBridge {
-                        core: &mut core,
-                        prefix: sync.0,
-                        key: sync.1,
-                        replies: &mut *sync.2,
-                    };
-                    let result = crate::native::assistant_turn_sync::call(
-                        &request_ctx,
-                        op.name,
-                        params,
-                        &mut bridge,
-                    )
-                    .await;
-                    if let Some(id) = request.get("id") {
-                        write_line(out, &rpc_line(id, result)?).await?;
-                    }
-                    continue;
-                }
                 if crate::native::task_send_ops::needs_task_send_bridge(op.name) {
                     crate::native::msg_write_sync::trace(op.name, request.get("id"));
                     let by =
@@ -1363,6 +1343,13 @@ async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i3
     let (ownership, host_socket) = Ownership::start(&env, &ctx.pacer_home, scoped_work).await?;
     crate::core_process::record_stdio(&env, &host_socket);
     let (link, frames) = PluginLink::new(&sync_id, &sync_key);
+    if let Some(owner) = ownership.owner() {
+        let assistant_ipc: std::sync::Arc<dyn pacer_plugin_ops::ipc::CoreIpc> = link.clone();
+        crate::native::install_assistant_runner(owner, move || {
+            let ipc = assistant_ipc.clone();
+            Box::pin(async move { Some(ipc) })
+        });
+    }
     if let Some((reports, requests)) = ownership.crash_reports().zip(ownership.door_requests()) {
         let ipc: std::sync::Arc<dyn pacer_plugin_ops::ipc::CoreIpc> = link.clone();
         let core = move || {

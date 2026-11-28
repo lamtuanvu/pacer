@@ -24,6 +24,8 @@ pub enum Decision {
     Health,
     AppAuth,
     Forward { auth: AuthKind },
+    /// A live-shaped `pag_` grant on its one operation: the Rust turn answers it.
+    Native { grant: String },
 }
 
 /// A rejected app request needs the core's /_internal/app-page HTML template.
@@ -181,14 +183,24 @@ pub fn classify<B>(req: &Request<B>, port: u16, token: &str, ctx: &Ctx) -> Decis
             .bytes()
             .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
     {
-        // The assistant grant (`pag_`) is a third, narrower credential: one operation, `assistant.tool`.
+        // The assistant grant (`pag_`) is a third, narrower credential: one
+        // operation, `assistant.tool`, answered by the native turn itself. Its
+        // liveness and its turn binding are checked with the operation params;
+        // a live-shaped token on any other route is rejected here.
+        if bearer.starts_with("pag_") {
+            return (req.method() == "POST" && path == "/v3/ops/assistant.tool")
+                .then(|| Decision::Native {
+                    grant: bearer.to_owned(),
+                })
+                .unwrap_or_else(|| reject(StatusCode::FORBIDDEN, "forbidden\n", None));
+        }
         // The workflow run grant (`prg_`, API-5b) posts operations; the core checks that it is
         // live, that the operation is a run-grant one and that the target is in its own run.
         if req.method() == "POST"
             && ((bearer.starts_with("pwg_") || bearer.starts_with("prg_"))
                 && path.starts_with("/v3/ops/")
-                || bearer.starts_with("pet_") && path == "/v3/ops/dispatch.enforcement.denied"
-                || bearer.starts_with("pag_") && path == "/v3/ops/assistant.tool")
+                && path != "/v3/ops/assistant.tool"
+                || bearer.starts_with("pet_") && path == "/v3/ops/dispatch.enforcement.denied")
         {
             return Decision::Forward {
                 auth: AuthKind::Task,
@@ -259,6 +271,8 @@ mod tests {
     enum Verdict {
         /// Forwarded to the core with the task-grant header.
         Task,
+        /// Answered by the Rust turn under the assistant grant.
+        Native,
         Rejected(StatusCode),
         /// Bearer, cookie, health or app-auth: never a scoped credential.
         Unscoped,
@@ -282,6 +296,7 @@ mod tests {
             Decision::Forward {
                 auth: AuthKind::Task,
             } => Verdict::Task,
+            Decision::Native { .. } => Verdict::Native,
             Decision::Forward { .. } | Decision::Health | Decision::AppAuth => Verdict::Unscoped,
             Decision::Reject(response) => Verdict::Rejected(response.status()),
         }
@@ -290,10 +305,10 @@ mod tests {
     const ASSISTANT: &str = "pag_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
     #[test]
-    fn assistant_grant_forwards_only_its_one_operation() {
+    fn assistant_grant_answers_only_its_one_operation() {
         assert_eq!(
             verdict(Method::POST, "/v3/ops/assistant.tool", ASSISTANT),
-            Verdict::Task
+            Verdict::Native
         );
         for path in [
             "/v3/ops/assistant.status",
@@ -338,7 +353,7 @@ mod tests {
         let work = format!("pwg_{HEX}");
         assert_eq!(
             verdict(Method::POST, "/v3/ops/assistant.tool", &work),
-            Verdict::Task
+            Verdict::Rejected(StatusCode::FORBIDDEN)
         );
         assert_eq!(
             verdict(Method::POST, "/v3/ops/task.get", &work),
