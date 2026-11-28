@@ -10,11 +10,16 @@
 pub mod apply;
 mod check;
 pub mod desktop_reconcile_ops;
+pub mod download;
 mod feed;
 pub mod handover;
 mod js;
+pub mod manager;
+pub mod manifest;
 pub mod onboarding;
+pub mod replace;
 mod service;
+pub mod sign;
 #[cfg(test)]
 mod tests;
 
