@@ -3,8 +3,8 @@ import { callOp } from "../src/api/ops";
 import { handleV2 } from "../src/api/http";
 import { helloBody } from "../src/api/protocol";
 import { v2Hello } from "../src/api/v2-compat";
-import { ask, cancel, refreshCard, runAssistantTool, type AssistantDeps } from "../src/assistant/service";
-import { getTurn, readSettings, writeSettings } from "../src/assistant/store";
+import { ask, cancel, deleteConversations, refreshCard, runAssistantTool, saveSettings, type AssistantDeps } from "../src/assistant/service";
+import { getTurn, listConversations, readSettings, updateCard, writeSettings } from "../src/assistant/store";
 import { askCommand, equivalentCommand } from "../src/commands/ask";
 import type { Strategy } from "../src/config/strategy";
 import type { Status } from "../src/engine/status";
@@ -97,12 +97,13 @@ describe("cards over the ops", () => {
     const t = await settle(ctx, (await ask(ctx, { text: "retry it", scope, requestId: rid() }, deps)).turnId);
     const card = t.cards[0]!;
     expect(card.params.expect_rev).toBe(3);
-    await callOp(ctx, "assistant.card.record", { turnId: t.id, cardId: card.id, state: "stale", result: "changed" });
+    // card.record is native at the front door (M3 B4-1); exercise the same TS store function here.
+    updateCard(ctx, t.id, card.id, { state: "stale", result: "changed" });
     expect(getTurn(ctx, t.id)!.cards[0]).toMatchObject({ state: "stale", result: "changed" });
     bump();
     const fresh = refreshCard(ctx, t.id, card.id, deps);
     expect(fresh).toMatchObject({ state: "pending", params: { id: ID, expect_rev: 4 } });
-    await expect(callOp(ctx, "assistant.card.record", { turnId: t.id, cardId: "nope", state: "done" })).rejects.toMatchObject({ code: "not_found" });
+    expect(() => updateCard(ctx, t.id, "nope", { state: "done" })).toThrow(/card/);
   });
 });
 
@@ -111,12 +112,14 @@ describe("history and settings ops", () => {
     const { ctx, deps } = setup();
     const s = await ask(ctx, { text: "q", scope, requestId: rid() }, deps);
     await settle(ctx, s.turnId);
-    expect((await callOp(ctx, "assistant.conversations", {}) as any).conversations).toHaveLength(1);
-    expect(await callOp(ctx, "assistant.delete", {})).toEqual({ deleted: 1 });
-    expect((await callOp(ctx, "assistant.conversations", {}) as any).conversations).toHaveLength(0);
+    // History, delete and settings are native at the front door (M3 B4-1); the TS store/service
+    // functions below are the same ones the operations used before the cutover.
+    expect(listConversations(ctx)).toHaveLength(1);
+    expect(deleteConversations(ctx)).toEqual({ deleted: 1 });
+    expect(listConversations(ctx)).toHaveLength(0);
     expect(((await callOp(ctx, "assistant.status", {})) as any).today.turns).toBe(1);
-    await expect(callOp(ctx, "assistant.delete", { id: "conv-none" })).rejects.toMatchObject({ code: "not_found" });
-    await expect(callOp(ctx, "assistant.settings.set", { account: null, runner: null, expect_rev: 99 })).rejects.toMatchObject({ code: "conflict" });
+    expect(() => deleteConversations(ctx, "conv-none")).toThrow(/Unknown conversation/);
+    expect(() => saveSettings(ctx, { account: null, runner: null, expect_rev: 99 })).toThrow(/revision|changed/);
   });
 });
 

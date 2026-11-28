@@ -1,6 +1,27 @@
 //! Native-registry parity driver on caller-created disposable homes. Endpoint
 //! bridge integration is exercised separately by the fixed live fixture.
 use pacer_foundation::{Ctx, api::OpFuture};
+
+/// Fixed host parts for `assistant.status` / `assistant.candidates`: the plugin snapshot and
+/// cached usage parts the door would fetch from Core (the E2 parity driver supplies both).
+struct AssistantDriverHost {
+    entries: Vec<pacer_plugin_ops::public::Entry>,
+    parts: serde_json::Value,
+}
+
+impl pacer_assistant_ops::assistant_ops::AssistantHost for AssistantDriverHost {
+    fn plugins<'a>(
+        &'a mut self,
+        _: &'a Ctx,
+    ) -> pacer_plugin_ops::extension::EntriesFuture<'a> {
+        let entries = self.entries.clone();
+        Box::pin(async move { Ok(entries) })
+    }
+    fn cached_status_parts(&mut self) -> OpFuture<'_> {
+        let parts = self.parts.clone();
+        Box::pin(async move { Ok(parts) })
+    }
+}
 use pacer_install::install_ops::ServiceEffects;
 use pacer_update::apply::UpdateEffects;
 use serde_json::{Value, json};
@@ -198,6 +219,32 @@ async fn main() -> io::Result<()> {
                 && pacer_server::native::config_set_stays_forwarded(&ctx, &input["params"]))
         {
             serde_json::to_writer(&mut stdout, &json!({"forwarded":true}))?;
+            stdout.write_all(b"\n")?;
+            continue;
+        }
+        if matches!(name, "assistant.status" | "assistant.candidates") {
+            let mut host = AssistantDriverHost {
+                entries: input["pluginEntries"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|value| serde_json::from_value(value.clone()).ok())
+                    .collect(),
+                parts: input["statusParts"].clone(),
+            };
+            let params = input["params"].clone();
+            let result = if name == "assistant.status" {
+                pacer_assistant_ops::assistant_ops::assistant_status_with(&ctx, params, &mut host)
+                    .await
+            } else {
+                pacer_assistant_ops::assistant_ops::assistant_candidates_with(&ctx, params, &mut host)
+                    .await
+            };
+            let output = match result {
+                Ok(value) => json!({"result":value}),
+                Err(error) => error.body(),
+            };
+            serde_json::to_writer(&mut stdout, &output)?;
             stdout.write_all(b"\n")?;
             continue;
         }

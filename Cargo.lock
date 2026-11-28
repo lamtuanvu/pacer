@@ -1426,9 +1426,13 @@ version = "0.0.0"
 dependencies = [
  "chrono",
  "chrono-tz",
+ "pacer-account-ops",
  "pacer-config",
+ "pacer-engine",
  "pacer-foundation",
+ "pacer-install",
  "pacer-messaging-ops",
+ "pacer-plugin-ops",
  "pacer-read-model",
  "pacer-store",
  "serde_json",

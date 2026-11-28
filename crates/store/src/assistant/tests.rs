@@ -65,7 +65,10 @@ fn settings_default_parse_and_guard_revisions() {
     ] {
         db.execute("UPDATE assistant_settings SET limits=?", [bad])
             .unwrap();
-        assert!(read_settings(db).unwrap().is_none(), "{bad}");
+        assert!(
+            matches!(read_settings(db), Err(SettingsError::Unreadable(_))),
+            "{bad}"
+        );
         assert!(matches!(
             write_settings(db, None, None, None, None, None, 2).unwrap(),
             SettingsWrite::Unusable

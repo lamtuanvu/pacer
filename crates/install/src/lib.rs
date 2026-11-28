@@ -110,7 +110,7 @@ fn host_param(params: &Value) -> Result<Option<String>, CoreError> {
 }
 
 /// `Bun.which`: the first executable regular file named `name` in a `PATH` directory.
-fn which(name: &str, path: &str) -> Option<String> {
+pub fn which(name: &str, path: &str) -> Option<String> {
     use std::os::unix::fs::PermissionsExt;
     path.split(':')
         .filter(|dir| !dir.is_empty())

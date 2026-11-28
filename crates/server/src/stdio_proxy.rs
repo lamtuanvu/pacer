@@ -509,6 +509,38 @@ async fn forward_input<
                     }
                     continue;
                 }
+                if matches!(op.name, "assistant.status" | "assistant.candidates") {
+                    crate::native::msg_write_sync::trace(op.name, request.get("id"));
+                    let ipc: std::sync::Arc<dyn pacer_plugin_ops::ipc::CoreIpc> =
+                        plugins.link.clone();
+                    let link = (ipc, String::new());
+                    let mut host = crate::native::assistant_host::StdioHost::new(
+                        link,
+                        &mut core,
+                        sync.0,
+                        sync.1,
+                        &mut *sync.2,
+                    );
+                    let result = if op.name == "assistant.status" {
+                        pacer_assistant_ops::assistant_ops::assistant_status_with(
+                            &request_ctx,
+                            params,
+                            &mut host,
+                        )
+                        .await
+                    } else {
+                        pacer_assistant_ops::assistant_ops::assistant_candidates_with(
+                            &request_ctx,
+                            params,
+                            &mut host,
+                        )
+                        .await
+                    };
+                    if let Some(id) = request.get("id") {
+                        write_line(out, &rpc_line(id, result)?).await?;
+                    }
+                    continue;
+                }
                 if crate::native::task_send_ops::needs_task_send_bridge(op.name) {
                     crate::native::msg_write_sync::trace(op.name, request.get("id"));
                     let by =

@@ -15,6 +15,10 @@ pacer-config = { path = "../config" }
 pacer-read-model = { path = "../read-model" }
 pacer-store = { path = "../store" }
 pacer-messaging-ops = { path = "../messaging-ops" }
+pacer-account-ops = { path = "../account-ops" }
+pacer-install = { path = "../install" }
+pacer-plugin-ops = { path = "../plugin-ops" }
+pacer-engine = { path = "../engine" }
 
 [dev-dependencies]
 tempfile = "3"
