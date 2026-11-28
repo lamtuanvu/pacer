@@ -24,6 +24,26 @@ pub(crate) fn number_text(n: f64) -> String {
     }
 }
 
+/// `String(array)` through `Array.prototype.join(",")`: `null` (the JSON stand-in for
+/// `undefined`) becomes `""`, nested arrays recurse, objects are `"[object Object]"`,
+/// numbers use the ECMAScript spelling, and booleans and strings read as themselves.
+pub(crate) fn js_string_of_array(value: &Value) -> String {
+    fn item(value: &Value) -> String {
+        match value {
+            Value::Null => String::new(),
+            Value::Bool(b) => b.to_string(),
+            Value::Number(n) => n.as_f64().map_or_else(|| "NaN".into(), number_text),
+            Value::String(s) => s.clone(),
+            Value::Array(_) => js_string_of_array(value),
+            Value::Object(_) => "[object Object]".into(),
+        }
+    }
+    match value {
+        Value::Array(items) => items.iter().map(item).collect::<Vec<_>>().join(","),
+        other => item(other),
+    }
+}
+
 /// A number as `JSON.parse` would read the text `String(n)` back.
 pub(crate) fn number(n: f64) -> Value {
     if n.fract() == 0.0 && n.abs() < 9_007_199_254_740_992.0 {

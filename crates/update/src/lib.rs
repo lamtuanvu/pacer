@@ -10,11 +10,16 @@
 pub mod apply;
 mod check;
 pub mod desktop_reconcile_ops;
+pub mod download;
 mod feed;
 pub mod handover;
 mod js;
+pub mod manager;
+pub mod manifest;
 pub mod onboarding;
+pub mod replace;
 mod service;
+pub mod sign;
 #[cfg(test)]
 mod tests;
 
@@ -28,7 +33,7 @@ use pacer_foundation::{
 };
 use serde_json::{Map, Value};
 
-/// `update.check` and `service.status` inputs that only the TypeScript core reproduces.
+/// `service.status` inputs that only the TypeScript core reproduces.
 pub fn service_update_stays_forwarded(ctx: &Ctx, op: &str) -> bool {
     if ctx
         .env
@@ -39,7 +44,6 @@ pub fn service_update_stays_forwarded(ctx: &Ctx, op: &str) -> bool {
     }
     match op {
         "service.status" => service::stays_forwarded(ctx),
-        "update.check" => check::stays_forwarded(ctx),
         _ => false,
     }
 }

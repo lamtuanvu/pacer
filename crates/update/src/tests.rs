@@ -6,6 +6,7 @@ use crate::{
         update_check_false,
     },
     feed::{Channel, latest, latest_for, normalize_base, parse_cli_nightly, parse_latest},
+    js,
     service::{js_number, launchd_number, systemd_fields},
     update_check,
 };
@@ -390,13 +391,67 @@ fn update_apply_refusals_and_schema_issues_never_reach_core() {
 }
 
 #[test]
-fn update_check_forwards_installations_managed_elsewhere() {
+fn js_string_of_array_follows_array_to_string() {
+    assert_eq!(js::js_string_of_array(&json!(["1", "2", ["3"]])), "1,2,3");
+    assert_eq!(
+        js::js_string_of_array(&json!([null, 1, true, {"a": 1}, []])),
+        ",1,true,[object Object],"
+    );
+    assert_eq!(js::js_string_of_array(&json!(["1.0.0"])), "1.0.0");
+    assert_eq!(js::js_string_of_array(&json!("1.0.0")), "1.0.0");
+}
+
+#[test]
+fn a_cached_array_latest_is_coerced_like_string_of_array() {
     let dir = tempfile::tempdir().unwrap();
-    let plain = ctx(dir.path(), &[]);
-    assert!(!crate::service_update_stays_forwarded(
-        &plain,
-        "update.check"
-    ));
+    let c = ctx(dir.path(), &[("PACER_RELEASE_BASE", "http://127.0.0.1:9")]);
+    std::fs::create_dir_all(&c.pacer_home).unwrap();
+    // `String(["1.0.0"])` is a version: the reference keeps the cache and reports the array.
+    std::fs::write(
+        c.pacer_home.join("update-check.json"),
+        r#"{"checkedAt":1000000,"latest":["1.0.0"],"current":"0.0.0-dev","channel":"stable"}"#,
+    )
+    .unwrap();
+    let out = run(&c, json!({})).unwrap();
+    assert_eq!(out["latest"], json!(["1.0.0"]));
+    assert_eq!(out["available"], json!(true));
+
+    // `isVersion(String(["1","2",["3"]]))` is false for "1,2,3": the reference drops the
+    // cache and reports the failed feed read. This is the coercion the port reproduces.
+    std::fs::write(
+        c.pacer_home.join("update-check.json"),
+        r#"{"checkedAt":1000000,"latest":["1","2",["3"]],"current":"0.0.0-dev","channel":"stable"}"#,
+    )
+    .unwrap();
+    let out = run(&c, json!({})).unwrap();
+    assert_eq!(out["latest"], Value::Null);
+    assert_eq!(out["available"], json!(false));
+    assert!(out["error"].as_str().unwrap().contains("download failed"));
+}
+
+#[test]
+fn an_npm_install_reports_managed_by_npm() {
+    let dir = tempfile::tempdir().unwrap();
+    let c = ctx(
+        dir.path(),
+        &[
+            ("PACER_INSTALL_METHOD", "npm"),
+            ("PACER_NO_UPDATE_CHECK", "1"),
+        ],
+    );
+    let out = run(&c, json!({})).unwrap();
+    assert_eq!(out["managedBy"], "npm");
+    assert_eq!(
+        out["managedHint"],
+        "pacer was installed with npm; update with: npm install -g @lamtuanvu/pacer@latest"
+    );
+}
+
+#[test]
+fn a_desktop_owner_reports_managed_by_desktop_without_forwarding() {
+    let dir = tempfile::tempdir().unwrap();
+    let c = ctx(dir.path(), &[("PACER_NO_UPDATE_CHECK", "1")]);
+    assert!(!crate::service_update_stays_forwarded(&c, "update.check"));
     for env in [
         ("PACER_INSTALL_METHOD", "npm"),
         ("HOMEBREW_PREFIX", "/opt/homebrew"),
@@ -407,28 +462,21 @@ fn update_check_forwards_installations_managed_elsewhere() {
         ("PACER_BIN", "/Applications/Pacer.APP/contents/MacOS/pacer"),
     ] {
         assert!(
-            crate::service_update_stays_forwarded(&ctx(dir.path(), &[env]), "update.check"),
+            !crate::service_update_stays_forwarded(&ctx(dir.path(), &[env]), "update.check"),
             "{env:?}"
         );
     }
-    std::fs::create_dir_all(dir.path().join(".pacer")).unwrap();
-    let owner = dir.path().join(".pacer/owner.json");
+    std::fs::create_dir_all(&c.pacer_home).unwrap();
+    let owner = c.pacer_home.join("owner.json");
     std::fs::write(
         &owner,
-        r#"{"schema":1,"owner":"cli","executable":"/x","at":1}"#,
+        r#"{"schema":1,"owner":"desktop","executable":"/unrelated/pacer","at":1}"#,
     )
     .unwrap();
-    assert!(!crate::service_update_stays_forwarded(
-        &plain,
-        "update.check"
-    ));
-    std::fs::write(
-        &owner,
-        r#"{"schema":1,"owner":"desktop","executable":"/x","at":1}"#,
-    )
-    .unwrap();
-    assert!(crate::service_update_stays_forwarded(
-        &plain,
-        "update.check"
-    ));
+    let out = run(&c, json!({})).unwrap();
+    assert_eq!(out["managedBy"], "desktop");
+    assert_eq!(
+        out["managedHint"],
+        crate::manager::MANAGED_BY_DESKTOP_MESSAGE
+    );
 }
