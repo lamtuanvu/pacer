@@ -1,0 +1,252 @@
+[
+  {
+    "name": "fresh",
+    "input": {
+      "reading": {
+        "windows": [
+          {
+            "name": "5h",
+            "usedPct": 20,
+            "resetsAt": 1003600,
+            "lengthS": 18000,
+            "paced": false
+          },
+          {
+            "name": "7d",
+            "usedPct": 10,
+            "resetsAt": null,
+            "lengthS": 604800,
+            "paced": false
+          }
+        ],
+        "capturedAt": 999900,
+        "stale": false
+      },
+      "now": 1000000
+    },
+    "expected": {
+      "windows": [
+        {
+          "name": "5h",
+          "usedPct": 20,
+          "resetsAt": 1003600,
+          "lengthS": 18000,
+          "paced": false,
+          "stale": false
+        },
+        {
+          "name": "7d",
+          "usedPct": 10,
+          "resetsAt": null,
+          "lengthS": 604800,
+          "paced": false,
+          "stale": false
+        }
+      ],
+      "capturedAt": 999900,
+      "stale": false
+    }
+  },
+  {
+    "name": "short-window-stale",
+    "input": {
+      "reading": {
+        "windows": [
+          {
+            "name": "5h",
+            "usedPct": 20,
+            "resetsAt": 1003600,
+            "lengthS": 18000,
+            "paced": false
+          },
+          {
+            "name": "7d",
+            "usedPct": 10,
+            "resetsAt": null,
+            "lengthS": 604800,
+            "paced": false
+          }
+        ],
+        "capturedAt": 992800,
+        "stale": false
+      },
+      "now": 1000000
+    },
+    "expected": {
+      "windows": [
+        {
+          "name": "5h",
+          "usedPct": 20,
+          "resetsAt": 1003600,
+          "lengthS": 18000,
+          "paced": false,
+          "stale": true
+        },
+        {
+          "name": "7d",
+          "usedPct": 10,
+          "resetsAt": null,
+          "lengthS": 604800,
+          "paced": false,
+          "stale": false
+        }
+      ],
+      "capturedAt": 992800,
+      "stale": true
+    }
+  },
+  {
+    "name": "future-capturedAt",
+    "input": {
+      "reading": {
+        "windows": [
+          {
+            "name": "5h",
+            "usedPct": 20,
+            "resetsAt": 1003600,
+            "lengthS": 18000,
+            "paced": false
+          }
+        ],
+        "capturedAt": 1003600,
+        "stale": false
+      },
+      "now": 1000000
+    },
+    "expected": {
+      "windows": [
+        {
+          "name": "5h",
+          "usedPct": 20,
+          "resetsAt": 1003600,
+          "lengthS": 18000,
+          "paced": false,
+          "stale": true
+        }
+      ],
+      "capturedAt": 1003600,
+      "stale": true
+    }
+  },
+  {
+    "name": "null-capturedAt",
+    "input": {
+      "reading": {
+        "windows": [
+          {
+            "name": "5h",
+            "usedPct": 20,
+            "resetsAt": 1003600,
+            "lengthS": 18000,
+            "paced": false
+          }
+        ],
+        "capturedAt": null,
+        "stale": false
+      },
+      "now": 1000000
+    },
+    "expected": {
+      "windows": [
+        {
+          "name": "5h",
+          "usedPct": 20,
+          "resetsAt": 1003600,
+          "lengthS": 18000,
+          "paced": false,
+          "stale": true
+        }
+      ],
+      "capturedAt": null,
+      "stale": true
+    }
+  },
+  {
+    "name": "reactive-limit-reset",
+    "input": {
+      "reading": {
+        "windows": [
+          {
+            "name": "limit",
+            "usedPct": 100,
+            "resetsAt": 1000000,
+            "lengthS": 18000,
+            "paced": false
+          }
+        ],
+        "capturedAt": 1000000,
+        "stale": false,
+        "source": "reactive"
+      },
+      "now": 1000000
+    },
+    "expected": {
+      "windows": [
+        {
+          "name": "limit",
+          "usedPct": 100,
+          "resetsAt": 1000000,
+          "lengthS": 18000,
+          "paced": false,
+          "stale": true
+        }
+      ],
+      "capturedAt": 1000000,
+      "stale": true,
+      "source": "reactive"
+    }
+  },
+  {
+    "name": "unmetered-stale-true",
+    "input": {
+      "reading": {
+        "windows": [],
+        "capturedAt": 1000000,
+        "stale": true,
+        "source": "unmetered"
+      },
+      "now": 1000000
+    },
+    "expected": {
+      "windows": [],
+      "capturedAt": 1000000,
+      "stale": true,
+      "source": "unmetered"
+    }
+  },
+  {
+    "name": "non-contract-limit",
+    "input": {
+      "reading": {
+        "windows": [
+          {
+            "name": "limit",
+            "usedPct": 100,
+            "resetsAt": null,
+            "lengthS": 18000,
+            "paced": false
+          }
+        ],
+        "capturedAt": 900000,
+        "stale": false,
+        "source": "status-line"
+      },
+      "now": 1000000
+    },
+    "expected": {
+      "windows": [
+        {
+          "name": "limit",
+          "usedPct": 100,
+          "resetsAt": null,
+          "lengthS": 18000,
+          "paced": false,
+          "stale": false
+        }
+      ],
+      "capturedAt": 900000,
+      "stale": false,
+      "source": "status-line"
+    }
+  }
+]

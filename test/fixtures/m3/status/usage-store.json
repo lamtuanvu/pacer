@@ -1,0 +1,185 @@
+[
+  {
+    "name": "usage-store:first-write",
+    "input": {
+      "readOnly": false,
+      "writes": [
+        {
+          "now": 1000000,
+          "key": "one",
+          "reading": {
+            "windows": [
+              {
+                "name": "weekly",
+                "usedPct": 10,
+                "resetsAt": null,
+                "lengthS": 604800,
+                "paced": true
+              }
+            ],
+            "capturedAt": 1000000
+          }
+        }
+      ]
+    },
+    "expected": {
+      "bytes": "{\"schemaVersion\":1,\"identity\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"entries\":{\"one\":{\"savedAt\":1000000,\"reading\":{\"windows\":[{\"name\":\"weekly\",\"usedPct\":10,\"resetsAt\":null,\"lengthS\":604800,\"paced\":true}],\"capturedAt\":1000000}}}}"
+    }
+  },
+  {
+    "name": "usage-store:no-rewrite-fresh",
+    "input": {
+      "readOnly": false,
+      "writes": [
+        {
+          "now": 1000000,
+          "key": "one",
+          "reading": {
+            "windows": [
+              {
+                "name": "weekly",
+                "usedPct": 10,
+                "resetsAt": null,
+                "lengthS": 604800,
+                "paced": true
+              }
+            ],
+            "capturedAt": 1000000
+          }
+        },
+        {
+          "now": 1000300,
+          "key": "one",
+          "reading": {
+            "windows": [
+              {
+                "name": "weekly",
+                "usedPct": 10,
+                "resetsAt": null,
+                "lengthS": 604800,
+                "paced": true
+              }
+            ],
+            "capturedAt": 1000300
+          }
+        }
+      ]
+    },
+    "expected": {
+      "bytes": "{\"schemaVersion\":1,\"identity\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"entries\":{\"one\":{\"savedAt\":1000000,\"reading\":{\"windows\":[{\"name\":\"weekly\",\"usedPct\":10,\"resetsAt\":null,\"lengthS\":604800,\"paced\":true}],\"capturedAt\":1000000}}}}"
+    }
+  },
+  {
+    "name": "usage-store:rewrite-before-lapse",
+    "input": {
+      "readOnly": false,
+      "writes": [
+        {
+          "now": 1000000,
+          "key": "one",
+          "reading": {
+            "windows": [
+              {
+                "name": "5h",
+                "usedPct": 10,
+                "resetsAt": null,
+                "lengthS": 18000,
+                "paced": false
+              }
+            ],
+            "capturedAt": 1000000
+          }
+        },
+        {
+          "now": 1006600,
+          "key": "one",
+          "reading": {
+            "windows": [
+              {
+                "name": "5h",
+                "usedPct": 10,
+                "resetsAt": null,
+                "lengthS": 18000,
+                "paced": false
+              }
+            ],
+            "capturedAt": 1006600
+          }
+        }
+      ]
+    },
+    "expected": {
+      "bytes": "{\"schemaVersion\":1,\"identity\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"entries\":{\"one\":{\"savedAt\":1006600,\"reading\":{\"windows\":[{\"name\":\"5h\",\"usedPct\":10,\"resetsAt\":null,\"lengthS\":18000,\"paced\":false}],\"capturedAt\":1006600}}}}"
+    }
+  },
+  {
+    "name": "usage-store:superseded-key-pruned",
+    "input": {
+      "readOnly": false,
+      "writes": [
+        {
+          "now": 1000000,
+          "key": "old-key",
+          "reading": {
+            "windows": [
+              {
+                "name": "weekly",
+                "usedPct": 5,
+                "resetsAt": null,
+                "lengthS": 604800,
+                "paced": true
+              }
+            ],
+            "capturedAt": 1000000
+          }
+        },
+        {
+          "now": 1691200,
+          "key": "one",
+          "reading": {
+            "windows": [
+              {
+                "name": "weekly",
+                "usedPct": 30,
+                "resetsAt": null,
+                "lengthS": 604800,
+                "paced": true
+              }
+            ],
+            "capturedAt": 1691200
+          }
+        }
+      ]
+    },
+    "expected": {
+      "bytes": "{\"schemaVersion\":1,\"identity\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"entries\":{\"one\":{\"savedAt\":1691200,\"reading\":{\"windows\":[{\"name\":\"weekly\",\"usedPct\":30,\"resetsAt\":null,\"lengthS\":604800,\"paced\":true}],\"capturedAt\":1691200}}}}"
+    }
+  },
+  {
+    "name": "usage-store:readonly-no-file",
+    "input": {
+      "readOnly": true,
+      "writes": [
+        {
+          "now": 1000000,
+          "key": "one",
+          "reading": {
+            "windows": [
+              {
+                "name": "weekly",
+                "usedPct": 10,
+                "resetsAt": null,
+                "lengthS": 604800,
+                "paced": true
+              }
+            ],
+            "capturedAt": 1000000
+          }
+        }
+      ]
+    },
+    "expected": {
+      "bytes": null
+    }
+  }
+]

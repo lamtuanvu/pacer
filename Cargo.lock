@@ -2121,6 +2121,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-status"
+version = "0.0.0"
+dependencies = [
+ "futures",
+ "hex",
+ "pacer-config",
+ "pacer-engine",
+ "pacer-foundation",
+ "pacer-js-json",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "url",
+]
+
+[[package]]
 name = "pacer-store"
 version = "0.1.0"
 dependencies = [
