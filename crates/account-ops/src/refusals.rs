@@ -3,7 +3,7 @@
 //! job, model discovery and the endpoint test task stay forwarded.
 use crate::{js::prototype_key, params, strategy_loads};
 use pacer_config::strategy::load_strategy;
-use pacer_engine::usage_refresh::refresh_capability;
+use pacer_config::usage_refresh::refresh_capability;
 use pacer_foundation::{
     Ctx,
     api::{Code, CoreError},

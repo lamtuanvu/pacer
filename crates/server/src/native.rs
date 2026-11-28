@@ -1,4 +1,5 @@
 pub(crate) mod agent_apply_sync;
+pub(crate) mod extension_calls;
 use pacer_assistant_ops::assistant_ops;
 use pacer_config_ops::config_get_ops;
 use pacer_foundation::{

@@ -1,0 +1,178 @@
+[
+  {
+    "name": "auth-observation-ok",
+    "input": {
+      "now": 1000000,
+      "files": {
+        "state/auth-failed.json": {
+          "content": "{\"codex\":999990}"
+        },
+        "state/auth-evidence.json": {
+          "content": "{\"codex\":{\"at\":999990,\"scope\":{\"account\":\"codex\",\"identity\":\"ba12ca8466eb53b85795f5f9bac98cd9a8f3e5f817c8b64309ebbc433a1f0f0c\"}}}"
+        }
+      },
+      "scope": {
+        "account": "codex",
+        "identity": "ba12ca8466eb53b85795f5f9bac98cd9a8f3e5f817c8b64309ebbc433a1f0f0c"
+      },
+      "at": 999990
+    },
+    "expected": {
+      "at": 999990,
+      "scope": {
+        "account": "codex",
+        "identity": "ba12ca8466eb53b85795f5f9bac98cd9a8f3e5f817c8b64309ebbc433a1f0f0c"
+      }
+    }
+  },
+  {
+    "name": "auth-observation-mismatch",
+    "input": {
+      "now": 1000000,
+      "files": {
+        "state/auth-failed.json": {
+          "content": "{\"codex\":999990}"
+        },
+        "state/auth-evidence.json": {
+          "content": "{\"codex\":{\"at\":999990,\"scope\":{\"account\":\"other\",\"identity\":\"09977358a6c54c8ce6f7f54ad3c0c4b1bd6eca0cc94c293d8e9cdde402ad2d10\"}}}"
+        }
+      },
+      "scope": {
+        "account": "codex",
+        "identity": "ba12ca8466eb53b85795f5f9bac98cd9a8f3e5f817c8b64309ebbc433a1f0f0c"
+      },
+      "at": 999990
+    },
+    "expected": null
+  },
+  {
+    "name": "auth-observation-retired",
+    "input": {
+      "now": 1000000,
+      "files": {
+        "state/auth-failed.json": {
+          "content": "{\"codex\":999990}"
+        },
+        "state/auth-evidence.json": {
+          "content": "{\"codex\":{\"at\":999990,\"scope\":{\"account\":\"codex\",\"identity\":\"ba12ca8466eb53b85795f5f9bac98cd9a8f3e5f817c8b64309ebbc433a1f0f0c\"}}}"
+        },
+        "state/evidence/ba12ca8466eb53b85795f5f9bac98cd9a8f3e5f817c8b64309ebbc433a1f0f0c.json": {
+          "content": "{\"version\":1,\"revision\":0,\"identity\":\"ba12ca8466eb53b85795f5f9bac98cd9a8f3e5f817c8b64309ebbc433a1f0f0c\",\"retiredAt\":999999,\"evidence\":{\"facts\":{\"availability\":[],\"budget\":[],\"spending\":[]},\"conflicts\":[]}}"
+        }
+      },
+      "scope": {
+        "account": "codex",
+        "identity": "ba12ca8466eb53b85795f5f9bac98cd9a8f3e5f817c8b64309ebbc433a1f0f0c"
+      },
+      "at": 999990
+    },
+    "expected": null
+  },
+  {
+    "name": "record-auth-reading-error",
+    "input": {
+      "now": 1000000,
+      "files": {},
+      "scope": {
+        "account": "codex",
+        "identity": "ba12ca8466eb53b85795f5f9bac98cd9a8f3e5f817c8b64309ebbc433a1f0f0c"
+      },
+      "account": "codex",
+      "reading": {
+        "windows": [],
+        "capturedAt": 1000000,
+        "stale": false,
+        "error": "401 Unauthorized"
+      }
+    },
+    "expected": {
+      "authFailed": "{\"codex\":1000000}"
+    }
+  },
+  {
+    "name": "record-auth-reading-clear",
+    "input": {
+      "now": 1000000,
+      "files": {
+        "state/auth-failed.json": {
+          "content": "{\"codex\":999990}"
+        }
+      },
+      "scope": {
+        "account": "codex",
+        "identity": "ba12ca8466eb53b85795f5f9bac98cd9a8f3e5f817c8b64309ebbc433a1f0f0c"
+      },
+      "account": "codex",
+      "reading": {
+        "windows": [],
+        "capturedAt": 1000000,
+        "stale": false,
+        "source": "session-log"
+      }
+    },
+    "expected": {
+      "authFailed": "{}"
+    }
+  },
+  {
+    "name": "record-auth-reading-stale",
+    "input": {
+      "now": 1000000,
+      "files": {
+        "state/auth-failed.json": {
+          "content": "{\"codex\":999990}"
+        }
+      },
+      "scope": {
+        "account": "codex",
+        "identity": "ba12ca8466eb53b85795f5f9bac98cd9a8f3e5f817c8b64309ebbc433a1f0f0c"
+      },
+      "account": "codex",
+      "reading": {
+        "windows": [],
+        "capturedAt": 999995,
+        "stale": true,
+        "source": "session-log"
+      }
+    },
+    "expected": {
+      "authFailed": "{\"codex\":999990}"
+    }
+  },
+  {
+    "name": "active-limit-observations",
+    "input": {
+      "now": 1000000,
+      "files": {
+        "exhausted.json": {
+          "content": "{\"with\":1000100,\"without\":1000050,\"expired\":999995}"
+        },
+        "state/exhausted-evidence.json": {
+          "content": "{\"with\":{\"observedAt\":999995,\"until\":1000100,\"manual\":false,\"scope\":{\"account\":\"codex\",\"identity\":\"ba12ca8466eb53b85795f5f9bac98cd9a8f3e5f817c8b64309ebbc433a1f0f0c\"}}}"
+        }
+      }
+    },
+    "expected": [
+      {
+        "key": "with",
+        "observation": {
+          "observedAt": 999995,
+          "until": 1000100,
+          "manual": false,
+          "scope": {
+            "account": "codex",
+            "identity": "ba12ca8466eb53b85795f5f9bac98cd9a8f3e5f817c8b64309ebbc433a1f0f0c"
+          }
+        }
+      },
+      {
+        "key": "without",
+        "observation": {
+          "observedAt": null,
+          "until": 1000050,
+          "manual": false
+        }
+      }
+    ]
+  }
+]

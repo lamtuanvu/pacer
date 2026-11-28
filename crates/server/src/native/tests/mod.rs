@@ -558,3 +558,103 @@ fn service_registers_plugin_reads_and_mutations_with_individual_fallbacks() {
     assert!(super::service_registry("*").names().is_empty());
     assert!(registry("").get("plugin.list").is_none());
 }
+
+/// DoorCalls carries host-originated plugin extension calls over Core's private
+/// HTTP channel: `snapshot` returns the registry entries, `extension` the value.
+#[tokio::test]
+async fn extension_calls_reach_core_over_http() {
+    use std::{collections::HashMap, sync::Arc};
+    use pacer_foundation::Ctx;
+    use pacer_plugin_ops::extension::ExtensionCalls;
+    let script = r#"const server = Bun.serve({hostname:'127.0.0.1',port:0,async fetch(req){if(new URL(req.url).pathname!=='/_internal/plugins')return new Response('not found',{status:404});const body=await req.text();const {kind}=JSON.parse(body);if(kind==='snapshot')return Response.json({value:null,entries:[{id:'fx-ui',bundled:true,state:'idle',manifest:{contributes:{assistant:{}}},grant:null,error:null,pid:null,served:[],protocol:null,restarts:0}]});if(kind==='extension')return Response.json({value:'ok',entries:[]});return Response.json({error:{code:'invalid_input',message:'invalid private plugin request'},entries:[]});}});console.log(JSON.stringify({internal:{port:server.port}}));"#;
+    let bun = std::env::split_paths(&std::env::var_os("PATH").unwrap())
+        .map(|dir| dir.join("bun"))
+        .find(|path| path.is_file())
+        .unwrap();
+    let core = Arc::new(crate::serve::core_child::CoreChild::spawn(
+        vec![
+            bun.to_string_lossy().into_owned(),
+            "-e".into(),
+            script.into(),
+        ],
+        HashMap::new(),
+        None,
+    ));
+    for _ in 0..100 {
+        if core.target().await.is_some() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    let link = super::plugins::http_link(&core)
+        .await
+        .expect("fixture core did not start");
+    let dir = tempfile::tempdir().unwrap();
+    let ctx = Ctx::with(
+        dir.path().into(),
+        dir.path().join("pacer"),
+        Default::default(),
+        1_800_000_000.0,
+    );
+    let mut calls = super::extension_calls::DoorCalls::new(link);
+    let entries = calls.entries(&ctx).await.expect("snapshot reaches Core");
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].id, "fx-ui");
+    assert!(entries[0].bundled);
+    assert_eq!(entries[0].state, "idle");
+    let value = calls
+        .call(&ctx, "fx-ui", "assistant.check", serde_json::json!({}))
+        .await
+        .expect("extension reaches Core");
+    assert_eq!(value, serde_json::json!("ok"));
+    core.shutdown().await;
+}
+
+/// B12-4: the same private channel carries a native usage read end to end.
+/// Core answers `snapshot` with the usage plugin entry and `extension` with a
+/// `{reading}` value, which `NativeUsage` returns as the usage reading.
+#[tokio::test]
+async fn usage_read_reaches_core_over_http() {
+    use pacer_foundation::Ctx;
+    use pacer_status::usage::{NativeUsage, ReadMode, UsageReads};
+    use serde_json::json;
+    use std::{collections::HashMap, sync::Arc};
+    let script = r#"const reading={windows:[{name:'7d',usedPct:20,resetsAt:null,lengthS:604800,paced:false}],capturedAt:1800000000,stale:false,source:'session-log'};const entry={id:'pacer-usage',bundled:true,state:'ready',manifest:{contributes:{usage:{providers:['claude-code','codex','arkcli','metered']}}},grant:null,error:null,pid:null,served:[],protocol:null,restarts:0};const server=Bun.serve({hostname:'127.0.0.1',port:0,async fetch(req){if(new URL(req.url).pathname!=='/_internal/plugins')return new Response('not found',{status:404});const {kind}=await req.json();if(kind==='snapshot')return Response.json({value:null,entries:[entry]});if(kind==='extension')return Response.json({value:{reading},entries:[]});return Response.json({error:{code:'invalid_input',message:'invalid private plugin request'},entries:[]});}});console.log(JSON.stringify({internal:{port:server.port}}));"#;
+    let bun = std::env::split_paths(&std::env::var_os("PATH").unwrap())
+        .map(|dir| dir.join("bun"))
+        .find(|path| path.is_file())
+        .unwrap();
+    let core = Arc::new(crate::serve::core_child::CoreChild::spawn(
+        vec![bun.to_string_lossy().into_owned(), "-e".into(), script.into()],
+        HashMap::new(),
+        None,
+    ));
+    for _ in 0..100 {
+        if core.target().await.is_some() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let ctx = Ctx::with(
+        dir.path().into(),
+        dir.path().join("pacer"),
+        HashMap::new(),
+        1_800_000_000.0,
+    );
+    let door = Arc::new(super::extension_calls::DoorPlugins::http(core.clone()));
+    let usage = NativeUsage::new(door);
+    let account = json!({
+        "name": "claude", "kind": "claude", "source": "default", "home": null,
+        "orcaAccount": null, "usage": "quota", "usageSource": "native",
+        "quotaSource": null, "model": null, "weeklyUsd": null, "weeklyTokens": null,
+        "allowPaid": false, "cooldownS": 21600,
+    });
+    let reading = usage
+        .read_account_usage(&ctx, &account, &[], &json!({}), ReadMode::default())
+        .await
+        .expect("usage read reaches Core");
+    assert_eq!(reading["capturedAt"], 1_800_000_000.0);
+    assert_eq!(reading["windows"][0]["usedPct"], 20.0);
+    core.shutdown().await;
+}

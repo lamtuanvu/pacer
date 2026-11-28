@@ -8,13 +8,17 @@ pub mod mode_hold;
 pub mod pause;
 pub mod status;
 pub mod usage_broker;
-pub mod usage_refresh;
 pub mod words;
 
-/// Usage freshness thresholds from `src/usage/freshness.ts` (ADR 0030 decision 5): the
-/// window caps, lifetimes, cooldown default and exhausted/near-limit percentages the
-/// engine reads from generated constants instead of hard-coded copies.
+/// Usage freshness thresholds from `src/usage/freshness.ts` (ADR 0030 decision 5):
+/// the window caps, lifetimes, cooldown default and exhausted/near-limit percentages
+/// the engine reads from generated constants instead of hard-coded copies.
 pub use pacer_limits_protocol::freshness::*;
+/// B12-1: the all-`f64` copy of the same thresholds, generated into the engine so
+/// `pacer-engine` (layer 5) can read the window caps without crossing into
+/// `pacer-status`. [`deadline`] consumes `WINDOW_CAP_SHORT_MAX_LENGTH_S`,
+/// `WINDOW_CAP_SHORT_S` and `WINDOW_CAP_LONG_S` from here.
+pub mod freshness_generated;
 
 use chrono::{Datelike, TimeZone, Timelike};
 use chrono_tz::Tz;
@@ -202,10 +206,12 @@ pub fn deadline(fact: &Value) -> Option<f64> {
         return optional_number(&fact["validUntil"])
             .or_else(|| optional_number(&fact["value"]["resetsAt"]));
     }
-    let age = if number(&fact["value"]["lengthS"]) <= WINDOW_CAP_SHORT_MAX_LENGTH_S as f64 {
-        WINDOW_CAP_SHORT_S as f64
+    let age = if number(&fact["value"]["lengthS"])
+        <= freshness_generated::WINDOW_CAP_SHORT_MAX_LENGTH_S
+    {
+        freshness_generated::WINDOW_CAP_SHORT_S
     } else {
-        WINDOW_CAP_LONG_S as f64
+        freshness_generated::WINDOW_CAP_LONG_S
     };
     Some(
         [

@@ -1,0 +1,153 @@
+[
+  {
+    "name": "endpoint-opencode",
+    "input": {
+      "now": 1000000,
+      "files": {
+        "endpoints/state.json": {
+          "content": "{\"oc\":{\"state\":\"ready\",\"checked_at\":\"2026-10-10T19:00:00Z\"}}"
+        }
+      },
+      "account": {
+        "name": "oc",
+        "kind": "endpoint",
+        "source": "opencode",
+        "provider": "anthropic"
+      }
+    },
+    "expected": {
+      "state": "ready",
+      "checked_at": "2026-10-10T19:00:00Z",
+      "opencode": {
+        "provider": "anthropic"
+      }
+    }
+  },
+  {
+    "name": "endpoint-external",
+    "input": {
+      "now": 1000000,
+      "files": {},
+      "account": {
+        "name": "api",
+        "kind": "endpoint",
+        "source": "native"
+      }
+    },
+    "expected": {
+      "state": "external"
+    }
+  },
+  {
+    "name": "endpoint-key-present",
+    "input": {
+      "now": 1000000,
+      "files": {
+        "secrets/demo.key": {
+          "content": "sk-demo"
+        },
+        "endpoints/state.json": {
+          "content": "{\"demo\":{\"state\":\"ready\"}}"
+        }
+      },
+      "account": {
+        "name": "demo",
+        "kind": "endpoint",
+        "source": "native",
+        "connection": {
+          "api": "openai-compatible",
+          "base_url": "http://127.0.0.1:9/v1",
+          "key": "file",
+          "models": [
+            {
+              "id": "m"
+            }
+          ]
+        }
+      }
+    },
+    "expected": {
+      "state": "ready",
+      "connection": {
+        "api": "openai-compatible",
+        "base_url_host": "127.0.0.1:9",
+        "key": "present",
+        "models": [
+          {
+            "id": "m"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "endpoint-key-missing",
+    "input": {
+      "now": 1000000,
+      "files": {
+        "endpoints/state.json": {
+          "content": "{\"demo\":{\"state\":\"not_tested\"}}"
+        }
+      },
+      "account": {
+        "name": "demo",
+        "kind": "endpoint",
+        "source": "native",
+        "connection": {
+          "api": "openai-compatible",
+          "base_url": "http://127.0.0.1:9/v1",
+          "key": "file",
+          "models": [
+            {
+              "id": "m"
+            }
+          ]
+        }
+      }
+    },
+    "expected": {
+      "state": "key_missing",
+      "connection": {
+        "api": "openai-compatible",
+        "base_url_host": "127.0.0.1:9",
+        "key": "missing",
+        "models": [
+          {
+            "id": "m"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "endpoint-base-url-port",
+    "input": {
+      "now": 1000000,
+      "files": {
+        "secrets/demo.key": {
+          "content": "sk-demo"
+        }
+      },
+      "account": {
+        "name": "demo",
+        "kind": "endpoint",
+        "source": "native",
+        "connection": {
+          "api": "openai-compatible",
+          "base_url": "http://host.example:8443/v1",
+          "key": "file",
+          "models": []
+        }
+      }
+    },
+    "expected": {
+      "state": "not_tested",
+      "connection": {
+        "api": "openai-compatible",
+        "base_url_host": "host.example:8443",
+        "key": "present",
+        "models": []
+      }
+    }
+  }
+]
