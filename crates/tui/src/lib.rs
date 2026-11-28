@@ -1,4 +1,5 @@
-//! Inactive, read-only dashboard frame renderer. Nothing registers native operations.
+//! Dashboard frame renderer and the state, input, theme and controller library
+//! ports of `src/dashboard/`. Nothing registers native operations (B11-2 links it).
 mod home;
 mod layout;
 mod model;
@@ -14,6 +15,19 @@ mod work;
 /// The dashboard's status vocabulary, exposed so its tables can be pinned
 /// against `pacer_engine::words` (the tests keep them byte-identical).
 pub mod words;
+
+/// Terminal key decoder (`src/dashboard/input.ts`).
+pub mod input;
+
+/// Terminal theme detection and styling (`src/dashboard/theme.ts`).
+pub mod theme;
+
+/// Navigation, selection and overlay state (`src/dashboard/state.ts`).
+pub mod state;
+
+/// The controller assembling navigation, selection, effects and rendering
+/// (`src/dashboard/controller.ts`).
+pub mod controller;
 
 /// Render an explicit wire snapshot and UI state through a ratatui TestBackend.
 /// The returned rows preserve the TS renderer's deliberate trailing spaces.
@@ -78,6 +92,12 @@ pub fn render_frame(
         })
         .collect::<Vec<_>>()
         .join("\n"))
+}
+
+/// Render a live dashboard into a string frame for tests and embedding.
+/// Thin wrapper over [`controller::Dashboard::render`].
+pub fn frame<C: controller::DashClient>(dashboard: &controller::Dashboard<C>) -> String {
+    dashboard.render()
 }
 
 use unicode_general_category::{GeneralCategory, get_general_category};
