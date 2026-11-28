@@ -4,11 +4,11 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { userInfo } from "node:os";
-import { assertUpgradeFixtureLease, fixturePlist, guardPacerArgs, stageUpgradeRuntime, UPGRADE_BUILDS, upgradePolicy, upgradeRoot, upgradeRuntimeDir, upgradeLoginArgs, handoverFailureMarker, writeFeed } from "../scripts/live/upgrade";
+import { assertUpgradeFixtureLease, fixturePlist, frontDoorFixtureBuild, guardPacerArgs, stageUpgradeRuntime, stageUpgradePair, UPGRADE_BUILDS, upgradePolicy, upgradePlist, upgradeRoot, upgradeRuntimeDir, upgradeLoginArgs, handoverFailureMarker, writeFeed } from "../scripts/live/upgrade";
 import { liveRoot, type Session } from "../scripts/live/core";
 import { LABEL } from "../src/service";
 import { consumeFixtureHandoverFailure, recoverFixtureHandover } from "../src/service/upgrade";
-import { hostTarget, assetFile, sha256Hex } from "../src/update/manifest";
+import { hostTarget, assetFile, companionFile, parseManifest, sha256Hex } from "../src/update/manifest";
 import { tmpDir } from "./helpers";
 
 const session = (extra: Partial<Session> = {}): Session => ({ id: "upgrade-test", root: join(liveRoot, "upgrade-test"), port: 49111, pid: 1, innerPort: 49112, createdAt: "2026-10-29T00:00:00Z", stopped: true, ...extra });
@@ -64,6 +64,7 @@ test("the fixture policy and plist use the fixture label, never the real one", (
   expect(text).toContain(`<key>Label</key><string>${policy.serviceLabel}</string>`);
   expect(text).toContain("<key>PACER_RELEASE_BASE</key>");
   expect(text).toContain(`<key>PACER_HOME</key><string>${policy.home}</string>`);
+  expect(text).toContain("<key>PACER_DEBUG_NATIVE</key><string>1</string>");
   expect(text).not.toContain(`<string>${LABEL}</string>`);
   expect(() => fixturePlist({ ...policy, serviceLabel: LABEL }, "/fixture/bin/pacer")).toThrow("service label");
 });
@@ -130,4 +131,70 @@ test("restart recovery consumes the fixture failure once before handover", async
   expect(existsSync(marker)).toBe(true);
   expect(await recoverFixtureHandover(fixture.home, null, async () => "release handover")).toBe("release handover");
   expect(existsSync(marker)).toBe(true);
+});
+
+test("pair builds are the 0.13.2 and 0.13.3 Rust front-door fixtures", () => {
+  expect(UPGRADE_BUILDS.pairBaseline.version).toBe("0.13.2");
+  expect(UPGRADE_BUILDS.pairCandidate.version).toBe("0.13.3");
+});
+
+test("writeFeed with a companion produces a manifest parseManifest accepts and SHA256SUMS with both files", () => {
+  const feed = tmpDir(), front = Buffer.from("Rust front door"), core = Buffer.from("compiled core");
+  writeFeed(feed, "0.13.3", front, core);
+  const target = hostTarget()!, file = assetFile(target), coreFile = companionFile(target);
+  const manifest = parseManifest(JSON.parse(readFileSync(join(feed, "0.13.3", "manifest.json"), "utf8")));
+  expect(manifest.version).toBe("0.13.3");
+  expect(manifest.assets).toHaveLength(1);
+  expect(manifest.assets[0]).toMatchObject({ file, size: front.length, sha256: sha256Hex(front),
+    companions: [{ name: "pacer-core", file: coreFile, sha256: sha256Hex(core), size: core.length }] });
+  expect(readFileSync(join(feed, "0.13.3", "SHA256SUMS"), "utf8")).toBe(
+    `${sha256Hex(front)}  ${file}\n${sha256Hex(core)}  ${coreFile}\n`);
+  expect(existsSync(join(feed, "0.13.3", coreFile))).toBe(true);
+});
+
+test("a pair upgrade plist runs the Rust front door beside the compiled core", () => {
+  const root = join(tmpDir(), ".work", "live", "upgrade-test"), policy = upgradePolicy(session({ root }), nonce, 501);
+  const runtime = upgradeRuntimeDir(root);
+  for (const build of ["pairBaseline", "pairCandidate"] as const) {
+    const text = upgradePlist(policy, build, root);
+    expect(text).toContain(`<string>${join(runtime, "pacer")}</string>`);
+    expect(text).toContain("<key>PACER_DEBUG_NATIVE</key><string>1</string>");
+    expect(text).not.toContain("libpacer-native.dylib");
+    expect(text).not.toContain(`<string>${join(runtime, "pacer-core")}</string>`);
+  }
+});
+
+test("the pair front door compiles the sealed lease into a sandbox cargo target", () => {
+  const root = join(tmpDir(), ".work", "live", "upgrade-test");
+  const policy = upgradePolicy(session({ root }), nonce, 501);
+  const target = hostTarget()!;
+  const cargoTargetDir = join(root, "rust-target", "pairCandidate");
+  const built = frontDoorFixtureBuild({ root, target, version: "0.13.3", outfile: join(root, "pacer"), policy, cargoTargetDir, inherited: { PATH: "/usr/bin:/bin" } });
+  expect(built.argv).toEqual(["cargo", "build", "--release", "--locked", "-p", "pacer", "--target", `${target.arch === "arm64" ? "aarch64" : "x86_64"}-${target.os === "darwin" ? "apple-darwin" : "unknown-linux-musl"}`]);
+  expect(built.env.PACER_OTA_FIXTURE_POLICY).toBe(JSON.stringify(policy));
+  expect(built.env.CARGO_TARGET_DIR).toBe(cargoTargetDir);
+  expect(built.env.PACER_NO_SELF_REPAIR).toBe("1");
+});
+
+test("both files of a pair must match the sealed native lease identity", () => {
+  const policy = upgradePolicy(session(), nonce, 501);
+  const sealed = { schema: 1, phase: "prepared", root: policy.root, nonce: policy.nonce, pacerHome: policy.home,
+    innerPort: policy.port, currentApp: policy.currentApp, serviceLabel: policy.serviceLabel,
+    recoveryLabel: policy.recoveryLabel, ownerUid: policy.uid };
+  const hash = createHash("sha256").update(JSON.stringify(policy)).digest("hex");
+  for (const file of ["front-door", "pacer-core"]) {
+    const identity = { version: "0.13.3", arch: "aarch64", fixture: true, otaMode: "fixture", fixturePolicySha256: hash };
+    expect(() => assertUpgradeFixtureLease(policy, sealed, identity, "0.13.3", "aarch64")).not.toThrow();
+    expect(() => assertUpgradeFixtureLease(policy, sealed, { ...identity, fixturePolicySha256: "0".repeat(64) }, "0.13.3", "aarch64")).toThrow("sealed native lease");
+  }
+});
+
+test("a pair runtime stages the Rust front door and compiled core together", () => {
+  const root = tmpDir(), staged = join(root, "staged");
+  const front = join(root, "front-door"), core = join(root, "pacer-core");
+  writeFileSync(front, "front"); writeFileSync(core, "core");
+  stageUpgradePair(staged, front, core);
+  expect(readFileSync(join(staged, "pacer"), "utf8")).toBe("front");
+  expect(readFileSync(join(staged, "pacer-core"), "utf8")).toBe("core");
+  expect(existsSync(join(staged, "libpacer-native.dylib"))).toBe(false);
 });

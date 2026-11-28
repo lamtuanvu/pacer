@@ -393,13 +393,12 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                 Err(error) => native_error(error),
             };
         }
-        if crate::native::install_apply_sync::uses_effects(op.name) {
+        if crate::native::service_install_dispatch::uses_effects(op.name) {
             crate::native::msg_write_sync::trace(op.name, None);
-            let mut effects = crate::native::install_apply_sync::HttpEffects {
+            let mut effects = crate::native::service_install_dispatch::HttpEffects {
                 target: state.core.target().await,
             };
-            let result =
-                crate::native::install_apply_sync::call(&ctx, op.name, params, &mut effects);
+            let result = crate::native::service_install_dispatch::call(&ctx, params, &mut effects);
             return match result.await {
                 Ok(result) => native_json(StatusCode::OK, serde_json::json!({"result":result})),
                 Err(error) => native_error(error),

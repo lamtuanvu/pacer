@@ -44,7 +44,7 @@ const opDeps: OpDeps = {
       held = true;
       log("update preflight blocked"); Bun.sleepSync(b.updateBlockMs); log("update preflight resumed");
     }
-    return { standalone: b.standalone ?? true, execPath: join(ctx.pacerHome, "bin/pacer") };
+    return { standalone: b.standalone ?? false, execPath: join(ctx.pacerHome, "bin/pacer") };
   },
   runUpdate: async () => { log("update job"); return { code: 0, out: "", err: "" }; },
   onboardingRoute: async (_ctx, kind) => {

@@ -10,8 +10,11 @@ rust-version.workspace = true
 nix = { version = "0.31", features = ["user"] }
 pacer-messaging-ops = { path = "../messaging-ops" }
 pacer-foundation = { path = "../foundation" }
+pacer-js-json = { path = "../js-json" }
 pacer-store = { path = "../store" }
 ryu-js = "1"
+sha2 = "0.10"
+thiserror.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 ureq = { version = "3.4.2", default-features = false, features = ["rustls", "gzip", "brotli"] }

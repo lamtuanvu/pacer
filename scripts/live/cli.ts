@@ -54,7 +54,7 @@ const usage = `usage: bun run live <command> [--id <id>]
                                   --stop-service stops an attached sandbox service mid-session
   native-plugin-owner --id <id>   crash, backoff, second-serve refusal and restart cycle of the
                                   service's plugin owner (--native-plugin-host sandbox)
-  upgrade build|start --from prefeature|baseline|candidate|pacer -- <args...>|login [--screen <screen>]|fail-handover|install|kickstart|identity --task <id>|--terminal <id>|cleanup --id <id>
+  upgrade build|start --from prefeature|baseline|candidate|pair-baseline|pair-candidate|pacer -- <args...>|login [--screen <screen>]|fail-handover|install|kickstart|identity --task <id>|--terminal <id>|cleanup --id <id>
                                   service-upgrade fixtures on an unseeded sandbox stopped with down --keep (macOS)
   stream-fault arm --id <id> --mode lost-input-ack|read-response-timeout
                                   arm one scoped pacer-ssh RPC fault in this sandbox
@@ -170,8 +170,9 @@ export async function main(argv: string[], outer: NodeJS.ProcessEnv = process.en
     if (action === "build") await buildUpgradeFixtures(session);
     else if (action === "start") {
       const from = options.get("--from");
-      if (!from || !Object.hasOwn(UPGRADE_BUILDS, from)) throw Error("live upgrade start needs --from prefeature|baseline|candidate");
-      await startUpgradeService(session, from as UpgradeBuild);
+      const build = from?.replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase());
+      if (!build || !Object.hasOwn(UPGRADE_BUILDS, build)) throw Error("live upgrade start needs --from prefeature|baseline|candidate|pair-baseline|pair-candidate");
+      await startUpgradeService(session, build as UpgradeBuild);
     } else if (action === "pacer" || action === "install") {
       if (action === "pacer" && (separator < 0 || !forwarded.length)) throw Error("usage: live upgrade pacer --id <id> -- <args...>");
       const result = action === "pacer" ? await upgradePacer(session, forwarded) : await upgradeInstall(session);

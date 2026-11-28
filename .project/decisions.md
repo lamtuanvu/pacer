@@ -127,6 +127,8 @@ Scope: PR #1063 only (the "Updating pacer…" banner during an `update.apply` re
 
 Follow-up: on the first real service update from a release that contains #1063, the maintainer confirms that the banner reads "Updating pacer…" and that Settings › Updates shows no leftover "Service is connecting" error.
 
+B7-U4 status (2026-11-26): the Rust pair upgrade fixture is implemented and the sandbox build and fixture-start observations PASS (`.work/live/b7-upgrade/evidence/report.md`). The real `update.apply` restart is still **UNVERIFIED**: U3's native restart (`crates/server/src/native/update_apply.rs:260-283`) hard-codes `~/Library/LaunchAgents/com.pacer.serve.plist` and `kickstart gui/<uid>/com.pacer.serve`, so it cannot restart the fixture's `com.pacer.live.<nonce>.service`; making it lease-aware needs a Rust change outside this slice. CT11-1063 therefore stays open and this follow-up is not recorded as satisfied.
+
 Expiry: that first real update, or 2026-12-15, whichever comes first. It cannot authorize other changes.
 
 ### VO-TEMP-2026-10 — manual VoiceOver validation paused

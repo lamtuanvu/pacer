@@ -2,12 +2,13 @@ import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFile
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createHash, randomBytes } from "node:crypto";
-import { compileCommand } from "../release/build";
+import { compileCommand, frontDoorBuildCommand, frontDoorBuildEnvironment, rustTarget } from "../release/build";
 import { buildNativeShim } from "../release/desktop";
-import { assetFile, hostTarget, sha256Hex } from "../../src/update/manifest";
+import { assetFile, companionFile, formatSha256Sums, hostTarget, sha256Hex } from "../../src/update/manifest";
 import { parseNativeFixture, type NativeFixture } from "../../src/update/desktop/native-fixture";
 import { processIdentity } from "../../src/update/desktop/process-identity";
 import { FIXTURE_IDENTIFIERS, RELEASE_IDENTIFIERS } from "../../src/update/desktop/bundle-identity";
+import { findIdentity } from "../../src/update/signing";
 import { LABEL, plist } from "../../src/service";
 import { makeCtx } from "../../src/ctx";
 import { atomicWrite, checkout, liveRoot, record, validId, type Session } from "./core";
@@ -19,15 +20,20 @@ function assertFixtureServiceLabel(label: string, purpose: string): void {
   if (label === LABEL || !label.startsWith("com.pacer.live.")) throw Error("Refusing a non-fixture service label");
 }
 
-/** Fixed builds: the last pre-feature release, and two feature builds of this checkout. */
+/** Fixed builds: the last pre-feature release, two single-binary features and a Rust pair. */
 export const UPGRADE_BUILDS = {
   prefeature: { version: "0.11.0", ref: "v0.11.0" },
   baseline: { version: "0.13.0", ref: null },
   candidate: { version: "0.13.1", ref: null },
+  pairBaseline: { version: "0.13.2", ref: null },
+  pairCandidate: { version: "0.13.3", ref: null },
 } as const;
 export type UpgradeBuild = keyof typeof UPGRADE_BUILDS;
-interface UpgradeRecord { schema: 1; policy: NativeFixture; builds: Record<UpgradeBuild, { path: string; shim: string; sha256: string }>; installed: boolean }
+interface UpgradeRecord { schema: 1; policy: NativeFixture; builds: Record<UpgradeBuild, { path: string; shim?: string; core?: string; sha256: string }>; installed: boolean }
 type FixtureIdentity = { version?: unknown; arch?: unknown; fixture?: unknown; otaMode?: unknown; fixturePolicySha256?: unknown };
+
+/** Pair builds are a Rust front door plus a compiled core; the others are one CLI plus a native shim. */
+export const isPairBuild = (build: UpgradeBuild): boolean => build === "pairBaseline" || build === "pairCandidate";
 
 /** Compare the sealed lease with the identity reported by the signed CLI. */
 export function assertUpgradeFixtureLease(policy: NativeFixture, sealed: Record<string, unknown>, identity: FixtureIdentity, version: string, arch: string): void {
@@ -62,18 +68,31 @@ export function fixturePlist(policy: NativeFixture, binary: string): string {
   assertFixtureServiceLabel(policy.serviceLabel, "write a live-upgrade fixture service plist");
   const ctx = makeCtx({ home: policy.home, pacerHome: policy.home, env: { PATH: process.env.PATH ?? "/usr/bin:/bin", PACER_BIN: binary, PACER_PORT: String(policy.port) } });
   const feed = pathToFileURL(join(dirname(policy.root), "upgrade", "feed")).href;
-  return plist(ctx, [binary], policy.serviceLabel).replace("</dict>\n<key>RunAtLoad", `<key>PACER_RELEASE_BASE</key><string>${feed}</string></dict>\n<key>RunAtLoad`);
+  // plist() emits only the core env keys; inject the trace flag into the job's environment
+  // so stderr records the real native update.apply path.
+  return plist(ctx, [binary], policy.serviceLabel)
+    .replace("<key>EnvironmentVariables</key><dict>", "<key>EnvironmentVariables</key><dict><key>PACER_DEBUG_NATIVE</key><string>1</string>")
+    .replace("</dict>\n<key>RunAtLoad", `<key>PACER_RELEASE_BASE</key><string>${feed}</string></dict>\n<key>RunAtLoad`);
 }
 
-/** The single-binary release layout `pacer update` reads from PACER_RELEASE_BASE. */
-export function writeFeed(feed: string, version: string, bytes: Uint8Array): void {
+/** The fixture service always runs the staged front door (Rust for pair builds, CLI for single builds). */
+export function upgradePlist(policy: NativeFixture, _build: UpgradeBuild, root: string): string {
+  return fixturePlist(policy, binary(root));
+}
+
+/** The release layout `pacer update` reads from PACER_RELEASE_BASE, with an optional compiled-core companion. */
+export function writeFeed(feed: string, version: string, bytes: Uint8Array, core?: Uint8Array): void {
   const target = hostTarget();
   if (!target) throw Error("Unsupported platform");
-  const file = assetFile(target), dir = join(feed, version);
+  const file = assetFile(target), coreFile = companionFile(target), dir = join(feed, version);
+  const sums = [{ file, sha256: sha256Hex(bytes), size: bytes.length }];
+  const companions = core ? [{ name: "pacer-core" as const, file: coreFile, sha256: sha256Hex(core), size: core.length }] : undefined;
+  if (core) sums.push({ file: coreFile, sha256: sha256Hex(core), size: core.length });
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   writeFileSync(join(dir, file), bytes, { mode: 0o600 });
-  writeFileSync(join(dir, "manifest.json"), JSON.stringify({ version, assets: [{ os: target.os, arch: target.arch, file, size: bytes.length, sha256: sha256Hex(bytes) }] }), { mode: 0o600 });
-  writeFileSync(join(dir, "SHA256SUMS"), `${sha256Hex(bytes)}  ${file}\n`, { mode: 0o600 });
+  if (core) writeFileSync(join(dir, coreFile), core, { mode: 0o600 });
+  writeFileSync(join(dir, "manifest.json"), JSON.stringify({ version, assets: [{ os: target.os, arch: target.arch, file, size: bytes.length, sha256: sums[0]!.sha256, ...(companions ? { companions } : {}) }] }), { mode: 0o600 });
+  writeFileSync(join(dir, "SHA256SUMS"), formatSha256Sums(sums), { mode: 0o600 });
   writeFileSync(join(feed, "latest.json"), JSON.stringify({ version }), { mode: 0o600 });
 }
 
@@ -116,6 +135,27 @@ export function stageUpgradeRuntime(directory: string, executable: string, shim:
   copyFileSync(shim, join(directory, "libpacer-native.dylib"));
   chmodSync(join(directory, "pacer"), 0o755);
   chmodSync(join(directory, "libpacer-native.dylib"), 0o755);
+}
+
+/** A Rust front door runs its compiled core beside it; there is no native shim. */
+export function stageUpgradePair(directory: string, frontDoor: string, core: string): void {
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  copyFileSync(frontDoor, join(directory, "pacer"));
+  copyFileSync(core, join(directory, "pacer-core"));
+  chmodSync(join(directory, "pacer"), 0o755);
+  chmodSync(join(directory, "pacer-core"), 0o755);
+}
+
+/** Pure builder: the pair front door compiles the sealed lease into its native ops, in a sandbox cargo target. */
+export function frontDoorFixtureBuild(o: {
+  root: string; target: NonNullable<ReturnType<typeof hostTarget>>; version: string; outfile: string;
+  policy: NativeFixture; cargoTargetDir: string; inherited?: NodeJS.ProcessEnv;
+}): { argv: string[]; env: NodeJS.ProcessEnv } {
+  return {
+    argv: frontDoorBuildCommand(o.target),
+    env: { ...frontDoorBuildEnvironment({ root: o.root, target: o.target, version: o.version, outfile: o.outfile }, o.inherited),
+      PACER_OTA_FIXTURE_POLICY: JSON.stringify(o.policy), CARGO_TARGET_DIR: o.cargoTargetDir, PACER_NO_SELF_REPAIR: "1" },
+  };
 }
 
 async function exec(session: Session, argv: string[], cwd: string, env: Record<string, string | undefined>, check = true) {
@@ -171,6 +211,9 @@ export async function buildUpgradeFixtures(session: Session): Promise<void> {
     innerPort: policy.port, currentApp: policy.currentApp, serviceLabel: policy.serviceLabel, recoveryLabel: policy.recoveryLabel, ownerUid: policy.uid }));
   for (const dir of [join(ota, "registrations"), join(root, "build"), upgradeRuntimeDir(root)]) mkdirSync(dir, { mode: 0o700 });
   const buildEnv = { HOME: process.env.HOME, PATH: process.env.PATH, TMPDIR: process.env.TMPDIR };
+  if (process.platform === "darwin" && await findIdentity()) throw Error("Upgrade fixture refuses a real local signing identity; use a test account without that identity");
+  const arch = target.arch === "arm64" ? "aarch64" : "x86_64";
+  const sealed = JSON.parse(readFileSync(leasePath, "utf8"));
   const builds = {} as UpgradeRecord["builds"];
   for (const name of Object.keys(UPGRADE_BUILDS) as UpgradeBuild[]) {
     const { version, ref } = UPGRADE_BUILDS[name];
@@ -181,14 +224,38 @@ export async function buildUpgradeFixtures(session: Session): Promise<void> {
       await exec(session, ["bun", "install", "--frozen-lockfile"], source, buildEnv);
     }
     const outfile = join(root, "build", `${name}-${version}`);
+    const identifiers = name === "prefeature" ? RELEASE_IDENTIFIERS : FIXTURE_IDENTIFIERS;
+    if (isPairBuild(name)) {
+      // Rust front door with the fixture lease compiled into its native update.apply path.
+      const cargoTargetDir = join(root, "rust-target", name); // sandbox-only cargo target
+      const frontBuild = frontDoorFixtureBuild({ root: source, target, version, outfile, policy, cargoTargetDir, inherited: buildEnv });
+      await exec(session, frontBuild.argv, source, frontBuild.env);
+      copyFileSync(join(cargoTargetDir, rustTarget(target), "release", "pacer"), outfile);
+      chmodSync(outfile, 0o755);
+      // The compiled core carries the same lease through the existing fixture define.
+      const core = join(root, "build", `${name}-${version}-pacer-core`);
+      await exec(session, [...compileCommand({ root: source, target, version, outfile: core }), "--define", `PACER_BUILD_OTA_FIXTURE=${JSON.stringify(JSON.stringify(policy))}`], source, buildEnv);
+      await exec(session, ["/usr/bin/codesign", "--force", "--sign", "-", "--identifier", identifiers.cli, outfile], source, buildEnv);
+      await exec(session, ["/usr/bin/codesign", "--force", "--sign", "-", "--identifier", identifiers.cli, core], source, buildEnv);
+      // Both files must report the sealed lease; the front door forwards --pacer-identity to its core.
+      const staged = join(root, "build", `${name}-${version}-identity`);
+      stageUpgradePair(staged, outfile, core);
+      for (const file of [join(staged, "pacer"), join(staged, "pacer-core")]) {
+        const identity = JSON.parse((await exec(session, [file, "--pacer-identity"], source, { ...buildEnv, PACER_NO_SELF_REPAIR: "1" })).stdout) as FixtureIdentity;
+        assertUpgradeFixtureLease(policy, sealed, identity, version, arch);
+      }
+      const front = readFileSync(outfile), coreBytes = readFileSync(core);
+      writeFeed(join(root, "feed"), version, front, coreBytes);
+      builds[name] = { path: outfile, core, sha256: sha256Hex(front) };
+      continue;
+    }
     await exec(session, [...compileCommand({ root: source, target, version, outfile }), "--define", `PACER_BUILD_OTA_FIXTURE=${JSON.stringify(JSON.stringify(policy))}`], source, buildEnv);
     const shim = join(root, "build", `${name}-${version}-libpacer-native.dylib`);
-    await buildNativeShim(checkout, shim, target.arch === "arm64" ? "aarch64" : "x86_64");
-    const identifiers = name === "prefeature" ? RELEASE_IDENTIFIERS : FIXTURE_IDENTIFIERS;
+    await buildNativeShim(checkout, shim, arch);
     await exec(session, ["/usr/bin/codesign", "--force", "--sign", "-", "--identifier", identifiers.cli, outfile], source, buildEnv);
     await exec(session, ["/usr/bin/codesign", "--force", "--sign", "-", "--identifier", identifiers.nativeShim, shim], source, buildEnv);
     const identity = JSON.parse((await exec(session, [outfile, "--pacer-identity"], source, buildEnv)).stdout) as FixtureIdentity;
-    assertUpgradeFixtureLease(policy, JSON.parse(readFileSync(leasePath, "utf8")), identity, version, target.arch === "arm64" ? "aarch64" : "x86_64");
+    assertUpgradeFixtureLease(policy, sealed, identity, version, arch);
     const bytes = readFileSync(outfile);
     writeFeed(join(root, "feed"), version, bytes);
     builds[name] = { path: outfile, shim, sha256: sha256Hex(bytes) };
@@ -200,8 +267,9 @@ export async function buildUpgradeFixtures(session: Session): Promise<void> {
 export async function startUpgradeService(session: Session, build: UpgradeBuild): Promise<void> {
   const root = upgradeRoot(session), r = readRecord(root);
   if (r.installed) throw Error("A fixture service is already registered; run live upgrade cleanup first");
-  stageUpgradeRuntime(upgradeRuntimeDir(root), r.builds[build].path, r.builds[build].shim);
-  writeFileSync(join(r.policy.root, "registrations", `${r.policy.serviceLabel}.plist`), fixturePlist(r.policy, binary(root)), { mode: 0o600 });
+  if (isPairBuild(build)) stageUpgradePair(upgradeRuntimeDir(root), r.builds[build].path, r.builds[build].core!);
+  else stageUpgradeRuntime(upgradeRuntimeDir(root), r.builds[build].path, r.builds[build].shim!);
+  writeFileSync(join(r.policy.root, "registrations", `${r.policy.serviceLabel}.plist`), upgradePlist(r.policy, build, root), { mode: 0o600 });
   await launchctl(session, r, "bootstrap");
   writeRecord(root, { ...r, installed: true });
   const pid = await waitForPid(r.policy.port, null);
@@ -241,8 +309,10 @@ export async function upgradeInstall(session: Session) {
 export async function kickstartUpgradeService(session: Session): Promise<void> {
   const root = upgradeRoot(session), r = readRecord(root);
   if (!r.installed) throw Error("No fixture service is registered");
+  const installed = installedBuild(root, r);
+  if (isPairBuild(installed)) throw Error("live upgrade kickstart is for single-binary fixtures; a pair restarts through native update.apply");
   // The pre-feature binary needs its old shim until update exits; the newly installed CLI needs its own signed shim.
-  copyFileSync(r.builds[installedBuild(root, r)].shim, nativeShim(root));
+  copyFileSync(r.builds[installed].shim!, nativeShim(root));
   const before = await servicePid(r.policy.port);
   await launchctl(session, r, "kickstart");
   record(session, { kind: "note", text: `Fixture service restarted (pid ${before} -> ${await waitForPid(r.policy.port, before)})` });

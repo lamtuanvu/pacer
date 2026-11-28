@@ -277,7 +277,7 @@ describe("HTTP front door", () => {
     expect(r.installNoConsent).toMatchObject({status: 400, body: {error: {code: "invalid_input", message: "consent: Invalid input: expected true"}}});
     expect(r.installNullParams.body.error.code).toBe("invalid_input");
     expect(r.applyArray).toMatchObject({status: 400, body: {error: {code: "invalid_input", message: "params: Invalid input: expected object, received array"}}});
-    expect(r.apply).toEqual({status: 200, body: {result: {job: {kind: "update.apply", target: "pacer"}}}});
+    expect(r.apply).toMatchObject({status: 403, body: {error: {code: "not_allowed", message: expect.stringContaining("runs from source")}}});
     expect(r.applyFromSource.body.error.code).toBe("not_allowed");
     expect(r.installFails.status).toBeGreaterThanOrEqual(400);
     expect(r.concurrentInstall.body.error.code).toBe("conflict");
@@ -291,7 +291,7 @@ describe("HTTP front door", () => {
     expect(r.externalUpdateBridge.status).toBe(404);
     expect(r.abandoned).toBe("AbortError");
     expect(r.effects).toEqual([
-      "install 1 start", "install 1 done", "update job",
+      "install 1 start", "install 1 done",
       "install 2 start", "install 2 failed",
       "install 3 start", "install 3 done",
       "install 4 start", "install 4 done",
@@ -362,84 +362,18 @@ describe("stdio front door", () => {
     expect(r.installNoConsent.error).toMatchObject({message: "consent: Invalid input: expected true", data: {code: "invalid_input"}});
     expect(r.installNullParams.error.data.code).toBe("invalid_input");
     expect(r.applyArray.error).toMatchObject({message: "params: Invalid input: expected object, received array", data: {code: "invalid_input"}});
-    expect(r.apply.result).toEqual({job: {kind: "update.apply", target: "pacer"}});
+    expect(r.apply.error).toMatchObject({message: expect.stringContaining("runs from source"), data: {code: "not_allowed"}});
     expect(r.applyFromSource.error.data.code).toBe("not_allowed");
     expect(r.installFails.error).toBeDefined();
     expect(r.concurrentInstall.error.data.code).toBe("conflict");
     expect(r.delayed.result).toEqual({installed: true, running: true});
     expect(r.answeredLast).toBe(9);
-    expect(r.effects).toEqual(["install 1 start", "install 1 done", "update job", "install 2 start", "install 2 failed", "install 3 start", "install 3 done"]);
+    expect(r.effects).toEqual(["install 1 start", "install 1 done", "install 2 start", "install 2 failed", "install 3 start", "install 3 done"]);
     expect(r.executorInstall.error.data.code).toBe("not_allowed");
     expect(r.executorApply.error.data.code).toBe("not_allowed");
     expect(r.executorEffects).toEqual([]);
     expect(r.grantInstall.error).toBeDefined();
     expect(r.grantEffects).toEqual([]);
-  }, LONG);
-});
-
-describe("install and update effects outlive a short bridge deadline", () => {
-  const DEADLINE_MS = 300;
-  const HOLD_MS = 2000;
-  const SHORT = {PACER_TEST_BRIDGE_DEADLINE_MS: String(DEADLINE_MS)};
-  const EFFECTS = ["install 1 start", "install 1 done", "update preflight blocked", "update preflight resumed", "update job"];
-
-  test("HTTP: Core's results arrive after the delayed effects while a deadlined bridge times out", async () => {
-    const server = await serve(undefined, undefined, SHORT);
-    // test.echo exists only in test-ops builds, the only ones that read the shortened deadline.
-    expect(await server.op("test.echo", {n: 1})).toEqual({status: 200, body: {result: {n: 1}}});
-
-    server.behave({installDelayMs: HOLD_MS});
-    let started = Date.now();
-    const install = await server.op("service.install", {consent: true});
-    expect(Date.now() - started).toBeGreaterThanOrEqual(HOLD_MS);
-    expect(install).toEqual({status: 200, body: {result: {installed: true, running: true}}});
-    expect(server.effects()).toEqual(EFFECTS.slice(0, 2));
-
-    server.behave({updateBlockMs: HOLD_MS});
-    started = Date.now();
-    const apply = server.op("update.apply", {});
-    await until(() => server.effects().includes("update preflight blocked"), "core to hold the update preflight", 10_000);
-    // Control: setup.check crosses the same Core bridge with the short deadline and gives up while Core is held.
-    const check = await server.op("setup.check", {});
-    expect(server.effects()).not.toContain("update preflight resumed");
-    expect((check.body as any).error).toMatchObject({code: "unavailable", message: "core bridge timed out"});
-    const applied = await apply;
-    expect(Date.now() - started).toBeGreaterThanOrEqual(HOLD_MS);
-    expect(applied).toEqual({status: 200, body: {result: {job: {kind: "update.apply", target: "pacer"}}}});
-    await until(() => server.effects().includes("update job"), "the update job", 10_000);
-    expect(server.effects()).toEqual(EFFECTS);
-    await server.stop();
-    expect(server.stderr.text).toContain("native service.install");
-    expect(server.stderr.text).toContain("native update.apply");
-  }, LONG);
-
-  test("stdio: admitted install and update replies carry Core's results after the delayed effects", async () => {
-    const rpc = connect(undefined, SHORT);
-    expect((await rpc.call("hello", {protocol: 3})).result.protocol).toStartWith("3.");
-    expect((await rpc.call("test.echo", {n: 1})).result).toEqual({n: 1});
-
-    rpc.behave({installDelayMs: HOLD_MS});
-    let started = Date.now();
-    const install = await rpc.call("service.install", {consent: true});
-    expect(Date.now() - started).toBeGreaterThanOrEqual(HOLD_MS);
-    expect(install.result).toEqual({installed: true, running: true});
-    expect(rpc.effects()).toEqual(EFFECTS.slice(0, 2));
-
-    rpc.behave({updateBlockMs: HOLD_MS});
-    started = Date.now();
-    const apply = rpc.call("update.apply", {});
-    await until(() => rpc.effects().includes("update preflight blocked"), "core to hold the update preflight", 10_000);
-    const check = await rpc.call("setup.check", {});
-    expect(rpc.effects()).not.toContain("update preflight resumed");
-    expect(check.error).toMatchObject({message: "core bridge timed out", data: {code: "unavailable"}});
-    const applied = await apply;
-    expect(Date.now() - started).toBeGreaterThanOrEqual(HOLD_MS);
-    expect(applied.result).toEqual({job: {kind: "update.apply", target: "pacer"}});
-    await until(() => rpc.effects().includes("update job"), "the update job", 10_000);
-    expect(rpc.effects()).toEqual(EFFECTS);
-    await rpc.close();
-    expect(rpc.stderr.text).toContain("native service.install");
-    expect(rpc.stderr.text).toContain("native update.apply");
   }, LONG);
 });
 

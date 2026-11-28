@@ -2,18 +2,22 @@
 use crate::{
     Code, CoreError,
     feed::{self, Channel},
-    js, object, received, refuse_enforcement,
+    js, manager, object, received, refuse_enforcement,
 };
 use pacer_foundation::{Ctx, api::OpFuture, js_semantics::js_trim};
 use pacer_store::publish_config_change;
 use serde_json::{Map, Value, json};
-use std::{fs, path::Path, sync::OnceLock};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    sync::OnceLock,
+};
 
 const CACHE_S: f64 = 86_400.0;
 const DEV_VERSION: &str = "0.0.0-dev";
 
 /// `currentVersion()`: the build define, else the workspace package version.
-fn current_version() -> &'static str {
+pub fn current_version() -> &'static str {
     static VERSION: OnceLock<String> = OnceLock::new();
     VERSION.get_or_init(|| {
         if let Some(version) = option_env!("PACER_BUILD_VERSION") {
@@ -27,42 +31,36 @@ fn current_version() -> &'static str {
     })
 }
 
-/// A cached `latest` that is an array passes `isVersion` through `String(array)` coercion in
-/// TypeScript and is then reported as is; only the reference reproduces that.
-pub(crate) fn stays_forwarded(ctx: &Ctx) -> bool {
-    (checks_enabled(ctx) && cache_document(ctx).is_some_and(|doc| doc["latest"].is_array()))
-        || maybe_managed_elsewhere(ctx)
-}
-
-/// Whether `updateManager` in `src/api/ops.ts` may report `managedBy`: a desktop owner record,
-/// an npm or Homebrew install, or an app-bundled executable. Over-approximates, since a
-/// forwarded check is always the reference answer.
-fn maybe_managed_elsewhere(ctx: &Ctx) -> bool {
-    let set = |key: &str| ctx.env.get(key).is_some_and(|value| !value.is_empty());
-    if set("PACER_INSTALL_METHOD") || set("HOMEBREW_PREFIX") || set("HOMEBREW_CELLAR") {
-        return true;
-    }
-    let owner = fs::read_to_string(ctx.pacer_home.join("owner.json")).ok();
-    if owner
-        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
-        .is_some_and(|doc| doc["owner"] == "desktop")
-    {
-        return true;
-    }
-    let bin = ctx
+/// `updateManager(ctx, defaultUpdateDeps(ctx))` from `src/api/ops.ts:177-179`: a desktop
+/// owner refusal wins, then the install-method hint. `execPath` is `PACER_BIN || process.execPath`
+/// and the dirname of the running executable is the bundle exemption, as in `owner.ts:82`.
+fn managed(ctx: &Ctx) -> Option<manager::UpdateManager> {
+    let exe = std::env::current_exe().ok();
+    let exec_path = ctx
         .env
         .get("PACER_BIN")
         .filter(|path| !path.is_empty())
-        .map(std::path::PathBuf::from);
-    let exe = std::env::current_exe().ok();
-    // Both the given and the resolved path, like `isBundledExecutable`, whose bundle match ignores case.
-    [bin, exe].into_iter().flatten().any(|path| {
-        let real = fs::canonicalize(&path).ok();
-        [Some(path), real].into_iter().flatten().any(|candidate| {
-            let text = candidate.to_string_lossy().to_lowercase();
-            text.contains("/cellar/pacer/") || text.contains(".app/contents/")
-        })
-    })
+        .map(PathBuf::from)
+        .or_else(|| exe.clone())
+        .unwrap_or_default();
+    let exec_dir = exe
+        .as_deref()
+        .and_then(Path::parent)
+        .unwrap_or_else(|| Path::new(""));
+    let nightly = update_channel(ctx) == Channel::Nightly;
+    manager::update_manager(ctx, &exec_path, exec_dir, nightly)
+}
+
+fn managed_fields(result: &mut Value, ctx: &Ctx) {
+    if let Some(manager) = managed(ctx) {
+        let by = match manager.by {
+            manager::ManagedBy::Desktop => "desktop",
+            manager::ManagedBy::Homebrew => "homebrew",
+            manager::ManagedBy::Npm => "npm",
+        };
+        result["managedBy"] = json!(by);
+        result["managedHint"] = json!(manager.message);
+    }
 }
 
 pub fn update_check(ctx: &Ctx, params: Value) -> OpFuture<'_> {
@@ -87,25 +85,32 @@ pub fn update_check(ctx: &Ctx, params: Value) -> OpFuture<'_> {
             CoreError::new(Code::Internal, format!("update publication failed: {e}"))
         })?;
         let current = current_version();
-        let Some(check) = check else {
-            return Ok(
-                json!({"current": current, "latest": null, "available": false, "plugin": null, "disabled": true}),
-            );
+        let mut result = match check {
+            None => {
+                json!({"current": current, "latest": Value::Null, "available": false, "plugin": null, "disabled": true})
+            }
+            Some(check) => {
+                // `updateAvailable`: `String(array)` is what `isVersion`/`compareVersions` see,
+                // while the reply carries the cached value itself (`src/update/check.ts:30-32`).
+                let available = check.latest.as_ref().is_some_and(|latest| {
+                    let text = js::js_string_of_array(latest);
+                    !text.is_empty() && is_version(current) && compare_versions(&text, current) > 0
+                });
+                let mut value = json!({"current": current, "latest": check.latest, "available": available, "plugin": null});
+                if js::truthy(&check.error) {
+                    value["error"] = check.error;
+                }
+                value
+            }
         };
-        let available = check.latest.as_deref().is_some_and(|latest| {
-            !latest.is_empty() && is_version(current) && compare_versions(latest, current) > 0
-        });
-        let mut result = json!({"current": current, "latest": check.latest, "available": available, "plugin": null});
-        if js::truthy(&check.error) {
-            result["error"] = check.error;
-        }
+        managed_fields(&mut result, ctx);
         Ok(result)
     })
 }
 
 struct Check {
     checked_at: f64,
-    latest: Option<String>,
+    latest: Option<Value>,
     error: Value,
 }
 
@@ -131,7 +136,7 @@ async fn check_for_update(ctx: &Ctx, force: bool) -> Option<Check> {
     let (latest, error) =
         match tokio::task::spawn_blocking(move || feed::latest_for(base.as_deref(), channel)).await
         {
-            Ok(Ok((version, error))) => (Some(version), error),
+            Ok(Ok((version, error))) => (Some(Value::String(version)), error),
             Ok(Err(message)) => (latest, Some(message)),
             Err(e) => (latest, Some(e.to_string())),
         };
@@ -230,14 +235,15 @@ fn cache_document(ctx: &Ctx) -> Option<Map<String, Value>> {
     }
 }
 
-/// `readUpdateCheck`: a finite `checkedAt`, a `latest` that is null or a version, and the
+/// `readUpdateCheck`: a finite `checkedAt`, a `latest` that is null or a value whose
+/// `String(value)` is a version (an array coerces through `Array.prototype.join`), and the
 /// current channel (a record without one is stable).
 fn read_cache(ctx: &Ctx, channel: Channel) -> Option<Check> {
     let doc = cache_document(ctx)?;
     let checked_at = doc.get("checkedAt")?.as_f64()?;
     let latest = match doc.get("latest") {
-        Some(Value::Null) => None,
-        Some(Value::String(v)) if is_version(v) => Some(v.clone()),
+        None | Some(Value::Null) => None,
+        Some(value) if is_version(&js::js_string_of_array(value)) => Some(value.clone()),
         _ => return None,
     };
     let same_channel = match doc.get("channel") {
@@ -260,7 +266,7 @@ fn write_cache(ctx: &Ctx, check: &Check, channel: Channel) {
     let mut text = format!(
         "{{\"checkedAt\":{},\"latest\":{},\"current\":{},\"channel\":\"{}\"",
         js::number_text(check.checked_at),
-        check.latest.as_deref().map_or(Value::Null, Value::from),
+        check.latest.clone().unwrap_or(Value::Null),
         Value::from(current_version()),
         channel.as_str(),
     );
