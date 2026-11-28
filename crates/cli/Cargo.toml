@@ -18,7 +18,7 @@ sha2 = "0.10"
 flate2 = "1"
 url = "2"
 tokio.workspace = true
-jiff = "0.2.38"
+jiff = "1.0.2"
 pacer-server = { path = "../server" }
 
 [build-dependencies]
