@@ -7,7 +7,7 @@ publish = false
 
 [dependencies]
 pacer-foundation = { path = "../foundation" }
-rusqlite = { version = "0.41", features = ["bundled"] }
+rusqlite = { version = "0.43", features = ["bundled"] }
 serde_json.workspace = true
 
 [lints]
